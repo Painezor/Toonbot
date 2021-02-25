@@ -21,8 +21,6 @@ async def run():
         for i in bot.cogs:
             bot.unload_extension(i.name)
         await db.close()
-        bot.fixture_driver.quit()
-        bot.score_driver.quit()
         await bot.logout()
 
 
@@ -38,21 +36,44 @@ class Bot(commands.Bot):
             activity=discord.Game(name="Use .tb help"),
             intents=intents
         )
-        self.fixture_driver = None
-        self.score_driver = None
         self.db = kwargs.pop("database")
         self.credentials = credentials
         self.initialised_at = datetime.utcnow()
         self.session = aiohttp.ClientSession(loop=self.loop)
+
+    # Custom reply handler.
+    async def reply(self, ctx, text=None, embed=None, file=None, mention_author=False, delete_after=None):
+        # First we attempt to use direct reply functionality
+        try:
+            return await ctx.reply(text, embed=embed, file=file, mention_author=mention_author,
+                                   delete_after=delete_after)
+        except discord.HTTPException:
+            pass
+    
+        # Fall back to straight up reply
+        try:
+            return await ctx.send(text, embed=embed, file=file, delete_after=delete_after)
+        except discord.HTTPException:
+            pass
+    
+        # Final fallback, DM invoker.
+        try:
+            await ctx.author.send(f"I cannot reply to your {ctx.command} command in {ctx.channel} on {ctx.guild}")
+            return await ctx.author.send(text, embed=embed, file=file)
+        except discord.HTTPException:
+            pass
+    
+        # At least try to warn them.
+        return None
 
     async def on_ready(self):
         print(f'{self.user}: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
         # Startup Modules
         load = [
             'ext.reactions',  # needs to be loaded fist.
-            'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.help', 'ext.images', 'ext.info',
-            'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.scores',
-            'ext.sidebar', 'ext.twitter', 'ext.lookups', "ext.transfers", 'ext.tv',
+            'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.goals', 'ext.help', 'ext.images',
+            'ext.info', 'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders',
+            'ext.scores', 'ext.sidebar', 'ext.twitter', 'ext.lookup', "ext.transfers", 'ext.tv',
         ]
         for c in load:
             try:
