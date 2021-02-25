@@ -22,7 +22,7 @@ async def bulk_react(ctx, message, react_list):
 async def react(message, reaction):
     try:
         await message.add_reaction(reaction)
-    except (discord.Forbidden, discord.NotFound):
+    except discord.HTTPException:
         pass
 
 
@@ -32,7 +32,7 @@ async def embed_image(ctx, base_embed, image, filename=None):
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     file = discord.File(fp=image, filename=filename)
     base_embed.set_image(url=f"attachment://{filename}")
-    await ctx.reply(file=file, embed=base_embed, mention_author=False)
+    await ctx.bot.reply(ctx, file=file, embed=base_embed)
 
     
 async def get_colour(url=None):
@@ -51,18 +51,43 @@ async def get_colour(url=None):
                 return discord.Colour.blurple()
 
 
-def rows_to_embeds(base_embed, rows, per_row=10, description_top="") -> typing.List[discord.Embed]:
-    pages = [rows[i:i + per_row] for i in range(0, len(rows), per_row)]
+# def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typing.List[discord.Embed]:
+#     pages = [rows[i:i + rows_per] for i in range(0, len(rows), rows_per)]
+#     embeds = []
+#     for page_items in pages:
+#         base_embed.description = header + "\n".join(page_items) + footer
+#         embeds.append(deepcopy(base_embed))
+#     return embeds
+
+
+def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typing.List[discord.Embed]:
+    desc, count = "", 0
     embeds = []
-    for page_items in pages:
-        base_embed.description = description_top + "\n".join(page_items)
-        embeds.append(deepcopy(base_embed))
+    for row in rows:
+        if not desc:
+            desc = header + "\n"
+        
+        if len(desc + footer) + len(row) <= 2048 and count + 1 <= rows_per:
+            desc += row + "\n"
+            count += 1
+        else:
+            desc += footer
+            base_embed.description = desc
+            embeds.append(deepcopy(base_embed))
+            desc, count = "", 0
+
+    desc += footer
+    base_embed.description = desc
+    embeds.append(deepcopy(base_embed))
+    
     return embeds
 
 
-async def page_selector(ctx, item_list, base_embed=None) -> int or None:
+async def page_selector(ctx, item_list, base_embed=None, choice_text=None,
+                        preserve_footer=True, confirm_single=False) -> int or None:
     if len(item_list) == 1:  # Return only item.
-        return 0
+        if confirm_single is False:
+            return 0
     
     if base_embed is None:
         base_embed = discord.Embed()
@@ -70,15 +95,22 @@ async def page_selector(ctx, item_list, base_embed=None) -> int or None:
         base_embed.set_thumbnail(url=ctx.me.avatar_url)
         base_embed.colour = discord.Colour.blurple()
     
+    base_embed.add_field(name="Type the matching number for your choice",
+                         value="```fix\nE.g. type 0 to select the item marked with [0]```",
+                         inline=False)
+    
+    choice_text = "Please type matching ID#:" if choice_text is None else choice_text
+    
     enumerated = [(enum, item) for enum, item in enumerate(item_list)]
     pages = [enumerated[i:i + 10] for i in range(0, len(enumerated), 10)]
     embeds = []
     for page in pages:
         page_text = "\n".join([f"`[{num}]` {value}" for num, value in page])
-        base_embed.description = "Please type matching ID#:\n\n" + page_text
+        base_embed.description = f"{choice_text}\n\n" + page_text
         embeds.append(deepcopy(base_embed))
+        
     try:
-        index = await paginate(ctx, embeds, items=item_list, preserve_footer=True)
+        index = await paginate(ctx, embeds, items=item_list, preserve_footer=preserve_footer)
     except AssertionError:
         return None
     return index
@@ -96,19 +128,16 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 y.add_field(name="Page", value=page_line)
             else:
                 y.set_footer(icon_url=PAGINATION_FOOTER_ICON, text=page_line)
-                
-    if not ctx.me.permissions_in(ctx.channel).add_reactions:
-        await ctx.reply("I don't have add_reaction permissions so I can only show you the first page of results.")
-        if not items:
-            return None
-    try:
-        m = await ctx.reply(header, embed=embeds[page], mention_author=False)
-    except discord.Forbidden:
-        try:
-            await ctx.reply('I need embed_links permissions to show you these results.')
-        except discord.Forbidden:
-            await ctx.message.add_reaction('⛔')
-        return None
+    
+        # Warn about permisssions.
+        perms = ctx.me.permissions_in(ctx.channel)
+        if not perms.add_reactions and perms.send_messages:
+            await ctx.bot.reply(ctx, text="I don't have add_reaction permissions so I can only show you page 1.")
+            if not items:
+                return None
+
+    m = await ctx.bot.reply(ctx, text=header, embed=embeds[page])
+
     # Add reaction, we only need "First" and "Last" if there are more than 2 pages.
     reacts = []
     if m is not None:
@@ -121,7 +150,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 if len(embeds) > 2:
                     reacts.append("⏭")  # last
             reacts.append('🚫')
-        except (discord.NotFound, discord.Forbidden):
+        except discord.HTTPException:
             pass  # Early press or no permissions.
     
     try:
@@ -136,10 +165,13 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
         waits = []
         if items is not None:
             def id_check(message):
-                if not ctx.author.id == message.author.id or not message.content.isdigit():
+                if not ctx.author.id == message.author.id or not message.content.isdecimal():
                     return False
-                if int(message.content.strip('[]')) in range(len(items)):
-                    return True
+                try:
+                    val = int(message.content.strip('[]'))
+                    return val in range(len(items))
+                except ValueError:
+                    return False
         
             waits.append(ctx.bot.wait_for("message", check=id_check))
         if reacts:
@@ -162,9 +194,9 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 e = m.embeds[0]
                 e.title = "Timed out."
                 e.colour = discord.Colour.red()
-                e.set_footer(text=f"Stopped waiting  response after {wait_length} seconds.")
+                e.set_footer(text=f"Stopped waiting for response after {wait_length} seconds.")
                 try:
-                    await m.edit(embed=e, delete_after=10)
+                    await m.edit(embed=e, allowed_mentions=discord.AllowedMentions().none())
                 except discord.NotFound:
                     pass  # Why?
             else:
@@ -186,7 +218,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
             try:
                 await m.delete()  # Just a little cleanup.
                 await result.delete()
-            except (discord.Forbidden, discord.NotFound):
+            except discord.HTTPException:
                 pass
             # We actually return something.
             return int(result.content)
@@ -209,5 +241,5 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 
             elif result[0].emoji == "🚫":  # Delete:
                 await m.delete()
-                return False
-            await m.edit(embed=embeds[page])
+                return "cancelled"
+            await m.edit(embed=embeds[page], allowed_mentions=discord.AllowedMentions().none())
