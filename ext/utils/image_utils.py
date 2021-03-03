@@ -4,7 +4,7 @@ from typing import List
 
 
 def stitch(images: List[Image.Image]) -> BytesIO:
-	""" Stich images side by side """
+	"""Stich images side by side"""
 	# images is a list of opened PIL images.
 	w = int(images[0].width / 3 * 2 + sum(i.width / 3 for i in images))
 	h = images[0].height
@@ -18,3 +18,4 @@ def stitch(images: List[Image.Image]) -> BytesIO:
 	
 	output.seek(0)
 	return output
+

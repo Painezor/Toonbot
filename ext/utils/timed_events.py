@@ -78,10 +78,10 @@ async def spool_reminder(bot, record):
 	except discord.NotFound:
 		try:
 			await msg.channel.send(mention, embed=e)
-		except discord.NotFound:
+		except discord.HTTPException:
 			try:
 				await bot.get_user(user_id).send(mention, embed=e)
-			except discord.Forbidden:
+			except discord.HTTPException:
 				pass
 	
 	connection = await bot.db.acquire()

@@ -7,8 +7,6 @@ from lxml import html
 from ext.utils import embed_utils
 
 # Manual Country Code Flag Dict
-
-
 country_dict = {
     "American Virgin Islands": "vi",
     "Antigua and Barbuda": "ag",
@@ -75,207 +73,396 @@ unidict = {
 
 def get_flag(country):
     # Check if pycountry has country
-    if not country:
-        return
     if country.lower() in ["england", "scotland", "wales"]:
         country = f":{country.lower()}:"
         return country
-
+    
     try:
         country = pycountry.countries.get(name=country.title()).alpha_2
     except (KeyError, AttributeError):
         try:
-            # else revert to manual dict.w
+            # else revert to manual dict.
             country = country_dict[country]
         except KeyError:
             return country  # Shrug.
     country = country.lower()
-
+    
     for key, value in unidict.items():
         country = country.replace(key, value)
     return country
 
 
+class TransferResult:
+    def __init__(self, name, link, **kwargs):
+        self.link = link
+        self.name = name
+    
+    def __repr__(self):
+        return f"TransferResult({self.__dict__})"
+    
+    @property
+    async def base_embed(self):
+        e = discord.Embed()
+        e.colour = discord.Colour.dark_blue()
+        e.set_author(name="TransferMarkt")
+        return e
+    
+    @property
+    def flag(self):
+        # Return earth emoji if does not have a country.
+        if not hasattr(self, "country"):
+            return "🌍"
+
+        if isinstance(self.country, list):
+            return "".join([get_flag(i) for i in self.country])
+        else:
+            return get_flag(self.country)
+
+
+class Player(TransferResult):
+    def __init__(self, name, link, team, age, position, team_link, country, picture):
+        super().__init__(name, link)
+        self.team = team
+        self.age = age
+        self.position = position
+        self.team_link = team_link
+        self.country = country
+        self.picture = picture
+        
+    def __repr__(self):
+        return f"Player({self.__dict__})"
+    
+    def __str__(self):
+        return f"{self.flag} [{self.name}]({self.link}) {self.age}, {self.position} [{self.team}]({self.team_link})"
+
+
+class Staff(TransferResult):
+    def __init__(self, name, link, country, team, team_link, age, job):
+        super().__init__(name, link)
+        self.team = team
+        self.team_link = team_link
+        self.age = age
+        self.job = job
+        self.country = country
+    
+    def __repr__(self):
+        return f"Manager({self.__dict__})"
+    
+    def __str__(self):
+        return f"{self.flag} [{self.name}]({self.link}) {self.age}, {self.job} [{self.team}]({self.link})"
+
+
+class Transfer(TransferResult):
+    def __init__(self, player: Player, old_team, new_team, fee, fee_link):
+        self.fee = fee
+        self.fee_link = fee_link
+        self.old_team = old_team
+        self.new_team = new_team
+        self.player = player
+        super().__init__(player.name, player.link)
+    
+    @property
+    def loan_or_fee(self):
+        if "End" in self.fee:
+            fee = "End of Loan"
+        elif "loan" in self.fee:
+            fee = "Loan"
+        else:
+            fee = self.fee
+        return f"[{fee}]({self.fee_link})"
+    
+    def __str__(self):
+        return f"{self.player.flag} [{self.name}]({self.link}) {self.player.age}, " \
+               f"{self.player.position} ({self.loan_or_fee})"
+    
+    @property
+    def embed(self):
+        e = discord.Embed()
+        e.description = ""
+        e.colour = 0x1a3151
+        e.title = f"{self.player.flag} {self.name} | {self.player.age}"
+        e.url = self.player.link
+        e.description = self.player.position
+        e.description += f"\n**To**: {self.new_team.markdown}"
+        if self.new_team.name != "Without Club":
+            e.description += f" ({self.new_team.flag} {self.new_team.league_markdown})"
+        e.description += f"\n**From**: {self.old_team.markdown}"
+        if self.old_team.name != "Without Club":
+            e.description += f" ({self.old_team.flag} {self.old_team.league_markdown})"
+        e.add_field(name="Reported Fee", value=self.loan_or_fee, inline=False)
+        e.set_thumbnail(url=self.player.picture)
+        return e
+
+
+class Team(TransferResult):
+    def __init__(self, name, link, country, league, league_link):
+        self.league = league
+        self.league_link = league_link
+        self.country = country
+        super().__init__(name, link)
+    
+    @property
+    def markdown(self):
+        if self.name == "Without Club":
+            return self.name
+        return f"[{self.name}]({self.link})"
+
+    @property
+    def league_markdown(self):
+        if self.name == "Without Club":
+            return ""
+        return f"[{self.league}]({self.league_link})"
+    
+    @property
+    def badge(self):
+        number = self.link.split('/')[-1]
+        return f"https://tmssl.akamaized.net/images/wappen/head/{number}.png"
+    
+    @property
+    async def base_embed(self):
+        e = await super().base_embed
+        e.set_thumbnail(url=self.badge)
+        e.title = self.name
+        e.url = self.link
+        return e
+    
+    def __str__(self):
+        if self.league:
+            club = f"[{self.name}]({self.link}) ([{self.league}]({self.league_link}))"
+        else:
+            club = f"[{self.name}]({self.link})"
+            
+        output = f"{self.flag} {club}"
+        return output
+    
+    async def get_transfers(self, ctx):
+        url = self.link.replace('startseite', 'transfers')
+    
+        # Winter window, Summer window.
+        now = datetime.datetime.now()
+        period, season_id = ("w", now.year - 1) if now.month < 7 else ("s", now.year)
+        url = f"{url}/saison_id/{season_id}/pos//detailpos/0/w_s/plus/1"
+        
+        p = {"w_s": period}
+        async with ctx.bot.session.get(url, params=p) as resp:
+            if resp.status != 200:
+                await ctx.bot.reply(ctx, text=f"Error {resp.status} connecting to {resp.url}")
+                return None
+            tree = html.fromstring(await resp.text())
+        
+        p_in = tree.xpath('.//div[@class="box"][.//h2/a[text() = "Arrivals"]]/div[@class="responsive-table"]')
+        p_out = tree.xpath('.//div[@class="box"][.//h2/a[text() = "Departures"]]/div[@class="responsive-table"]')
+        
+        players_in = p_in[0].xpath('.//tbody/tr') if p_in else []
+        players_out = p_out[0].xpath('.//tbody/tr') if p_out else []
+        
+        def parse(table):
+            transfers = []
+            for i in table:
+                name = "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/text()')).strip()
+                link = f"https://www.transfermarkt.co.uk" + "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/@href'))
+                
+                link = link.strip()
+                age = "".join(i.xpath('.//td[3]/text()')).strip()
+                position = "".join(i.xpath('.//td[2]//tr[2]/td/text()')).strip()
+                picture = "".join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src'))
+                
+                team = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="vereinprofil_tooltip"]/text()')).strip()
+                
+                team_link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="vereinprofil_tooltip"]/@href')).strip()
+                team_country = "".join(i.xpath(".//td[5]//img/@title")).strip()
+                league = "".join(i.xpath(".//td[5]//tr[2]//a/text()")).strip()
+                league_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath(".//td[5]//tr[2]//a/@href")).strip()
+                country = "".join(i.xpath('.//td[4]/img[1]/@title')).strip()
+                
+                player = Player(name, link, self.name, age, position, self.link, country, picture)
+                other_team = Team(team, team_link, team_country, league, league_link)
+                this_team = Team(self.name, self.link, self.country, self.league, self.league_link)
+                fee = "".join(i.xpath('.//td[7]//text()')).strip()
+                fee_link = f"https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[7]//@href')).strip()
+                
+                transfer = Transfer(player, other_team, this_team, fee, fee_link)
+                transfers.append(transfer)
+            return transfers
+
+        players_in = parse(players_in)
+        players_out = parse(players_out)
+        
+        return players_in, players_out, url
+
+
+class Referee(TransferResult):
+    def __init__(self, name, link, country, age):
+        self.age = age
+        self.country = country
+        super().__init__(name, link)
+        
+    def __str__(self):
+        return f"{self.flag} [{self.name}]({self.link}) {self.age}"
+
+
+class Competition(TransferResult):
+    def __init__(self, name, link, country):
+        self.country = country
+        super().__init__(name, link)
+    
+    def __str__(self):
+        return f"{self.flag} [{self.name}]({self.link})"
+
+
+class Agent(TransferResult):
+    def __init__(self, name, link):
+        super().__init__(name, link)
+    
+    def __str__(self):
+        return f"[{self.name}]({self.link})"
+
+
 async def parse_players(trs):
-    output, targets = [], []
+    players = []
     for i in trs:
-        pname = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-        player_link = "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/@href'))
-        if "transfermarkt" not in player_link:
-            player_link = "http://transfermarkt.co.uk" + player_link
-
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
+        picture = "".join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src'))
+        link = "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/@href'))
+        link = "https://www.transfermarkt.co.uk" + link if "transfermarkt" not in link else link
         team = "".join(i.xpath('.//td[3]/a/img/@alt'))
-        tlink = "".join(i.xpath('.//td[3]/a/img/@href'))
-        if "transfermarkt" not in tlink:
-            tlink = "http://transfermarkt.co.uk" + tlink
+        team_link = "".join(i.xpath('.//td[3]/a/img/@href'))
+        team_link = "https://www.transfermarkt.co.uk" + team_link if "transfermarkt" not in team_link else team_link
         age = "".join(i.xpath('.//td[4]/text()'))
-        ppos = "".join(i.xpath('.//td[2]/text()'))
-        flag = get_flag("".join(i.xpath('.//td/img[1]/@title')))
-
-        output.append(f"{flag} [{pname}]({player_link}) {age}, {ppos} [{team}]({tlink})")
-        targets.append(player_link)
-    return output, targets
+        p = "".join(i.xpath('.//td[2]/text()'))
+        c = "".join(i.xpath('.//td/img[1]/@title'))
+        players.append(Player(name, link, team, age, p, team_link, c, picture))
+    return players
 
 
-async def parse_managers(trs):
-    output, targets = [], []
+async def parse_staff(trs):
+    staff = []
     for i in trs:
-        mname = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
-        mlink = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
-        if "transfermarkt" not in mlink:
-            mlink = "http://transfermarkt.co.uk" + mlink
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
+        link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
+        link = "https://www.transfermarkt.co.uk" + link if "transfermarkt" not in link else link
 
         team = "".join(i.xpath('.//td[2]/a/img/@alt'))
-        tlink = "".join(i.xpath('.//td[2]/a/img/@href'))
-        if "transfermarkt" not in tlink:
-            tlink = "http://transfermarkt.co.uk" + tlink
+        tl = "".join(i.xpath('.//td[2]/a/img/@href'))
+        tl = "https://www.transfermarkt.co.uk" + tl if "transfermarkt" not in tl else tl
         age = "".join(i.xpath('.//td[3]/text()'))
         job = "".join(i.xpath('.//td[5]/text()'))
-        flag = get_flag("".join(i.xpath('.//td/img[1]/@title')))
+        country = "".join(i.xpath('.//td/img[1]/@title'))
 
-        output.append(f"{flag} [{mname}]({mlink}) {age}, {job} [{team}]({tlink})")
-        targets.append(mlink)
-    return output, targets
+        staff.append(Staff(name=name, link=link, team=team, team_link=tl, age=age, job=job, country=country))
+    return staff
 
 
-async def parse_clubs(trs):
-    output, targets = [], []
+async def parse_teams(trs):
+    teams = []
     for i in trs:
-        cname = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
-        clink = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
-        if "transfermarkt" not in clink:
-            clink = "http://transfermarkt.co.uk" + clink
-        league = "".join(i.xpath('.//tr[2]/td/a/text()'))
-        league_link = "".join(i.xpath('.//tr[2]/td/a/@href'))
-        flag = get_flag("".join(i.xpath('.//td/img[1]/@title')[-1]).strip())
-        if league:
-            club = f"[{cname}]({clink}) ([{league}]({league_link}))"
-        else:
-            club = f"[{cname}]({clink})"
-
-        output.append(f"{flag} {club}")
-        targets.append(clink)
-    return output, targets
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
+        link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
+        link = "https://www.transfermarkt.co.uk" + link if "transfermarkt" not in link else link
+        league = "".join(i.xpath('.//tr[2]/td/a/text()')).strip()
+        league_link = "".join(i.xpath('.//tr[2]/td/a/@href')).strip()
+        country = "".join(i.xpath('.//td/img[1]/@title')[-1]).strip()
+        teams.append(Team(name=name, link=link, country=country, league=league, league_link=league_link))
+    return teams
 
 
 async def parse_refs(trs):
-    output, targets = [], []
+    referees = []
     for i in trs:
-        rname = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
-        rlink = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
-        if "transfermarkt" not in rlink:
-            rlink = "http://transfermarkt.co.uk" + rlink
-        
-        rage = "".join(i.xpath('.//td[@class="zentriert"]/text()')).strip()
-        flag = get_flag("".join(i.xpath('.//td/img[1]/@title')).strip())
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
+        link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
+        age = "".join(i.xpath('.//td[@class="zentriert"]/text()')).strip()
+        country = "".join(i.xpath('.//td/img[1]/@title')).strip()
 
-        output.append(f"{flag} [{rname}]({rlink}) {rage}")
-        targets.append(rlink)
-    return output, targets
+        referees.append(Referee(name=name, link=link, age=age, country=country))
+    return referees
 
 
-async def parse_leagues(trs):
-    output, targets = [], []
+async def parse_domestic(trs):
+    competitions = []
     for i in trs:
-        cupname = "".join(i.xpath('.//td[2]/a/text()')).strip()
-        cup_link = "".join(i.xpath('.//td[2]/a/@href')).strip()
-        if "transfermarkt" not in cup_link:
-            cup_link = "http://transfermarkt.co.uk" + cup_link
-        flag = "".join(i.xpath('.//td[3]/img/@title')).strip()
-        if flag:
-            flag = get_flag(flag)
-        else:
-            flag = "🌍"
-
-        output.append(f"{flag} [{cupname}]({cup_link})")
-        targets.append(cup_link)
-    return output, targets
+        name = "".join(i.xpath('.//td[2]/a/text()')).strip()
+        link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href')).strip()
+        country = "".join(i.xpath('.//td[3]/img/@title')).strip()
+        competitions.append(Competition(name=name, link=link, country=country))
+    return competitions
 
 
 async def parse_int(trs):
-    output, targets = [], []
+    competitions = []
     for i in trs:
-        cup_name = "".join(i.xpath('.//td[2]/a/text()'))
-        cup_link = "".join(i.xpath('.//td[2]/a/@href'))
-        if "transfermarkt" not in cup_link:
-            cup_link = "http://transfermarkt.co.uk" + cup_link
-        output.append(f"🌍 [{cup_name}]({cup_link})")
-        targets.append(cup_link)
-    return output, targets
+        name = "".join(i.xpath('.//td[2]/a/text()'))
+ 
+        link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
+        country = ""
+        competitions.append(Competition(name=name, link=link, country=country))
+    return competitions
 
 
 async def parse_agent(trs):
-    output, targets = [], []
+    agents = []
     for i in trs:
-        company = "".join(i.xpath('.//td[2]/a/text()'))
-        link = "".join(i.xpath('.//td[2]/a/@href'))
-        if "transfermarkt" not in link:
-            link = "http://transfermarkt.co.uk" + link
-        output.append(f"[{company}]({link})")
-        targets.append(link)
-    return output, targets
+        name = "".join(i.xpath('.//td[2]/a/text()'))
+        link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
+        agents.append(Agent(name=name, link=link))
+    return agents
 
 
 async def fetch_page(ctx, category, query, page):
-    p = {"query": query, cats[category]["querystr"]: page}
-    url = 'http://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
+    settings = parser_settings[category]
+    match = settings["match_string"]
+    param = settings["querystr"]
+    
+    p = {"query": query, param: page}
+    url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
     async with ctx.bot.session.post(url, params=p) as resp:
         if resp.status != 200:
-            await ctx.reply(f"HTTP Error connecting to transfermarkt: {resp.status}", mention_author=False)
+            await ctx.bot.reply(ctx, text=f"HTTP Error connecting to transfermarkt: {resp.status}")
             return None
         tree = html.fromstring(await resp.text())
-    categ = cats[category]["cat"]
 
     # Get trs of table after matching header / {categ} name.
-    matches = f".//div[@class='box']/div[@class='table-header'][contains(text(),'{categ}')]/following::div[" \
-              f"1]//tbody/tr"
-
+    trs = f".//div[@class='box']/div[@class='table-header'][contains(text(),'{match}')]/following::div[1]//tbody/tr"
+    
+    matches = "".join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{match}')]/text()"))
+    matches = "".join([i for i in matches if i.isdecimal()])
+    
     e = discord.Embed()
     e.colour = 0x1a3151
     e.url = str(resp.url)
-    e.set_author(name="".join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{categ}')]/text()")))
-    e.description = ""
+    e.title = "Transfermarkt Search"
+    header = f"{category.title()}: {matches} results for '{query.title()}' found"
     try:
-        total_pages = int("".join([i for i in e.author.name if i.isdigit()])) // 10 + 1
+        total_pages = int(matches) // 10 + 1
     except ValueError:
         total_pages = 0
     e.set_footer(text=f"Page {page} of {total_pages}")
-    return e, tree.xpath(matches), total_pages
+    return e, tree.xpath(trs), total_pages, header
 
 
-def make_embed(e, lines, targets, special):
+def make_embed(e, header, results, special):
     if special:
         e.description = "Please type matching ID#\n\n"
-    items = {}
-    item_id = 0
-
-    if special:
-        for i, j in zip(lines, targets):
-            items[str(item_id)] = j
-            e.description += f"`[{item_id}]`:  {i}\n"
-            item_id += 1
-        return e, items
+        for i, j in enumerate(results):
+            e.description += f"`[{i}]`: {j}\n"
     else:
-        for i in lines:
-            e.description += f"{i}\n"
-        return e, items
+        e.description = header + "\n\n" + "\n".join([str(i) for i in results])
+    return e
 
 
-async def search(ctx, qry, category, special=False, whitelist_fetch=False):
+async def search(ctx, qry, category, special=False):
     page = 1
-    e, tree, total_pages = await fetch_page(ctx, category, qry, page)
+    e, tree, total_pages, header = await fetch_page(ctx, category, qry, page)
     if not tree:
-        return await ctx.reply("No results.", mention_author=False)
+        await ctx.bot.reply(ctx, text="No results.")
+        return None
 
-    lines, targets = await cats[category]["parser"](tree)
-    
-    if whitelist_fetch:
-        return lines, targets
+    results = await parser_settings[category]["parser"](tree)
 
-    e, items = make_embed(e, lines, targets, special)
+    e = make_embed(e, header, results, special)
 
     # Create message and add reactions
-    m = await ctx.reply(embed=e, mention_author=False)
+    m = await ctx.bot.reply(ctx, embed=e)
     
     reacts = []
     if total_pages > 2:
@@ -290,7 +477,7 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
     try:
         await embed_utils.bulk_react(ctx, m, reacts)
     except AssertionError:
-        await ctx.reply('I can only show you the first page of results since I do not have add_reactions permissions')
+        await ctx.bot.reply(ctx, text='No add_reactions permission, showing first page only.', mention_author=True)
 
     # Only respond to user who invoked command.
     def page_check(emo, usr):
@@ -301,22 +488,24 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
 
     def reply_check(msg):
         if ctx.message.author.id == msg.author.id:
-            return msg.content in items
+            try:
+                return int(msg.content) < len(results)
+            except ValueError:
+                return False
         
     # Reaction Logic Loop.
     while True:
         received, dead = await asyncio.wait(
-            [ctx.bot.wait_for('message', check=reply_check),
-             ctx.bot.wait_for('reaction_add', check=page_check)],
+            [ctx.bot.wait_for('message', check=reply_check), ctx.bot.wait_for('reaction_add', check=page_check)],
             timeout=30, return_when=asyncio.FIRST_COMPLETED)
         
         if not received:
             try:
-                return await m.clear_reactions()
-            except discord.Forbidden:
-                return await m.delete()
-            except discord.NotFound:
-                return
+                await m.clear_reactions()
+                await m.delete()
+            except discord.HTTPException:
+                pass
+            return
 
         res = received.pop().result()
         for i in dead:
@@ -325,12 +514,12 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
         if isinstance(res, discord.Message):
             # It's a message.
             await m.delete()
-            await cats[category]["outfunc"](ctx, e, items[res.content])
             try:
-                await m.delete()
-            except discord.NotFound:
+                await res.delete()
+            except (discord.NotFound, discord.Forbidden):
                 pass
-            return
+            finally:
+                return results[int(res.content)]
         else:
             # it's a reaction.
             reaction, user = res
@@ -354,83 +543,10 @@ async def search(ctx, qry, category, special=False, whitelist_fetch=False):
                 pass
 
         # Fetch the next page of results.
-        e, tree, total_pages = await fetch_page(ctx, category, qry, page)
-        lines, targets = await cats[category]["parser"](tree)
-        e, items = make_embed(e, lines, targets, special)  # reassign item dict.
-        await m.edit(embed=e)
-
-
-async def get_transfers(ctx, e, target):
-    e.description = ""
-    target = target.replace('startseite', 'transfers')
-    
-    # Winter window, Summer window.
-    if datetime.datetime.now().month < 7:
-        period = "w"
-        season_id = datetime.datetime.now().year - 1
-    else:
-        period = "s"
-        season_id = datetime.datetime.now().year
-    target = f"{target}/saison_id/{season_id}/pos//detailpos/0/w_s={period}"
-    
-    p = {"w_s": period}
-    async with ctx.bot.session.get(target, params=p) as resp:
-        if resp.status != 200:
-            return await ctx.reply(f"Error {resp.status} connecting to {resp.url}", mention_author=False)
-        tree = html.fromstring(await resp.text())
-    
-    e.set_author(name="".join(tree.xpath('.//head/title/text()')), url=target)
-    e.set_footer(text=discord.Embed.Empty)
-    ignore, intable, outtable = tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')
-    
-    intable = intable.xpath('.//tbody/tr')
-    outtable = outtable.xpath('.//tbody/tr')
-    
-    inlist, inloans, outlist, outloans = [], [], [], []
-    
-    for i in intable:
-        pname = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-        player_link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
-        
-        player_link = f"http://transfermarkt.co.uk{player_link}"
-        age = "".join(i.xpath('.//td[3]/text()'))
-        ppos = "".join(i.xpath('.//td[2]//tr[2]/td/text()'))
-        try:
-            flag = get_flag(i.xpath('.//td[4]/img[1]/@title')[0])
-        except IndexError:
-            flag = ""
-        fee = "".join(i.xpath('.//td[6]//text()'))
-        if "loan" in fee.lower():
-            inloans.append(f"{flag} [{pname}]({player_link}) {ppos}, {age}\n")
-            continue
-        inlist.append(f"{flag} [{pname}]({player_link}) {ppos}, {age} ({fee})\n")
-    
-    for i in outtable:
-        pname = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-        player_link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
-        player_link = f"http://transfermarkt.co.uk{player_link}"
-        flag = get_flag(i.xpath('.//td/img[1]/@title')[1])
-        fee = "".join(i.xpath('.//td[6]//text()'))
-        if "loan" in fee.lower():
-            outloans.append(f"{flag} [{pname}]({player_link}), ")
-            continue
-        outlist.append(f"{flag} [{pname}]({player_link}), ")
-    
-    def write_field(title, input_list):
-        output = ""
-        for item in input_list.copy():
-            if len(item) + len(output) < 1009:
-                output += item
-                input_list.remove(item)
-            else:
-                output += f"And {len(input_list)} more..."
-                break
-        e.add_field(name=title, value=output.strip(","), inline=False)
-    
-    for x, y in [("Players in", inlist), ("Loans In", inloans), ("Players out", outlist), ("Loans Out", outloans)]:
-        write_field(x, y) if y else ""
-    
-    await ctx.reply(embed=e, mention_author=False)
+        e, tree, total_pages, header = await fetch_page(ctx, category, qry, page)
+        results = await parser_settings[category]["parser"](tree)
+        e = make_embed(e, header, results, special)  # reassign item dict.
+        await m.edit(embed=e, allowed_mentions=discord.AllowedMentions().none())
 
 
 async def get_rumours(ctx, e, target):
@@ -438,7 +554,7 @@ async def get_rumours(ctx, e, target):
     target = target.replace('startseite', 'geruechte')
     async with ctx.bot.session.get(f"{target}") as resp:
         if resp.status != 200:
-            return await ctx.reply(f"Error {resp.status} connecting to {resp.url}", mention_author=False)
+            return await ctx.bot.reply(ctx, text=f"Error {resp.status} connecting to {resp.url}")
         tree = html.fromstring(await resp.text())
         e.url = str(resp.url)
     e.set_author(name=tree.xpath('.//head/title[1]/text()')[0], url=str(resp.url))
@@ -452,7 +568,7 @@ async def get_rumours(ctx, e, target):
         if not pname:
             continue
         player_link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
-        player_link = f"http://transfermarkt.co.uk{player_link}"
+        player_link = f"https://www.transfermarkt.co.uk{player_link}"
         ppos = "".join(i.xpath('.//td[2]//tr[2]/td/text()'))
         flag = get_flag(i.xpath('.//td[3]/img/@title')[0])
         age = "".join(i.xpath('./td[4]/text()')).strip()
@@ -477,54 +593,15 @@ async def get_rumours(ctx, e, target):
         count += 1
     e.description = output
     
-    await ctx.reply(embed=e, mention_author=False)
+    await ctx.bot.reply(ctx, embed=e)
 
-cats = {
-            "players": {
-                "cat": "players",
-                "querystr": "Spieler_page",
-                "parser": parse_players
-            },
-            "managers": {
-                "cat": "Managers",
-                "querystr": "Trainer_page",
-                "parser": parse_managers
-            },
-            "clubs": {
-                "cat": "Clubs",
-                "querystr": "Verein_page",
-                "parser": parse_clubs
-            },
-            "referees": {
-                "cat": "referees",
-                "querystr": "Schiedsrichter_page",
-                "parser": parse_refs
-            },
-            "domestic competitions": {
-                "cat": "to competitions",
-                "querystr": "Wettbewerb_page",
-                "parser": parse_leagues
-            },
-            "international Competitions": {
-                "cat": "International Competitions",
-                "querystr": "Wettbewerb_page",
-                "parser": parse_int
-            },
-            "agent": {
-                "cat": "Agents",
-                "querystr": "page",
-                "parser": parse_agent
-            },
-            "Transfers": {
-                "cat": "Clubs",
-                "querystr": "Verein_page",
-                "parser": parse_clubs,
-                "outfunc": get_transfers
-            },
-            "Rumours": {
-                "cat": "Clubs",
-                "querystr": "Verein_page",
-                "parser": parse_clubs,
-                "outfunc": get_rumours
-            }
-        }
+parser_settings = {
+    "players": {"match_string": "players", "querystr": "Spieler_page", "parser": parse_players},
+    "staff": {"match_string": "Managers", "querystr": "Trainer_page", "parser": parse_staff},
+    "teams": {"match_string": "Clubs", "querystr": "Verein_page", "parser": parse_teams},
+    "referees": {"match_string": "referees", "querystr": "Schiedsrichter_page", "parser": parse_refs},
+    "domestic": {"match_string": "to competitions", "querystr": "Wettbewerb_page", "parser": parse_domestic},
+    "international": {"match_string": "international comp", "querystr": "Wettbewerb_page", "parser": parse_int},
+    "agent": {"match_string": "Agents", "querystr": "page", "parser": parse_agent},
+    "Rumours": {"match_string": "Clubs", "querystr": "Verein_page", "parser": parse_teams}
+}
