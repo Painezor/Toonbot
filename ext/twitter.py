@@ -14,7 +14,7 @@ TWITTER_ICON = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
 
 
 class Twitter(commands.Cog):
-    """ Track twitter accounts """
+   """Track twitter accounts"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -33,7 +33,7 @@ class Twitter(commands.Cog):
                           sort_keys=True, indent=4, separators=(',', ':'))
     
     async def twat(self):
-        """ Twitter tracker function """
+        """Twitter tracker function"""
         await self.bot.wait_until_ready()
         
         # Retrieve list of IDs to track
@@ -155,7 +155,7 @@ class Twitter(commands.Cog):
     @commands.group(aliases=["tweet", "tweets", "checkdelay", "twstatus"], invoke_without_command=True)
     @commands.is_owner()
     async def twitter(self, ctx):
-        """ Check delay and status of twitter tracker """
+        """Check delay and status of twitter tracker"""
         e = discord.Embed(title="Twitter Status", color=0x7EB3CD)
         e.set_thumbnail(url="https://i.imgur.com/jSEtorp.png")
         for i in set([i[1]["channel"] for i in self.track.items()]):
@@ -179,35 +179,34 @@ class Twitter(commands.Cog):
             v = f"❔ `{x}`"
         e.add_field(name="Debug Info", value=v, inline=False)
 
-        await ctx.reply(embed=e, mention_author=False)
+        await self.bot.reply(ctx, embed=e)
     
     @twitter.command(name="add")
     @commands.is_owner()
     async def _add(self, ctx, username):
-        """ Add user to track for this channel """
+        """Add user to track for this channel"""
         params = {"user_name": username, "submit": "GET+USER+ID"}
         async with self.bot.session.get("http://gettwitterid.com/", params=params) as resp:
             if resp.status != 200:
-                await ctx.reply(f"🚫 HTTP Error {resp.status} try again later.")
-                return
+                return await self.bot.reply(ctx, text=f"🚫 HTTP Error {resp.status} try again later.")
             tree = html.fromstring(await resp.text())
             try:
                 item_id = tree.xpath('.//tr[1]/td[2]/p/text()')[0]
             except IndexError:
-                await ctx.reply("🚫 Couldn't find user with that name.")
+                return await self.bot.reply(ctx, text="🚫 Couldn't find user with that name.")
         self.track[username] = {"id": int(item_id), "channel": ctx.channel.id}
         await self._save()
-        await ctx.reply(f"{username} will be tracked in {ctx.channel.mention} from next restart.", mention_author=False)
+        await self.bot.reply(f"{username} will be tracked in {ctx.channel.mention} from next restart.")
     
     @twitter.command(name="del")
     @commands.is_owner()
     async def _del(self, ctx, username):
-        """ Deletes a user from the twitter tracker """
+        """Deletes a user from the twitter tracker"""
         trk = [{k.lower(): k} for k in self.track.keys()]
         if username.lower() in trk:
             self.track.pop(trk[username.lower()])
             await self._save()
-        await ctx.reply(f"{username} deleted from twitter tracker")
+        await self.bot.reply(ctx, text=f"{username} deleted from twitter tracker")
         
         
 def setup(bot):

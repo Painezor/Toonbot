@@ -42,7 +42,7 @@ def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10240):
 
 
 class NUFCSidebar(commands.Cog):
-    """ Edit the r/NUFC sidebar """
+    """Edit the r/NUFC sidebar"""
     def __init__(self, bot):
         self.bot = bot
         self.bot.reddit = praw.Reddit(**bot.credentials["Reddit"])
@@ -162,15 +162,16 @@ class NUFCSidebar(commands.Cog):
 
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
         # Fetch all data
+        page = await self.bot.browser.newPage()
         top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
 
-        fsr = await self.bot.loop.run_in_executor(None, functools.partial(football.Team.by_id, team_id,
-                                                                          driver=self.bot.fixture_driver))
-            
-        fixtures = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/fixtures")
-        results = await self.bot.loop.run_in_executor(None, fsr.fetch_fixtures, self.bot.fixture_driver, "/results")
+        fsr = await football.Team().by_id(team_id, page)
+        fixtures = await fsr.get_fixtures(page, "/fixtures")
+        results = await fsr.get_fixtures(page, "/results")
         table = await self.table(qry)
-
+        
+        await page.close()
+        
         # Get match threads
         match_threads = await self.bot.loop.run_in_executor(None, self.get_match_threads, subreddit, qry)
         
@@ -202,7 +203,9 @@ class NUFCSidebar(commands.Cog):
         # CHeck if we need to upload a temporary badge.
         if not lm.home_icon or not lm.away_icon:
             which_team = "home" if not lm.home_icon else "away"
-            badge = await self.bot.loop.run_in_executor(None, lm.get_badge, self.bot.fixture_driver, which_team)
+            page = await self.bot.browser.newPage()
+            badge = await lm.get_badge(page, which_team)
+            await page.close()
             im = Image.open(badge)
             im.save("TEMP_BADGE.png", "PNG")
             await self.bot.loop.run_in_executor(None, self.upload_image, "TEMP_BADGE.png", "temp", "Upload a badge")
@@ -240,32 +243,28 @@ class NUFCSidebar(commands.Cog):
     @commands.command(invoke_without_command=True)
     @commands.has_permissions(manage_messages=True)
     async def sidebar(self, ctx, *, caption=None):
-        """ Force a sidebar update, or use sidebar manual """
-        if caption == "manual":  # Obsolete method.
-            caption = None
+        """Force a sidebar update, or use sidebar manual"""
+        # Check if message has an attachment, for the new sidebar image.
+        if caption is not None:
+            await self.edit_caption(caption)
     
-        async with ctx.typing():
-            # Check if message has an attachment, for the new sidebar image.
-            if caption is not None:
-                await self.edit_caption(caption)
-        
-            if ctx.message.attachments:
-                await ctx.message.attachments[0].save("sidebar.png")
-                await self.bot.loop.run_in_executor(None, self.upload_image, "sidebar.png", "sidebar",
-                                                    f"Sidebar image updated by {ctx.author} via discord")
-            # Build
-            markdown = await self.make_sidebar()
+        if ctx.message.attachments:
+            await ctx.message.attachments[0].save("sidebar.png")
+            await self.bot.loop.run_in_executor(None, self.upload_image, "sidebar.png", "sidebar",
+                                                f"Sidebar image updated by {ctx.author} via discord")
+        # Build
+        markdown = await self.make_sidebar()
 
-            # Post
-            await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown, 'NUFC')
-            
-            # Embed.
-            e = discord.Embed(color=0xff4500)
-            th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
-            e.set_author(icon_url=th, name="Sidebar updater")
-            e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
-            e.timestamp = datetime.datetime.now()
-            await ctx.reply(embed=e, mention_author=False)
+        # Post
+        await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown, 'NUFC')
+        
+        # Embed.
+        e = discord.Embed(color=0xff4500)
+        th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
+        e.set_author(icon_url=th, name="Sidebar updater")
+        e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
+        e.timestamp = datetime.datetime.now()
+        await self.bot.reply(ctx, embed=e)
 
 
 def setup(bot):

@@ -21,7 +21,7 @@ poll_emojis = ["1\N{variation selector-16}\N{combining enclosing keycap}",
 
 
 class Fun(commands.Cog):
-    """ Toys """
+   """Toys"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -29,7 +29,7 @@ class Fun(commands.Cog):
     
     @commands.command(name="8ball", aliases=["8"])
     async def eightball(self, ctx):
-        """ Magic Geordie 8ball """
+        """Magic Geordie 8ball"""
         
         res = ["probably", "Aye", "aye mate", "wey aye.", "aye trust is pal.",
                "Deffo m8", "fuckin aye.", "fucking rights", "think so", "absofuckinlutely",
@@ -40,20 +40,20 @@ class Fun(commands.Cog):
                "am not sure av just had a bucket", "al tel you later", "giz a minute to figure it out",
                "mebbe like", "dain't bet on it like"
                ]
-        await ctx.reply(f":8ball: {random.choice(res)}", mention_author=False)
+        await self.bot.reply(ctx, text=f":8ball: {random.choice(res)}")
     
     @commands.command()
     async def lenny(self, ctx):
-        """ ( ͡° ͜ʖ ͡°) """
+        """( ͡° ͜ʖ ͡°)"""
         lennys = ['( ͡° ͜ʖ ͡°)', '(ᴗ ͜ʖ ᴗ)', '(⟃ ͜ʖ ⟄) ', '(͠≖ ͜ʖ͠≖)', 'ʕ ͡° ʖ̯ ͡°ʔ', '( ͠° ͟ʖ ͡°)', '( ͡~ ͜ʖ ͡°)',
                   '( ͡◉ ͜ʖ ͡◉)', '( ͡° ͜V ͡°)', '( ͡ᵔ ͜ʖ ͡ᵔ )',
                   '(☭ ͜ʖ ☭)', '( ° ͜ʖ °)', '( ‾ ʖ̫ ‾)', '( ͡° ʖ̯ ͡°)', '( ͡° ل͜ ͡°)', '( ͠° ͟ʖ ͠°)', '( ͡o ͜ʖ ͡o)',
                   '( ͡☉ ͜ʖ ͡☉)', 'ʕ ͡° ͜ʖ ͡°ʔ', '( ͡° ͜ʖ ͡ °)']
-        await ctx.reply(random.choice(lennys), mention_author=False)
+        await self.bot.reply(ctx, text=random.choice(lennys))
     
     @commands.command(aliases=["horo"])
     async def horoscope(self, ctx, *, sign: commands.clean_content):
-        """ Find out your horoscope for this week """
+        """Find out your horoscope for this week"""
         sign = sign.title()
         horos = {
             "Aquarius": "♒", "Aries": "♈", "Cancer": "♋", "Capricorn": "♑", "Gemini": "♊", "Leo": "♌", "Libra": "♎",
@@ -77,14 +77,14 @@ class Fun(commands.Cog):
             e.title = f"{sign} {sign}"
         ftstr = f"Horoscope for {sunstring} - {satstring}"
         e.set_footer(text=ftstr)
-        await ctx.reply(embed=e, mention_author=False)
+        await self.bot.reply(ctx, embed=e)
     
     @commands.command(usage="Is this an example question? Yes, No")
     @commands.bot_has_permissions(add_reactions=True)
     async def poll(self, ctx, *, poll_string):
-        """ Create a poll with multiple choice answers.
+        """Create a poll with multiple choice answers.
         
-        End the question with a ? and separate each answer with """
+        End the question with a ? and separate each answer with"""
         try:
             question, answers = poll_string.split('?')
             if answers:     
@@ -102,7 +102,7 @@ class Fun(commands.Cog):
         for x, y in answers:
             e.description += f"{x} **{y}**\n"
         
-        m = await ctx.reply(embed=e, mention_author=False)
+        m = await self.bot.reply(ctx, embed=e)
         if answers:
             await embed_utils.bulk_react(ctx, m, [i[0] for i in answers])
         else:
@@ -111,8 +111,7 @@ class Fun(commands.Cog):
     @commands.command(aliases=["rather"])
     @commands.bot_has_permissions(add_reactions=True)
     async def wyr(self, ctx):
-        """ Would you rather... """
-        
+        """Would you rather..."""
         async def fetch():
             async with self.bot.session.get("http://www.rrrather.com/botapi") as response:
                 if response.status != "200":
@@ -129,7 +128,7 @@ class Fun(commands.Cog):
         while tries < 10:
             resp = await fetch()
             if isinstance(resp, int):
-                return await ctx.reply(f"{resp} error, the wyr machine is broken.", mention_author=False)
+                return await self.bot.reply(ctx, text=f"{resp} error, the wyr machine is broken.")
             # Skip stupid shit.
             if resp["choicea"] == resp["choiceb"]:
                 continue
@@ -150,7 +149,7 @@ class Fun(commands.Cog):
             mc = f"**{title}...** \n{opta} \n{optb}"
             return mc
         
-        m = await ctx.reply(await write(resp), mention_author=False)
+        m = await self.bot.reply(ctx, text=await write(resp))
         await embed_utils.bulk_react(ctx, m, ['🇦', '🇧', '🎲'])
         
         # Re-roller
@@ -172,93 +171,96 @@ class Fun(commands.Cog):
                     await m.clear_reactions()
                 except discord.Forbidden:
                     pass
-                await m.edit(content=await write(resp))
+                await m.edit(content=await write(resp), allowed_mentions=discord.AllowedMentions().none())
     
     @commands.command(hidden=True)
     @commands.is_owner()
     async def secrettory(self, ctx):
-        await ctx.reply(f"The secret tory is {random.choice(ctx.guild.members).mention}", mention_author=False)
+        await self.bot.reply(ctx, text=f"The secret tory is {random.choice(ctx.guild.members).mention}")
     
     @commands.command(aliases=["choice", "pick", "select"], usage="Option 1, Option 2, Option 3 ...")
     async def choose(self, ctx, *, choices):
-        """ Make a decision for me (seperate choices with commas)"""
+        """Make a decision for me (seperate choices with commas)"""
         choices = discord.utils.escape_mentions(choices)
         x = choices.split(",")
-        await ctx.reply(f"{random.choice(x)}", mention_author=False)
+        await self.bot.reply(ctx, text=f"{random.choice(x)}")
     
     @commands.command(hidden=True)
     @commands.bot_has_permissions(kick_members=True)
     @commands.cooldown(2, 60, BucketType.user)
     async def roulette(self, ctx):
-        """ Russian Roulette """
+        """Russian Roulette"""
         x = ["click.", "click.", "click.", "click.", "click.", "🔫 BANG!"]
         outcome = random.choice(x)
         if outcome == "🔫 BANG!":
             try:
-                await ctx.reply(f"🔫 BANG!", mention_author=True)
+                await self.bot.reply(ctx, text=f"🔫 BANG!", mention_author=True)
                 await ctx.author.kick(reason="roulette")
             except discord.Forbidden:
-                await ctx.reply(f"Your skull is too thick to penetrate with these bullets.", mention_author=True)
+                await self.bot.reply(ctx, text=f"Your skull is too thick to penetrate with these bullets.",
+                                     mention_author=True)
         else:
-            await ctx.reply(outcome, mention_author=False)
+            await self.bot.reply(ctx, text=outcome)
     
     @commands.command(aliases=["flip", "coinflip"])
     async def coin(self, ctx):
-        """ Flip a coin """
-        await ctx.reply(random.choice(["Heads", "Tails"]), mention_author=False)
+        """Flip a coin"""
+        await self.bot.reply(ctx, text=random.choice(["Heads", "Tails"]))
     
     @commands.command(hidden=True)
     @commands.guild_only()
     async def triggered(self, ctx):
-        """ WEEE WOO SPECIAL SNOWFLAKE DETECTED """
-        trgmsg = await ctx.reply("🚨 🇹 🇷 🇮 🇬 🇬 🇪 🇷  🇼 🇦 🇷 🇳 🇮 🇳 🇬  🚨", mention_author=False)
+        """WEEE WOO SPECIAL SNOWFLAKE DETECTED"""
+        trgmsg = await self.bot.reply(ctx, text="🚨 🇹 🇷 🇮 🇬 🇬 🇪 🇷  🇼 🇦 🇷 🇳 🇮 🇳 🇬  🚨")
         for i in range(5):
-            await trgmsg.edit(content="⚠ 🇹 🇷 🇮 🇬 🇬 🇪 🇷  🇼 🇦 🇷 🇳 🇮 🇳 🇬  ⚠")
+            await trgmsg.edit(content="⚠ 🇹 🇷 🇮 🇬 🇬 🇪 🇷  🇼 🇦 🇷 🇳 🇮 🇳 🇬  ⚠",
+                              allowed_mentions=discord.AllowedMentions().none())
             await asyncio.sleep(1)
-            await trgmsg.edit(content="🚨 🇹 🇷 🇮 🇬 🇬 🇪 🇷  🇼 🇦 🇷 🇳 🇮 🇳 🇬  🚨")
+            await trgmsg.edit(content="🚨 🇹 🇷 🇮 🇬 🇬 🇪 🇷  🇼 🇦 🇷 🇳 🇮 🇳 🇬  🚨",
+                              allowed_mentions=discord.AllowedMentions().none())
             await asyncio.sleep(1)
     
     @commands.command(hidden=True)
     @commands.has_permissions(add_reactions=True)
     async def uprafa(self, ctx):
-        """ Adds an upvote reaction to the last 10 messages """
+        """Adds an upvote reaction to the last 10 messages"""
         async for message in ctx.channel.history(limit=10):
             await message.add_reaction(":upvote:332196220460072970")
     
     @commands.command(hidden=True)
     @commands.has_permissions(add_reactions=True)
     async def downrafa(self, ctx):
-        """ Adds a downvote reaction to the last 10 messages """
+        """Adds a downvote reaction to the last 10 messages"""
         async for message in ctx.channel.history(limit=10):
             await message.add_reaction(":downvote:332196251959427073")
     
     @commands.command(hidden=True)
     @commands.has_permissions(manage_messages=True)
     async def norafa(self, ctx, *, msgs=30):
-        """ Remove reactions from last x messages """
+        """Remove reactions from last x messages"""
         async for message in ctx.channel.history(limit=msgs):
             await message.clear_reactions()
     
     @commands.command(aliases=["ttj"], hidden=True)
     @commands.is_owner()
     async def thatsthejoke(self, ctx):
-        """ MENDOZAAAAAAAAAAAAA """
-        await ctx.reply("https://www.youtube.com/watch?v=xECUrlnXCqk", mention_author=False)
+        """MENDOZAAAAAAAAAAAAA"""
+        await self.bot.reply(ctx, text="https://www.youtube.com/watch?v=xECUrlnXCqk")
     
     @commands.command(aliases=["alreadydead"], hidden=True)
     @commands.is_owner()
     async def dead(self, ctx):
-        """ STOP STOP HE'S ALREADY DEAD """
-        await ctx.reply("https://www.youtube.com/watch?v=mAUY1J8KizU", mention_author=False)
+        """STOP STOP HE'S ALREADY DEAD"""
+        await self.bot.reply(ctx, text="https://www.youtube.com/watch?v=mAUY1J8KizU")
     
     @commands.command(aliases=["urbandictionary"])
     async def ud(self, ctx, *, lookup: commands.clean_content):
-        """ Lookup a definition from urban dictionary """
+        """Lookup a definition from urban dictionary"""
         await ctx.trigger_typing()
         url = f"http://api.urbandictionary.com/v0/define?term={lookup}"
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
-                await ctx.reply(f"🚫 HTTP Error, code: {resp.status}", mention_author=False)
+                await self.bot.reply(ctx, text=f"🚫 HTTP Error, code: {resp.status}")
                 return
             resp = await resp.json()
         
@@ -296,13 +298,13 @@ class Fun(commands.Cog):
         else:
             e.description = f"🚫 No results found for {lookup}."
             e.set_footer(text=un)
-            return await ctx.reply(embed=e, mention_author=False)
+            return await self.bot.reply(embed=e)
         
         await embed_utils.paginate(ctx, embeds)
     
     @commands.command(usage="1d6+3")
     async def roll(self, ctx, *, roll_string="d20"):
-        """ Roll a set of dice in the format XdY+Z. Start the roll with 'adv' or 'dis' to roll with (dis)advantage """
+        """Roll a set of dice in the format XdY+Z. Start the roll with 'adv' or 'dis' to roll with (dis)advantage"""
         
         advantage = True if roll_string.startswith("adv") else False
         disadvantage = True if roll_string.startswith("dis") else False
@@ -326,7 +328,7 @@ class Fun(commands.Cog):
             if not roll:
                 continue
             
-            if roll.isdigit():
+            if roll.isdecimal():
                 if roll == "1":
                     e.description += f"{roll}: **1**\n"
                     total += 1
@@ -363,7 +365,7 @@ class Fun(commands.Cog):
                     sides = int(sides)
                 
                 if dice > 100 or sides > 10001:
-                    return await ctx.reply('Fuck off, no.', mention_author=True)
+                    return await self.bot.reply(ctx, text='Fuck off, no.', mention_author=True)
             
             e.description += f"{roll}: "
             total_roll = 0
@@ -405,7 +407,7 @@ class Fun(commands.Cog):
         if len(roll_list) > 1:
             e.description += f"\n**Total: {total}**"
         
-        await ctx.reply(embed=e, mention_author=False)
+        await self.bot.reply(ctx, embed=e)
 
 
 def setup(bot):

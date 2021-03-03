@@ -9,7 +9,7 @@ from ext.utils import codeblocks
 
 
 class Notifications(commands.Cog):
-    """ Guild Moderation Commands """
+    """Guild Moderation Commands"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -41,7 +41,7 @@ class Notifications(commands.Cog):
     @commands.has_permissions(manage_guild=True)
     @commands.group(invoke_without_command=True, usage="mod")
     async def mod(self, ctx):
-        """ Shows the status of various mod tools."""
+        """Shows the status of various mod tools."""
         # Get settings.
         e = discord.Embed(color=0x7289DA)
         e.description = ""
@@ -78,7 +78,7 @@ class Notifications(commands.Cog):
                     e.description += f"{key}: Not set\n"
         
         e.set_thumbnail(url=ctx.guild.icon_url)
-        await ctx.reply(embed=e, mention_author=False)
+        await ctx.bot.reply(ctx, wembed=e)
     
     # Join messages
     @commands.Cog.listener()
@@ -114,39 +114,36 @@ class Notifications(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @commands.group(usage="joins <#channel> to set a new channel, or leave blank to show current information.")
     async def joins(self, ctx, channel: typing.Optional[discord.TextChannel]):
-        """ Send member information to a channel on join. """
+        """Send member information to a channel on join."""
         if channel is None:  # Give current info
             joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(joins)
-            if ch is None:
-                rep = 'Join information is not currently being output.'
-            else:
-                rep = f'Join information is currently being output to {ch.mention}'
-            await ctx.reply(rep, mention_author=False)
+            rep = " not currently being output" if ch is None else f" currently being output to {ch.mention}"
+            return await self.bot.reply(ctx, text=f'Member information is ' + rep)
         
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
+            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
+                                        mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(""" UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
+            await connection.execute("""UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
         
-        await ctx.reply(f'Information about new users will be sent to {channel.mention} when they join.',
-                        mention_author=False)
+        await self.bot.reply(ctx, text=f'Information about new users will be sent to {channel.mention} when they join.')
 
     @commands.has_permissions(manage_channels=True)
     @joins.command(name="off", alaises=["none", "disable"], usages="joins off")
     async def joins_off(self, ctx):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(""" UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
+            await connection.execute("""UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.reply('Information about new users will no longer be output.', mention_author=False)
+        await self.bot.reply(ctx, text='Information about new users will no longer be output.')
 
     # Deleted messages
     @commands.Cog.listener()
@@ -194,75 +191,69 @@ class Notifications(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @commands.group(usage="deletes <#channel> to set a new channel, or leave blank to show current information.")
     async def deletes(self, ctx, channel: typing.Optional[discord.TextChannel]):
-        """ Send member information to a channel on join. """
+        """Send member information to a channel on join."""
         if channel is None:  # Give current info
             deletes = [r['deletes_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(deletes)
-            if ch is None:
-                return await ctx.reply(f'Deleted messages are not currently being output.', mention_author=False)
-            else:
-                return await ctx.reply(f'Deleted messages are currently being output to {ch.mention}',
-                                       mention_author=False)
+            rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
+            return await self.bot.reply(ctx, text=f'Deleted messages are ' + rep)
     
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
+            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
+                                        mention_author=True)
     
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(""" UPDATE guild_settings SET deletes_channel_id = $2 WHERE guild_id = $1""",
+            await connection.execute("""UPDATE guild_settings SET deletes_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-    
-        await ctx.reply(f'Deleted messages will be sent to {channel.mention}.', mention_author=False)
+        await self.bot.reply(ctx, text=f'Deleted messages will be sent to {channel.mention}.')
 
     @commands.has_permissions(manage_channels=True)
     @deletes.command(name="off", alaises=["none", "disable"], usages="deletes off")
     async def deletes_off(self, ctx):
         connection = await self.bot.db.acquire()
-        await connection.execute(""" UPDATE guild_settings SET deletes_channel_id = $2 WHERE guild_id = $1""",
+        await connection.execute("""UPDATE guild_settings SET deletes_channel_id = $2 WHERE guild_id = $1""",
                                  ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.reply('Deleted messages will no longer be output.', mention_author=False)
+        await self.bot.reply(ctx, text='Deleted messages will no longer be output.')
     
     # Leave / ban / kick notifications
     @commands.has_permissions(manage_guild=True)
     @commands.group(usage="leaves <#channel> to set a new channel, or leave blank to show current setting")
     async def leaves(self, ctx, channel: typing.Optional[discord.TextChannel] = None):
-        """ Set a channel to show information about new member joins """
+        """Set a channel to show information about new member joins"""
         if channel is None:  # Show current info
             leaves = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(leaves)
-            if ch is None:
-                rep = f'Member leaves are not currently being output.'
-            else:
-                rep = f'Member leave information is currently being output to {ch.mention}'
-            return await ctx.reply(rep, mention_author=False)
+            rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
+            return await self.bot.reply(ctx, text=f'Member leave information is ' + rep)
         
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
+            return await self.bot.reply(ctx, f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""
                 UPDATE guild_settings SET leaves_channel_id = $2 WHERE guild_id = $1
-                """, ctx.guild.id, channel.id)
+               """, ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
         
-        await ctx.reply(f'Notifications will be sent to {channel.mention} when users leave.', mention_author=False)
+        await self.bot.reply(ctx, text=f'Notifications will be sent to {channel.mention} when users leave.')
 
     @commands.has_permissions(manage_channels=True)
     @leaves.command(name="off", alaises=["none", "disable"], usage="leaves off")
     async def leaves_off(self, ctx):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(""" UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
+            await connection.execute("""UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.reply('Leave notifications will no longer be output.', mention_author=False)
+        await self.bot.reply(ctx, text='Leave notifications will no longer be output.')
 
     # Unban notifier.
     @commands.Cog.listener()
@@ -275,81 +266,80 @@ class Notifications(commands.Cog):
         ch = self.bot.get_channel(unbans)
         if ch is None:
             return
-    
-        await ch.send(f"🆗 {user} (ID: {user.id}) was unbanned.")
+        
+        try:
+            await ch.send(f"🆗 {user} (ID: {user.id}) was unbanned.")
+        except discord.HTTPException:
+            pass  # Fuck you.
     
     # Muting and blocking.
     @commands.has_permissions(manage_channels=True)
     @commands.group(usage="mutes <#channel> to set a new channel or leave blank to show current setting>")
     async def mutes(self, ctx, channel: typing.Optional[discord.TextChannel] = None):
-        """ Set a channel to show messages about user mutings """
+        """Set a channel to show messages about user mutings"""
         if channel is None:  # Show current info
             mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(mutes)
-            if ch is None:
-                rep = 'Mute notifications are not currently being output.'
-            else:
-                rep = f'Mute notifications are currently being output to {ch.mention}'
-            return await ctx.reply(rep, mention_author=False)
-        
+            rep = " not currently being output" if ch is None else f" currently being output to {ch.mention}"
+            return await self.bot.reply(ctx, text=f'Mute notifications are' + rep)
+
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
+            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
+                                        mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(""" UPDATE guild_settings SET mutes_channel_id = $2 WHERE guild_id = $1""",
+            await connection.execute("""UPDATE guild_settings SET mutes_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.reply(f"Notifications will be output to {channel.mention} when a member is muted.",
-                        mention_author=False)
+        await self.bot.reply(ctx, text=f"Notifications will be output to {channel.mention} when a member is muted.")
 
     @commands.has_permissions(manage_channels=True)
     @mutes.command(name="off", alaises=["none", "disable"], usage="leaves off")
     async def mutes_off(self, ctx):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(""" UPDATE guild_settings SET mutes_channel_id = $2 WHERE guild_id = $1""",
+            await connection.execute("""UPDATE guild_settings SET mutes_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.reply('Mute and block notifications will no longer be output.', mention_author=False)
+        await self.bot.reply(ctx, text='Mute and block notifications will no longer be output.')
     
     # Emoji update notifications
     @commands.has_permissions(manage_channels=True)
     @commands.group(usage="emojis <#channe> to set a new channel or leave blank to show current setting>")
     async def emojis(self, ctx, channel: typing.Optional[discord.TextChannel] = None):
-        """ Set a channel to show when emojis are changed. """
+        """Set a channel to show when emojis are changed."""
         if channel is None:
             emojis = [r['emojis_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(emojis)
-            if ch is None:
-                rep = 'Emoji change notifications are not currently being output.'
-            else:
-                rep = f'Emoji change notifications are currently being output to {ch.mention}'
-            return await ctx.reply(rep, mention_author=False)
+            rep = "not currently being output." if ch is None else f' currently being output to {ch.mention}'
+            return await self.bot.reply(ctx, text="Emoji change notifications are " + rep)
+        
         if not ctx.me.permissions_in(channel).send_messages:
-            return await ctx.reply(f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
+            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
+                                        mention_author=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""
                 UPDATE guild_settings SET emojis_channel_id = $2 WHERE guild_id = $1
-                """, ctx.guild.id, channel.id)
+               """, ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.reply(f"Notifications will be sent to {channel.mention} if emojis are changed.", mention_author=False)
+        await self.bot.reply(ctx, text=f"Notifications will be sent to {channel.mention} if emojis are changed.")
 
     @emojis.command()
     @commands.has_permissions(manage_channels=True)
     async def emojis_off(self, ctx):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(""" UPDATE guild_settings SET emojis_channel_id = $2 WHERE guild_id = $1""",
+            await connection.execute("""UPDATE guild_settings SET emojis_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await ctx.reply('Emoji update notifications will no longer be output.', mention_author=False)
+        await self.bot.reply(ctx, text='Emoji update notifications will no longer be output.')
 
     # TODO: Blocked
     @commands.Cog.listener()

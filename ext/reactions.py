@@ -30,16 +30,16 @@ class GlobalChecks(commands.Cog):
 
 
 class Reactions(commands.Cog):
-    """ This is a utility cog for the r/NUFC discord to react to certain messages. This category has no commands. """
+   """This is a utility cog for the r/NUFC discord to react to certain messages. This category has no commands."""
     def __init__(self, bot):
         self.bot = bot
     
     @commands.Cog.listener()
     async def on_command(self, ctx):
-        self.bot.commands_used[ctx.command.name] += 1
+        self.bot.commands_used[str(ctx.command)] += 1
     
     # TODO: Move to notifications.
-    # TODO: Create custom Reaction setups per serve r
+    # TODO: Create custom Reaction setups per server
     # TODO: Bad words filter.
     
     @commands.Cog.listener()

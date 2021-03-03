@@ -4,20 +4,20 @@ from discord.ext import commands
 import datetime
 import discord
 
-from ext.utils.embed_utils import paginate
-from ext.utils import timed_events
 
+from ext.utils import timed_events, embed_utils
 from importlib import reload
 
 
 class Reminders(commands.Cog):
-    """ Set yourself reminders """
+   """Set yourself reminders"""
     def __init__(self, bot):
         self.bot = bot
         self.active_module = True
         self.bot.reminders = []  # A list of tasks.
         self.bot.loop.create_task(self.spool_initial())
         reload(timed_events)
+        reload(embed_utils)
     
     def cog_unload(self):
         for i in self.bot.reminders:
@@ -35,22 +35,24 @@ class Reminders(commands.Cog):
                     usage="<Amount of time> <Reminder message>",
                     invoke_without_command=True)
     async def timer(self, ctx, time, *, message: commands.clean_content):
-        """ Remind you of something at a specified time.
+        """Remind you of something at a specified time.
             Format is remind 1d2h3m4s <note>, e.g. remind 1d3h Kickoff."""
         try:
             delta = await timed_events.parse_time(time.lower())
         except ValueError:
-            return await ctx.reply('Invalid time specified.', mention_author=False)
+            return await self.bot.reply(ctx, text='Invalid time specified.')
+        except OverflowError:
+            return await self.bot.reply(ctx, text="You'll be dead by then'")
         
         try:
             remind_at = datetime.datetime.now() + delta
         except OverflowError:
-            return await ctx.reply("You'll be dead by then.", mention_author=False)
+            return await self.bot.reply(ctx, text="You'll be dead by then.")
         human_time = datetime.datetime.strftime(remind_at, "%a %d %b at %H:%M:%S")
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            record = await connection.fetchrow(""" INSERT INTO reminders
+            record = await connection.fetchrow("""INSERT INTO reminders
             (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""",
                                                ctx.message.id, ctx.channel.id, ctx.guild.id, message,
@@ -64,13 +66,13 @@ class Reminders(commands.Cog):
         e.description = f"**{human_time}**\n{message}"
         e.colour = 0x00ffff
         e.timestamp = remind_at
-        await ctx.reply(embed=e, mention_author=False)
+        await self.bot.reply(ctx, embed=e)
     
     @timer.command(aliases=["timers"])
     async def list(self, ctx):
-        """ Check your active reminders """
+        """Check your active reminders"""
         connection = await self.bot.db.acquire()
-        records = await connection.fetch(""" SELECT * FROM reminders WHERE user_id = $1 """, ctx.author.id)
+        records = await connection.fetch("""SELECT * FROM reminders WHERE user_id = $1""", ctx.author.id)
         await self.bot.db.release(connection)
         
         embeds = []
@@ -87,7 +89,7 @@ class Reminders(commands.Cog):
             else:
                 e.description += this_string
         embeds.append(e)
-        await paginate(ctx, embeds)
+        await embed_utils.paginate(ctx, embeds)
 
 
 # TODO: timed poll.

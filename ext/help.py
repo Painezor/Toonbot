@@ -5,30 +5,43 @@ from importlib import reload
 
 
 def descriptor(command):
-    string = f'• **{command.name.title()}**\n*{command.short_doc}*'
+    string = f'• **{command.name.title().strip()}**\n*{command.short_doc.strip()}*\n'
     if isinstance(command, commands.Group):
         string += f'\n***Subcommands**:* {", ".join(f"`{sub.name}`" for sub in command.commands)}'
     return string
 
 
 class Help(commands.HelpCommand):
-    """ The Toonbot help command. """
+    """The Toonbot help command."""
     def get_command_signature(self, command):
         return f'{self.context.prefix}{command.qualified_name} {command.signature}'
     
     async def send_bot_help(self, mapping):
-        """ Painezor's custom helpformatter """
+        """Painezor's custom helpformatter"""
         # Base Embed
         e = discord.Embed()
         e.set_thumbnail(url=self.context.me.avatar_url)
         e.colour = 0x2ecc71
-        e.set_author(name="Toonbot Help")
+        e.set_author(name="Toonbot Help: Category list.")
         
-        e.description = f"Use {self.context.prefix}help **category name** for help on a category\n" \
-                        f"*Note: This is case sensitive*\n\n"
+        invite_and_stuff = f"[Invite me to your discord]" \
+                           f"(https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
+                           f"&permissions=67488768&scope=bot)\n"
+        invite_and_stuff += f"[Join my Support discord](http://www.discord.gg/a5NHvPx)\n"
+        invite_and_stuff += f"[Toonbot on Github](https://github.com/Painezor/Toonbot)\n"
+        invite_and_stuff += f"[Donate to the Author](https://paypal.me/Toonbot)"
+        
+        e.description = "Welcome to the Toonbot Help. Use the reactions below to navigate between pages.\n\n"
+        e.description += f"use {self.context.prefix}help <category name> to view commands for that category only " \
+                         f"(case sensitive)\n\n"
+        
+        e.add_field(name="Useful links", value=invite_and_stuff, inline=False)
         
         cogs = [self.context.bot.get_cog(cog) for cog in self.context.bot.cogs]
-        for cog in cogs:
+        
+        embeds = []
+        
+        for cog in sorted(cogs, key=lambda x: x.qualified_name):
             if not cog.get_commands():
                 continue  # Filter utility cogs.
             
@@ -36,22 +49,15 @@ class Help(commands.HelpCommand):
                 try:
                     if await command.can_run(self.context):
                         e.description += f"**{cog.qualified_name}**: {cog.description}\n"
+                        embeds += await self.cog_embed(cog)
                         break
                 except discord.ext.commands.CommandError:
-                    pass
+                    continue
                     
-        invite_and_stuff = f"[Invite me to your discord]" \
-                           f"(https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
-                           f"&permissions=67488768&scope=bot)\n"
-        invite_and_stuff += f"[Join my Support discord](http://www.discord.gg/a5NHvPx)\n"
-        invite_and_stuff += f"[Toonbot on Github](https://github.com/Painezor/Toonbot)"
-        e.add_field(name="Useful links", value=invite_and_stuff)
-        try:
-            await self.context.reply(embed=e, mention_author=False)
-        except discord.Forbidden:
-            await self.context.author.send("I do not have permissions to send help in the channel you requested from.",
-                                           embed=e)
-            
+        embeds = [e] + embeds
+        
+        await embed_utils.paginate(self.context, embeds)
+
     async def send_cog_help(self, cog):
         embeds = await self.cog_embed(cog)
         await embed_utils.paginate(self.context, embeds, wait_length=300)
@@ -61,14 +67,12 @@ class Help(commands.HelpCommand):
         e.title = f'Category Help: {cog.qualified_name}'
         e.colour = 0x2ecc71
         e.set_thumbnail(url=self.context.me.avatar_url)
-        description_top = f"```fix\n{cog.description}\n```**Commands in this category**:\n\n"
+        header = f"```fix\n{cog.description}\n```\n**Commands in this category**:\n"
         rows = sorted([descriptor(command) for command in cog.get_commands() if not command.hidden])
-        if len(rows) > 10:
-            e.add_field(name="Changing pages", value="This category has more than 1 page of commands,"
-                                                     " click ◀ and ▶ below to scroll", inline=False)
+        
         e.add_field(value='Use help **command** to view the usage of that command.\n Subcommands are ran by using '
                           f'`{self.context.prefix}command subcommand`', name="More help", inline=False)
-        embeds = embed_utils.rows_to_embeds(e, rows, description_top=description_top, per_row=10)
+        embeds = embed_utils.rows_to_embeds(e, rows, header=header, rows_per=10)
         return embeds
     
     async def send_group_help(self, group):
@@ -93,13 +97,15 @@ class Help(commands.HelpCommand):
         e.add_field(name="Command arguments",
                     value='<> around an arguments means it is a <REQUIRED argument>\n'
                           '[] around an argument means it is an [OPTIONAL argument]\n'
-                          f'\nUse `{self.context.prefix}help <command> [subcommand]` for info on subcommands',
+                          f'\nUse `{self.context.prefix}help <command> [subcommand]` for info on subcommands\n'
+                          f'Don\'t type the <> or [].'
+                         ,
                           inline=False)
         e.add_field(name="More help", inline=False,
                     value='Use help **command** to view the usage of that command.\n'
                           f'Subcommands are ran by using `{self.context.prefix}command subcommand`')
         
-        await self.context.reply(embed=e, mention_author=False)
+        await self.context.bot.reply(self.context, embed=e)
     
     async def send_command_help(self, command):
         e = discord.Embed()
@@ -117,7 +123,7 @@ class Help(commands.HelpCommand):
                           '[] around an argument means it is an [OPTIONAL argument]\n'
                           f'\nUse `{self.context.prefix}help <command> [subcommand]` for info on subcommands',
                           inline=False)
-        await self.context.reply(embed=e, mention_author=False)
+        await self.context.bot.reply(self.context, embed=e)
     
     async def command_callback(self, ctx, *, command=None):
         await self.prepare_help_command(ctx, command)
@@ -157,7 +163,7 @@ class Help(commands.HelpCommand):
 
 
 class HelpCog(commands.Cog):
-    """ If you need help for help, you're beyond help """
+    """If you need help for help, you're beyond help"""
     def __init__(self, bot):
         self._original_help_command = bot.help_command
         reload(embed_utils)

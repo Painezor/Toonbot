@@ -8,7 +8,7 @@ import typing
 
 
 class AutoMod(commands.Cog):
-    """ Set up automated moderation tools """
+    """Set up automated moderation tools"""
     def __init__(self, bot):
         self.bot = bot
         self.bot.loop.create_task(self.update_cache())
@@ -30,36 +30,42 @@ class AutoMod(commands.Cog):
     @commands.has_permissions(kick_members=True, ban_members=True)
     @commands.command(usage="mentionspam <number of pings> <'kick', 'mute' or 'ban'>", aliases=["pingspam"])
     async def mentionspam(self, ctx, threshold: typing.Optional[int] = None, action=None):
-        """ Automatically kick or ban a member for pinging more than x users in a message. Use '0' for threshold to 
-        turn off."""
+        """Automatically kick or ban a member for pinging more than x users in a message.
+        
+        Use '0' for threshold to turn the feature off."""
         if threshold is None:
             # Get current data.
             try:
                 guild_cache = self.cache[ctx.guild.id]
-                return await ctx.reply(
-                    f"I will {guild_cache['mention_action']} members who ping {guild_cache['mention_threshold']} or "
-                    f"more other users in a message.", mention_author=False)
+                return await self.bot.reply(ctx, text=f"I will {guild_cache['mention_action']} members who ping "
+                                                     f"{guild_cache['mention_threshold']} or more other users in "
+                                                     f"a message.")
             except KeyError:
-                return await ctx.reply(
-                    f"No action is currently being taken against users who spam mentions. Use {ctx.prefix}mentionspam "
-                    f"<number> <action ('kick', 'ban' or 'mute')> to change this", mention_author=False)
+                return await self.bot.reply(ctx,
+                    text=f"No action is currently being taken against users who spam mentions. "
+                         f"Use {ctx.prefix}mentionspam <number> <action ('kick', 'ban' or 'mute')> to change this")
         elif threshold < 4:
-            return await ctx.reply("Please set a limit higher than 3.", mention_author=True)
+            return await self.bot.reply(ctx, text="Please set a limit higher than 3.", mention_author=True)
 
         if action is None or action.lower() not in ['kick', 'ban', 'mute']:
-            return await ctx.reply("🚫 Invalid action specified, choose 'kick', 'ban', 'mute'.", mention_author=True)
+            return await self.bot.reply(ctx, text="🚫 Invalid action specified, choose 'kick', 'ban', 'mute'.",
+                                        mention_author=True)
 
         action = action.lower()
         if action == "kick":
             if not ctx.me.permissions_in(ctx.channel).kick_members:
-                return await ctx.reply("🚫 I need the 'kick_members' permission to do that.", mention_author=True)
+                return await self.bot.reply(ctx, text="🚫 I need the 'kick_members' permission to do that.",
+                                            mention_author=True)
             if not ctx.author.permissions_in(ctx.channel).kick_members:
-                return await ctx.reply("🚫 You need the 'kick_members' permission to do that.", mention_author=True)
+                return await self.bot.reply(ctx, text="🚫 You need the 'kick_members' permission to do that.",
+                                            mention_author=True)
         elif action == "ban":
             if not ctx.me.permissions_in(ctx.channel).ban_members:
-                return await ctx.reply("🚫 I need the 'ban_members' permission to do that.", mention_author=True)
+                return await self.bot.reply(ctx, text="🚫 I need the 'ban_members' permission to do that.",
+                                            mention_author=True)
             if not ctx.author.permissions_in(ctx.channel).ban_members:
-                return await ctx.reply("🚫 You need the 'ban_members' permission to do that.", mention_author=True)
+                return await self.bot.reply(ctx, text="🚫 You need the 'ban_members' permission to do that.",
+                                            mention_author=True)
 
         connection = await self.bot.db.acquire()
         await connection.execute("""
@@ -71,8 +77,7 @@ class AutoMod(commands.Cog):
              EXCLUDED.guild_id = $1
         """, ctx.guild.id, threshold, action)
         await self.update_cache()
-        return await ctx.reply(f"✅ I will {action} users who ping {threshold} other users in a message.",
-                               mention_author=False)
+        return await self.bot.reply(ctx, text=f"✅ I will {action} users who ping {threshold} users in a message.")
 
     @commands.Cog.listener()
     async def on_message(self, message):

@@ -4,6 +4,12 @@ import discord
 from discord.ext.commands import DisabledCommand
 
 
+async def react(ctx, emoji):
+    try: await ctx.message.add_reaction(emoji)
+    except discord.HTTPException:
+        pass
+
+
 class Errors(commands.Cog):
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
@@ -11,13 +17,8 @@ class Errors(commands.Cog):
             return  # Fail silently.
         
         if isinstance(error, DisabledCommand):
-            if ctx.me.permissions_in(ctx.channel).add_reactions:
-                return await ctx.message.add_reaction('🚫')
-            try:
-                return await ctx.reply('That command has been disabled here.', delete_after=10, mention_author=False)
-            except discord.Forbidden:
-                return
-
+            return await react(ctx, '🚫')
+        
         # Embed errors.
         e = discord.Embed()
         e.colour = discord.Colour.red()
@@ -26,99 +27,68 @@ class Errors(commands.Cog):
 
         usage = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
         e.add_field(name="Command Usage Example", value=usage)
-
-        location = "a DM" if ctx.guild is None else f"{ctx.guild.name} ({ctx.guild.id})"
-        context = f"({ctx.author}({ctx.author.id}) in {location}"
         
-        if isinstance(error, (commands.NoPrivateMessage, commands.BotMissingPermissions)):
+        if isinstance(error, commands.NoPrivateMessage):
             if ctx.guild is None:
                 e.title = 'NoPrivateMessage'  # Ugly override.
                 e.description = '🚫 This command cannot be used in DMs'
+        
+        elif isinstance(error, commands.BotMissingPermissions):
+            if len(error.missing_perms) == 1:
+                perm_string = error.missing_perms[0]
             else:
-                if len(error.missing_perms) == 1:
-                    perm_string = error.missing_perms[0]
-                else:
-                    last_perm = error.missing_perms.pop(-1)
-                    perm_string = ", ".join(error.missing_perms) + " and " + last_perm
-                
-                if isinstance(error, commands.BotMissingPermissions):
-                    e.description = f'\🚫 I need {perm_string} permissions to do that.\n'
-                    fixing = f'Use {ctx.me.mention} `disable {ctx.command}` to disable this command\n' \
-                             f'Use {ctx.me.mention} `prefix remove {ctx.prefix}` ' \
-                             f'to stop me using the `{ctx.prefix}` prefix\n' \
-                             f'Or give me the missing permissions and I can perform this action.'
-                    e.add_field(name="Fixing This", value=fixing)
+                last_perm = error.missing_perms.pop(-1)
+                perm_string = ", ".join(error.missing_perms) + " and " + last_perm
+            
+            e.description = f'\🚫 I need {perm_string} permissions to do that.\n'
+            fixing = f'Use {ctx.me.mention} `disable {ctx.command}` to disable this command\n' \
+                     f'Use {ctx.me.mention} `prefix remove {ctx.prefix}` ' \
+                     f'to stop me using the `{ctx.prefix}` prefix\n' \
+                     f'Or give me the missing permissions and I can perform this action.'
+            e.add_field(name="Fixing This", value=fixing)
         
         elif isinstance(error, commands.BadUnionArgument):
             e.description = f"Invalid input {error.param.name} provided."
+            
+        elif isinstance(error, commands.ChannelNotFound):
+            e.description = f"No channel called #{error.argument} found on this server."
         
         elif isinstance(error, commands.MissingRequiredArgument):
             e.description = f"{error.param.name} is a required argument but was not provided"
         
-        elif isinstance(error, (commands.BadArgument, commands.BadUnionArgument)):
-            e.description = str(error)
-        
         elif isinstance(error, commands.CommandOnCooldown):
             e.description = f'⏰ On cooldown for {str(error.retry_after).split(".")[0]}s'
-            try:
-                return await ctx.reply(embed=e, delete_after=5, mention_author=False)
-            except discord.Forbidden:
-                try:
-                    return await ctx.message.add_reaction('⏰')
-                except discord.Forbidden:
-                    return
+            return await ctx.bot.reply(ctx, embed=e, delete_after=2)
                 
         elif isinstance(error, commands.NSFWChannelRequired):
             e.description = f"🚫 This command can only be used in NSFW channels."
         
         elif isinstance(error, commands.CommandInvokeError):
             cie = error.original
-            if isinstance(cie, (NotImplementedError, AssertionError)):
+            if isinstance(cie, AssertionError):
                 e.title = "Sorry."
                 e.description = "".join(cie.args)
-                try:
-                    return await ctx.reply(embed=e, mention_author=False)
-                except discord.Forbidden:
-                    try:
-                        return await ctx.message.add_reaction('⛔')
-                    except discord.Forbidden:
-                        return  # You don't get to see the error then. Fuck you.
+                return await ctx.bot.reply(ctx, embed=e)
+
+            location = "a DM" if ctx.guild is None else f"#{ctx.channel.name} on {ctx.guild.name} ({ctx.guild.id})"
             
-            elif isinstance(cie, discord.Forbidden):
-                try:
-                    return await ctx.message.add_reaction('⛔')
-                except (discord.errors.Forbidden, discord.NotFound):
-                    return
-            
-            if hasattr(ctx.channel, "name"):
-                print(ctx.author.name, ctx.author.id, f"#{ctx.channel.name}", location, ctx.message.content)
-            else:
-                print(ctx.author.name, ctx.author.id, "<in a DM>", ctx.message.content)
+            print(f"Command invoke Error occured in {location} ({ctx.author})")
+            print(f"Command ran: {ctx.message.content}")
+
             traceback.print_tb(cie.__traceback__)
-            print(f'{cie.__class__.__name__}: {cie}')
+            print(f'{cie.__class__.__name__}: {cie}\n')
 
             e.title = error.original.__class__.__name__
-            tb_to_code = traceback.format_exception(type(cie), cie, cie.__traceback__)
-            tb_to_code = ''.join(tb_to_code)
-            e.description = f"```py\n{tb_to_code}```"
-            e.add_field(name="Oops!", value="Painezor probably fucked this up. He has been notified.")
-        else:
-            print(f"Unhandled Error Type: {error.__class__.__name__}\n"
-                  f"{context} caused the following error\n"
-                  f"{error}\n"
-                  f"Context: {ctx.message.content}\n")
-        try:
-            await ctx.reply(embed=e, mention_author=False)
-        except discord.NotFound:
-            return  # ?
-        except discord.Forbidden:
-            try:
-                await ctx.reply('An error occurred when running your command', mention_author=False)
-            except discord.Forbidden:
-                return  # well fuck you too then?
-        except discord.HTTPException:
-            e.description = "An error occurred when running your command."
-            await ctx.reply(embed=e, mention_author=False)
+            e.clear_fields()
+            e.add_field(name="Internal Error", value="Painezor has been notified of this error.", inline=False)
+            
+        # Handle the
+        elif not ctx.me.permissions_in(ctx.channel).send_messages:
+            return await ctx.author.send(f'Unable to run {ctx.command} command in {ctx.channel} on {ctx.guild}, '
+                                         f'I cannot send messages there')
+        
+        
+        await ctx.bot.reply(ctx, text='An error occurred when running your command', embed=e)
 
             
 def setup(bot):

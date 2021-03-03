@@ -10,7 +10,7 @@ from ext.utils.embed_utils import get_colour
 
 
 class Info(commands.Cog):
-    """ Get information about users or servers. """
+    """Get information about users or servers."""
     
     def __init__(self, bot):
         self.bot = bot
@@ -45,8 +45,11 @@ class Info(commands.Cog):
                            f"&permissions=67488768&scope=bot)\n"
         invite_and_stuff += f"[Join my Support Server](http://www.discord.gg/a5NHvPx)\n"
         invite_and_stuff += f"[Toonbot on Github](https://github.com/Painezor/Toonbot)"
+        
         e.add_field(name="Using me", value=invite_and_stuff, inline=False)
-        await ctx.reply(embed=e, mention_author=False)
+        e.add_field(name="Donate", value="If you'd like to donate, you can do so [here](https://paypal.me/Toonbot)")
+        
+        await self.bot.reply(ctx, embed=e)
     
     @commands.command(aliases=["perms"])
     @commands.has_permissions(manage_roles=True)
@@ -57,29 +60,23 @@ class Info(commands.Cog):
             member = ctx.author
         permissions = ctx.channel.permissions_for(member)
         permissions = "\n".join([f"{i[0]} : {i[1]}" for i in permissions])
-        await ctx.reply(f"```py\n{permissions}```", mention_author=False)
+        await self.bot.reply(ctx, text=f"```py\n{permissions}```")
     
     @commands.command(aliases=["lastmsg", "lastonline", "lastseen"], usage="seen @user")
     async def seen(self, ctx, target: discord.Member):
-        """ Find the last message from a user in this channel """
-        m = await ctx.reply("Searching...", mention_author=False)
+        """Find the last message from a user in this channel"""
+        await self.bot.reply(ctx, text="Searching...", delete_after=5)
         with ctx.typing():
             if ctx.author == target:
-                return await ctx.reply("Last seen right now, being an idiot.", mention_author=True)
+                return await self.bot.reply(ctx, text="Last seen right now, being an idiot.", mention_author=True)
             
             async for msg in ctx.channel.history(limit=1000):
                 if msg.author.id == target.id:
-                    if target.id == 178631560650686465:
-                        c = (f"{target.mention} last seen being a spacker in "
-                             f" {ctx.channel.mention} at {msg.created_at} "
-                             f"saying '{msg.content}'")
-                        await m.edit(content=c)
-                    else:
-                        c = (f"{target.mention} last seen in {ctx.channel.mention} "
-                             f"at {msg.created_at} saying '{msg.content}'")
-                        await m.edit(content=c)
-                    return
-            await m.edit(content="Couldn't find a recent message from that user.")
+                    c = f"Last message in {ctx.channel.mention} from {target.mention}: {msg.jump_url}"
+                    break
+                else:
+                    c = "Couldn't find a recent message from that user."
+            await self.bot.reply(ctx, text=c)
     
     @commands.group(invoke_without_command=True)
     @commands.guild_only()
@@ -87,12 +84,14 @@ class Info(commands.Cog):
         """Shows info about a member.
         This cannot be used in private messages. If you don't specify
         a member then the info returned will be yours.
-        """
+        
+        Names are case sensitive."""
         if member is None:
             member = ctx.author
         
         e = discord.Embed()
         e.description = member.mention
+        e.colour = member.colour
         e.set_footer(text='Account created').timestamp = member.created_at
         
         try:
@@ -118,15 +117,11 @@ class Info(commands.Cog):
                 activity = f"{discord.ActivityType[activity.type]} {activity.name}\n"
             except KeyError:  # Fix on custom status update.
                 activity = ""
-            
-            coloured_time = codeblocks.time_to_colour(member.joined_at)
-            e.add_field(name=f'Joined {ctx.guild.name}', value=coloured_time, inline=False)
-            e.colour = member.colour
         except AttributeError:
             # status = ""
             activity = ""
             pass
-        
+
         shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id)
         # field_1_text = f"{status}ID: {member.id}\n{activity}"
         field_1_text = f"ID: {member.id}\n{activity}"
@@ -146,12 +141,17 @@ class Info(commands.Cog):
         
         if member.avatar:
             e.set_thumbnail(url=member.avatar_url)
-        await ctx.reply(embed=e, mention_author=False)
+        
+        if isinstance(member, discord.Member):
+            coloured_time = codeblocks.time_to_colour(member.joined_at)
+            e.add_field(name=f'Joined {ctx.guild.name}', value=coloured_time, inline=False)
+
+        await self.bot.reply(ctx, embed=e)
     
     @info.command(name='guild', aliases=["server"])
     @commands.guild_only()
     async def server_info(self, ctx):
-        """ Shows information about the server """
+        """Shows information about the server"""
         guild = ctx.guild
         
         # figure out what channels are 'secret'
@@ -177,7 +177,7 @@ class Info(commands.Cog):
             e.description += f"\n{guild.premium_subscription_count} Nitro Boosts"
         
         if guild.discovery_splash:
-            e.set_image(url=guild.discovery_splash)
+            e.set_image(url=guild.discovery_splash_url)
 
         if guild.icon:
             e.set_thumbnail(url=guild.icon_url)
@@ -194,11 +194,11 @@ class Info(commands.Cog):
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
         e.add_field(name="Creation Date", value=codeblocks.time_to_colour(guild.created_at))
         e.set_footer(text=f"\nRegion: {str(guild.region).title()}")
-        await ctx.reply(embed=e, mention_author=False)
+        await self.bot.reply(ctx, embed=e)
     
     @commands.command()
     async def avatar(self, ctx, user: typing.Union[discord.User, discord.Member] = None):
-        """ Shows a member's avatar """
+        """Shows a member's avatar"""
         if user is None:
             user = ctx.author
         e = discord.Embed()
@@ -207,7 +207,7 @@ class Info(commands.Cog):
         e.timestamp = datetime.datetime.now()
         e.description = f"{user.mention}'s avatar"
         e.set_image(url=str(user.avatar_url))
-        await ctx.reply(embed=e, mention_author=False)
+        await self.bot.reply(ctx, embed=e)
 
 
 def setup(bot):

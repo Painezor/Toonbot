@@ -10,7 +10,18 @@ from lxml import html
 from importlib import reload
 
 from ext.utils import football
-from ext.utils.selenium_driver import spawn_driver
+
+
+async def imgurify(bot, img_url):
+    # upload image to imgur
+    d = {"image": img_url}
+    h = {'Authorization': f'Client-ID {bot.credentials["Imgur"]["Authorization"]}'}
+    async with bot.session.post("https://api.imgur.com/3/image", data=d, headers=h) as resp:
+        res = await resp.json()
+    try:
+        return res['data']['link']
+    except KeyError:
+        return None
 
 
 async def get_ref_link(bot, name):
@@ -52,7 +63,6 @@ class MatchThread:
     def __init__(self, bot, subreddit, fixture):
         self.bot = bot
         self.active = True
-        self.driver = None
         self.subreddit = subreddit
         self.fixture = fixture
         
@@ -119,7 +129,15 @@ class MatchThread:
             pre_match_instance = None
         
         # Gather initial data
-        await self.bot.loop.run_in_executor(None, self.fixture.refresh, self.driver)
+        page = await self.bot.browser.newPage()
+        try:
+            await self.fixture.refresh(page)
+        except Exception as e:
+            print("Error when refreshing match thread fixture")
+            raise e
+        finally:
+            await page.close()
+        
         title, markdown = await self.write_markdown()
         
         # Sleep until ready to post.
@@ -142,7 +160,10 @@ class MatchThread:
         self.match_thread_url = post.url
     
         for i in range(300):  # Maximum number of loops.
-            await self.bot.loop.run_in_executor(None, self.fixture.refresh(self.driver))
+            page = await self.bot.browser.newPage()
+            await self.fixture.refresh(page)
+            await page.close()
+            
             title, markdown = await self.write_markdown()
             # Only need to update if something has changed.
             if markdown != self.old_markdown:
@@ -183,11 +204,7 @@ class MatchThread:
         if hasattr(self, "pre_match_offset"):
             if pre_match_instance is not None:
                 self.bot.loop.run_in_executor(None, pre_match_instance.edit, markdown)
-    
-        # Clean up.
-        if self.driver is not None:
-            self.driver.quit()
-    
+        
     # Reddit posting shit.
     def make_post(self, title, markdown):
         post = self.bot.reddit.subreddit(self.subreddit).submit(title, selftext=markdown)
@@ -209,7 +226,7 @@ class MatchThread:
     
     async def make_pre_match(self):
         # TODO: Actually write the code.
-        self.pre_match_url = post.url
+        self.pre_match_url = None
         title = "blah"
         markdown = "blah"
         return title, markdown
@@ -263,7 +280,8 @@ class MatchThread:
         await channel.send(embed=e)
     
     async def write_markdown(self, is_post_match=False):
-        await self.bot.loop.run_in_executor(None, self.fixture.refresh, self.driver)
+        page = await self.bot.browser.newPage()
+        await self.fixture.refresh(page)
         
         # Alias for easy replacing.
         home = self.fixture.home
@@ -271,7 +289,7 @@ class MatchThread:
         score = self.fixture.score
         # Date and Competition bar
         if self.fixture.kickoff is None:
-            kickoff = await self.bot.loop.run_in_executor(None, self.fixture.fetch_kickoff, self.driver)
+            kickoff = await self.fixture.fetch_kickoff(page)
         else:
             kickoff = self.fixture.kickoff
 
@@ -360,6 +378,9 @@ class MatchThread:
             markdown += self.fixture.tv
         
         # TODO: Images (Lineup & formation)
+        if not self.cached_formations == self.fixture.formation:
+            await imgurify(self.bot, self.fixture.formation)
+            self.cached_formations = self.fixture.formation
         # self.cached_formations = None
         # TODO: statistics
         # self.cached_statistics = None
@@ -420,16 +441,16 @@ class MatchThread:
         print("Markdown before time print", markdown)
         
         print("debug, time:", self.fixture.time, type(self.fixture.time))
+        await page.close()
         return title, markdown
 
 
 class MatchThreadCommands(commands.Cog):
-    """ MatchThread Commands and Spooler."""
+    """MatchThread Commands and Spooler."""
     
     def __init__(self, bot):
         self.bot = bot
         self.active_threads = []
-        self.driver = None
         self.schedule_threads.start()
         reload(football)
     
@@ -454,42 +475,19 @@ class MatchThreadCommands(commands.Cog):
     async def schedule_threads(self):
         # Number of minutes before the match to post
         connection = await self.bot.db.acquire()
-        records = await connection.fetch(""" SELECT * FROM mtb_schedule """)
+        records = await connection.fetch("""SELECT * FROM mtb_schedule""")
         await self.bot.db.release(connection)
         
         for r in records:
             # Get upcoming games from flashscore.
-            loop = self.bot.loop
-            fx = await loop.run_in_executor(None, football.Team().from_id(r["team_flashscore_id"]).fetch_fixtures())
+            fx = await football.Team().from_id(r["team_flashscore_id"]).get_fixtures()
             for i in fx:
                 if i.time - datetime.datetime.now() > datetime.timedelta(days=3):
                     self.bot.loop.create_task(self.spool_thread(i, r))
     
-    @schedule_threads.before_loop
-    async def before_stuff(self):
-        self.driver = await self.bot.loop.run_in_executor(None, spawn_driver)
-    
-    @schedule_threads.after_loop
-    async def after_stuff(self):
-        self.driver.quit()
-    
     def cog_unload(self):
-        self.driver.quit()
         for i in self.active_threads:
             i.task.cancel()
-    
-    @commands.command()
-    @commands.is_owner()
-    async def mtbtest(self, ctx):
-        # Via team id test
-        # team = await football.Team.by_id("newcastle", 'p6ahwuwJ')
-        # fixtures = team.fetch_fixtures(driver=self.driver, subpage="/fixtures")
-        # await ctx.reply(fixtures[0].refresh(driver=self.driver), mention_author=False)
-
-        # Via match ID test
-        f = football.Fixture.by_id("6mpl3XvE", driver=self.driver) # (Penalty Shootout game)
-        # f = football.Fixture.by_id("C6lXN3R2", driver=self.driver) # Cards
-        self.active_threads.append(MatchThread(ctx.bot,"themagpiescss", f))
 
 
 def setup(bot):
