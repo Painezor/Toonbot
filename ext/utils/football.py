@@ -1,16 +1,18 @@
-from json import JSONDecodeError
-from ext.utils import embed_utils
-from io import BytesIO
-from lxml import html
-import urllib.parse
+import asyncio
 import datetime
+import json
+import typing
+import urllib.parse
+from importlib import reload
+from io import BytesIO
+from json import JSONDecodeError
+
 import aiohttp
 import discord
-import typing
-import json
+from lxml import html
 
+from ext.utils import embed_utils
 from ext.utils import transfer_tools, image_utils, pyppeteer
-from importlib import reload
 
 reload(transfer_tools)
 reload(image_utils)
@@ -19,7 +21,9 @@ reload(pyppeteer)
 ADS = ['.//div[@class="seoAdWrapper"]', './/div[@class="banner--sticky"]', './/div[@class="box_over_content"]',
        './/div[@class="ot-sdk-container"]', './/div[@class="adsenvelope"]', './/div[@id="onetrust-consent-sdk"]',
        './/div[@id="lsid-window-mask"]', './/div[contains(@class, "isSticky")]', './/div[contains(@class, "rollbar")]',
-       './/div[contains(@id,"box-over-content")]']
+       './/div[contains(@id,"box-over-content")]', './/div[contains(@class, "adsenvelope")]',
+       './/div[contains(@class, "extraContent")]', './/div[contains(@class, "selfPromo")]',
+       './/div[contains(@class, "otPlaceholder")]']
 
 
 class MatchEvent:
@@ -29,6 +33,9 @@ class MatchEvent:
     # If this is object is empty, consider it false.
     def __bool__(self):
         return bool(self.__dict__)
+    
+    def __str__(self):
+        return str(self.__dict__)
     
     def __repr__(self):
         return f"Event({self.__dict__})"
@@ -150,11 +157,11 @@ class Fixture:
             self.time = "HT"
         if self.state == "fin":
             self.time = "FT"
-        try:
-            return f"`{self.state_colour[0]}` {self.time} {self.home_cards} {self.bold_score} {self.away_cards}"
-        except TypeError:
-            print(f"live_score_text DEBUG: "
-                  f"{self.state_colour}, {self.time}, {self.home_cards}, {self.bold_score}, {self.away_cards})")
+            
+        h_c = "`" + self.home_cards * '🟥' + "` " if self.home_cards else ""
+        a_c = " `" + self.away_cards * '🟥' + "`" if self.away_cards else ""
+    
+        return f"`{self.state_colour[0]}` {self.time} {h_c}{self.bold_score}{a_c}"
     
     # For discord.
     @property
@@ -201,18 +208,23 @@ class Fixture:
         return await pyppeteer.fetch(page, self.url, f'.//div[contains(@class, tlogo-{team})]//img', screenshot=True)
     
     async def get_table(self, page) -> BytesIO:
-        # clicks = ".//span[@class='button cookie-law-accept']"
         xp = './/div[contains(@class, "tableWrapper")]'
-        link = self.url + "#standings;table;overall"
+        link = self.url + "/#standings/table/overall"
         return await pyppeteer.fetch(page, link, xp, deletes=ADS, screenshot=True)
     
     async def get_stats(self, page) -> BytesIO:
-        xp = ".//div[@class='statBox']"
-        return await pyppeteer.fetch(page, self.url + "#match-statistics;0", xp, deletes=ADS, screenshot=True)
+        xp = ".//div[@id='detail']"
+        link = self.url + "/#match-summary/match-statistics/0"
+        return await pyppeteer.fetch(page, link, xp, deletes=ADS, screenshot=True)
     
     async def get_formation(self, page) -> BytesIO:
-        xp = './/div[@id="lineups-content"]'
-        return await pyppeteer.fetch(page, self.url + "#lineups;1", xp, deletes=ADS, screenshot=True)
+        xp = './/div[starts-with(@class, "fieldWrap")]'
+        formation = await pyppeteer.fetch(page, self.url + "/#match-summary/lineups", xp, deletes=ADS, screenshot=True)
+        xp = './/div[starts-with(@class, "lineUp")]'
+        lineup = await pyppeteer.fetch(page, self.url + "/#match-summary/lineups", xp, deletes=ADS, screenshot=True)
+        
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, image_utils.stitch_vertical, [formation, lineup])
     
     async def get_summary(self, page) -> BytesIO:
         xp = ".//div[@id='summary-content']"
@@ -220,32 +232,46 @@ class Fixture:
     
     async def head_to_head(self, page) -> typing.Dict:
         xp = ".//div[@id='tab-h2h-overall']"
-        await pyppeteer.fetch(page, self.url + "#h2h;overall", xp, deletes=ADS)
+        await pyppeteer.fetch(page, self.url + "/#h2h/overall", xp, deletes=ADS)
         tree = html.fromstring(await page.content())
-        tables = tree.xpath('.//div[@id="tab-h2h-overall"]//table')
         games = {}
-        for i in tables:
-            header = "".join(i.xpath('.//thead//text()')).strip().title()
-            fixtures = i.xpath('.//tbody//tr')
+        for i in tree.xpath('.//div[starts-with(@class, "h2h")]//div[starts-with(@class, "section")]'):
+            header = "".join(i.xpath('.//div[starts-with(@class, "title")]//text()')).strip().title()
+            
+            fixtures = i.xpath('.//div[starts-with(@class, "row_")]')
             fx_list = []
+            
             for game in fixtures[:5]:  # Last 5 only.
-                game_id = game.xpath('.//@onclick')[0].split('(')[-1].split(',')[0].strip('\'').split('_')[-1]
-                url = "http://www.flashscore.com/match/" + game_id
-                home, away = game.xpath('.//td[contains(@class, "name")]//text()')
-                time = game.xpath('.//span[@class="date"]/text()')[0]
-                score_home, score_away = game.xpath('.//span[@class="score"]//text()')[0].split(':')
-                country_league = game.xpath('.//td[2]/@title')[0]
-                country, league = country_league.split('(')
-                league = league.strip(')')
-                fx = Fixture(home=home, away=away, time=time, score_home=int(score_home), score_away=int(score_away),
-                             country=country, league=league, url=url)
+                try:
+                    game_id = game.xpath('.//@onclick')[0].split('(')[-1].split(',')[0].strip('\'').split('_')[-1]
+                    url = "http://www.flashscore.com/match/" + game_id
+                except IndexError:
+                    url = None
+                    
+                home = "".join(game.xpath('.//span[starts-with(@class, "homeParticipant")]/text()')).strip().title()
+                away = "".join(game.xpath('.//span[starts-with(@class, "awayParticipant")]/text()')).strip().title()
+                time = game.xpath('.//span[starts-with(@class, "date")]/text()')[0]
+                score_home, score_away = game.xpath('.//span[starts-with(@class, "regularTime")]//text()')[0].split(':')
+                
+                score_home, score_away = int(score_home.strip()), int(score_away.strip())
+                
+                fx = Fixture(home=home, away=away, time=time, score_home=score_home, score_away=score_away, url=url)
+                print(fx)
+                
                 fx_list.append(fx)
             games.update({header: fx_list})
+        
         return games
     
-    async def refresh(self, page, for_discord=False):  # This is a very intensive, full lookup
+    async def refresh(self, page, for_discord=True):  # This is a very intensive, full lookup
         xp = ".//div[@id='utime']"
-        await pyppeteer.fetch(page, self.url, xp)
+        
+        for i in range(3):
+            try:
+                await pyppeteer.fetch(page, self.url, xp)
+            except Exception as err:
+                print(f'Retry ({i}) Error refreshing fixture {self.home} v {self.away}: {type(err)}')
+        
         tree = html.fromstring(await page.content())
         
         # Some of these will only need updating once per match
@@ -277,83 +303,112 @@ class Fixture:
             self.comp_link = comp_link
         
         if not for_discord:
-            scores = tree.xpath('.//div[@class="current-result"]//span[@class="scoreboard"]/text()')
+            scores = tree.xpath('.//div[start-with(@class, "score")]//span//text()')
             self.score_home = int(scores[0])
             self.score_away = int(scores[1])
             self.formation = await self.get_formation(page)
             self.table = await self.get_table(page)
         
-        event_rows = tree.xpath('.//div[@class="detailMS"]/div')
+        event_rows = tree.xpath('.//div[starts-with(@class, "verticalSections")]/div')
         events = []
+        pens = False
+        
         for i in event_rows:
-            if "Header" in i.attrib['class']:
+            event_class = i.attrib['class']
+            event = MatchEvent()
+            
+            # Detection for penalty mode, discard headers.
+            if "Header" in event_class:
                 parts = [x.strip() for x in i.xpath('.//text()')]
                 if "Penalties" in parts:
                     self.penalties_home = parts[1]
                     self.penalties_away = parts[3]
+                    pens = True
+                continue
+            
+            # Detection of Teams
+            if "home" in event_class:
+                event.team = self.home
+            elif "away" in event_class:
+                event.team = self.away
+            elif "empty" in event_class:
+                continue  # No events in half signifier.
             else:
-                event = MatchEvent()
-                team = i.attrib['class']
+                print('no team detected within event_class', event_class)
                 
-                for node in i.xpath("./*"):
-                    node_type = node.attrib['class']
-                    try:
-                        description = node.attrib['title']
-                        event.description = description.replace('<br />', ' ')
-                    except KeyError:
-                        pass
-                    
-                    # Check if events actually exist
-                    if "empty" in node_type:
-                        event.type = "No events in half"
-                        continue
-                    
-                    event.team = self.home if "home" in team else self.away
-                    
-                    # Time box
-                    if "time-box" in node_type:
-                        time = "".join(node.xpath('.//text()')).strip()
-                        event.time = time
-                    
-                    # Event types: Disciplinary
-                    elif "y-card" in node_type:
-                        event.type = "booking"
-                    elif "yr-card" in node_type:
-                        event.type = "2yellow"
-                    elif "r-card" in node_type:
-                        event.type = "dismissal"
-                    # Event types: Scoring
-                    elif "penalty-missed" in node_type:
-                        event.type = "Penalty miss"
-                    elif "soccer-ball" in node_type:
-                        event.type = "goal"
-                    # Event type: Video Assistant Referee Review
-                    elif "var" in node_type:
-                        event.type = "VAR"
-                        event.note = "".join(node.xpath('.//text()')).strip('()')
-                    # Event type: Substitution
-                    elif node_type == "icon-box substitution-in":
-                        event.type = "substitution"
-                    elif node_type == "substitution-in-name":
-                        event.player_on = ''.join(node.xpath('.//a/text()')).strip()
-                    elif node_type == "substitution-out-name":
-                        event.player_off = ''.join(node.xpath('.//a/text()')).strip()
-                    
-                    # Player info
-                    elif "participant-name" in node_type:
-                        event.player = ''.join(node.xpath('.//text()')).strip()
-                    elif "assist" in node_type:
-                        event.assist = "".join(node.xpath('.//text()')).strip('()')
-                    
-                    # Event notes
-                    elif any(x in node_type for x in ["subincident-name", "note-name"]):
-                        event.note = "".join(node.xpath('.//text()')).strip('()')
-                    
-                    else:
-                        print('Error in match', self.home, "vs", self.away, self.url)
-                        print("unhandled node", node_type, team)
-                if event:
-                    events.append(event)
+            e_n = i.xpath('./div[starts-with(@class, "incident_")]')[0]  # event_node
+            
+            event.time = "".join(e_n.xpath('.//div[starts-with(@class, "timeBox")]//text()')).strip()
+            icon = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg/@class')).strip()
+            event_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]/div/@title')).strip()
+            if event_desc:
+                event_desc = event_desc.replace('<br />', ' ')
+                event.full_description = event_desc
+            icon_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg//text()')).strip()
+            
+            if "goal" in icon.lower():
+                if "own" in icon.lower():
+                    event.type = "Own Goal"
+                else:
+                    event.type = "PSO: Scored" if pens else "Goal"
+                    if "Penalty" in icon_desc:
+                        event.note = "(p)"
+                        
+            elif icon.startswith("penaltyMissed"):
+                event.type = "PSO: Missed" if pens else "Penalty MIss"
+            
+            elif "arrowUp" in icon:
+                event.type = "Substitution"
+                sub_off = "".join(e_n.xpath('./div[starts-with(@class, "incidentSubOut")]/a/text()')).strip()
+                if sub_off:
+                    event.player_off = sub_off
+            elif icon.startswith("redYellow"):
+                event.type = "Second Yellow"
+                if icon_desc:
+                    event.note = icon_desc
+                
+            elif icon.startswith("redCard"):
+                event.type = "Dismissal"
+                if icon_desc:
+                    event.note = icon_desc
+
+            elif icon.startswith("yellowCard"):
+                event.type = "Booking"
+                if icon_desc:
+                    event.note = icon_desc
+            
+            elif icon.startswith("var"):
+                event.type = "VAR"
+                if icon_desc:
+                    event.note = icon_desc
+                else:
+                    maybe_note = "".join(e_n.xpath('./div/div/text()')).strip()
+                    if maybe_note:
+                        event.note = maybe_note
+            
+            else:
+                if icon.startswith("card"):
+                    if icon_desc == "Red Card":
+                        event.type = "Dismissal"
+                else:
+                    print(self.url)
+                    print('Undeclared event type for', icon)
+            
+            # Data not always present.
+            player = "".join(e_n.xpath('.//a[starts-with(@class, "playerName")]/div/text()')).strip()
+            event.player = player
+                
+            assist = "".join(e_n.xpath('.//div[starts-with(@class, "assist")]/a/text()'))
+            if assist:
+                event.assist = assist
+            
+            try:
+                description = e_n.attrib['title']
+                event.description = description.replace('<br />', ' ')
+            except KeyError:
+                pass
+            
+                events.append(event)
         self.events = events
         
         # TODO: Fetching images
@@ -367,6 +422,14 @@ class Player:
         
     def __bool__(self):
         return bool(self.__dict__)
+    
+    @property
+    def scorer_row(self):
+        g =  f"`{self.rank.rjust(3, ' ')}` {self.flag} [**{self.name}**]({self.link}) " \
+               f"**{self.goals} Goals**"
+        if self.assists > 0:
+            g += f" ({self.assists} Assists)"
+        return g
 
 
 class FlashScoreSearchResult:
@@ -495,6 +558,7 @@ class Competition(FlashScoreSearchResult):
     
     @classmethod
     async def by_link(cls, link, page):
+        
         try:
             await pyppeteer.fetch(page, link, xpath=".//div[@class='team spoiler-content']")
         except Exception as err:
@@ -527,31 +591,28 @@ class Competition(FlashScoreSearchResult):
     
     async def get_scorers(self, page) -> typing.List[Player]:
         xp = ".//div[@class='tabs__group']"
-        await pyppeteer.fetch(page, self.link + "/standings", xp)
+        clicks = ['a[href$="top_scorers"]', 'div[class^="showMore"]']
+        await pyppeteer.fetch(page, self.link + "/standings", xp, clicks=clicks, deletes=ADS,   debug=True)
+        await self.get_logo(page)
+    
         tree = html.fromstring(await page.content())
-        rows = tree.xpath('.//div[@id="table-type-10"]//div[contains(@class,"table__row")]')
+        rows = tree.xpath('.//div[contains(@class,"rows")]/div')
         
         players = []
+        
         for i in rows:
             items = i.xpath('.//text()')
             items = [i.strip() for i in items if i.strip()]
-            uri = "".join(i.xpath(".//span[@class='team_name_span']//a/@onclick")).split("'")
+            links = i.xpath(".//a/@href")
             
-            try:
-                tm_url = "http://www.flashscore.com/" + uri[3]
-            except IndexError:
-                tm_url = ""
-            try:
-                p_url = "http://www.flashscore.com/" + uri[1]
-            except IndexError:
-                p_url = ""
+            player_link, team_link = ["http://www.flashscore.com/" + i for i in links]
             
             rank, name, tm, goals, assists = items
             
             country = "".join(i.xpath('.//span[contains(@class,"flag")]/@title')).strip()
             flag = transfer_tools.get_flag(country)
-            players.append(Player(rank=rank, flag=flag, name=name, link=p_url, team=tm, team_link=tm_url,
-                                  goals=int(goals), assists=assists))
+            players.append(Player(rank=rank, flag=flag, name=name, link=player_link, team=tm, team_link=team_link,
+                                  goals=int(goals), assists=int(assists)))
         await self.get_logo(page)
         return players
 
