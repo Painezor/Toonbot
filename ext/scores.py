@@ -1,16 +1,16 @@
 # discord
-import discord
-from discord.ext import commands, tasks
-
 # Misc
 import datetime
 from collections import defaultdict
+# Utils
+from importlib import reload
 
+import discord
+from asyncpg import UniqueViolationError, ForeignKeyViolationError
+from discord.ext import commands, tasks
 # Web Scraping
 from lxml import html
 
-# Utils
-from importlib import reload
 from ext.utils import football, embed_utils
 
 # Constants.
@@ -43,6 +43,16 @@ DEFAULT_LEAGUES = [
     "SPAIN: LaLiga",
     "USA: MLS"
 ]
+
+
+WORLD_CUP_LEAGUES = [
+    "EUROPE: World Cup",
+    "ASIA: World Cup",
+    "AFRICA: World Cup",
+    "NORTH & CENTRAL AMERICA: World Cup",
+    "SOUTH AMERICA: World Cup"
+]
+
 
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
 
@@ -120,6 +130,7 @@ class Scores(commands.Cog, name="LiveScores"):
             
             if self.bot.get_channel(r['channel_id']) is None:
                 print(f"SCORES probably deleted channel: {r['channel_id']}")
+                await self.delete_channel(r['channel_id'], r['guild_id'])
                 warn_once.append(r['channel_id'])
                 continue
             
@@ -272,8 +283,8 @@ class Scores(commands.Cog, name="LiveScores"):
         date = datetime.datetime.today().date()
         country = None
         league = None
-        home_cards = ""
-        away_cards = ""
+        home_cards = 0
+        away_cards = 0
         score_home = None
         score_away = None
         url = None
@@ -339,13 +350,13 @@ class Scores(commands.Cog, name="LiveScores"):
             
             elif tag == "img":  # Red Cards
                 if "rcard" in i.attrib['class']:
-                    cards = "`" + "🟥" * int("".join([i for i in i.attrib['class'] if i.isdecimal()])) + "`"
+                    cards = int("".join([i for i in i.attrib['class'] if i.isdecimal()]))
                     if " - " in "".join(capture_group):
                         away_cards = cards
                     else:
                         home_cards = cards
                 else:
-                    print("Live scores loop / Unhandled class for ", i.home, "vs", i.away, i.attrib['class'])
+                    print(f"Live scores loop / Unhandled class for {i.home} vs {i.away} {i.attrib['class']}")
             
             elif tag == "br":
                 # End of match row.
@@ -384,29 +395,47 @@ class Scores(commands.Cog, name="LiveScores"):
                     fx.home_cards = home_cards
                     fx.away_cards = away_cards
                     
-                    if score_home > 0 and score_away > 0:
-                        if old_score_home < score_home and old_score_away < fx.score_away:
-                            if "FT" in fx.time:
-                                self.bot.disaptch("fixture_event", "FULL TIME", fx)
+                    # Dispatch scores.
+                    if old_score_home != score_home and old_score_away != fx.score_away:
+                        if fx.state == "fin":  # Check if this is a full time only result.
+                            self.bot.dispatch("fixture_event", "FULL TIME", fx)
+                        elif fx.state == "Postponed":
+                            pass
+                        # If BOTH scores have changed.
+                        elif score_home == 0 and not score_away == 0:
+                            self.bot.dispatch("fixture_event", "GOAL", fx)
+                        elif not score_home == 0 and score_away == 0:
+                            self.bot.dispatch("fixture_event", "GOAL", fx, home=False)
                         else:
-                            if old_score_home < fx.score_home:
-                                self.bot.dispatch("fixture_event", "GOAL", fx)
-                            elif old_score_home > fx.score_home:
-                                self.bot.dispatch("fixture_event", "VAR", fx)
-                            if old_score_away < fx.score_away:
-                                self.bot.dispatch("fixture_event", "GOAL", fx, home=False)
-                            elif old_score_home > fx.score_home:
-                                self.bot.dispatch("fixture_event", "VAR", fx, home=False)
+                            self.bot.dispatch('fixture_event', "GOAL", fx, home=None)
+                    else:
+                        if old_score_home < fx.score_home:
+                            self.bot.dispatch("fixture_event", "GOAL", fx)
+                        elif old_score_home > fx.score_home:
+                            self.bot.dispatch("fixture_event", "VAR", fx)
+                        elif old_score_away < fx.score_away:
+                            self.bot.dispatch("fixture_event", "GOAL", fx, home=False)
+                        elif old_score_home > fx.score_home:
+                            self.bot.dispatch("fixture_event", "VAR", fx, home=False)
+                    
+                    # Dispatch cards.
                     if old_cards_home != fx.home_cards:
-                        self.bot.dispatch("fixture_event", "RED CARD", fx)
-                    if old_cards_away != fx.away_cards:
-                        self.bot.dispatch("fixture_event", "RED CARD", fx, home=False)
+                        if old_cards_home > fx.home_cards:
+                            self.bot.dispatch("fixture_event", "VAR", fx)
+                        else:
+                            self.bot.dispatch("fixture_event", "RED CARD", fx)
+                            
+                    elif old_cards_away != fx.away_cards:
+                        if old_cards_away > fx.away_cards:
+                            self.bot.dispatch("fixture_event", "VAR", fx, home=False)
+                        else:
+                            self.bot.dispatch("fixture_event", "RED CARD", fx, home=False)
                 
                     new_games.append(fx)
                 
                 # Clear attributes
-                home_cards = ""
-                away_cards = ""
+                home_cards = 0
+                away_cards = 0
                 state = None
                 capture_group = []
         return new_games
@@ -424,34 +453,38 @@ class Scores(commands.Cog, name="LiveScores"):
 
     @ls.command(usage="[#channel-name]")
     @commands.has_permissions(manage_channels=True)
-    async def create(self, ctx, *, name=None):
+    async def create(self, ctx, *, name="live-scores"):
         """Create a live-scores channel for your server."""
-        if not ctx.guild.me.guild_permissions.manage_channels:
-            return await self.bot.reply(ctx, text='⛔ I need manage_channels permissions to make a channel, sorry.')
+
+        ow = {
+            ctx.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True,
+                                                read_message_history=True),
+            ctx.guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False,
+                                                                read_message_history=True)}
         
-        ow = {ctx.me: discord.PermissionOverwrite(read_messages=True, send_messages=True,
-                                                  manage_messages=True, read_message_history=True),
-              ctx.guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False,
-                                                                  read_message_history=True)}
         reason = f'{ctx.author} (ID: {ctx.author.id}) created a Toonbot live-scores channel.'
-        if name is None:
-            name = "live-scores"
-        
-        
         try:
             ch = await ctx.guild.create_text_channel(name=name, overwrites=ow, reason=reason)
         except discord.Forbidden:
-            return await self.bot.reply('🚫 I need manage_channels permissions to do that.')
+            ow = {
+                ctx.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, read_message_history=True),
+                ctx.guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False,
+                                                                    read_message_history=True)}
+            try:
+                ch = await ctx.guild.create_text_channel(name=name, overwrites=ow, reason=reason)
+            except discord.Forbidden:
+                return await self.bot.reply(ctx, text='⛔ I need manage_channels permissions to make a channel, sorry.')
+            else:
+                await self.bot.reply(ctx, text=f"Channel creates {ch.mention}, please give me manage_messages "
+                                               f"in that channel to purge older messages.")
         
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute(
-               """INSERT INTO scores_channels (guild_id, channel_id) VALUES ($1, $2)""", ctx.guild.id, ch.id)
-            for i in DEFAULT_LEAGUES:
-                await connection.execute(
-                   """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)""", ch.id, i)
-    
-        await self.bot.db.release(connection)
+        await self.create_channel(ch)
+        for i in DEFAULT_LEAGUES:
+            try:
+                await self.add_league(ch.id, i)
+            except ForeignKeyViolationError:
+                return await self.bot.reply(f'{ch.mention} does not appear to be a valid livescores channel.')
+
         await self.bot.reply(ctx, text=f"The {ch.mention} channel was created successfully.")
         await self.update_cache()
         await self.update_channel(ch.guild.id, ch.id)
@@ -488,15 +521,23 @@ class Scores(commands.Cog, name="LiveScores"):
         if not channel:
             return  # rip
         
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""
-                INSERT INTO scores_leagues (league,channel_id)
-                VALUES ($1,$2)
-                ON CONFLICT DO NOTHING
-               """, res, channel.id)
-        await self.bot.db.release(connection)
+        await self.add_league(channel.id, res)
         await self.bot.reply(ctx, text=f"✅ **{res}** added to the tracked leagues for {channel.mention}")
+        await self.update_cache()
+        await self.update_channel(channel.guild.id, channel.id)
+        await self.send_leagues(ctx, channel)
+        
+    @ls.command(usage="[#channel]")
+    @commands.has_permissions(manage_channels=True)
+    async def addwc(self, ctx, channels: commands.Greedy[discord.TextChannel] = None):
+        """ Temporary command: Add the qualifying tournaments for the World Cup to a livescore channel  """
+        channel = await self._pick_channels(ctx, channels)
+        if not channel:
+            return
+        
+        for league in WORLD_CUP_LEAGUES:
+            await self.add_league(channel.id, league)
+        await self.bot.reply(ctx, text=f"Added Regional World Cup Qualifiers to tracker for {channel.mention}")
         await self.update_cache()
         await self.update_channel(channel.guild.id, channel.id)
         await self.send_leagues(ctx, channel)
@@ -520,11 +561,7 @@ class Scores(commands.Cog, name="LiveScores"):
         
         target = leagues[index]
 
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM scores_leagues WHERE (league,channel_id) = ($1,$2)""",
-                                     target, channel.id)
-        await self.bot.db.release(connection)
+        await self.remove_league(channel.id, target)
         await self.bot.reply(ctx, text=f"✅ **{target}** deleted from the tracked leagues for {channel.mention}")
         await self.update_cache()
         await self.update_channel(channel.guild.id, channel.id)
@@ -538,11 +575,7 @@ class Scores(commands.Cog, name="LiveScores"):
         if not channel:
             return  # rip
         
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            async with connection.transaction():
-                await connection.execute("""DELETE FROM scores_leagues WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+        await self.remove_all_leagues(channel.id)
 
         await self.bot.reply(ctx, text=f"✅ {channel.mention} leagues cleared.")
         await self.update_cache()
@@ -557,48 +590,87 @@ class Scores(commands.Cog, name="LiveScores"):
         if not channel:
             return  # rip
         
-        whitelist = self.cache[(ctx.guild.id, channel.id)]
-        if whitelist == DEFAULT_LEAGUES:
-            return await self.bot.reply(ctx, text=f"⚠ {channel.mention} is already using the default leagues.")
-        
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM scores_leagues WHERE channel_id = $1""", channel.id)
-            for i in DEFAULT_LEAGUES:
-                await connection.execute("""INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)""",
-                                         channel.id, i)
-        await self.bot.db.release(connection)
+        await self.remove_all_leagues(channel.id)
+        for i in DEFAULT_LEAGUES:
+            await self.add_league(channel.id, i)
+
         await self.bot.reply(ctx, text=f"✅ {channel.mention} had it's tracked leagues reset to the defaults.")
         await self.update_cache()
         await self.update_channel(channel.guild.id, channel.id)
         await self.send_leagues(ctx, channel)
     
+    # Common DB methods
+    async def add_league(self, channel_id: int, league):
+        sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                await connection.execute(sql, channel_id, league)
+        except ForeignKeyViolationError as err:
+            raise err
+        finally:
+            await self.bot.db.release(connection)
+        
+    async def remove_league(self, channel_id: int, league):
+        c = await self.bot.db.acquire()
+        async with c.transaction():
+            await c.execute("""DELETE FROM scores_leagues WHERE (league,channel_id) = ($1,$2)""", league, channel_id)
+        await self.bot.db.release(c)
+        
+    async def remove_all_leagues(self, channel_id: int):
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute("""DELETE FROM scores_leagues WHERE channel_id = $1""", channel_id)
+        await self.bot.db.release(connection)
+        
+    async def create_channel(self, ch: discord.TextChannel):
+        gid = ch.guild.id
+        c = await self.bot.db.acquire()
+        try:
+            async with c.transaction():
+                await c.execute("""INSERT INTO scores_channels (guild_id, channel_id) VALUES ($1, $2)""", gid, ch.id)
+        except UniqueViolationError:
+            raise UniqueViolationError
+        finally:
+            await self.bot.db.release(c)
+    
+    # Purge either guild or channel from DB.
+    async def delete_channel(self, id_number: int, guild: bool = False):
+        if guild:
+            sql = """DELETE FROM scores_channels WHERE guild_id = $1"""
+        else:
+            sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
+            
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute(sql, id_number)
+        await self.bot.db.release(connection)
+    
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM scores_channels WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+        await self.delete_channel(channel.id)
         await self.update_cache()
     
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM scores_channels WHERE guild_id = $1""", guild.id)
-        await self.bot.db.release(connection)
+        await self.delete_channel(guild.id, guild=True)
         await self.update_cache()
-
+        
+    @ls.command()
+    @commands.is_owner()
+    async def refresh(self, ctx):
+        """ ADMIN: Force a cache refresh of the livescores """
+        self.bot.games = []
+        await self.bot.reply(ctx, "ADMIN: Cleared global games cache.")
+    
     @ls.command(usage="<channel_id>", hidden=True)
     @commands.is_owner()
     async def admin(self, ctx, channel_id: int):
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM scores_channels WHERE channel_id = $1""", channel_id)
-        await self.bot.db.release(connection)
-        await self.update_cache()
+        """ ADMIN: Delete a Livescore channel manually from DB"""
+        await self.delete_channel(channel_id)
         await self.bot.reply(ctx, text=f"✅ **{channel_id}** was deleted from the scores_channels table")
+        await self.update_cache()
 
 
 def setup(bot):
