@@ -1,10 +1,11 @@
-from discord.ext import commands
-import discord
-from lxml import html
-from ext.utils import transfer_tools, embed_utils
-
-from importlib import reload
 from copy import deepcopy
+from importlib import reload
+
+import discord
+from discord.ext import commands
+from lxml import html
+
+from ext.utils import transfer_tools, embed_utils
 
 
 class Lookups(commands.Cog):
@@ -53,6 +54,9 @@ class Lookups(commands.Cog):
             return None
         
         index = await embed_utils.page_selector(ctx, item_list=[i[0] for i in results])
+        if index is None:
+            return # rip
+        
         await ctx.invoke(results[index][1], qry=query)
 
     @lookup.command(name="player")
@@ -100,7 +104,10 @@ class Lookups(commands.Cog):
         if team is None:
             return  # rip
         
-        inbound, outbound, source_url = await team.get_transfers(ctx)
+        try:
+            inbound, outbound, source_url = await team.get_transfers(ctx)
+        except TypeError:
+            return await self.bot.reply(ctx, 'Invalid team selected or no transfers found on page.')
 
         base_embed = await team.base_embed
         base_embed.url = source_url
@@ -122,11 +129,22 @@ class Lookups(commands.Cog):
         await embed_utils.paginate(ctx, embeds)
             
     @commands.command(name="rumours", aliases=["rumors"])
-    @commands.is_owner()
     async def _rumours(self, ctx, *, qry: commands.clean_content):
         """Get the latest transfer rumours for a team"""
-        await transfer_tools.search(ctx, qry, "Rumours", special=True)
+        res = await transfer_tools.search(ctx, qry, "teams", special=True)
+        if res is None:
+            return
+        
+        await transfer_tools.get_rumours(ctx, res)
 
+    @commands.command()
+    async def contracts(self, ctx, *, qry:commands.clean_content):
+        """Get a team's expiring contracts"""
+        res = await transfer_tools.search(ctx, qry, "teams", special=True)
+        if res is None:
+            return
+        
+        await transfer_tools.get_contracts(ctx, res)
 
 def setup(bot):
     bot.add_cog(Lookups(bot))
