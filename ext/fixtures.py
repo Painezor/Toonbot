@@ -1,18 +1,16 @@
-from collections import defaultdict
-from copy import deepcopy
 import datetime
 import typing
+from collections import defaultdict
+from copy import deepcopy
+from importlib import reload
 
+import discord
 # D.py
 import pyppeteer
 from discord.ext import commands
-import discord
 
 # Custom Utils
 from ext.utils import transfer_tools, football, embed_utils
-from importlib import reload
-
-# Allowed mention override
 
 
 class Fixtures(commands.Cog):
@@ -62,12 +60,17 @@ class Fixtures(commands.Cog):
         else:  # All if no mode
             item_list = [i.title for i in search_results]
         
+        if not item_list:
+            await self.bot.reply(ctx, text=f"No matching {mode} found for query {qry}")
+            return None
+        
         e = discord.Embed()
         e.colour = discord.Colour.dark_green()
         e.title = "Flashscore Search: Multiple results found"
         e.set_thumbnail(url=ctx.me.avatar_url)
         
         index = await embed_utils.page_selector(ctx, item_list, e, preserve_footer=False)
+        
         if index == "cancelled":
             await self.bot.reply(ctx, text="Lookup cancelled.")
             return None
@@ -335,7 +338,7 @@ class Fixtures(commands.Cog):
             return
         
         if fsr is None:
-            fsr = await self._search(ctx, qry)
+            fsr = await self._search(ctx, qry, mode="team")
         
         if fsr is None:
             return
@@ -356,8 +359,15 @@ class Fixtures(commands.Cog):
             fsr = choices[index]
         
         page = await self.bot.browser.newPage()
-        h2h = await fsr.head_to_head(page)
-        await page.close()
+        try:
+            h2h = await fsr.head_to_head(page)
+        except IndexError as e:
+            print(e)
+            return await self.bot.reply(ctx, 'No Head to head data found.')
+        finally:
+            await page.close()
+        
+        e = await fsr.base_embed
         
         e.title = f"Head to Head data for {fsr.home} vs {fsr.away}"
         
@@ -415,25 +425,30 @@ class Fixtures(commands.Cog):
         fsr = await self._search(ctx, qry)
         if fsr is None:
             return
-        
-        embed = await fsr.base_embed
-        
+            
         if isinstance(fsr, football.Competition):
             page = await self.bot.browser.newPage()
-            sc = await fsr.get_scorers(page)
-            await page.close()
-            
-            players = [f"{i.flag} [{i.name}]({i.link}) ({i.team}) {i.goals} Goals, {i.assists} Assists" for i in sc]
+            try:
+                sc = await fsr.get_scorers(page)
+            except Exception as e:
+                raise e
+            finally:
+                await page.close()
+
+            embed = await fsr.base_embed
+            players = [i.scorer_row for i in sc]
             embed.title = f"≡ Top Scorers for {embed.title}" if embed.title else "≡ Top Scorers "
         else:
             page = await self.bot.browser.newPage()
             choices = await fsr.get_competitions(page)
             await page.close()
-            
+
+            embed = await fsr.base_embed
             embed.set_author(name="Pick a competition")
             index = await embed_utils.page_selector(ctx, choices, deepcopy(embed))
             if index is None or index == "cancelled":
                 return  # rip
+            
             page = await self.bot.browser.newPage()
             players = await fsr.get_players(page, index)
             await page.close()
@@ -539,7 +554,7 @@ class Fixtures(commands.Cog):
                  ON CONFLICT (guild_id) DO UPDATE SET default_team = $2 WHERE excluded.guild_id = $1
            """, ctx.guild.id, url)
         await self.bot.db.release(connection)
-        await self.bot.reply(ctx, text=f'Your Fixtures commands will now use {fsr.title} as a default team')
+        await self.bot.reply(ctx, text=f'Your Fixtures commands will now use {fsr.name} as a default team')
     
     @team.command(name="reset", aliases=["none"])
     @commands.has_permissions(manage_guild=True)
@@ -584,6 +599,14 @@ class Fixtures(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.bot.reply(ctx, text='Your commands will no longer use a default league.')
+
+    @commands.command()
+    @commands.is_owner()
+    async def kill_browser(self, ctx):
+        """ Restart browser when you potato. """
+        await self.bot.browser.close()
+        await self.bot.reply(ctx, "Browser closed.")
+        await self.make_browser()
 
 
 def setup(bot):
