@@ -1,13 +1,14 @@
+import json
 import os
+import random
+import textwrap
 import typing
+from io import BytesIO
+
+import discord
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord.ext import commands
 from discord.ext.commands.cooldowns import BucketType
-import textwrap
-import discord
-import random
-import json
-from io import BytesIO
 
 from ext.utils import embed_utils
 
@@ -17,6 +18,8 @@ targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "dark
            "StatsBloke", "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend",
            "Xairen", "Yuzral"]
 
+KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_TV_%28Hungary%29.svg" \
+            "/48px-18_icon_TV_%28Hungary%29.svg.png"
 
 def make_bauble(img):
     # Open Avatar file.
@@ -76,7 +79,7 @@ def draw_tinder(image, av, name):
 
 
 def draw_bob(image, response):
-   """Pillow Bob Rossifying"""
+    """Pillow Bob Rossifying"""
     im = Image.open(BytesIO(image)).convert(mode="RGBA")
     bob = Image.open("Images/rossface.png")
     for coords in response:
@@ -121,7 +124,7 @@ def draw_knob(image, response):
 
 
 def draw_eyes(image, response):
-   """Draws the eyes"""
+    """Draws the eyes"""
     im = Image.open(BytesIO(image))
     for i in response:
         # Get eye bounds
@@ -166,7 +169,7 @@ def draw_eyes(image, response):
 
 
 def draw_tard(image, quote):
-   """Draws the "it's retarded" image"""
+    """Draws the "it's retarded" image"""
     # Open Files
     im = Image.open(BytesIO(image))
     base = Image.open("Images/retardedbase.png")
@@ -214,12 +217,11 @@ def draw_tard(image, quote):
     output = BytesIO()
     base.save(output, "PNG")
     output.seek(0)
-    df = discord.File(output, filename="retarded.png")
-    return df
+    return output
 
 
 def ruin(image):
-   """Generates the Image"""
+    """Generates the Image"""
     im = Image.open(BytesIO(image))
     base = Image.open("Images/localman.png")
     ops = ImageOps.fit(im, (256, 256))
@@ -227,13 +229,11 @@ def ruin(image):
     output = BytesIO()
     base.save(output, "PNG")
     output.seek(0)
-    # output
-    df = discord.File(output, filename="retarded.png")
-    return df
+    return output
 
 
 async def get_faces(ctx, target):
-   """Retrieve face features from Project Oxford"""
+    """Retrieve face features from Project Oxford"""
     if isinstance(target, discord.Member):
         target = str(target.avatar_url_as(format="png"))
     elif target is None:
@@ -262,6 +262,7 @@ async def get_faces(ctx, target):
         if resp.status != 200:
             if resp.status == 400:
                 await ctx.bot.reply(ctx, text=await resp.json())
+                return False, False, False
             else:
                 await ctx.bot.reply(ctx, f"HTTP Error {resp.status} accessing facial recognition API.")
             return None, None, None
@@ -279,7 +280,7 @@ async def get_faces(ctx, target):
 
 
 class Images(commands.Cog):
-   """Image manipulation commands"""
+    """Image manipulation commands"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -322,22 +323,27 @@ class Images(commands.Cog):
     @commands.command(aliases=["bob", "ross"], usage='<@user, link to image, or upload a file>')
     async def bobross(self, ctx, *, target: typing.Union[discord.Member, str] = None):
         """Bob Rossify"""
-        with ctx.typing():
-            image, response, target = await get_faces(ctx, target)
-            
-            if response is None:
-                return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
-            
-            image = await self.bot.loop.run_in_executor(None, draw_bob, image, response)
-            icon = "https://cdn4.vectorstock.com/i/thumb-large/79/33/painting-icon-image-vector-14647933.jpg"
-            
-            base_embed = discord.Embed()
-            base_embed.colour = 0xb4b2a7  # titanium h-white
-            base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
-            base_embed.description = ctx.author.mention
-            base_embed.add_field(name="Source", value=target)
-            await embed_utils.embed_image(ctx, base_embed, image, filename="bobross.png")
-            
+        if target is None:
+            try:
+                target = ctx.message.attachments[0]
+            except IndexError:
+                return await self.bot.reply(ctx, '🚫 Provide an image, link, or user.')
+        
+        image, response, target = await get_faces(ctx, target)
+        
+        if response is None or response is False:
+            return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
+        
+        image = await self.bot.loop.run_in_executor(None, draw_bob, image, response)
+        icon = "https://cdn4.vectorstock.com/i/thumb-large/79/33/painting-icon-image-vector-14647933.jpg"
+        
+        base_embed = discord.Embed()
+        base_embed.colour = 0xb4b2a7  # titanium h-white
+        base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
+        base_embed.description = ctx.author.mention
+        base_embed.add_field(name="Source", value=target)
+        await embed_utils.embed_image(ctx, base_embed, image, filename="bobross.png")
+        
     @commands.is_nsfw()
     @commands.command(usage='<@user, link to image, or upload a file>')
     # TODO: Open mouth.
@@ -345,16 +351,14 @@ class Images(commands.Cog):
         """Draw knobs in mouth on an image. Mention a user to use their avatar. Only works for human faces."""
         image, response, target = await get_faces(ctx, target)
         
-        if response is None:
+        if response is None or response is False:
             return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
         
         image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
-        icon = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/" \
-               "18_icon_TV_%28Hungary%29.svg/48px-18_icon_TV_%28Hungary%29.svg.png"
         
         base_embed = discord.Embed()
         base_embed.colour = 0xff66cc
-        base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
+        base_embed.set_author(name=ctx.invoked_with, icon_url=KNOB_ICON)
         base_embed.description = ctx.author.mention
         base_embed.add_field(name="Source", value=target)
         await embed_utils.embed_image(ctx, base_embed, image, filename="Knob.png")
@@ -362,45 +366,42 @@ class Images(commands.Cog):
     @commands.command(usage='<@user, link to image, or upload a file>')
     async def eyes(self, ctx, *, target: typing.Union[discord.Member, str] = None):
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
-        with ctx.typing():
-            image, response, target = await get_faces(ctx, target)
-            
-            if response is None:
-                return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
-            
-            image = await self.bot.loop.run_in_executor(None, draw_eyes, image, response)
-            icon = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/microsoft/209/eyes_1f440.png"
-            
-            base_embed = discord.Embed()
-            base_embed.colour = 0xFFFFFF
-            base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
-            base_embed.description = ctx.author.mention
-            base_embed.add_field(name="Source", value=target)
-            await embed_utils.embed_image(ctx, base_embed, image, filename="eyes.png")
+        image, response, target = await get_faces(ctx, target)
+        
+        if response is None:
+            return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
+        elif response is False:
+            return
+        
+        image = await self.bot.loop.run_in_executor(None, draw_eyes, image, response)
+        icon = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/microsoft/209/eyes_1f440.png"
+        
+        base_embed = discord.Embed()
+        base_embed.colour = 0xFFFFFF
+        base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
+        base_embed.description = ctx.author.mention
+        base_embed.add_field(name="Source", value=target)
+        await embed_utils.embed_image(ctx, base_embed, image, filename="eyes.png")
 
-    @commands.command(usage='<@user> <quote>')
+    @commands.command(usage='<@user> <quote>', hidden=True)
     async def tard(self, ctx, target: discord.Member, *, quote):
         """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
-        with ctx.typing():
-            if target.id == 210582977493598208:
-                target = ctx.author
-                quote = "I think I'm smarter than Painezor"
-            async with self.bot.session.get(str(target.avatar_url_as(format="png", size=1024))) as resp:
-                if resp.status != 200:
-                    return await self.bot.reply(ctx, text=f"Error retrieving avatar for target {target} {resp.status}")
-                
-                image = await resp.content.read()
-            df = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
+        if target.id == 210582977493598208:
+            target = ctx.author
+            quote = "I think I'm smarter than Painezor"
+        async with self.bot.session.get(str(target.avatar_url_as(format="png", size=1024))) as resp:
+            if resp.status != 200:
+                return await self.bot.reply(ctx, text=f"Error retrieving avatar for target {target} {resp.status}")
             
-            base_embed = discord.Embed()
-            base_embed.colour = discord.Colour.blue()
-            base_embed.set_author(name=ctx.invoked_with)
-            base_embed.description = ctx.author.mention
-            base_embed.add_field(name="Source", value=target)
-            await embed_utils.embed_image(ctx, base_embed, df, filename="tard.png")
+            image = await resp.content.read()
+        image = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
+        
+        base_embed = discord.Embed()
+        base_embed.colour = discord.Colour.blue()
+        base_embed.set_author(name=ctx.invoked_with)
+        base_embed.description = ctx.author.mention
+        await embed_utils.embed_image(ctx, base_embed, image, filename="tard.png")
             
-            await self.bot.reply(ctx, file=df)
-    
     @tard.error
     async def tard_error(self, ctx, exc):
         if isinstance(exc, commands.BadArgument):
@@ -408,18 +409,24 @@ class Images(commands.Cog):
                                         mention_author=True)
 
     @commands.command(aliases=["localman", "local", "ruin"], usage="[@member or leave blank to use yourself.]")
-    async def ruins(self, ctx, *, user: discord.User = None):
+    async def ruins(self, ctx, *, target: discord.Member = None):
         """Local man ruins everything"""
         with ctx.typing():
-            if user is None:
-                user = ctx.author
-            av = str(user.avatar_url_as(format="png", size=256))
+            if target is None:
+                target = ctx.author
+            av = str(target.avatar_url_as(format="png", size=256))
+            
             async with self.bot.session.get(av) as resp:
                 if resp.status != 200:
-                    await self.bot.reply(ctx, text=f"{resp.status} Error getting {user}'s avatar")
+                    return await self.bot.reply(ctx, text=f"{resp.status} Error getting {target}'s avatar")
                 image = await resp.content.read()
-            df = await self.bot.loop.run_in_executor(None, ruin, image)
-            await self.bot.reply(ctx, file=df)
+            image = await self.bot.loop.run_in_executor(None, ruin, image)
+            
+            base_embed = discord.Embed()
+            base_embed.colour = discord.Colour.blue()
+            base_embed.set_author(name=ctx.invoked_with)
+            base_embed.description = ctx.author.mention
+            await embed_utils.embed_image(ctx, base_embed, image, filename="tard.png")
 
     @commands.command(hidden=True)
     async def butter(self, ctx):
@@ -451,8 +458,8 @@ class Images(commands.Cog):
         """Party on Garth"""
         await self.bot.reply(ctx, file=discord.File('Images/goala.gif'))
         
-    @commands.command(usage="<an emoji>")
-    async def emoji(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji]):
+    @commands.command(usage="<an emoji>", aliases=['emoji'])
+    async def emote(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji]):
         """View a bigger version of an Emoji"""
         e = discord.Embed()
         e.title = emoji.name
