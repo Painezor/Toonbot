@@ -1,14 +1,16 @@
 from io import BytesIO
+
 from PIL import Image
 
 
-async def fetch(page, url, xpath, clicks=None, deletes=None, screenshot=False):
+async def fetch(page, url, xpath, clicks=None, deletes=None, screenshot=False, debug=False):
     deletes = [] if deletes is None else deletes
     clicks = [] if clicks is None else clicks
     
     assert url.startswith("http"), f"{url} does not appear to be a valid url."
+    await page.goto(url)  # DEBUG, old code: (url, {'waitUntil': 'networkidle0'})
     
-    await page.goto(url, {'waitUntil': 'networkidle0'})
+    src = await page.content()
     
     for x in deletes:
         elements = await page.xpath(x)
@@ -16,16 +18,25 @@ async def fetch(page, url, xpath, clicks=None, deletes=None, screenshot=False):
             await page.evaluate("""(element) => element.parentNode.removeChild(element)""", element)
     
     for x in clicks:
-        elements = await page.xpath(x)
-        for target in elements:
-            await page.click(target)
+        element = await page.querySelector(x)
+        if element is not None:
+            await element.click()
+    
+    # Debug
+    if debug:
+        im = Image.open(BytesIO(await page.screenshot()))
+        output = BytesIO()
+        im.save(output, 'PNG')
+        im.close()
+        output.seek(0)
+        return output
     
     if screenshot:
+        await page.setViewport({"width": 1900, "height": 1100})
         element = await page.xpath(xpath)
         try:
             element = element[0]
         except IndexError:
-            print(f"Pypeteer - screenshot - Did not find '{xpath} on {url}, using fallback.")
             raw_screenshot = await page.screenshot()
         else:
             raw_screenshot = await element.screenshot()
@@ -37,3 +48,5 @@ async def fetch(page, url, xpath, clicks=None, deletes=None, screenshot=False):
         output.seek(0)
         
         return output
+    else:
+        return src
