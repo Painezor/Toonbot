@@ -1,15 +1,18 @@
 import asyncio
-from collections import defaultdict
 import datetime
 import typing
+from collections import defaultdict
+
+import discord
+from discord.ext import commands
 
 from ext.utils import embed_utils
-from ext.utils.timed_events import parse_time, spool_reminder
 from ext.utils.embed_utils import paginate
-from discord.ext import commands
-import discord
+from ext.utils.timed_events import parse_time, spool_reminder
+
 
 # TODO: Find a way to use a custom converter for temp mute/ban and merge into main command.
+
 
 async def get_prefix(bot, message):
     if message.guild is None:
@@ -20,6 +23,7 @@ async def get_prefix(bot, message):
         pref = [".tb "]
     return commands.when_mentioned_or(*pref)(bot, message)
 
+
 class Mod(commands.Cog):
     """Guild Moderation Commands"""
     
@@ -29,6 +33,7 @@ class Mod(commands.Cog):
         self.bot.prefix_cache = defaultdict(list)
         self.bot.loop.create_task(self.update_prefixes())
         self.bot.command_prefix = get_prefix
+        self.bot.loop.create_task(self.verify_guilds())
         if not hasattr(self.bot, "lockdown_cache"):
             self.bot.lockdown_cache = {}
     
@@ -50,23 +55,63 @@ class Mod(commands.Cog):
     
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
-        connection = await self.bot.db.acquire()
-        await connection.execute("""
-        with gid as (INSERT INTO guild_settings (guild_id) VALUES ($1) RETURNING guild_id)
-        INSERT INTO prefixes (prefix, guild_id)
-        VALUES ( $2, (SELECT guild_id FROM gid));
-        """, guild.id,  '.tb ')
-        await self.bot.db.release(connection)
+        await self.create_guild(guild.id)
         await self.update_prefixes()
 
+    @commands.Cog.listener()
+    async def on_guild_remove(self, guild):
+        await self.delete_guild(guild.id)
+        await self.update_prefixes()
+    
+    async def create_guild(self, guild_id):
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                await connection.execute("""
+                with gid as (INSERT INTO guild_settings (guild_id) VALUES ($1) RETURNING guild_id)
+                INSERT INTO prefixes (prefix, guild_id)
+                VALUES ( $2, (SELECT guild_id FROM gid));
+                """, guild_id,  '.tb ')
+        except Exception as e:
+            raise e
+        finally:
+            await self.bot.db.release(connection)
+            
+    async def delete_guild(self, guild_id):
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild_id)
+        except Exception as e:
+            raise e
+        finally:
+            await self.bot.db.release(connection)
+    
+    async def verify_guilds(self):
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            records = await connection.fetch("""SELECT * FROM guild_settings""")
+        await self.bot.db.release(connection)
+        
+        for r in records:
+            guild_id = r['guild_id']
+            if self.bot.get_guild(guild_id) is None:
+                print(f'Mod: DB entry exists for guild_settings // guild_id: {guild_id} but guild not found!')
+                await self.delete_guild(guild_id)
+                print('Purged successfully!')
+    
     async def update_prefixes(self):
         self.bot.prefix_cache.clear()
         connection = await self.bot.db.acquire()
-        records = await connection.fetch("""SELECT * FROM prefixes""")
+        async with connection.transaction():
+            records = await connection.fetch("""SELECT * FROM prefixes""")
         await self.bot.db.release(connection)
         
         for r in records:
             guild_id = r["guild_id"]
+            if self.bot.get_guild(guild_id) is None:
+                continue
+            
             prefix = r["prefix"]
             self.bot.prefix_cache[guild_id].append(prefix)
         
@@ -76,6 +121,12 @@ class Mod(commands.Cog):
                 if pref_list[i].endswith(' '):
                     pref_list = [pref_list[i]] + pref_list[:i] + pref_list[i + 1:]
             self.bot.prefix_cache[guild] = pref_list
+            
+        for g in self.bot.guilds:
+            if g.id not in self.bot.prefix_cache:
+                print(f'Mod: WARNING: guild_id {g.id} not found in DB!')
+                await self.create_guild(g.id)
+                print(f'Mod: Guild {g.id} was added to db via update_prefixes.')
             
     async def update_cache(self):
         self.bot.disabled_cache = defaultdict(list)
@@ -249,9 +300,9 @@ class Mod(commands.Cog):
     async def unban(self, ctx, *, who):
         """Unbans a user from the server"""
         # Try to get by user_id.
-        user = discord.Object(who)
-        await ctx.guild.unban(user)
         if who.isdecimal():
+            user = discord.Object(who)
+            await ctx.guild.unban(user)
             try:
                 await self.bot.http.unban(who, ctx.guild.id)
             except discord.Forbidden:
@@ -310,7 +361,7 @@ class Mod(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @commands.bot_has_permissions(manage_channels=True)
     async def block(self, ctx, channel: typing.Optional[discord.TextChannel], members: commands.Greedy[discord.Member]):
-        """Block a user from seeing or talking in this channel """
+        """Block a user from seeing or talking in this channel"""
         if channel is None:
             channel = ctx.channel
 
@@ -324,6 +375,7 @@ class Mod(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @commands.bot_has_permissions(manage_channels=True)
     async def unblock(self, ctx, channel:typing.Optional[discord.TextChannel], members:commands.Greedy[discord.Member]):
+        """Unblock a user from seeing or talking in this channel"""
         if channel is None:
             channel = ctx.channel
             
@@ -333,7 +385,7 @@ class Mod(commands.Cog):
         await self.bot.reply(ctx, text=f'Unblocked {" ,".join([i.mention for i in members])} from {channel.mention}')
         
     @commands.has_permissions(manage_roles=True)
-    @commands.bot_has_permissions(manage_roles=True)
+    @commands.bot_has_permissions(manage_roles=True, manage_channels=True)
     @commands.command(usage="mute <@user1 @user2 @user3> <reason>")
     async def mute(self, ctx, members: commands.Greedy[discord.Member], *, reason="No reason given."):
         """Prevent member(s) from talking on your server."""
@@ -341,7 +393,8 @@ class Mod(commands.Cog):
         if not muted_role:
             muted_role = await ctx.guild.create_role(name="Muted")  # Read Messages / Read mesasge history.
             await muted_role.edit(position=ctx.me.top_role.position - 1)
-            m_overwrite = discord.PermissionOverwrite(add_reactions=False, send_messages=False)
+            m_overwrite = discord.PermissionOverwrite(send_messages=False)
+            
             for i in ctx.guild.text_channels:
                 await i.set_permissions(muted_role, overwrite=m_overwrite)
         
@@ -349,9 +402,7 @@ class Mod(commands.Cog):
         not_muted = []
         for i in members:
             if i.top_role >= ctx.me.top_role:
-                members.remove(i)
                 not_muted.append(i)
-                continue
             else:
                 muted.append(i)
                 await i.add_roles(muted_role, reason=f"{ctx.author}: {reason}")
@@ -583,13 +634,13 @@ class Mod(commands.Cog):
         for i in members:
             await i.add_roles(muted_role, reason=f"{ctx.author}: {reason}")
             connection = await self.bot.db.acquire()
-            record = await connection.fetchrow("""INSERT INTO reminders
-            (message_id, channel_id, guild_id, reminder_content,
-             created_time, target_time, user_id, mod_action, mod_target)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *""",
-            ctx.message.id, ctx.channel.id, ctx.guild.id, reason,
-            ctx.message.created_at, remind_at, ctx.author.id, "unmute", i.id)
+            
+            async with connection.transaction():
+                record = await connection.fetchrow("""INSERT INTO reminders (message_id, channel_id, guild_id,
+                reminder_content, created_time, target_time, user_id, mod_action, mod_target)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *""",
+                ctx.message.id, ctx.channel.id, ctx.guild.id, reason, ctx.message.created_at, remind_at, ctx.author.id,
+                                                   "unmute", i.id)
             await self.bot.db.release(connection)
             self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(ctx.bot, record)))
     
