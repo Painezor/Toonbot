@@ -1,13 +1,12 @@
-from discord.ext import commands
-import discord
-from os import system
-import inspect
-import sys
-
 # to expose to the eval command
 import datetime
+import inspect
+import sys
 from collections import Counter
+from os import system
 
+import discord
+from discord.ext import commands
 from discord.ext.commands import ExtensionNotLoaded, ExtensionNotFound
 
 from ext.utils import codeblocks, embed_utils
@@ -23,11 +22,13 @@ class Admin(commands.Cog):
 
     async def update_ignored(self):
         connection = await self.bot.db.acquire()
-        records = await connection.fetch("""SELECT * FROM ignored_users""")
+        async with connection.transaction():
+            records = await connection.fetch("""SELECT * FROM ignored_users""")
         self.bot.ignored = {}
         for r in records:
             self.bot.ignored.update({r["user_id"]: r["reason"]})
-
+        await self.bot.db.release(connection)
+    
     @commands.command()
     @commands.is_owner()
     async def setavatar(self, ctx, new_pic: str):
@@ -112,14 +113,8 @@ class Admin(commands.Cog):
 
     @commands.command()
     @commands.is_owner()
-    async def guilds(self, ctx):
-        guilds = [f"{i.id}: {i.name}" for i in self.bot.guilds]
-        embeds = embed_utils.rows_to_embeds(discord.Embed(), guilds)
-        await embed_utils.paginate(ctx, embeds)
-
-    @commands.command()
-    @commands.is_owner()
     async def commandstats(self, ctx):
+        """Counts how many commands have been ran this session."""
         e = discord.Embed()
         e.colour = discord.Colour.blurple()
         e.title = f"{sum(self.bot.commands_used.values())} commands ran this session"
@@ -153,6 +148,7 @@ class Admin(commands.Cog):
     @commands.command()
     @commands.is_owner()
     async def version(self, ctx):
+        """Get bot's python version"""
         await self.bot.reply(ctx, text=sys.version)
     
     @commands.command()
@@ -190,7 +186,7 @@ class Admin(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, *escaped)
             await self.bot.db.release(connection)
-
+    
 
 def setup(bot):
     bot.add_cog(Admin(bot))
