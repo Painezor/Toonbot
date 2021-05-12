@@ -1,11 +1,12 @@
+import asyncio
+import json
+from copy import deepcopy
+from datetime import datetime
+
+import aiohttp
+import asyncpg
 import discord
 from discord.ext import commands
-from datetime import datetime
-import aiohttp
-import asyncio
-import asyncpg
-import json
-
 from discord.ext.commands import ExtensionAlreadyLoaded
 
 with open('credentials.json') as f:
@@ -43,16 +44,25 @@ class Bot(commands.Bot):
 
     # Custom reply handler.
     async def reply(self, ctx, text=None, embed=None, file=None, mention_author=False, delete_after=None):
+
+        spare = deepcopy(file)  # File objects are onetime use, this allows us to try multiple variations of send.
+        
         # First we attempt to use direct reply functionality
         try:
-            return await ctx.reply(text, embed=embed, file=file, mention_author=mention_author,
-                                   delete_after=delete_after)
+            await ctx.reply(text, embed=embed, file=spare, mention_author=mention_author, delete_after=delete_after)
+            if file is not None:
+                file.close()
+            return
         except discord.HTTPException:
             pass
     
         # Fall back to straight up reply
+        spare = deepcopy(file)
         try:
-            return await ctx.send(text, embed=embed, file=file, delete_after=delete_after)
+            await ctx.send(text, embed=embed, file=spare, delete_after=delete_after)
+            if file is not None:
+                file.close()
+            return
         except discord.HTTPException:
             pass
     
@@ -61,7 +71,8 @@ class Bot(commands.Bot):
             await ctx.author.send(f"I cannot reply to your {ctx.command} command in {ctx.channel} on {ctx.guild}")
             return await ctx.author.send(text, embed=embed, file=file)
         except discord.HTTPException:
-            pass
+            if ctx.author.id == 210582977493598208:
+                print(text)
     
         # At least try to warn them.
         return None

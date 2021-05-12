@@ -1,8 +1,9 @@
+import typing
 from collections import defaultdict
 
-from discord.ext import commands
 import discord
-import typing
+from discord.ext import commands
+
 
 # TODO: Bad words filters
 
@@ -88,10 +89,19 @@ class AutoMod(commands.Cog):
         if guild_cache["mention_threshold"] > len(message.mentions):
             return
         if guild_cache["mention_action"] == "kick":
-            await message.author.kick(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
-            return await message.reply(f"{message.author.mention} was kicked for mention spamming.")
+            try:
+                await message.author.kick(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
+            except discord.Forbidden:
+                return await message.reply("I would have kicked you, but I don't have the permissions.")
+            else:
+                return await message.reply(f"{message.author.mention} was kicked for mention spamming.")
+        
         elif guild_cache["mention_action"] == "ban":
-            await message.author.ban(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
+            try:
+                await message.author.ban(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
+            except discord.HTTPException:
+                return await message.reply(f'I would have banned you for mentioning {len(message.mentions)}  '
+                                           "but I don't have permissions to do that.")
             return await message.reply(f"☠️ {message.author.mention} was banned for mention spamming.")
         elif guild_cache["mention_action"] == "mute":
             muted_role = discord.utils.get(message.guild.roles, name='Muted')
@@ -100,8 +110,11 @@ class AutoMod(commands.Cog):
                 pos = message.guild.me.top_role.position - 1
                 await muted_role.edit(position=pos)
                 ow = discord.PermissionOverwrite(add_reactions=False, send_messages=False)
-                for i in message.guild.text_channels:
-                    await i.set_permissions(muted_role, overwrite=ow)
+                try:
+                    for i in message.guild.text_channels:
+                        await i.set_permissions(muted_role, overwrite=ow)
+                except discord.Forbidden:
+                    pass
 
                 await message.author.add_roles(*[muted_role])
                 await message.reply(f"{message.author.mention} was muted for mention spam.")
