@@ -1,7 +1,9 @@
+from importlib import reload
+
 import discord
 from discord.ext import commands
+
 from ext.utils import embed_utils
-from importlib import reload
 
 
 def descriptor(command):
@@ -32,7 +34,7 @@ class Help(commands.HelpCommand):
         invite_and_stuff += f"[Donate to the Author](https://paypal.me/Toonbot)"
         
         e.description = "Welcome to the Toonbot Help. Use the reactions below to navigate between pages.\n\n"
-        e.description += f"use {self.context.prefix}help <category name> to view commands for that category only " \
+        e.description += f"Use {self.context.prefix}help **CategoryName** to view commands for that category only " \
                          f"(case sensitive)\n\n"
         
         e.add_field(name="Useful links", value=invite_and_stuff, inline=False)
@@ -47,10 +49,11 @@ class Help(commands.HelpCommand):
             
             for command in cog.walk_commands():
                 try:
-                    if await command.can_run(self.context):
-                        e.description += f"**{cog.qualified_name}**: {cog.description}\n"
-                        embeds += await self.cog_embed(cog)
-                        break
+                    if not await command.can_run(self.context):
+                        continue
+                    e.description += f"**{cog.qualified_name}**: {cog.description}\n"
+                    embeds += await self.cog_embed(cog)
+                    break
                 except discord.ext.commands.CommandError:
                     continue
                     
@@ -68,7 +71,17 @@ class Help(commands.HelpCommand):
         e.colour = 0x2ecc71
         e.set_thumbnail(url=self.context.me.avatar_url)
         header = f"```fix\n{cog.description}\n```\n**Commands in this category**:\n"
-        rows = sorted([descriptor(command) for command in cog.get_commands() if not command.hidden])
+        
+        if self.context.guild is not None:
+            rows = sorted([descriptor(command) for command in cog.get_commands()
+                           if command.can_run and not command.hidden
+                           and command.name not in self.context.bot.disabled_cache[self.context.guild.id]])
+        else:
+            rows = sorted([descriptor(command) for command in cog.get_commands()
+                           if command.can_run and not command.hidden])
+        
+        if not rows:
+            return []
         
         e.add_field(value='Use help **command** to view the usage of that command.\n Subcommands are ran by using '
                           f'`{self.context.prefix}command subcommand`', name="More help", inline=False)
@@ -98,9 +111,7 @@ class Help(commands.HelpCommand):
                     value='<> around an arguments means it is a <REQUIRED argument>\n'
                           '[] around an argument means it is an [OPTIONAL argument]\n'
                           f'\nUse `{self.context.prefix}help <command> [subcommand]` for info on subcommands\n'
-                          f'Don\'t type the <> or [].'
-                         ,
-                          inline=False)
+                          f'Don\'t type the <> or [].', inline=False)
         e.add_field(name="More help", inline=False,
                     value='Use help **command** to view the usage of that command.\n'
                           f'Subcommands are ran by using `{self.context.prefix}command subcommand`')
