@@ -1,15 +1,15 @@
-import functools
+import datetime
+import math
+import re
+from importlib import reload
+
+import discord
+import praw
+from PIL import Image
+from discord.ext import commands, tasks
+from lxml import html
 
 from ext.utils import football
-from importlib import reload
-from discord.ext import commands, tasks
-from PIL import Image
-from lxml import html
-import datetime
-import discord
-import math
-import praw
-import re
 
 NUFC_DISCORD_LINK = "\n\n[](https://discord.gg/TuuJgrA)"  # NUFC.
 
@@ -241,7 +241,7 @@ class NUFCSidebar(commands.Cog):
         return markdown
 
     @commands.command(invoke_without_command=True)
-    @commands.has_permissions(manage_messages=True)
+    @commands.has_role(332161994738368523)
     async def sidebar(self, ctx, *, caption=None):
         """Force a sidebar update, or use sidebar manual"""
         # Check if message has an attachment, for the new sidebar image.
