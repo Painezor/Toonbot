@@ -1,12 +1,14 @@
-from discord.ext.commands.cooldowns import BucketType
-from discord.ext import commands
-from ext.utils import embed_utils
-from importlib import reload
-import datetime
 import asyncio
-import discord
+import datetime
 import random
 import re
+from importlib import reload
+
+import discord
+from discord.ext import commands
+from discord.ext.commands.cooldowns import BucketType
+
+from ext.utils import embed_utils
 
 poll_emojis = ["1\N{variation selector-16}\N{combining enclosing keycap}",
                "2\N{variation selector-16}\N{combining enclosing keycap}",
@@ -21,7 +23,7 @@ poll_emojis = ["1\N{variation selector-16}\N{combining enclosing keycap}",
 
 
 class Fun(commands.Cog):
-   """Toys"""
+    """Toys"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -173,11 +175,6 @@ class Fun(commands.Cog):
                     pass
                 await m.edit(content=await write(resp), allowed_mentions=discord.AllowedMentions().none())
     
-    @commands.command(hidden=True)
-    @commands.is_owner()
-    async def secrettory(self, ctx):
-        await self.bot.reply(ctx, text=f"The secret tory is {random.choice(ctx.guild.members).mention}")
-    
     @commands.command(aliases=["choice", "pick", "select"], usage="Option 1, Option 2, Option 3 ...")
     async def choose(self, ctx, *, choices):
         """Make a decision for me (seperate choices with commas)"""
@@ -256,7 +253,6 @@ class Fun(commands.Cog):
     @commands.command(aliases=["urbandictionary"])
     async def ud(self, ctx, *, lookup: commands.clean_content):
         """Lookup a definition from urban dictionary"""
-        await ctx.trigger_typing()
         url = f"http://api.urbandictionary.com/v0/define?term={lookup}"
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
@@ -298,7 +294,7 @@ class Fun(commands.Cog):
         else:
             e.description = f"🚫 No results found for {lookup}."
             e.set_footer(text=un)
-            return await self.bot.reply(embed=e)
+            return await self.bot.reply(ctx, embed=e)
         
         await embed_utils.paginate(ctx, embeds)
     
