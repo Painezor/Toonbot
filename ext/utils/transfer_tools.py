@@ -1,7 +1,8 @@
-import datetime
-import pycountry
-import discord
 import asyncio
+import datetime
+
+import discord
+import pycountry
 from lxml import html
 
 from ext.utils import embed_utils
@@ -49,7 +50,7 @@ country_dict = {
     "Southern Sudan": "ss",
     "South Korea": "kr",
     "St. Kitts & Nevis": "kn",
-    "St. Louis": "lc",
+    "St. Lucia": "lc",
     "St. Vincent & Grenadinen": "vc",
     "Tahiti": "fp",
     "Tanzania": "tz",
@@ -72,6 +73,11 @@ unidict = {
 
 
 def get_flag(country):
+    country = country.strip()
+    
+    if not country:
+        return country
+    
     # Check if pycountry has country
     if country.lower() in ["england", "scotland", "wales"]:
         country = f":{country.lower()}:"
@@ -84,6 +90,7 @@ def get_flag(country):
             # else revert to manual dict.
             country = country_dict[country]
         except KeyError:
+            print(f'No flag found for country: {country}')
             return country  # Shrug.
     country = country.lower()
     
@@ -536,11 +543,7 @@ async def search(ctx, qry, category, special=False):
                     await m.delete()
                 except discord.NotFound:
                     pass
-                return
-            try:
-                await m.remove_reaction(reaction.emoji, ctx.message.author)
-            except discord.Forbidden:
-                pass
+                return None
 
         # Fetch the next page of results.
         e, tree, total_pages, header = await fetch_page(ctx, category, qry, page)
@@ -549,26 +552,29 @@ async def search(ctx, qry, category, special=False):
         await m.edit(embed=e, allowed_mentions=discord.AllowedMentions().none())
 
 
-async def get_rumours(ctx, e, target):
+async def get_rumours(ctx, result):
+    e = await result.base_embed
     e.description = ""
+    target = result.link
     target = target.replace('startseite', 'geruechte')
     async with ctx.bot.session.get(f"{target}") as resp:
         if resp.status != 200:
             return await ctx.bot.reply(ctx, text=f"Error {resp.status} connecting to {resp.url}")
         tree = html.fromstring(await resp.text())
         e.url = str(resp.url)
-    e.set_author(name=tree.xpath('.//head/title[1]/text()')[0], url=str(resp.url))
+        
+    e.title = f"Transfer rumours for {e.title}"
+    e.set_author(name="Transfermarkt", url=str(resp.url))
     e.set_footer(text=discord.Embed.Empty)
     
-    rumours = tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0]
-    rumours = rumours.xpath('.//tbody/tr')
-    rumorlist = []
-    for i in rumours:
-        pname = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-        if not pname:
+    rows = []
+    for i in tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0].xpath('.//tbody/tr'):
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
+        if not name:
             continue
-        player_link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
-        player_link = f"https://www.transfermarkt.co.uk{player_link}"
+    
+        link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
+        link = f"https://www.transfermarkt.co.uk{link}"
         ppos = "".join(i.xpath('.//td[2]//tr[2]/td/text()'))
         flag = get_flag(i.xpath('.//td[3]/img/@title')[0])
         age = "".join(i.xpath('./td[4]/text()')).strip()
@@ -578,22 +584,50 @@ async def get_rumours(ctx, e, target):
             team_link = "http://www.transfermarkt.com" + team_link
         source = "".join(i.xpath('.//td[8]//a/@href'))
         src = f"[Info]({source})"
-        rumorlist.append(f"{flag} **[{pname}]({player_link})** ({src})\n{age}, {ppos} [{team}]({team_link})\n\n")
+        rows.append(f"{flag} **[{name}]({link})** ({src})\n{age}, {ppos} [{team}]({team_link})\n\n")
     
-    output = ""
-    count = 0
-    if not rumorlist:
-        output = "No rumours about new signings found."
-    for i in rumorlist:
-        if len(i) + len(output) < 1985:
-            output += i
-        else:
-            output += f"And {len(rumorlist) - count} more..."
-            break
-        count += 1
-    e.description = output
+    rows = ["No rumours about new signings found."] if not rows else rows
     
-    await ctx.bot.reply(ctx, embed=e)
+    await embed_utils.paginate(ctx, embed_utils.rows_to_embeds(e, rows))
+
+async def get_contracts(ctx, result):
+    e = await result.base_embed
+    e.description = ""
+    target = result.link
+    target = target.replace('startseite', 'vertragsende')
+    
+    async with ctx.bot.session.get(f"{target}") as resp:
+        if resp.status != 200:
+            return await ctx.bot.reply(ctx, text=f"Error {resp.status} connecting to {resp.url}")
+        tree = html.fromstring(await resp.text())
+        e.url = str(resp.url)
+
+    e.title = f"Expiring contracts for {e.title}"
+    e.set_author(name="Transfermarkt", url=str(resp.url))
+    e.set_footer(text=discord.Embed.Empty)
+
+    rows = []
+    
+    for i in tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0].xpath('.//tbody/tr'):
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
+        if not name:
+            continue
+            
+        link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
+        link = f"https://www.transfermarkt.co.uk{link}"
+        
+        pos = "".join(i.xpath('.//td[1]//tr[2]/td/text()'))
+        age = "".join(i.xpath('./td[2]/text()')).split('(')[-1].replace(')', '').strip()
+        flag = " ".join([get_flag(f) for f in i.xpath('.//td[3]/img/@title')])
+        expiry = "".join(i.xpath('.//td[4]//text()')).strip()
+        option = "".join(i.xpath('.//td[5]//text()')).strip()
+        option = f"\n∟ {option.title()}" if option != "-" else ""
+
+        rows.append(f"{flag} [{name}]({link}) {age}, {pos} ({expiry}){option}")
+
+    rows = ["No expiring contracts found."] if not rows else rows
+
+    await embed_utils.paginate(ctx, embed_utils.rows_to_embeds(e, rows))
 
 parser_settings = {
     "players": {"match_string": "players", "querystr": "Spieler_page", "parser": parse_players},
@@ -603,5 +637,4 @@ parser_settings = {
     "domestic": {"match_string": "to competitions", "querystr": "Wettbewerb_page", "parser": parse_domestic},
     "international": {"match_string": "international comp", "querystr": "Wettbewerb_page", "parser": parse_int},
     "agent": {"match_string": "Agents", "querystr": "page", "parser": parse_agent},
-    "Rumours": {"match_string": "Clubs", "querystr": "Verein_page", "parser": parse_teams}
 }
