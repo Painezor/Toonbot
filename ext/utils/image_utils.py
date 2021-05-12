@@ -1,6 +1,7 @@
 from io import BytesIO
-from PIL import Image
 from typing import List
+
+from PIL import Image
 
 
 def stitch(images: List[Image.Image]) -> BytesIO:
@@ -19,3 +20,23 @@ def stitch(images: List[Image.Image]) -> BytesIO:
 	output.seek(0)
 	return output
 
+
+def stitch_vertical(images) -> BytesIO:
+	"""Stitch Images Vertically"""
+	images = [Image.open(i) for i in images]
+	
+	w = images[0].width
+	h = sum(i.height for i in images)
+	canvas = Image.new('RGB', (w,h))
+	y = 0
+	for i in images:
+		canvas.paste(i, (0, y))
+		y += i.height
+	output = BytesIO()
+	canvas.save(output, 'PNG')
+	output.seek(0)
+	canvas.close()
+	
+	[i.close() for i in images]
+	
+	return output
