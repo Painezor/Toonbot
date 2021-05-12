@@ -1,10 +1,11 @@
+from collections import defaultdict
+from importlib import reload
+
 import discord
 from asyncpg import UniqueViolationError
 from discord.ext import commands
-from collections import defaultdict
 
 from ext.utils import football, embed_utils
-from importlib import reload
 
 DEFAULT_LEAGUES = [
     "WORLD: Friendly international",
@@ -28,6 +29,14 @@ DEFAULT_LEAGUES = [
     "USA: MLS"
 ]
 
+WORLD_CUP_LEAGUES = [
+    "EUROPE: World Cup",
+    "ASIA: World Cup",
+    "AFRICA: World Cup",
+    "NORTH & CENTRAL AMERICA: World Cup",
+    "SOUTH AMERICA: World Cup"
+]
+
 
 class Goals(commands.Cog):
     """Get updates whenever goals are scored"""
@@ -37,6 +46,32 @@ class Goals(commands.Cog):
         self.cache = defaultdict(set)
         self.bot.loop.create_task(self.update_cache())
         reload(football)
+
+    async def update_cache(self):
+        # Grab most recent data.
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            records = await connection.fetch("""
+            SELECT guild_id, goals_channels.channel_id, league
+            FROM goals_channels LEFT OUTER JOIN goals_leagues
+            ON goals_channels.channel_id = goals_leagues.channel_id""")
+        await self.bot.db.release(connection)
+    
+        # Clear out our cache.
+        self.cache.clear()
+        warn_once = []
+    
+        # Repopulate.
+        for r in records:
+            if r['channel_id'] in warn_once:
+                continue
+        
+            if self.bot.get_channel(r['channel_id']) is None:
+                print(f"GOALS potentially deleted channel: {r['channel_id']}")
+                warn_once.append(r['channel_id'])
+                continue
+        
+            self.cache[(r["guild_id"], r["channel_id"])].add(r["league"])
 
     @property
     async def base_embed(self):
@@ -81,7 +116,7 @@ class Goals(commands.Cog):
     async def on_fixture_event(self, mode, f: football.Fixture, home=True):
         page = await self.bot.browser.newPage()
         try:
-            await f.refresh(page, for_discord=True)
+            await f.refresh(page)
         except Exception as err:
             raise err
         finally:  # ALWAYS close the browser after refreshing to avoid Memory leak
@@ -91,6 +126,31 @@ class Goals(commands.Cog):
         e.title = None
         e.remove_author()
         e.set_footer(text=f"{f.country}: {f.league} | {f.time}")
+ 
+        link = f.url if hasattr(f, "url") else ""
+        
+        # Handle Penalty Shootout Results:
+        if f.penalties_home is not None:
+            events = [i for i in f.events if hasattr(i, "type") and i.type in ['PSO: Scored', 'PSO: Missed']]
+            
+            hb, ab = ("**", "") if f.penalties_home > f.penalties_away else ("", "**")
+            d = f"**PSO**: [{hb}{f.home} {f.penalties_home}{hb} - {ab}{f.penalties_away} {f.away}{ab}]({link})"
+            
+            e.description = d
+            
+            # iterate through everything after penalty header
+            h_val = [f"`{'⚽' if i.type == 'PSO: Scored' else '⛔'}` {i.player}" for i in events if i.team == f.home]
+            a_val = [f"`{'⚽' if i.type == 'PSO: Scored' else '⛔'}` {i.player}" for i in events if i.team == f.away]
+
+            if h_val:
+                e.add_field(name=f.home, value="\n".join(h_val))
+            if a_val:
+                e.add_field(name=f.away, value="\n".join(a_val))
+            
+            dev_channel = self.bot.get_channel(250252535699341312)
+            await dev_channel.send("DEBUG: Penalty shootout result embed", embed=e)
+            
+            return await self.update_channels(f, e)
         
         # Handle full time only events.
         if mode == "FULL TIME":
@@ -98,83 +158,35 @@ class Goals(commands.Cog):
                 hb, ab = "", ""
             else:
                 hb, ab = ('**', '') if f.score_home > f.score_away else ('', '**')
-            e.description = f"**FT**: [{hb}{f.home} {f.score_home}{hb} - {ab}{f.score_away} {f.away}{ab}]({f.link})"
-            return await self.update_channels(f, e)
-        
-        # Handle Penalty Shootout Results:
-        headers = [i for i in f.events if hasattr(i, "type") and i.type == "header"]
-        pen_check = [i for i in headers if "Penalties" in i.description]
-        if pen_check:
-            print("Penalty shootout found for match:")
-            print(f)
-            e.description = f"**PSO**: {f.home} {f.penalties_home} - {f.pebalties_away} {f.away}**"
-            # iterate through everything after penalty header
-            for i in f.events[f.events.index(pen_check[0]) + 1:]:
-                emoji = "⚽" if i.type == "goal" else "⛔"
-                e.description += f"`{emoji}` {i.player} ({i.team})\n"
+            
+            e.description = f"**FT**: [{hb}{f.home} {f.score_home}{hb} - {ab}{f.score_away} {f.away}{ab}]({link})"
             return await self.update_channels(f, e)
     
-        hb, ab = ('**', '') if home else ('', '**')  # Bold Home or Away Team Name.
+        if home is None:
+            hb, ab = ('**', '**')
+        else:
+            hb, ab = ('**', '') if home else ('', '**')  # Bold Home or Away Team Name.
         
-        edict = {"GOAL": {"failstr": "Scorer info not found", "icon": '⚽', "events": ["goal"]},
-                 "RED CARD": {"failstr": "Dismissal info not found", "icon": "🟥", "events": ['dismissal, "2yellow']},
-                 "VAR": {"failstr": "VAR info not found", "icon": "📹", "events": ["VAR"]}
-                 }
+        edict = {
+            "GOAL": {"colour":discord.Colour.dark_green(), "icon": '⚽', "events": ["Goal", "Own Goal"]},
+            "RED CARD": {"colour": discord.Colour.red(), "icon": "🟥", "events": ['Dismissal, "Second Yellow']},
+            "VAR": {"colour": discord.Colour.blurple(), "icon": "📹", "events": ["VAR"]}
+        }
         
         # Embed header row.
         e.description = f"**{mode}**: [{hb}{f.home} {f.score_home}{hb} - {ab}{f.score_away} {f.away}{ab}]({f.url})\n"
 
         try:
             event = [i for i in f.events if hasattr(i, "type") and i.type in edict[mode]["events"]][-1]
-            try:
-                description = f"`{edict[mode]['icon']} {event.time}:` {event.player}"
-            except AttributeError:
-                description = f"`{edict[mode]['icon']} {event.time}:` *{edict[mode]['failstr']}*"
-
-            # Tack on any notes
-            try:
-                note = " (pen.)" if event.note == "Penalty" else f" {event.note}"
-            except AttributeError:
-                note = ""
-
-            try:
-                details = f"\n\n{event.description}"
-            except AttributeError:
-                details = ""
-
+            player = event.player if hasattr(event, "player") else ""
+            e.description += f"`{edict[mode]['icon']} {event.time}:` {player}"
+            e.colour = edict[mode]["colour"]
+            e.description += event.note.replace("Penalty", "(pen.)") if hasattr (event, "note") else ""
+            e.description += f"\n\n{event.full_description}" if hasattr(event, "full_description") else ""
         except IndexError:
-            description, note, details = "", "", ""
-        
-        e.description += f"{description}{note}{details}"
+            pass
         
         await self.update_channels(f, e)
-    
-    async def update_cache(self):
-        # Grab most recent data.
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            records = await connection.fetch("""
-            SELECT guild_id, goals_channels.channel_id, league
-            FROM goals_channels
-            LEFT OUTER JOIN goals_leagues
-            ON goals_channels.channel_id = goals_leagues.channel_id""")
-        await self.bot.db.release(connection)
-        
-        # Clear out our cache.
-        self.cache.clear()
-        warn_once = []
-        
-        # Repopulate.
-        for r in records:
-            if r['channel_id'] in warn_once:
-                continue
-                
-            if self.bot.get_channel(r['channel_id']) is None:
-                print(f"GOALS potentially deleted channel: {r['channel_id']}")
-                warn_once.append(r['channel_id'])
-                continue
-            
-            self.cache[(r["guild_id"], r["channel_id"])].add(r["league"])
 
     async def _pick_channels(self, ctx, channels):
         # Assure guild has goal ticker channel.
@@ -225,19 +237,14 @@ class Goals(commands.Cog):
         if ch is None:
             ch = ctx.channel
         
-        connection = await self.bot.db.acquire()
+        try:
+            await self.create_channel(ch)
+        except UniqueViolationError:
+            return await self.bot.reply(ctx, text='That channel already has a goal ticker!')
         
-        async with connection.transaction():
-            try:
-                await connection.execute(
-                   """INSERT INTO goals_channels (guild_id, channel_id) VALUES ($1, $2)""", ctx.guild.id, ch.id)
-            except UniqueViolationError:
-                return await self.bot.reply(ctx, text='That channel already has a goal ticker!')
-            for i in DEFAULT_LEAGUES:
-                await connection.execute(
-                   """INSERT INTO goals_leagues (channel_id, league) VALUES ($1, $2)""", ch.id, i)
+        for i in DEFAULT_LEAGUES:
+            await self.add_league(ch.id, i)
         
-        await self.bot.db.release(connection)
         await self.bot.reply(ctx, text=f"A goal ticker was successfully added to {ch.mention}")
         await self.update_cache()
         await self.send_leagues(ctx, ch)
@@ -250,10 +257,7 @@ class Goals(commands.Cog):
         if channel is None:
             return
     
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM goals_channels WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+        await self.delete_channel(channel.id)
         await self.bot.reply(ctx, text=f"✅ Removed goal ticker from {channel.mention}")
         await self.update_cache()
     
@@ -286,16 +290,8 @@ class Goals(commands.Cog):
         channel = await self._pick_channels(ctx, channels)
         if not channel:
             return  # rip
-
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""
-                INSERT INTO goals_leagues (league,channel_id)
-                VALUES ($1,$2)
-                ON CONFLICT DO NOTHING
-           """, res, channel.id)
-        await self.bot.db.release(connection)
-    
+        
+        await self.add_league(channel.id, res)
         await self.bot.reply(ctx, text=f"✅ **{res}** added to the tracked leagues for {channel.mention}")
         await self.update_cache()
         await self.send_leagues(ctx, channel)
@@ -321,11 +317,8 @@ class Goals(commands.Cog):
 
         target = leagues[index]
 
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM goals_leagues WHERE (league,channel_id) = ($1,$2)""",
-                                     target, channel.id)
-        await self.bot.db.release(connection)
+        await self.remove_league(channel.id, target)
+        
         await self.bot.reply(ctx, text=f"✅ **{target}** deleted from {channel.mention} tracked leagues ")
         await self.update_cache()
         await self.send_leagues(ctx, channel)
@@ -338,11 +331,7 @@ class Goals(commands.Cog):
         if not channel:
             return  # rip
 
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            async with connection.transaction():
-                await connection.execute("""DELETE FROM goals_leagues WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+        await self.remove_all_leagues(channel.id)
 
         await self.bot.reply(ctx, text=f"✅ {channel.mention} leagues cleared")
         await self.update_cache()
@@ -356,48 +345,87 @@ class Goals(commands.Cog):
         if not channel:
             return  # rip
         
-        whitelist = self.cache[(ctx.guild.id, channel.id)]
-        if whitelist == DEFAULT_LEAGUES:
-            return await self.bot.reply(ctx, text=f"⚠ {channel.mention} is already using the default leagues."  )
-        
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM goals_leagues WHERE channel_id = $1""", channel.id)
-            for i in DEFAULT_LEAGUES:
-                await connection.execute("""INSERT INTO goals_leagues (channel_id, league) VALUES ($1, $2)""",
-                                         channel.id, i)
-        await self.bot.db.release(connection)
+        await self.remove_all_leagues(channel.id)
+        for i in DEFAULT_LEAGUES:
+            await self.add_league(channel.id, i)
+            
         await self.bot.reply(ctx, text=f"✅ {channel.mention} had it's tracked leagues reset to the defaults.")
         await self.update_cache()
         await self.send_leagues(ctx, channel)
+
+    @goals.command(usage="[#channel]")
+    @commands.has_permissions(manage_channels=True)
+    async def addwc(self, ctx, channels: commands.Greedy[discord.TextChannel]):
+        """ Temporary command: Add the qualifying tournaments for the World Cup to a livescore channel  """
+        channel = await self._pick_channels(ctx, channels)
+        if not channel:
+            return
     
+        for league in WORLD_CUP_LEAGUES:
+            await self.add_league(channel.id, league)
+        await self.bot.reply(ctx, text=f"Added Regional World Cup Qualifiers to tracker for {channel.mention}")
+        await self.update_cache()
+        await self.send_leagues(ctx, channel)
+
+    # Common DB methods
+    async def add_league(self, channel_id: int, league):
+        sql = """INSERT INTO goals_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute(sql, channel_id, league)
+        await self.bot.db.release(connection)
+
+    async def remove_league(self, channel_id: int, league):
+        c = await self.bot.db.acquire()
+        async with c.transaction():
+            await c.execute("""DELETE FROM goals_leagues WHERE (league,channel_id) = ($1,$2)""", league, channel_id)
+        await self.bot.db.release(c)
+
+    async def remove_all_leagues(self, channel_id: int):
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute("""DELETE FROM goals_leagues WHERE channel_id = $1""", channel_id)
+        await self.bot.db.release(connection)
+    
+    async def create_channel(self, ch: discord.TextChannel):
+        gid = ch.guild.id
+        c = await self.bot.db.acquire()
+        try:
+            async with c.transaction():
+                await c.execute("""INSERT INTO goals_channels (guild_id, channel_id) VALUES ($1, $2)""", gid, ch.id)
+        except UniqueViolationError:
+            raise UniqueViolationError
+        finally:
+            await self.bot.db.release(c)
+
+    # Purge either guild or channel from DB.
+    async def delete_channel(self, id_number: int, guild: bool = False):
+        if guild:
+            sql = """DELETE FROM goals_channels WHERE guild_id = $1"""
+        else:
+            sql = """DELETE FROM goals_channels WHERE channel_id = $1"""
+    
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            await connection.execute(sql, id_number)
+        await self.bot.db.release(connection)
+
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
-        if (channel.guild.id, channel.id) in self.cache:
-            connection = await self.bot.db.acquire()
-            async with connection.transaction():
-                await connection.execute("""DELETE FROM goals_channels WHERE channel_id = $1""", channel.id)
-            await self.bot.db.release(connection)
-            await self.update_cache()
-    
+        await self.delete_channel(channel.id)
+        await self.update_cache()
+
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
-        if guild.id in [i[0] for i in self.cache]:
-            connection = await self.bot.db.acquire()
-            async with connection.transaction():
-                await connection.execute("""DELETE FROM goals_channels WHERE guild_id = $1""", guild.id)
-            await self.bot.db.release(connection)
-            await self.update_cache()
+        await self.delete_channel(guild.id, guild=True)
+        await self.update_cache()
 
     @goals.command(usage="<channel_id>")
     @commands.is_owner()
     async def admin(self, ctx, channel_id: int):
         """Admin force delete a goal tracker."""
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM goals_channels WHERE channel_id = $1""", channel_id)
-        await self.bot.db.release(connection)
+        await self.delete_channel(channel_id)
         await self.bot.reply(ctx, text=f"✅ **{channel_id}** was deleted from the goals_channels table")
         await self.update_cache()
 
