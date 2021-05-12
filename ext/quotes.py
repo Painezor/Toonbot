@@ -1,16 +1,16 @@
-from asyncpg import DataError, UniqueViolationError
-
-from ext.utils import embed_utils
-from discord.ext import commands
-import discord
 import asyncio
 import typing
-
 from importlib import reload
+
+import discord
+from asyncpg import UniqueViolationError
+from discord.ext import commands
+
+from ext.utils import embed_utils
 
 
 class QuoteDB(commands.Cog):
-   """Quote Database module"""
+    """Quote Database module"""
 
     def __init__(self, bot):
         self.bot = bot
@@ -55,11 +55,11 @@ class QuoteDB(commands.Cog):
 
     async def _get_quote(self, ctx, users=None, quote_id=None, all_guilds=False, random=True, qry=None):
         """Get a quote."""
-        sql ="""SELECT * FROM quotes"""
+        sql = """SELECT * FROM quotes"""
         multi = False
         if quote_id:
             all_guilds = True  # (override it.)
-            sql +="""WHERE quote_id = $1"""
+            sql += """ WHERE quote_id = $1"""
             escaped = [quote_id]
             success = f"Displaying quote #{quote_id}"
             failure = f"Quote #{quote_id} was not found."
@@ -68,10 +68,10 @@ class QuoteDB(commands.Cog):
             random = False
             # TODO: tsvector column, index, search query.
             # sql ="""SELECT * FROM quotes WHERE to_tsvector(message_content) @@ phraseto_tsquery($1)"""
-            sql +="""WHERE message_content ILIKE $1"""
+            sql += """ WHERE message_content ILIKE $1"""
             escaped = [f"%{qry}%"]
-            success = f"""Displaying matching quotes for {qry}"""
-            failure = f"""Found no matches for {qry}"""
+            success = f"Displaying matching quotes for {qry}"
+            failure = f"Found no matches for {qry}"
         else:
             escaped = []
             success = "Displaying random quote"
@@ -79,23 +79,23 @@ class QuoteDB(commands.Cog):
 
         if users:  # Returned from discord.Greedy
             and_where = "WHERE" if not escaped else "AND"
-            sql += f"""{and_where} author_user_id in (${len(escaped) + 1})"""
+            sql += f""" {and_where} author_user_id in (${len(escaped) + 1})"""
             escaped += [i.id for i in users]
             success += " from specified user(s)"
             failure += " from specified user(s)"
 
         if not all_guilds:
             and_where = "WHERE" if not escaped else "AND"
-            sql += f"""{and_where} guild_id = ${len(escaped) + 1}"""
+            sql += f""" {and_where} guild_id = ${len(escaped) + 1}"""
             escaped += [ctx.guild.id]
             success += f" from {ctx.guild.name}"
             failure += f" from {ctx.guild.name}"
 
         if random:
-            sql +="""ORDER BY random()"""
+            sql += """ ORDER BY random()"""
         else:
             success = success.replace('random', 'most recent')
-            sql +="""ORDER BY quote_id DESC"""
+            sql += """ ORDER BY quote_id DESC"""
         
         # Fetch.
         connection = await self.bot.db.acquire()
@@ -108,6 +108,7 @@ class QuoteDB(commands.Cog):
                     r = [r]
                 
         await self.bot.db.release(connection)
+        
         if not r:
             return await self.bot.reply(ctx, text=failure)
         
@@ -133,9 +134,9 @@ class QuoteDB(commands.Cog):
             messages = await ctx.history(limit=50).flatten()
             m = discord.utils.get(messages, channel=ctx.channel, author=target)
             if not m:
-                await self.bot.reply(ctx, text="No messages from that user found in last 50 messages, "
-                                               "please use message's id or link")
-                return
+                return await self.bot.reply(ctx, text="No messages from that user found in last 50 messages, "
+                                                      "please use message's id or link")
+                
         elif isinstance(target, discord.Message):
             m = target
         else:
@@ -150,21 +151,21 @@ class QuoteDB(commands.Cog):
         await self.bot.reply(ctx, text="Attempting to add quote to db...", delete_after=5)
         connection = await self.bot.db.acquire()
         
-        async with connection.transaction():
-            try:
+        try:
+            async with connection.transaction():
                 r = await connection.fetchrow(
-                   """INSERT INTO quotes
+                    """INSERT INTO quotes
                     (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
                     VALUES ($1,$2,$3,$4,$5,$6,$7)
                     RETURNING *""",
                     m.channel.id, m.guild.id, m.id, m.author.id, ctx.author.id, m.clean_content, m.created_at)
-                e = await self.embed_quotes([r])
-                await self.bot.reply(ctx, text=":white_check_mark: Successfully added quote to database", embed=e[0])
-            except UniqueViolationError:
-                await self.bot.reply(ctx, text="That quote is already in the database!")
-            finally:
-                await self.bot.db.release(connection)
-    
+            e = await self.embed_quotes([r])
+            await self.bot.reply(ctx, text=":white_check_mark: Successfully added quote to database", embed=e[0])
+        except UniqueViolationError:
+            await self.bot.reply(ctx, text="That quote is already in the database!")
+        finally:
+            await self.bot.db.release(connection)
+
     # Find quote
     @quote.command(aliases=['global'], usage="[Optional: @member]")
     async def all(self, ctx, users: commands.Greedy[discord.User]):
@@ -257,17 +258,15 @@ class QuoteDB(commands.Cog):
             e.description = str(target)
 
         if isinstance(target, discord.Member):
-            sql ="""SELECT
-                (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
-                (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
-                (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
-                (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
+            sql = """SELECT (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
+                            (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
+                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
+                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
             escaped = [target.id, ctx.guild.id]
         else:
-            sql ="""SELECT
-                (SELECT COUNT(*) FROM quotes) AS total,
-                (SELECT COUNT(*) FROM quotes WHERE guild_id = $1) AS guild,   
-                (SELECT COUNT(*) FROM quotes WHERE channel_id = $2) AS channel"""
+            sql = """SELECT (SELECT COUNT(*) FROM quotes) AS total,
+                            (SELECT COUNT(*) FROM quotes WHERE guild_id = $1) AS guild,
+                            (SELECT COUNT(*) FROM quotes WHERE channel_id = $2) AS channel"""
             escaped = [ctx.guild.id, target.id]
         connection = await self.bot.db.acquire()
         async with connection.transaction():

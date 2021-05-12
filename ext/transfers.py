@@ -1,34 +1,26 @@
-from asyncpg import UniqueViolationError
-
-from ext.utils import transfer_tools, embed_utils
-from discord.ext import commands, tasks
+import typing
 from collections import defaultdict
 from importlib import reload
-from lxml import html
-import typing
-import discord
 
-DEFAULT_LEAGUES = [(":england: Premier League",
-                    "https://www.transfermarkt.co.uk/premier-league/startseite/wettbewerb/GB1"),
-                   (":england: Championship",
-                    "https://www.transfermarkt.co.uk/championship/startseite/wettbewerb/GB2"),
-                   ("🇳🇱 Eredivisie",
-                    "https://www.transfermarkt.co.uk/eredivisie/startseite/wettbewerb/NL1"),
-                   ("🇩🇪 Bundesliga",
-                    "https://www.transfermarkt.co.uk/1-bundesliga/startseite/wettbewerb/L1"),
-                   ("🇮🇹 Serie A",
-                    "https://www.transfermarkt.co.uk/serie-a/startseite/wettbewerb/IT1"),
-                   ("🇪🇸 LaLiga",
-                    "https://www.transfermarkt.co.uk/primera-division/startseite/wettbewerb/ES1"),
-                   ("🇫🇷 Ligue 1",
-                    "https://www.transfermarkt.co.uk/ligue-1/startseite/wettbewerb/FR1"),
-                   ("🇺🇸 Major League Soccer",
-                    "https://www.transfermarkt.co.uk/major-league-soccer/startseite/wettbewerb/MLS1"
-                    )]
+import discord
+from asyncpg import UniqueViolationError
+from discord.ext import commands, tasks
+from lxml import html
+
+from ext.utils import transfer_tools, embed_utils
+
+LG = [(":england: Premier League", "https://www.transfermarkt.co.uk/premier-league/startseite/wettbewerb/GB1"),
+      (":england: Championship", "https://www.transfermarkt.co.uk/championship/startseite/wettbewerb/GB2"),
+      ("🇳🇱 Eredivisie", "https://www.transfermarkt.co.uk/eredivisie/startseite/wettbewerb/NL1"),
+      ("🇩🇪 Bundesliga", "https://www.transfermarkt.co.uk/1-bundesliga/startseite/wettbewerb/L1"),
+      ("🇮🇹 Serie A", "https://www.transfermarkt.co.uk/serie-a/startseite/wettbewerb/IT1"),
+      ("🇪🇸 LaLiga", "https://www.transfermarkt.co.uk/primera-division/startseite/wettbewerb/ES1"),
+      ("🇫🇷 Ligue 1", "https://www.transfermarkt.co.uk/ligue-1/startseite/wettbewerb/FR1"),
+      ("🇺🇸 Major League Soccer", "https://www.transfermarkt.co.uk/major-league-soccer/startseite/wettbewerb/MLS1")]
 
 
 class Transfers(commands.Cog):
-   """Create and configure Transfer Ticker channels"""
+    """Create and configure Transfer Ticker channels"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -41,6 +33,43 @@ class Transfers(commands.Cog):
     
     def cog_unload(self):
         self.bot.transfers.cancel()
+
+    async def update_cache(self):
+        # Grab most recent data.
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            records = await connection.fetch("""
+            SELECT guild_id, transfers_channels.channel_id, item, alias
+            FROM transfers_channels
+            LEFT OUTER JOIN transfers_leagues
+            ON transfers_channels.channel_id = transfers_leagues.channel_id""")
+    
+        await self.bot.db.release(connection)
+    
+        # Clear out our cache.
+        self.cache.clear()
+    
+        # Repopulate.
+        for r in records:
+            if r['channel_id'] in self.warn_once:
+                continue
+        
+            ch = self.bot.get_channel(r['channel_id'])
+            if ch is None:
+                print("Transfers: Deleted Channel Detected:", r["channel_id"])
+                self.warn_once.append(r["channel_id"])
+                continue
+            
+            if not ch.guild.me.permissions_in(ch).send_messages:
+                print(f'Transfers: No send messages perms in {ch.id}')
+                self.warn_once.append(ch.id)
+                continue
+            elif not ch.guild.me.permissions_in(ch).embed_links:
+                print(f'Transfers: No embed_link perms in {ch.id}')
+                self.warn_once.append(ch.id)
+                continue
+            
+            self.cache[(r["guild_id"], r["channel_id"])].add((r["item"], r["alias"]))
     
     @property
     async def base_embed(self):
@@ -70,32 +99,6 @@ class Transfers(commands.Cog):
             embeds = embed_utils.rows_to_embeds(e, leagues, header=header)
         
         await embed_utils.paginate(ctx, embeds)
-    
-    async def update_cache(self):
-        # Grab most recent data.
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            records = await connection.fetch("""
-            SELECT guild_id, transfers_channels.channel_id, item, alias
-            FROM transfers_channels
-            LEFT OUTER JOIN transfers_leagues
-            ON transfers_channels.channel_id = transfers_leagues.channel_id""")
-            
-        await self.bot.db.release(connection)
-        
-        # Clear out our cache.
-        self.cache.clear()
-        
-        # Repopulate.
-        for r in records:
-            if r['channel_id'] in self.warn_once:
-                continue
-            
-            if self.bot.get_channel(r['channel_id']) is None:
-                print("Transfers Warning on:", r["channel_id"])
-                continue
-            
-            self.cache[(r["guild_id"], r["channel_id"])].add((r["item"], r["alias"]))
     
     async def _pick_channels(self, ctx, channels: typing.List[discord.TextChannel]):
         # Assure guild has transfer channel.
@@ -202,8 +205,8 @@ class Transfers(commands.Cog):
                     if link in new_league_link or link in old_league_link:
                         try:
                             await ch.send(embed=e)
-                        except discord.Forbidden:
-                            print(f"Discord Forbidden in: {ch.id}")
+                        except discord.HTTPException:  # This is your problem, not mine.
+                            pass
                         break
     
     @transfer_ticker.before_loop
@@ -224,12 +227,8 @@ class Transfers(commands.Cog):
     
     @commands.has_permissions(manage_channels=True)
     @ticker.command(usage="<#Channel[, #Channel2, ...]> <Search query>")
-    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, qry: commands.clean_content = None):
+    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, qry: commands.clean_content):
         """Add a league or team to your transfer ticker channel(s)"""
-        if qry is None:
-            return await self.bot.reply(ctx, text="Specify a competition name to search for, example usage:\n"
-                                   f"{ctx.prefix}{ctx.command} {ctx.channel} Premier League", mention_author=True)
-        
         channel = await self._pick_channels(ctx, channels)
         if not channel:
             return
@@ -244,8 +243,7 @@ class Transfers(commands.Cog):
         async with connection.transaction():
             await connection.execute("""INSERT INTO transfers_leagues (channel_id, item, alias)
                                         VALUES ($1, $2, $3)
-                                        ON CONFLICT DO NOTHING""",
-                                        channel.id, result.link, alias)
+                                        ON CONFLICT DO NOTHING""", channel.id, result.link, alias)
         await self.bot.db.release(connection)
         await self.bot.reply(ctx, text=f"✅ {alias} added to {channel.mention} tracker")
         await self.update_cache()
@@ -274,7 +272,7 @@ class Transfers(commands.Cog):
             await connection.execute("""DELETE FROM transfers_leagues WHERE (channel_id,alias) = ($1,$2)""",
                                      channel.id, item)
         await self.bot.db.release(connection)
-        await self.botreply(ctx, text=f'✅ {item} was removed from the {channel.mention} whitelist.')
+        await self.bot.reply(ctx, text=f'✅ {item} was removed from the {channel.mention} whitelist.')
         await self.update_cache()
         await self.send_leagues(ctx, channel)
     
@@ -304,13 +302,13 @@ class Transfers(commands.Cog):
             return  # rip
         
         leagues = self.cache[(ctx.guild.id, channel.id)]
-        if leagues == DEFAULT_LEAGUES:
+        if leagues == LG:
             return await self.bot.reply(ctx, f"⚠ {channel.mention} is already using the default leagues.")
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""DELETE FROM transfers_leagues WHERE channel_id = $1""", channel.id)
-            for alias, link in DEFAULT_LEAGUES:
+            for alias, link in LG:
                 await connection.execute("""INSERT INTO transfers_leagues (channel_id, item, alias)
                                          VALUES ($1, $2, $3)""", channel.id, link, alias)
         await self.bot.db.release(connection)
@@ -340,12 +338,13 @@ class Transfers(commands.Cog):
             except UniqueViolationError:
                 await self.bot.reply(ctx, text=f'A transfer ticker already exists for {channel.mention}')
                 return
-            for alias, link in DEFAULT_LEAGUES:
+            for alias, link in LG:
                 await connection.execute("""INSERT INTO transfers_leagues (channel_id, item, alias)
                                          VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""", channel.id, link, alias)
         
         await self.bot.db.release(connection)
-        await self.bot.reply(ctx, text=f"✅ Created a transfer ticker for {channel.mention}")
+        await self.bot.reply(ctx, text=f"✅ Created a transfer ticker in {channel.mention}.\n\n"
+                                       f"Use {ctx.prefix}unset {channel.mention} to remove the transfer ticker.")
         await self.update_cache()
         await self.send_leagues(ctx, channel)
     

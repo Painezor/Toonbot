@@ -1,8 +1,8 @@
+import datetime
+import json
+
 import discord
 from discord.ext import commands
-import datetime
-
-import json
 from lxml import html
 
 from ext.utils import embed_utils
@@ -47,8 +47,7 @@ class Tv(commands.Cog):
 		tvlist = []
 		async with self.bot.session.get(em.url) as resp:
 			if resp.status != 200:
-				return await self.bot.reply(ctx, text=f"🚫 <{em.url}> returned a HTTP {resp.status} error.",
-				                           mention_author=False)
+				return await self.bot.reply(ctx, text=f"🚫 <{em.url}> returned a HTTP {resp.status} error.")
 			tree = html.fromstring(await resp.text())
 			
 			match_column = 3 if not team else 5

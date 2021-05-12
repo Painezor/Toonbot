@@ -1,10 +1,11 @@
-from discord.ext import commands
-from peony import PeonyClient
-from datetime import datetime
-import discord
-import json
-from lxml import html
 import html as htmlc
+import json
+from datetime import datetime
+
+import discord
+from discord.ext import commands
+from lxml import html
+from peony import PeonyClient
 
 TWITTER_ICON = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
 
@@ -14,7 +15,7 @@ TWITTER_ICON = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
 
 
 class Twitter(commands.Cog):
-   """Track twitter accounts"""
+    """Track twitter accounts"""
     
     def __init__(self, bot):
         self.bot = bot

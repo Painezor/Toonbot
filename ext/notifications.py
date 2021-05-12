@@ -1,11 +1,13 @@
 import asyncio
 import datetime
-
-from discord.ext import commands
-import discord
 import typing
 
+import discord
+from discord.ext import commands
+
 from ext.utils import codeblocks
+
+TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 
 
 class Notifications(commands.Cog):
@@ -25,12 +27,6 @@ class Notifications(commands.Cog):
         await asyncio.sleep(10)  # Time for other cogs to do their shit.
         await self.update_cache()
 
-    @commands.Cog.listener()
-    async def on_guild_remove(self, guild):
-        connection = await self.bot.db.acquire()
-        await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
-        await self.bot.db.release(connection)
-    
     async def update_cache(self):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -54,31 +50,20 @@ class Notifications(commands.Cog):
             e.description = "No configuration set."
         else:
             for key, value in dict(r).items():
-                if value is not None:
-                    try:
-                        value = self.bot.get_channel(value).mention
-                    except AttributeError:
-                        value = "Deleted channel."
+                if key == "guild_id":
+                    continue
+                key = {"joins_channel_id": "Joins", "leaves_channel_id": "Leaves", "emojis_channel_id": "Emojis",
+                       "mutes_channel_id": "Mutes", "deletes_channel_id": "Deleted Messages"}[key]
                     
-                    if key == "joins_channel_id":
-                        key = "Joins"
-                    elif key == "leaves_channel_id":
-                        key = "Leaves"
-                    elif key == "guild_id":
-                        continue
-                    elif key == "emojis_channel_id":
-                        key = "Emojis"
-                    elif key == "mutes_channel_id":
-                        key = "Mutes"
-                    elif key == "deletes_channel_id":
-                        key = "Deleted messages"
-                    
-                    e.description += f"{key}: {value} \n"
-                else:
-                    e.description += f"{key}: Not set\n"
+                try:
+                    value = self.bot.get_channel(value).mention if value is not None else "Not set"
+                except AttributeError:
+                    value = "Deleted channel."
+    
+                e.description += f"{key}: {value} \n"
         
         e.set_thumbnail(url=ctx.guild.icon_url)
-        await ctx.bot.reply(ctx, wembed=e)
+        await ctx.bot.reply(ctx, embed=e)
     
     # Join messages
     @commands.Cog.listener()
@@ -174,24 +159,27 @@ class Notifications(commands.Cog):
         except IndexError:
             return
         
-        d1 = f"[{datetime.datetime.utcnow()}] **🗑️ Deleted message "\
-        f"from {message.author} ({message.author.id}) in {message.channel.mention}**"
-        d2 = message.clean_content
-        await ch.send(d1)
-        if d2:
-            await ch.send(d2)
+        a = message.author
+        
+        e = discord.Embed()
+        e.set_author(name=f"{a} (ID: {a.id})", icon_url=a.avatar_url)
+        e.timestamp = datetime.datetime.now()
+        e.set_footer(text=f"🗑️ Deleted message from {message.channel.name}")
+        e.description = message.clean_content
         
         if message.attachments:
             att = message.attachments[0]
             if hasattr(att, "height"):
-                d3 = f"📎 *Attachment info*: {att.filename} ({att.size} bytes, {att.height}x{att.width})," \
-                     f"attachment url: <{att.proxy_url}>"
-                await ch.send(d3)
+                v = f"📎 *Attachment info*: {att.filename} ({att.size} bytes, {att.height}x{att.width})," \
+                    f"attachment url: {att.proxy_url}"
+                e.add_field(name="Attachment info", value=v)
+        
+        await ch.send(embed=e)
         
     @commands.has_permissions(manage_channels=True)
     @commands.group(usage="deletes <#channel> to set a new channel, or leave blank to show current information.")
     async def deletes(self, ctx, channel: typing.Optional[discord.TextChannel]):
-        """Send member information to a channel on join."""
+        """Copies deleted messages to another channel."""
         if channel is None:  # Give current info
             deletes = [r['deletes_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(deletes)
@@ -199,8 +187,7 @@ class Notifications(commands.Cog):
             return await self.bot.reply(ctx, text=f'Deleted messages are ' + rep)
     
         if not ctx.me.permissions_in(channel).send_messages:
-            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
-                                        mention_author=True)
+            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
     
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -260,10 +247,10 @@ class Notifications(commands.Cog):
     async def on_member_unban(self, guild, user):
         try:
             unbans = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == guild.id][0]
+            ch = self.bot.get_channel(unbans)
         except (IndexError, AttributeError):
             return
     
-        ch = self.bot.get_channel(unbans)
         if ch is None:
             return
         
@@ -330,7 +317,7 @@ class Notifications(commands.Cog):
         await self.update_cache()
         await self.bot.reply(ctx, text=f"Notifications will be sent to {channel.mention} if emojis are changed.")
 
-    @emojis.command()
+    @emojis.command(name="off")
     @commands.has_permissions(manage_channels=True)
     async def emojis_off(self, ctx):
         connection = await self.bot.db.acquire()
@@ -348,6 +335,15 @@ class Notifications(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
+        try:
+            mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == before.guild.id][0]
+            ch = self.bot.get_channel(mutes)
+        except IndexError:
+            return  # Notification channel note set.
+        
+        if ch is None:
+            return
+        
         # Notify about member mute/un-mute.
         muted_role = discord.utils.find(lambda r: r.name.lower() == 'muted', before.guild.roles)
         if muted_role in before.roles and muted_role not in after.roles:
@@ -355,16 +351,6 @@ class Notifications(commands.Cog):
         elif muted_role not in before.roles and muted_role in after.roles:
             content = f"🙊 {before.mention} was muted"
         else:
-            return
-        
-        try:
-            mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == before.guild.id][0]
-        except IndexError:
-            return  # Notification channel note set.
-        
-        ch = self.bot.get_channel(mutes)
-        
-        if ch is None:
             return
         
         try:
@@ -382,7 +368,11 @@ class Notifications(commands.Cog):
             ch = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
             ch = self.bot.get_channel(ch)
         except (AttributeError, TypeError, IndexError):
-            ch = None
+            return
+        
+        if ch is None:
+            return
+        
         output = f"⬅ {member.mention} left the server."
         
         # Check if in mod action log and override to specific channels.
@@ -396,19 +386,14 @@ class Notifications(commands.Cog):
         except discord.Forbidden:
             pass  # We cannot see audit logs.
         
-        if ch is None:
-            return  # Rip.
-        
         await ch.send(output)
         
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild, before, after):
         try:
-            emojis = [r['emojis_channel_id'] for r in self.records if r["guild_id"] == guild.id][0]
+            ch = guild.get_channel([r['emojis_channel_id'] for r in self.records if r["guild_id"] == guild.id][0])
         except IndexError:
             return
-        
-        ch = guild.get_channel(emojis)
         
         if ch is None:
             return
@@ -417,16 +402,28 @@ class Notifications(commands.Cog):
         new_emoji = [i for i in after if i not in before]
         if not new_emoji:
             try:
-                removed_emoji = [i for i in before if i not in after][0]
+                removed_emoji = [i for i in before if i.id not in [i.id for i in after]][0]
                 await ch.send(f"The '{removed_emoji}' emoji was removed")
             except IndexError:
-                await ch.send("An emoji was removed.")
+                pass  # :shrug:
         else:
-            notif = f"The {new_emoji[0]} emoji was created"
-            if guild.me.permissions_in(ch).manage_emojis:
-                emoji = await guild.fetch_emoji(new_emoji[0].id)
-                notif += " by " + emoji.user.mention
-            await ch.send(notif)
+            for emoji in new_emoji:
+
+                e = discord.Embed()
+                
+                if emoji.user is not None:
+                    e.add_field(name="Uploaded by", value=emoji.user.mention)
+                
+                e.colour = discord.Colour.dark_purple() if emoji.managed else discord.Colour.green()
+                if emoji.managed:
+                    e.set_author(name="Twitch Integration", icon_url=TWITCH_LOGO)
+                    if emoji.roles:
+                        e.add_field(name='Required role', value="".join([i.mention for i in emoji.roles]))
+                
+                e.title = f"New {'animated ' if emoji.animated else ''}emoji: {emoji.name}"
+                e.set_image(url=emoji.url)
+                e.set_footer(text=emoji.url)
+                await ch.send(embed=e)
         
         
 def setup(bot):

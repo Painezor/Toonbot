@@ -1,13 +1,11 @@
-import discord
-from discord.ext import commands
-from lxml import html
 import random
 
-from ext.utils import embed_utils
+import discord
+from discord.ext import commands
 
 
 class NUFC(commands.Cog):
-   """r/NUFC discord commands"""
+    """r/NUFC discord commands"""
     
     def __init__(self, bot):
         self.bot = bot
@@ -18,7 +16,38 @@ class NUFC(commands.Cog):
     def cog_check(self, ctx):
         if ctx.guild:
             return ctx.guild.id in [238704683340922882, 332159889587699712]
-    
+
+    @commands.Cog.listener()
+    async def on_message(self, m):
+        c = m.content.lower()
+        if "toon toon" in c:
+            try:
+                await m.channel.send("**BLACK AND WHITE ARMY**")
+            except discord.HTTPException:
+                pass
+            return
+
+        
+        if not m.guild or not m.guild.id == 332159889587699712:
+            return
+        
+        # ignore bot messages
+        if m.author.bot:
+            return
+
+        autokicks = ["make me a mod", "make me mod", "give me mod"]
+        for i in autokicks:
+            if i in c:
+                try:
+                    await m.author.kick(reason="Asked to be made a mod.")
+                except discord.Forbidden:
+                    return await m.channel.send(f"Done. {m.author.mention} is now a moderator.")
+                await m.channel.send(f"{m.author} was auto-kicked.")
+        if "https://www.reddit.com/r/" in c and "/comments/" in c:
+            if "nufc" not in c:
+                rm = "*Reminder: Please do not vote on submissions or comments in other subreddits.*"
+                await m.channel.send(rm)
+                
     @commands.Cog.listener()
     async def on_member_join(self, member):
         # Bully kegs with a random girl's name.

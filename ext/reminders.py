@@ -1,16 +1,15 @@
-from copy import deepcopy
-
-from discord.ext import commands
 import datetime
-import discord
+from copy import deepcopy
+from importlib import reload
 
+import discord
+from discord.ext import commands
 
 from ext.utils import timed_events, embed_utils
-from importlib import reload
 
 
 class Reminders(commands.Cog):
-   """Set yourself reminders"""
+    """Set yourself reminders"""
     def __init__(self, bot):
         self.bot = bot
         self.active_module = True
