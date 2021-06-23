@@ -389,12 +389,15 @@ class Mod(commands.Cog):
     @commands.command(usage="mute <@user1 @user2 @user3> <reason>")
     async def mute(self, ctx, members: commands.Greedy[discord.Member], *, reason="No reason given."):
         """Prevent member(s) from talking on your server."""
+        if not members:
+            return await self.bot.reply('No members specified.')
+
         muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
         if not muted_role:
             muted_role = await ctx.guild.create_role(name="Muted")  # Read Messages / Read mesasge history.
             await muted_role.edit(position=ctx.me.top_role.position - 1)
             m_overwrite = discord.PermissionOverwrite(send_messages=False)
-            
+
             for i in ctx.guild.text_channels:
                 await i.set_permissions(muted_role, overwrite=m_overwrite)
         

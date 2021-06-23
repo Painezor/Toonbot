@@ -1,25 +1,28 @@
+"""Custom Utilities revolving around the usage of Discord Embeds"""
 import asyncio
+import datetime
+import typing
 from copy import deepcopy
 from io import BytesIO
 
 import aiohttp
 import discord
-import typing
 from PIL import UnidentifiedImageError
 from colorthief import ColorThief
-import datetime
 
 # Constant, used for footers.
 PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
 
 
 async def bulk_react(ctx, message, react_list):
+    """Spooler to send multiple reactions to a message object"""
     assert ctx.me.permissions_in(ctx.channel).add_reactions
     for r in react_list:
         ctx.bot.loop.create_task(react(message, r))
 
            
 async def react(message, reaction):
+    """Send a single reaction to a message object"""
     try:
         await message.add_reaction(reaction)
     except discord.HTTPException:
@@ -27,6 +30,7 @@ async def react(message, reaction):
 
 
 async def embed_image(ctx, base_embed, image, filename=None):
+    """Utility / Shortcut to upload image & set it within an embed."""
     if filename is None:
         filename = f"{ctx.message.content}{datetime.datetime.now().ctime()}.png"
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
@@ -36,6 +40,7 @@ async def embed_image(ctx, base_embed, image, filename=None):
 
     
 async def get_colour(url=None):
+    """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None or url == discord.Embed.Empty:
         return discord.Colour.blurple()
     async with aiohttp.ClientSession() as cs:
@@ -51,16 +56,8 @@ async def get_colour(url=None):
                 return discord.Colour.blurple()
 
 
-# def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typing.List[discord.Embed]:
-#     pages = [rows[i:i + rows_per] for i in range(0, len(rows), rows_per)]
-#     embeds = []
-#     for page_items in pages:
-#         base_embed.description = header + "\n".join(page_items) + footer
-#         embeds.append(deepcopy(base_embed))
-#     return embeds
-
-
 def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typing.List[discord.Embed]:
+    """Create evenly distributed rows of text from a list of data"""
     desc, count = "", 0
     embeds = []
     for row in rows:
@@ -84,11 +81,12 @@ def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typin
 
 
 async def page_selector(ctx, item_list, base_embed=None, choice_text=None,
-                        preserve_footer=True, confirm_single=False) -> int or None:
+                        preserve_footer=True, confirm_single=False) -> int:
+    """Embed UI for user to select from a list of items"""
     if len(item_list) == 1:  # Return only item.
         if confirm_single is False:
             return 0
-    
+
     if base_embed is None:
         base_embed = discord.Embed()
         base_embed.title = "Multiple results found."
@@ -108,15 +106,17 @@ async def page_selector(ctx, item_list, base_embed=None, choice_text=None,
         page_text = "\n".join([f"`[{num}]` {value}" for num, value in page])
         base_embed.description = f"{choice_text}\n\n" + page_text
         embeds.append(deepcopy(base_embed))
-        
+
     try:
         index = await paginate(ctx, embeds, items=item_list, preserve_footer=preserve_footer)
     except AssertionError:
-        return None
+        return -1
+
     return index
 
 
 async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: int = 60, header="") -> int or None:
+    """Graphical UI for user to page through multiple embeds using reactions"""
     assert len(embeds) > 0, "No results found."
     page = 0
     
@@ -165,6 +165,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
         waits = []
         if items is not None:
             def id_check(message):
+                """Verify the reaction came from the invoker of the paginator"""
                 if not ctx.author.id == message.author.id or not message.content.isdecimal():
                     return False
                 try:
@@ -176,6 +177,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
             waits.append(ctx.bot.wait_for("message", check=id_check))
         if reacts:
             def react_check(r, u):
+                """Verify a reaction came from the invoker of the paginator"""
                 if r.message.id == m.id and u.id == ctx.author.id:
                     return str(r.emoji).startswith(tuple(reacts))
         
@@ -216,7 +218,8 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
         
         if isinstance(result, discord.Message):
             try:
-                await m.delete()  # Just a little cleanup.
+                if m is not None:
+                    await m.delete()  # Just a little cleanup.
                 await result.delete()
             except discord.HTTPException:
                 pass
@@ -241,5 +244,5 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 
             elif result[0].emoji == "🚫":  # Delete:
                 await m.delete()
-                return "cancelled"
+                return -1
             await m.edit(embed=embeds[page], allowed_mentions=discord.AllowedMentions().none())

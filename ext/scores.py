@@ -1,3 +1,4 @@
+"""This Cog Grabs data from Flashscore and outputs the latest scores to user-configured livescore channels"""
 # discord
 # Misc
 import datetime
@@ -79,10 +80,12 @@ class Scores(commands.Cog, name="LiveScores"):
         self.bot.scores = self.score_loop.start()
     
     def cog_unload(self):
+        """Cancel the score ticker when cog is unloaded."""
         self.bot.scores.cancel()
     
     @property
     async def base_embed(self):
+        """A discord.Embed() with live-score theming"""
         e = discord.Embed()
         e.colour = discord.Colour.dark_orange()
         e.title = "Toonbot Live Scores config"
@@ -90,6 +93,7 @@ class Scores(commands.Cog, name="LiveScores"):
         return e
 
     async def send_leagues(self, ctx, channel):
+        """Send user a list of their channel's current leagues"""
         e = await self.base_embed
         header = f'Tracked leagues for {channel.mention}'
         # Warn if they fuck up permissions.
@@ -109,7 +113,7 @@ class Scores(commands.Cog, name="LiveScores"):
         await embed_utils.paginate(ctx, embeds)
     
     async def update_cache(self):
-        # Grab most recent data.
+        """Grab the most recent data for all channelc configurations"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             records = await connection.fetch("""
@@ -162,20 +166,23 @@ class Scores(commands.Cog, name="LiveScores"):
     
         channel_links = [i.mention for i in channels]
         index = await embed_utils.page_selector(ctx, channel_links, choice_text="For which channel?")
-    
-        if index == "cancelled" or index is None:
+
+        if index == -1 or index is None:
             return None  # Cancelled or timed out.
         channel = channels[index]
     
         return channel
     
     async def update_channel(self, guild_id, channel_id):
+        """Edit a live-score channel to have the latest scores"""
         whitelist = self.cache[(guild_id, channel_id)]
         # Does league exist in both whitelist and found games.
         channel_leagues_required = self.game_cache.keys() & whitelist
-        
+
+        # TODO: Insert Time Offset Field into DB
+
         chunks = []
-        this_chunk = datetime.datetime.now().strftime("Live Scores for **%a %d %b %Y** (Time Now: **%H:%M** (UTC))\n")
+        this_chunk = datetime.datetime.now().strftime("Live Scores for **%a %d %b %Y** (Time Now: **%H:%M**)\n")
         if channel_leagues_required:
             # Build messages.
             for league in channel_leagues_required:
@@ -185,7 +192,8 @@ class Scores(commands.Cog, name="LiveScores"):
                     chunks += [this_chunk]
                     this_chunk = ""
                 this_chunk += hdr + "\n"
-                
+
+                # TODO: Copy game, edit timestamp according to DB
                 for game in sorted(self.game_cache[league]):
                     if len(this_chunk + game) > 1999:
                         chunks += [this_chunk]
@@ -218,6 +226,7 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.reset_channel(channel_id, chunks)
     
     async def reset_channel(self, channel_id, chunks):
+        """Remove all livescore messages from a channel"""
         channel = self.bot.get_channel(channel_id)
         try:
             self.msg_dict[channel_id] = []
@@ -243,12 +252,12 @@ class Scores(commands.Cog, name="LiveScores"):
     @tasks.loop(minutes=1)
     async def score_loop(self):
         """Score Checker Loop"""
-        games = await self.fetch_games(self.bot.games)
+        games = await self.fetch_games()
         
         # Purging of "expired" games.
-        target_day = datetime.datetime.now() + datetime.timedelta(hours=1)
+        target_day = datetime.datetime.now()
         target_day = target_day.date()
-        
+
         games = [i for i in games if i.date >= target_day]
         
         # If we have an item with new data, force a full cache clear. This is expected behaviour at midnight.
@@ -263,23 +272,25 @@ class Scores(commands.Cog, name="LiveScores"):
         for i in self.bot.games:
             game_dict[i.full_league].add(i.live_score_text)
         self.game_cache = game_dict
-        
+
         # Iterate: Check vs each server's individual config settings
         for i in self.cache.copy():  # Error if dict changes sizes during iteration.
             await self.update_channel(i[0], i[1])
-    
+
     @score_loop.before_loop
     async def before_score_loop(self):
+        """Updates Cache at the start of a score loop"""
         await self.bot.wait_until_ready()
         await self.update_cache()
-    
-    async def fetch_games(self, games):
+
+    async def fetch_games(self):
+        """Grab all of the current scores"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             if resp.status != 200:
                 print(f'{datetime.datetime.utcnow()} | Scores error {resp.status} ({resp.reason}) during fetch_games')
             tree = html.fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
         elements = tree.xpath('.//div[@id="score-data"]/* | .//div[@id="score-data"]/text()')
-        
+
         date = datetime.datetime.today().date()
         country = None
         league = None
@@ -308,20 +319,22 @@ class Scores(commands.Cog, name="LiveScores"):
             elif tag == "span":
                 # Sub-span containing postponed data.
                 time = i.find('span').text if i.find('span') is not None else i.text
-                
+
                 # Timezone Correction
                 try:
+                    # The time of the games we fetch is in
                     time = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
                     time = datetime.datetime.strftime(time, "%H:%M")
                     hour, minute = time.split(':')
                     now = datetime.datetime.now()
                     date = now.replace(hour=int(hour), minute=int(minute))
-                    date = date - datetime.timedelta(hours=1)
                     date = date.date()
                 except ValueError:
-                    # Handle live games, cancelled, postponed, properly.
-                    pass
-                
+                    if time in ["Cancelled", "Postponed", "Half Time", "Delayed"] or "'" in time:
+                        pass
+                    else:
+                        print(f'Could not convert time "{time}" to Datetime object.')
+
                 # Is the match finished?
                 try:
                     state = i.find('span').text
@@ -368,69 +381,75 @@ class Scores(commands.Cog, name="LiveScores"):
                 home = home.strip()
                 away = away.strip()
 
-                # DEBUG
                 if time == "Half Time":
                     state = "ht"
-                
+
                 # If we are refreshing, create a new object and append it.
-                if url not in [fx.url for fx in games]:
-                    fixture = football.Fixture(time=time, home=home, away=away, url=url, country=country,
-                                               league=league,
-                                               score_home=score_home, score_away=score_away, away_cards=away_cards,
-                                               home_cards=home_cards, state=state, date=date)
-                    new_games.append(fixture)
-                
+
+                try:
+                    fx = [f for f in self.bot.games if url == f.url][0]
+                except IndexError:
+                    fx = football.Fixture(time=time, home=home, away=away, url=url, country=country, league=league,
+                                          score_home=score_home, score_away=score_away, state=state, date=date,
+                                          home_cards=home_cards, away_cards=away_cards)
+                    new_games.append(fx)
                 # Otherwise, update the existing one and spool out notifications.
                 else:
-                    fx = [f for f in games if url == f.url][0]
-                    old_score_home = fx.score_home
-                    old_score_away = fx.score_away
-                    old_cards_home = fx.home_cards
-                    old_cards_away = fx.away_cards
-                    
+                    # Dispatch State Changes.
+                    if fx.state == "sched" and state == "fin":  # Scheduled -> fin = Final result only
+                        self.bot.dispatch("fixture_event", "final_result_only", fx)
+                    elif fx.state == "sched" and state == "live":  # Scheduled -> Live is Kick Off
+                        self.bot.dispatch("fixture_event", "kick_off", fx)
+                    elif fx.state == "live" and state == "ht":  # live -> ht is Half Time
+                        self.bot.dispatch("fixture_event", "half_time", fx)
+                    elif fx.state == "live" and state == "fin":  # live -> fin is Full Time
+                        self.bot.dispatch("fixture_event", "full_time", fx)
+                    elif fx.state == "ht" and state == "live":  # 2nd Half
+                        self.bot.dispatch("fixture_event", "second_half_begin", fx)
+                    elif fx.state == "sched" and state == "Delayed":
+                        self.bot.dispatch("fixture_event", "delayed", fx)
+                    elif fx.state == "Delayed" and state == "live":
+                        self.bot.dispatch("fixture_event", "kick_off", fx)
+                    elif fx.state != state:
+                        print(f'Unhandled State change: {fx.state} -> {state}')
+
+                    # Dispatch Events for Goals
+                    if score_home > fx.score_home and score_away > fx.score_away:
+                        try:
+                            assert score_home > 0 and score_away > 0
+                        except AssertionError:
+                            print('Scores: Assertion error when sending double team goals')
+                            print(f'{time}: {home} {score_home} - {score_away} {away} | {url}')
+                        else:
+                            self.bot.dispatch("fixture_event", "goal", fx, home=None)
+                    elif score_home > fx.score_home:
+                        self.bot.dispatch("fixture_event", "goal", fx)
+                    elif score_away > fx.score_away:
+                        self.bot.dispatch("fixture_event", "goal", fx, home=False)
+                    elif score_home < fx.score_home:
+                        self.bot.dispatch("fixture_event", "var_goal", fx)
+                    elif score_away < fx.score_away:
+                        self.bot.dispatch("fixture_event", "var_goal", fx, home=False)
+
+                    # Dispatch cards.
+                    if home_cards > fx.home_cards:
+                        self.bot.dispatch("fixture_event", "red_card", fx)
+                    elif home_cards < fx.home_cards:
+                        self.bot.dispatch("fixture_event", "var_red_card", fx)
+
+                    if away_cards > fx.away_cards:
+                        self.bot.dispatch("fixture_event", "red_card", fx, home=False)
+                    elif away_cards < fx.away_cards:
+                        self.bot.dispatch("fixture_event", "var_red_card", fx, home=False)
+
+                    # Update all changed values.
                     fx.time = time
                     fx.state = state
                     fx.score_home = score_home
                     fx.score_away = score_away
                     fx.home_cards = home_cards
                     fx.away_cards = away_cards
-                    
-                    # Dispatch scores.
-                    if old_score_home != score_home and old_score_away != fx.score_away:
-                        if fx.state == "fin":  # Check if this is a full time only result.
-                            self.bot.dispatch("fixture_event", "FULL TIME", fx)
-                        elif fx.state == "Postponed":
-                            pass
-                        # If BOTH scores have changed.
-                        elif score_home == 0 and not score_away == 0:
-                            self.bot.dispatch("fixture_event", "GOAL", fx)
-                        elif not score_home == 0 and score_away == 0:
-                            self.bot.dispatch("fixture_event", "GOAL", fx, home=False)
-                        else:
-                            self.bot.dispatch('fixture_event', "GOAL", fx, home=None)
-                    else:
-                        if old_score_home < fx.score_home:
-                            self.bot.dispatch("fixture_event", "GOAL", fx)
-                        elif old_score_home > fx.score_home:
-                            self.bot.dispatch("fixture_event", "VAR", fx)
-                        elif old_score_away < fx.score_away:
-                            self.bot.dispatch("fixture_event", "GOAL", fx, home=False)
-                        elif old_score_home > fx.score_home:
-                            self.bot.dispatch("fixture_event", "VAR", fx, home=False)
-                    
-                    # Dispatch cards.
-                    if old_cards_home != fx.home_cards:
-                        if old_cards_home > fx.home_cards:
-                            self.bot.dispatch("fixture_event", "VAR", fx)
-                        else:
-                            self.bot.dispatch("fixture_event", "RED CARD", fx)
-                            
-                    elif old_cards_away != fx.away_cards:
-                        if old_cards_away > fx.away_cards:
-                            self.bot.dispatch("fixture_event", "VAR", fx, home=False)
-                        else:
-                            self.bot.dispatch("fixture_event", "RED CARD", fx, home=False)
-                
+
                     new_games.append(fx)
                 
                 # Clear attributes
@@ -502,11 +521,11 @@ class Scores(commands.Cog, name="LiveScores"):
         else:
             if "flashscore" not in query:
                 return await self.bot.reply(ctx, text='🚫 Invalid link provided', mention_author=True)
-            
-            qry = query.strip('[]<>')  # idiots
+
+            qry = str(query).strip('[]<>')  # idiots
             page = await self.bot.browser.newPage()
             try:
-                res = await football.Competition().by_link(qry, page)
+                res = await football.Competition.by_link(qry, page)
             except AssertionError:
                 return
             finally:
@@ -550,13 +569,13 @@ class Scores(commands.Cog, name="LiveScores"):
         channel = await self._pick_channels(ctx, channels)
         if not channel:
             return  # rip
-        
-        target = target.strip("'\"")  # Remove quotes, idiot proofing.
+
+        target = str(target).strip("'\"")  # Remove quotes, idiot proofing.
         leagues = [i for i in self.cache[(ctx.guild.id, channel.id)] if target.lower() in i.lower()]
         
         # Verify which league the user wishes to remove.
         index = await embed_utils.page_selector(ctx, leagues)
-        if index is None or index == "cancelled":
+        if index is None or index == -1:
             return  # rip.
         
         target = leagues[index]
@@ -601,6 +620,7 @@ class Scores(commands.Cog, name="LiveScores"):
     
     # Common DB methods
     async def add_league(self, channel_id: int, league):
+        """Insert a league for a channel into the database"""
         sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
         connection = await self.bot.db.acquire()
         try:
@@ -612,18 +632,21 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.bot.db.release(connection)
         
     async def remove_league(self, channel_id: int, league):
+        """Remove a league for a channel from the database"""
         c = await self.bot.db.acquire()
         async with c.transaction():
             await c.execute("""DELETE FROM scores_leagues WHERE (league,channel_id) = ($1,$2)""", league, channel_id)
         await self.bot.db.release(c)
         
     async def remove_all_leagues(self, channel_id: int):
+        """Remove all tracked leagues for a target channel from the database"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""DELETE FROM scores_leagues WHERE channel_id = $1""", channel_id)
         await self.bot.db.release(connection)
         
     async def create_channel(self, ch: discord.TextChannel):
+        """Create a database entry for a new live-score tracking channel"""
         gid = ch.guild.id
         c = await self.bot.db.acquire()
         try:
@@ -636,6 +659,7 @@ class Scores(commands.Cog, name="LiveScores"):
     
     # Purge either guild or channel from DB.
     async def delete_channel(self, id_number: int, guild: bool = False):
+        """Remove a channel from the live-scores channel database"""
         if guild:
             sql = """DELETE FROM scores_channels WHERE guild_id = $1"""
         else:
@@ -649,11 +673,13 @@ class Scores(commands.Cog, name="LiveScores"):
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
+        """Remove all of a channel's stored data upon deletion"""
         await self.delete_channel(channel.id)
         await self.update_cache()
     
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
+        """Remove all data for tracked channels for a guild upon guild leave"""
         await self.delete_channel(guild.id, guild=True)
         await self.update_cache()
         
@@ -674,4 +700,5 @@ class Scores(commands.Cog, name="LiveScores"):
 
 
 def setup(bot):
+    """Load the cog into the bot"""
     bot.add_cog(Scores(bot))

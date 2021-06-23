@@ -1,3 +1,4 @@
+"""Utilities for Image manipulation"""
 from io import BytesIO
 from typing import List
 
@@ -24,10 +25,10 @@ def stitch(images: List[Image.Image]) -> BytesIO:
 def stitch_vertical(images) -> BytesIO:
 	"""Stitch Images Vertically"""
 	images = [Image.open(i) for i in images]
-	
+
 	w = images[0].width
 	h = sum(i.height for i in images)
-	canvas = Image.new('RGB', (w,h))
+	canvas = Image.new('RGB', (w, h))
 	y = 0
 	for i in images:
 		canvas.paste(i, (0, y))
@@ -36,7 +37,7 @@ def stitch_vertical(images) -> BytesIO:
 	canvas.save(output, 'PNG')
 	output.seek(0)
 	canvas.close()
-	
+
 	[i.close() for i in images]
 	
 	return output

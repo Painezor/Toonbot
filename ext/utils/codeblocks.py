@@ -1,8 +1,10 @@
+"""Miscellaneous tools for creating codeblocks in discord"""
 import datetime
 import traceback
 
 
 def time_to_colour(timestamp: datetime.datetime) -> str:
+    """Colour coded timestamps based on how long ago they were."""
     time_delta = datetime.datetime.now() - timestamp
     if time_delta.total_seconds() < 600:  # 10 minutes
         coloured_time = f"```css\n[{timestamp}]\n[Less than 10 minutes]```"  # red
@@ -20,6 +22,6 @@ def time_to_colour(timestamp: datetime.datetime) -> str:
     
 
 def error_to_codeblock(error):
+    """Formatting of python errors into codeblocks"""
     return f':no_entry_sign: {type(error).__name__}: {error}```py\n' \
            f'{"".join(traceback.format_exception(type(error), error, error.__traceback__))}```'
-    pass

@@ -1,4 +1,4 @@
-# to expose to the eval command
+"""Administration commands for Painezor, including logging, debugging, and loading of modules"""
 import datetime
 import inspect
 import sys
@@ -21,6 +21,7 @@ class Admin(commands.Cog):
         self.bot.loop.create_task(self.update_ignored())
 
     async def update_ignored(self):
+        """Refresh the cache of ignored users"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             records = await connection.fetch("""SELECT * FROM ignored_users""")
@@ -28,7 +29,14 @@ class Admin(commands.Cog):
         for r in records:
             self.bot.ignored.update({r["user_id"]: r["reason"]})
         await self.bot.db.release(connection)
-    
+
+    @commands.command(name="print")
+    @commands.is_owner()
+    async def _print(self, ctx, *, to_print):
+        """Print something to console."""
+        print(to_print)
+        await self.bot.reply(ctx, f"Printed {to_print} to console.")
+
     @commands.command()
     @commands.is_owner()
     async def setavatar(self, ctx, new_pic: str):
@@ -174,11 +182,11 @@ class Admin(commands.Cog):
         """Toggle Ignoring commands from a user (reason optional)"""
         for i in users:
             if i.id in self.bot.ignored:
-                sql ="""INSERT INTO ignored_users (user_id,reason) = ($1,$2)"""
+                sql = """INSERT INTO ignored_users (user_id,reason) = ($1,$2)"""
                 escaped = [i.id, reason]
                 await self.bot.reply(ctx, text=f"Stopped ignoring commands from {i}.")
             else:
-                sql ="""DELETE FROM ignored_users WHERE user_id = $1"""
+                sql = """DELETE FROM ignored_users WHERE user_id = $1"""
                 escaped = [i.id]
                 self.bot.ignored.update({f"{i.id}": reason})
                 await self.bot.reply(ctx, text=f"Ignoring commands from {i}.")
@@ -186,7 +194,8 @@ class Admin(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, *escaped)
             await self.bot.db.release(connection)
-    
+
 
 def setup(bot):
+    """Load the Administration cog into the Bot"""
     bot.add_cog(Admin(bot))

@@ -1,3 +1,4 @@
+"""Notify server moderators about specific events"""
 import asyncio
 import datetime
 import typing
@@ -24,10 +25,13 @@ class Notifications(commands.Cog):
     # Db Create / Delete Listeners
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
+        """Reload the cog's database info after joining a new guild"""
         await asyncio.sleep(10)  # Time for other cogs to do their shit.
+        print(f"Reloaded cache for new guild: {guild.name} // {guild.id} ({len(guild.members)} Members)")
         await self.update_cache()
 
     async def update_cache(self):
+        """Get the latest databse information and load it into memory"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             self.records = await connection.fetch("""SELECT * FROM guild_settings""")
@@ -35,7 +39,7 @@ class Notifications(commands.Cog):
         
     # Master info command.
     @commands.has_permissions(manage_guild=True)
-    @commands.group(invoke_without_command=True, usage="mod")
+    @commands.command(invoke_without_command=True, usage="mod")
     async def mod(self, ctx):
         """Shows the status of various mod tools."""
         # Get settings.
@@ -68,6 +72,7 @@ class Notifications(commands.Cog):
     # Join messages
     @commands.Cog.listener()
     async def on_member_join(self, new_member):
+        """Event handler to Dispatch new member information for servers that request it"""
         try:
             joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == new_member.guild.id][0]
             ch = self.bot.get_channel(joins)
@@ -75,22 +80,22 @@ class Notifications(commands.Cog):
                 return
         except IndexError:
             return
-    
+
         # Extended member join information.
         e = discord.Embed()
         e.colour = 0x7289DA
         s = sum(1 for m in self.bot.get_all_members() if m.id == new_member.id)
         e.title = str(new_member)
-        e.add_field(name='User ID', value=new_member.id, inline=True)
-        e.add_field(name='Mutual Servers', value=f'{s} shared', inline=True)
+        e.add_field(name='User ID', value=new_member.id)
+        e.add_field(name='Mutual Servers', value=f'{s} shared')
         if new_member.bot:
             e.description = '**This is a bot account**'
-    
+
         coloured_time = codeblocks.time_to_colour(new_member.created_at)
-    
+
         e.add_field(name="Account Created", value=coloured_time, inline=False)
         e.set_thumbnail(url=new_member.avatar_url)
-    
+
         try:
             await ch.send(embed=e)
         except discord.Forbidden:  # If you wanna fuck up your settings it's not my fault.
@@ -122,6 +127,7 @@ class Notifications(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @joins.command(name="off", alaises=["none", "disable"], usages="joins off")
     async def joins_off(self, ctx):
+        """Disable information output for new members joining the server"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
@@ -133,6 +139,7 @@ class Notifications(commands.Cog):
     # Deleted messages
     @commands.Cog.listener()
     async def on_message_delete(self, message):
+        """Event handler for reposting deleted messages from users/"""
         # Ignore DMs & messages from bots
         if message.guild is None or message.author.bot:
             return
@@ -166,15 +173,18 @@ class Notifications(commands.Cog):
         e.timestamp = datetime.datetime.now()
         e.set_footer(text=f"🗑️ Deleted message from {message.channel.name}")
         e.description = message.clean_content
-        
+
         if message.attachments:
             att = message.attachments[0]
             if hasattr(att, "height"):
                 v = f"📎 *Attachment info*: {att.filename} ({att.size} bytes, {att.height}x{att.width})," \
                     f"attachment url: {att.proxy_url}"
                 e.add_field(name="Attachment info", value=v)
-        
-        await ch.send(embed=e)
+
+        try:
+            await ch.send(embed=e)
+        except discord.HTTPException:
+            return
         
     @commands.has_permissions(manage_channels=True)
     @commands.group(usage="deletes <#channel> to set a new channel, or leave blank to show current information.")
@@ -187,7 +197,7 @@ class Notifications(commands.Cog):
             return await self.bot.reply(ctx, text=f'Deleted messages are ' + rep)
     
         if not ctx.me.permissions_in(channel).send_messages:
-            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
+            return await self.bot.reply(ctx, text=f"🚫 I can't send messages to {channel.mention}", mention_author=True)
     
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -200,6 +210,7 @@ class Notifications(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @deletes.command(name="off", alaises=["none", "disable"], usages="deletes off")
     async def deletes_off(self, ctx):
+        """Disable the reposting of deleted messages by the bot"""
         connection = await self.bot.db.acquire()
         await connection.execute("""UPDATE guild_settings SET deletes_channel_id = $2 WHERE guild_id = $1""",
                                  ctx.guild.id, None)
@@ -234,6 +245,7 @@ class Notifications(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @leaves.command(name="off", alaises=["none", "disable"], usage="leaves off")
     async def leaves_off(self, ctx):
+        """Disables the outputting of information about members leaving the server"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
@@ -245,6 +257,7 @@ class Notifications(commands.Cog):
     # Unban notifier.
     @commands.Cog.listener()
     async def on_member_unban(self, guild, user):
+        """Event handler for outputting information about unbanned users."""
         try:
             unbans = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == guild.id][0]
             ch = self.bot.get_channel(unbans)
@@ -285,6 +298,7 @@ class Notifications(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     @mutes.command(name="off", alaises=["none", "disable"], usage="leaves off")
     async def mutes_off(self, ctx):
+        """Disable outputting information about members being unmuted"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""UPDATE guild_settings SET mutes_channel_id = $2 WHERE guild_id = $1""",
@@ -320,6 +334,7 @@ class Notifications(commands.Cog):
     @emojis.command(name="off")
     @commands.has_permissions(manage_channels=True)
     async def emojis_off(self, ctx):
+        """Disable the outputting of information about emoji additions and removals."""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""UPDATE guild_settings SET emojis_channel_id = $2 WHERE guild_id = $1""",
@@ -328,13 +343,14 @@ class Notifications(commands.Cog):
         await self.update_cache()
         await self.bot.reply(ctx, text='Emoji update notifications will no longer be output.')
 
-    # TODO: Blocked
-    @commands.Cog.listener()
-    async def on_guild_channel_update(self, before, after):
-        pass
+    # # TODO: Blocked
+    # @commands.Cog.listener()
+    # async def on_guild_channel_update(self, before, after):
+    #     pass
 
     @commands.Cog.listener()
     async def on_member_update(self, before, after):
+        """Event handler for outputting information about mutings and unmutings"""
         try:
             mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == before.guild.id][0]
             ch = self.bot.get_channel(mutes)
@@ -362,7 +378,7 @@ class Notifications(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_remove(self, member):
-    
+        """Event handler for outputting information about member kick, ban, or other departures"""
         # Default outputs
         try:
             ch = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
@@ -377,19 +393,24 @@ class Notifications(commands.Cog):
         
         # Check if in mod action log and override to specific channels.
         try:
-            async for x in member.guild.audit_logs(limit=1):
+            async for x in member.guild.audit_logs(limit=5):
                 if x.target == member:
                     if x.action == discord.AuditLogAction.kick:
                         output = f"👢 {member.mention} was kicked by {x.user} for {x.reason}."
                     elif x.action == discord.AuditLogAction.ban:
                         output = f"☠ {member.mention} was banned by {x.user} for {x.reason}."
+                    break
         except discord.Forbidden:
             pass  # We cannot see audit logs.
-        
-        await ch.send(output)
+
+        try:
+            await ch.send(output)
+        except discord.HTTPException:
+            return
         
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild, before, after):
+        """Event listener for outputting information about updated emojis on a server"""
         try:
             ch = guild.get_channel([r['emojis_channel_id'] for r in self.records if r["guild_id"] == guild.id][0])
         except IndexError:
@@ -427,4 +448,5 @@ class Notifications(commands.Cog):
         
         
 def setup(bot):
+    """Loads the notifications cog into the bot"""
     bot.add_cog(Notifications(bot))

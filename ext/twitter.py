@@ -1,3 +1,4 @@
+"""Utility for fetching Tweets from Twitter and exporting to Discord"""
 import html as htmlc
 import json
 from datetime import datetime
@@ -25,13 +26,13 @@ class Twitter(commands.Cog):
         self.bot.twitask = self.bot.loop.create_task(self.twat())
     
     def cog_unload(self):
+        """Cancel the twitter tracker when the cog is unloaded."""
         self.bot.twitask.cancel()
     
     async def _save(self):
         with await self.bot.configlock:
             with open('twitter.json', "w", encoding='utf-8') as f:
-                json.dump(self.track, f, ensure_ascii=True,
-                          sort_keys=True, indent=4, separators=(',', ':'))
+                json.dump(self.track, f, sort_keys=True, indent=4, separators=(',', ':'))
     
     async def twat(self):
         """Twitter tracker function"""
@@ -117,6 +118,7 @@ class Twitter(commands.Cog):
                 videos = []
                 
                 def extract_entities(alist):
+                    """Fetch List of photo or video entities from Tweet"""
                     for i in alist:
                         if i.type in ["photo", "animated_gif"]:
                             photos.append(i.media_url)
@@ -139,14 +141,14 @@ class Twitter(commands.Cog):
                 elif len(photos) > 1:
                     en = enumerate(photos, start=1)
                     v = ", ".join([f"[{i}]({j})" for i, j in en])
-                    e.add_field(name="Attached Photos", value=v, inline=True)
+                    e.add_field(name="Attached Photos", value=v)
                 
                 # Add embed field for videos
                 if videos:
                     if len(videos) > 1:
                         en = enumerate(videos, start=1)
                         v = ", ".join([f"[{i}]({j})" for i, j in en])
-                        e.add_field(name="Attached Videos", value=v, inline=True)
+                        e.add_field(name="Attached Videos", value=v)
                     else:
                         await destin.send(embed=e)
                         await destin.send(videos[0])
@@ -211,4 +213,5 @@ class Twitter(commands.Cog):
         
         
 def setup(bot):
+    """Load Twitter tracker cog into the bot"""
     bot.add_cog(Twitter(bot))

@@ -1,21 +1,28 @@
-from discord.ext import commands
+"""Error Handling for Commands"""
 import traceback
+
 import discord
+from discord.ext import commands
 from discord.ext.commands import DisabledCommand
 
 
 async def react(ctx, emoji):
-    try: await ctx.message.add_reaction(emoji)
+    """Add a Discord reaction to a message"""
+    try:
+        await ctx.message.add_reaction(emoji)
     except discord.HTTPException:
         pass
 
 
 class Errors(commands.Cog):
+    """Error Handling Cog"""
+
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
+        """Event listener for when commands raise exceptions"""
         if isinstance(error, (commands.CommandNotFound, commands.CheckFailure)):
             return  # Fail silently.
-        
+
         if isinstance(error, DisabledCommand):
             return await react(ctx, '🚫')
         
@@ -92,4 +99,5 @@ class Errors(commands.Cog):
 
             
 def setup(bot):
+    """Load the error handling Cog into the bot"""
     bot.add_cog(Errors(bot))

@@ -1,5 +1,7 @@
+"""Utiltiies for working with transfers from transfermarkt"""
 import asyncio
 import datetime
+import typing
 
 import discord
 import pycountry
@@ -25,7 +27,7 @@ country_dict = {
     "Cote d'Ivoire": "ci",
     "CSSR": "cz",
     "Czech Republic": "cz",
-    "England": "gb",
+    "East Timor": "tl",
     "Faroe Island": "fo",
     "Federated States of Micronesia": "fm",
     "Hongkong": "hk",
@@ -45,7 +47,7 @@ country_dict = {
     "Osttimor": "tl",
     "Palästina": "ps",
     "Russia": "ru",
-    "Scotland": "gb",
+    "Sao Tome and Principe": "st",
     "Sint Maarten": "sx",
     "Southern Sudan": "ss",
     "South Korea": "kr",
@@ -60,8 +62,7 @@ country_dict = {
     "Sao Tome and Princip": "st",
     "USA": "us",
     "Venezuela": "ve",
-    "Vietnam": "vn",
-    "Wales": "gb"}
+    "Vietnam": "vn"}
 
 unidict = {
     "a": "🇦", "b": "🇧", "c": "🇨", "d": "🇩", "e": "🇪",
@@ -72,17 +73,18 @@ unidict = {
 }
 
 
-def get_flag(country):
+def get_flag(country) -> str:
+    """Get a flag emoji from a string representing a country"""
     country = country.strip()
-    
+
     if not country:
         return country
-    
+
     # Check if pycountry has country
     if country.lower() in ["england", "scotland", "wales"]:
         country = f":{country.lower()}:"
         return country
-    
+
     try:
         country = pycountry.countries.get(name=country.title()).alpha_2
     except (KeyError, AttributeError):
@@ -93,29 +95,32 @@ def get_flag(country):
             print(f'No flag found for country: {country}')
             return country  # Shrug.
     country = country.lower()
-    
+
     for key, value in unidict.items():
         country = country.replace(key, value)
     return country
 
 
 class TransferResult:
+    """The result of a transfermarket search"""
     def __init__(self, name, link, **kwargs):
         self.link = link
         self.name = name
-    
+
     def __repr__(self):
         return f"TransferResult({self.__dict__})"
-    
+
     @property
-    async def base_embed(self):
+    async def base_embed(self) -> discord.Embed():
+        """A generic embed used for transfermarkt objects"""
         e = discord.Embed()
         e.colour = discord.Colour.dark_blue()
         e.set_author(name="TransferMarkt")
         return e
-    
+
     @property
-    def flag(self):
+    def flag(self) -> str:
+        """Return a flag representing the country"""
         # Return earth emoji if does not have a country.
         if not hasattr(self, "country"):
             return "🌍"
@@ -127,6 +132,7 @@ class TransferResult:
 
 
 class Player(TransferResult):
+    """An Object representing a player from transfermarkt"""
     def __init__(self, name, link, team, age, position, team_link, country, picture):
         super().__init__(name, link)
         self.team = team
@@ -135,15 +141,16 @@ class Player(TransferResult):
         self.team_link = team_link
         self.country = country
         self.picture = picture
-        
+
     def __repr__(self):
         return f"Player({self.__dict__})"
-    
+
     def __str__(self):
         return f"{self.flag} [{self.name}]({self.link}) {self.age}, {self.position} [{self.team}]({self.team_link})"
 
 
 class Staff(TransferResult):
+    """An object representing a Trainer or Manager from a Transfermarkt search"""
     def __init__(self, name, link, country, team, team_link, age, job):
         super().__init__(name, link)
         self.team = team
@@ -151,15 +158,16 @@ class Staff(TransferResult):
         self.age = age
         self.job = job
         self.country = country
-    
+
     def __repr__(self):
         return f"Manager({self.__dict__})"
-    
+
     def __str__(self):
         return f"{self.flag} [{self.name}]({self.link}) {self.age}, {self.job} [{self.team}]({self.link})"
 
 
 class Transfer(TransferResult):
+    """An Object representing a transfer from transfermarkt"""
     def __init__(self, player: Player, old_team, new_team, fee, fee_link):
         self.fee = fee
         self.fee_link = fee_link
@@ -167,9 +175,10 @@ class Transfer(TransferResult):
         self.new_team = new_team
         self.player = player
         super().__init__(player.name, player.link)
-    
+
     @property
     def loan_or_fee(self):
+        """Returns either Loan Information or the total fee of a player's transfer"""
         if "End" in self.fee:
             fee = "End of Loan"
         elif "loan" in self.fee:
@@ -177,13 +186,14 @@ class Transfer(TransferResult):
         else:
             fee = self.fee
         return f"[{fee}]({self.fee_link})"
-    
+
     def __str__(self):
         return f"{self.player.flag} [{self.name}]({self.link}) {self.player.age}, " \
                f"{self.player.position} ({self.loan_or_fee})"
-    
+
     @property
     def embed(self):
+        """An embed representing a transfermarkt player transfer."""
         e = discord.Embed()
         e.description = ""
         e.colour = 0x1a3151
@@ -197,135 +207,147 @@ class Transfer(TransferResult):
         if self.old_team.name != "Without Club":
             e.description += f" ({self.old_team.flag} {self.old_team.league_markdown})"
         e.add_field(name="Reported Fee", value=self.loan_or_fee, inline=False)
-        e.set_thumbnail(url=self.player.picture)
+        if "http" in self.player.picture:
+            e.set_thumbnail(url=self.player.picture)
         return e
 
 
 class Team(TransferResult):
+    """An object representing a Team from Transfermarkt"""
     def __init__(self, name, link, country, league, league_link):
         self.league = league
         self.league_link = league_link
         self.country = country
         super().__init__(name, link)
-    
+
     @property
     def markdown(self):
+        """Return markdown formatted team name and link"""
         if self.name == "Without Club":
             return self.name
         return f"[{self.name}]({self.link})"
 
     @property
     def league_markdown(self):
+        """Return markdown formatted league name and link"""
         if self.name == "Without Club":
             return ""
         return f"[{self.league}]({self.league_link})"
-    
+
     @property
     def badge(self):
+        """Return a link to the team's badge"""
         number = self.link.split('/')[-1]
         return f"https://tmssl.akamaized.net/images/wappen/head/{number}.png"
-    
+
     @property
     async def base_embed(self):
+        """Return a discord embed object representing a team"""
         e = await super().base_embed
         e.set_thumbnail(url=self.badge)
         e.title = self.name
         e.url = self.link
         return e
-    
+
     def __str__(self):
         if self.league:
             club = f"[{self.name}]({self.link}) ([{self.league}]({self.league_link}))"
         else:
             club = f"[{self.name}]({self.link})"
-            
+
         output = f"{self.flag} {club}"
         return output
-    
+
     async def get_transfers(self, ctx):
+        """Fetch the latest transfers for a team"""
         url = self.link.replace('startseite', 'transfers')
-    
+
         # Winter window, Summer window.
         now = datetime.datetime.now()
         period, season_id = ("w", now.year - 1) if now.month < 7 else ("s", now.year)
         url = f"{url}/saison_id/{season_id}/pos//detailpos/0/w_s/plus/1"
-        
+
         p = {"w_s": period}
         async with ctx.bot.session.get(url, params=p) as resp:
             if resp.status != 200:
                 await ctx.bot.reply(ctx, text=f"Error {resp.status} connecting to {resp.url}")
                 return None
             tree = html.fromstring(await resp.text())
-        
+
         p_in = tree.xpath('.//div[@class="box"][.//h2/a[text() = "Arrivals"]]/div[@class="responsive-table"]')
         p_out = tree.xpath('.//div[@class="box"][.//h2/a[text() = "Departures"]]/div[@class="responsive-table"]')
-        
+
         players_in = p_in[0].xpath('.//tbody/tr') if p_in else []
         players_out = p_out[0].xpath('.//tbody/tr') if p_out else []
-        
-        def parse(table):
+
+        def parse(table) -> typing.List[Transfer]:
+            """Read through the transfers page and extract relevant data, returning a list of transfers"""
             transfers = []
             for i in table:
                 name = "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/text()')).strip()
                 link = f"https://www.transfermarkt.co.uk" + "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/@href'))
-                
+
                 link = link.strip()
                 age = "".join(i.xpath('.//td[3]/text()')).strip()
                 position = "".join(i.xpath('.//td[2]//tr[2]/td/text()')).strip()
                 picture = "".join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src'))
-                
+
                 team = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="vereinprofil_tooltip"]/text()')).strip()
-                
+
                 team_link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="vereinprofil_tooltip"]/@href')).strip()
                 team_country = "".join(i.xpath(".//td[5]//img/@title")).strip()
                 league = "".join(i.xpath(".//td[5]//tr[2]//a/text()")).strip()
                 league_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath(".//td[5]//tr[2]//a/@href")).strip()
                 country = "".join(i.xpath('.//td[4]/img[1]/@title')).strip()
-                
+
                 player = Player(name, link, self.name, age, position, self.link, country, picture)
                 other_team = Team(team, team_link, team_country, league, league_link)
                 this_team = Team(self.name, self.link, self.country, self.league, self.league_link)
                 fee = "".join(i.xpath('.//td[7]//text()')).strip()
                 fee_link = f"https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[7]//@href')).strip()
-                
+
                 transfer = Transfer(player, other_team, this_team, fee, fee_link)
                 transfers.append(transfer)
             return transfers
 
         players_in = parse(players_in)
         players_out = parse(players_out)
-        
+
         return players_in, players_out, url
 
 
 class Referee(TransferResult):
+    """An object representing a referee from transfermarkt"""
     def __init__(self, name, link, country, age):
         self.age = age
         self.country = country
         super().__init__(name, link)
-        
+
     def __str__(self):
         return f"{self.flag} [{self.name}]({self.link}) {self.age}"
 
 
 class Competition(TransferResult):
+    """An Object representing a competition from transfermarkt"""
     def __init__(self, name, link, country):
         self.country = country
         super().__init__(name, link)
-    
+
     def __str__(self):
         return f"{self.flag} [{self.name}]({self.link})"
 
 
 class Agent(TransferResult):
+    """An object representing an Agent from transfermarkt"""
     def __init__(self, name, link):
         super().__init__(name, link)
-    
+
     def __str__(self):
         return f"[{self.name}]({self.link})"
 
 
-async def parse_players(trs):
+async def parse_players(trs) -> typing.List[Player]:
+    """Return a list of player objects found on this page"""
     players = []
     for i in trs:
         name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
@@ -342,7 +364,8 @@ async def parse_players(trs):
     return players
 
 
-async def parse_staff(trs):
+async def parse_staff(trs) -> typing.List[Staff]:
+    """Return a list of Staff Members found on this page."""
     staff = []
     for i in trs:
         name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
@@ -360,7 +383,8 @@ async def parse_staff(trs):
     return staff
 
 
-async def parse_teams(trs):
+async def parse_teams(trs) -> typing.List[Team]:
+    """Return a list of teams found on this page."""
     teams = []
     for i in trs:
         name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
@@ -373,7 +397,8 @@ async def parse_teams(trs):
     return teams
 
 
-async def parse_refs(trs):
+async def parse_refs(trs) -> typing.List[Referee]:
+    """Return a list of referees found on this page"""
     referees = []
     for i in trs:
         name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
@@ -385,7 +410,8 @@ async def parse_refs(trs):
     return referees
 
 
-async def parse_domestic(trs):
+async def parse_domestic(trs) -> typing.List[Competition]:
+    """Return a list of domestic competitions found on this page"""
     competitions = []
     for i in trs:
         name = "".join(i.xpath('.//td[2]/a/text()')).strip()
@@ -395,18 +421,20 @@ async def parse_domestic(trs):
     return competitions
 
 
-async def parse_int(trs):
+async def parse_int(trs) -> typing.List[Competition]:
+    """Return a list of international competitions found on this page"""
     competitions = []
     for i in trs:
         name = "".join(i.xpath('.//td[2]/a/text()'))
- 
+
         link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
         country = ""
         competitions.append(Competition(name=name, link=link, country=country))
     return competitions
 
 
-async def parse_agent(trs):
+async def parse_agent(trs) -> typing.List[Agent]:
+    """Return a list of agents found on this page"""
     agents = []
     for i in trs:
         name = "".join(i.xpath('.//td[2]/a/text()'))
@@ -416,10 +444,11 @@ async def parse_agent(trs):
 
 
 async def fetch_page(ctx, category, query, page):
+    """Fetch and parse a page from transfermarkt"""
     settings = parser_settings[category]
     match = settings["match_string"]
     param = settings["querystr"]
-    
+
     p = {"query": query, param: page}
     url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
     async with ctx.bot.session.post(url, params=p) as resp:
@@ -430,10 +459,10 @@ async def fetch_page(ctx, category, query, page):
 
     # Get trs of table after matching header / {categ} name.
     trs = f".//div[@class='box']/div[@class='table-header'][contains(text(),'{match}')]/following::div[1]//tbody/tr"
-    
+
     matches = "".join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{match}')]/text()"))
     matches = "".join([i for i in matches if i.isdecimal()])
-    
+
     e = discord.Embed()
     e.colour = 0x1a3151
     e.url = str(resp.url)
@@ -448,6 +477,7 @@ async def fetch_page(ctx, category, query, page):
 
 
 def make_embed(e, header, results, special):
+    """Create an embed for asking users to choose between flashscore results."""
     if special:
         e.description = "Please type matching ID#\n\n"
         for i, j in enumerate(results):
@@ -458,6 +488,7 @@ def make_embed(e, header, results, special):
 
 
 async def search(ctx, qry, category, special=False):
+    """Perform a search and allow the user to select their intended target"""
     page = 1
     e, tree, total_pages, header = await fetch_page(ctx, category, qry, page)
     if not tree:
@@ -470,7 +501,7 @@ async def search(ctx, qry, category, special=False):
 
     # Create message and add reactions
     m = await ctx.bot.reply(ctx, embed=e)
-    
+
     reacts = []
     if total_pages > 2:
         reacts.append("⏮")  # first
@@ -480,7 +511,7 @@ async def search(ctx, qry, category, special=False):
     if total_pages > 2:
         reacts.append("⏭")  # last
     reacts.append("🚫")  # eject
-    
+
     try:
         await embed_utils.bulk_react(ctx, m, reacts)
     except AssertionError:
@@ -488,24 +519,26 @@ async def search(ctx, qry, category, special=False):
 
     # Only respond to user who invoked command.
     def page_check(emo, usr):
+        """Verify reactions are from user who invoked the command."""
         if emo.message.id == m.id and usr.id == ctx.author.id:
             ej = str(emo.emoji)
             if ej.startswith(('⏮', '◀', '▶', '⏭', '🚫')):
                 return True
 
     def reply_check(msg):
+        """Verify message responses are from user who invoked the command."""
         if ctx.message.author.id == msg.author.id:
             try:
                 return int(msg.content) < len(results)
             except ValueError:
                 return False
-        
+
     # Reaction Logic Loop.
     while True:
         received, dead = await asyncio.wait(
             [ctx.bot.wait_for('message', check=reply_check), ctx.bot.wait_for('reaction_add', check=page_check)],
             timeout=30, return_when=asyncio.FIRST_COMPLETED)
-        
+
         if not received:
             try:
                 await m.clear_reactions()
@@ -517,7 +550,7 @@ async def search(ctx, qry, category, special=False):
         res = received.pop().result()
         for i in dead:
             i.cancel()
-            
+
         if isinstance(res, discord.Message):
             # It's a message.
             await m.delete()
@@ -553,6 +586,7 @@ async def search(ctx, qry, category, special=False):
 
 
 async def get_rumours(ctx, result):
+    """Fetch a list of transfer rumours for a particular target."""
     e = await result.base_embed
     e.description = ""
     target = result.link
@@ -562,17 +596,17 @@ async def get_rumours(ctx, result):
             return await ctx.bot.reply(ctx, text=f"Error {resp.status} connecting to {resp.url}")
         tree = html.fromstring(await resp.text())
         e.url = str(resp.url)
-        
+
     e.title = f"Transfer rumours for {e.title}"
     e.set_author(name="Transfermarkt", url=str(resp.url))
     e.set_footer(text=discord.Embed.Empty)
-    
+
     rows = []
     for i in tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0].xpath('.//tbody/tr'):
         name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
         if not name:
             continue
-    
+
         link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
         link = f"https://www.transfermarkt.co.uk{link}"
         ppos = "".join(i.xpath('.//td[2]//tr[2]/td/text()'))
@@ -585,17 +619,19 @@ async def get_rumours(ctx, result):
         source = "".join(i.xpath('.//td[8]//a/@href'))
         src = f"[Info]({source})"
         rows.append(f"{flag} **[{name}]({link})** ({src})\n{age}, {ppos} [{team}]({team_link})\n\n")
-    
+
     rows = ["No rumours about new signings found."] if not rows else rows
-    
+
     await embed_utils.paginate(ctx, embed_utils.rows_to_embeds(e, rows))
 
+
 async def get_contracts(ctx, result):
+    """Get a list of expiring contracts for a team."""
     e = await result.base_embed
     e.description = ""
     target = result.link
     target = target.replace('startseite', 'vertragsende')
-    
+
     async with ctx.bot.session.get(f"{target}") as resp:
         if resp.status != 200:
             return await ctx.bot.reply(ctx, text=f"Error {resp.status} connecting to {resp.url}")
@@ -607,15 +643,15 @@ async def get_contracts(ctx, result):
     e.set_footer(text=discord.Embed.Empty)
 
     rows = []
-    
+
     for i in tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0].xpath('.//tbody/tr'):
         name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
         if not name:
             continue
-            
+
         link = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
         link = f"https://www.transfermarkt.co.uk{link}"
-        
+
         pos = "".join(i.xpath('.//td[1]//tr[2]/td/text()'))
         age = "".join(i.xpath('./td[2]/text()')).split('(')[-1].replace(')', '').strip()
         flag = " ".join([get_flag(f) for f in i.xpath('.//td[3]/img/@title')])

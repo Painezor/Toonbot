@@ -1,19 +1,20 @@
+"""r/NUFC Match Thread Bot"""
 import asyncio
 import datetime
+from importlib import reload
+
 import asyncpg
 import discord
 import praw
-from discord.ext import tasks
 from discord.ext import commands
+from discord.ext import tasks
 from lxml import html
-
-from importlib import reload
 
 from ext.utils import football
 
 
 async def imgurify(bot, img_url):
-    # upload image to imgur
+    """Upload an image to imgur"""
     d = {"image": img_url}
     h = {'Authorization': f'Client-ID {bot.credentials["Imgur"]["Authorization"]}'}
     async with bot.session.post("https://api.imgur.com/3/image", data=d, headers=h) as resp:
@@ -25,6 +26,7 @@ async def imgurify(bot, img_url):
 
 
 async def get_ref_link(bot, name):
+    """Fetch referee info and return markdown link"""
     name = name.strip()  # clean up nbsp.
     surname = name.split(' ')[0]
     url = 'http://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
@@ -60,6 +62,7 @@ async def get_ref_link(bot, name):
 
    
 class MatchThread:
+    """Tool for updating a reddit post with the latest information about a match."""
     def __init__(self, bot, subreddit, fixture):
         self.bot = bot
         self.active = True
@@ -86,6 +89,7 @@ class MatchThread:
         self.task = self.bot.loop.create_task(self.match_thread_loop())
 
     async def match_thread_loop(self):
+        """The core loop for the match thread bot."""
         # Dupe check.
         connection = await self.bot.db.acquire()
         print("Searching db for values:", self.subreddit, self.fixture.url)
@@ -94,37 +98,36 @@ class MatchThread:
                                       self.subreddit, self.fixture.url)
 
         if r is not None:
-            self.post_match_url = r['post_match_url'] if hasattr(r, "post_match_url") else None
-            self.match_thread_url = r['match_thread_url'] if hasattr(r, "match_thread_url") else None
-            self.pre_match_url = r['pre_match_url'] if hasattr(r, "pre_match_url") else None
-            self.archive = r['archive_link'] if hasattr(r, "archive_link") else None
+            self.post_match_url = r['post_match_url']
+            self.match_thread_url = r['match_thread_url']
+            self.pre_match_url = r['pre_match_url']
+            self.archive = r['archive_link']
         else:
             async with connection.transaction():
                 await connection.execute("""INSERT INTO mtb_history (fs_link, subreddit)
                                            VALUES ($1, $2)""", self.fixture.url, self.subreddit)
-        
-        await self.bot.db.release(connection)
+
         if hasattr(self, "pre_match_offset"):
             print('Pre-match-offset check.')
-            await discord.utils.sleep_until(self.fixture.time - datetime.timedelta(minutes=self.pre_match_offset))
-            print('pre-match-offset ended.')
-            pre_match_instance = None
+            target_time = self.fixture.time - datetime.timedelta(minutes=self.pre_match_offset)
+            print("Sleeping until", target_time)
+            await discord.utils.sleep_until(target_time)
+            print('pre-match-sleep ended.')
             if self.pre_match_url is None:
-                pass
                 # TODO: Pre-match posting.
-                # title, markdown = await self.make_pre_match()
-                # pre_match_instance = await self.bot.loop.run_in_executor(None, self.make_post, title, markdown)
-                # self.pre_match_url = pre_match_instance.url
-                # connection = await self.bot.db.acquire()
-                # async with connection.transaction():
-                #     await connection.execute("""UPDATE mtb_history
-                #                                 SET pre_match_url = $1
-                #                                 WHERE (subreddit, fs_link) = ($2, $3)""",
-                #                              self.pre_match_url, self.subreddit, self.fixture.url)
-                #     await self.bot.db.release(connection)
-            # else:
-            #    pre_match_instance = await self.bot.loop.run_in_executor(None, self.fetch_post, self.pre_match_url)
-            #    self.pre_match_url = pre_match_instance.url
+                title, markdown = await self.make_pre_match()
+                pre_match_instance = await self.bot.loop.run_in_executor(None, self.make_post, title, markdown)
+                self.pre_match_url = pre_match_instance.url
+                connection = await self.bot.db.acquire()
+                async with connection.transaction():
+                    await connection.execute("""UPDATE mtb_history
+                                                SET pre_match_url = $1
+                                                WHERE (subreddit, fs_link) = ($2, $3)""",
+                                             self.pre_match_url, self.subreddit, self.fixture.url)
+                await self.bot.db.release(connection)
+            else:
+                pre_match_instance = await self.bot.loop.run_in_executor(None, self.fetch_post, self.pre_match_url)
+                self.pre_match_url = pre_match_instance.url
         else:
             pre_match_instance = None
         
@@ -207,13 +210,14 @@ class MatchThread:
         
     # Reddit posting shit.
     def make_post(self, title, markdown):
+        """Upload a post to reddit"""
         post = self.bot.reddit.subreddit(self.subreddit).submit(title, selftext=markdown)
         if hasattr(self, "announcement_channel_id"):
             self.bot.loop.create_task(self.send_notification(self.announcement_channel_id, post))
         return post
-    
-    # Fetch an existing reddit post.
+
     def fetch_post(self, resume):
+        """Fetch an existing reddit post."""
         try:
             if "://" in resume:
                 post = self.bot.reddit.submission(url=resume)
@@ -225,6 +229,7 @@ class MatchThread:
         return post
     
     async def make_pre_match(self):
+        """Create a prematch-thread"""
         # TODO: Actually write the code.
         self.pre_match_url = None
         title = "blah"
@@ -232,6 +237,7 @@ class MatchThread:
         return title, markdown
     
     async def fetch_tv(self):
+        """Fetch information about where the match will be televised"""
         tv = {}
         async with self.bot.session.get(f"https://www.livesoccertv.com/") as resp:
             if resp.status != 200:
@@ -268,7 +274,7 @@ class MatchThread:
             return tv
     
     async def send_notification(self, channel_id, post: praw.Reddit.post):
-        # Announce new posts to designated channels.
+        """Announce new posts to designated channels."""
         channel = await self.bot.get_channel(channel_id)
         if channel is None:
             return  # Rip
@@ -280,6 +286,7 @@ class MatchThread:
         await channel.send(embed=e)
     
     async def write_markdown(self, is_post_match=False):
+        """Write markdown for the current fixture"""
         page = await self.bot.browser.newPage()
         await self.fixture.refresh(page)
         
@@ -303,7 +310,7 @@ class MatchThread:
         except IndexError:
             print(f"MTB Loop: unable to find {home} in db")
             home_icon = ""
-            home_link = home
+            home_link = None
         
         try:
             away_team = [i for i in self.bot.teams if i['name'] == away][0]
@@ -312,7 +319,7 @@ class MatchThread:
         except IndexError:
             print(f"MTB Loop: unable to find {away} in db")
             away_icon = ""
-            away_link = ""
+            away_link = None
         
         # Title, title bar, & penalty shoot-out bar.
         ph = self.fixture.penalties_home
@@ -373,66 +380,46 @@ class MatchThread:
                 tv = await self.fetch_tv()
                 self.fixture.tv = f"📺🇬🇧 **TV** (UK): {tv['uk_tv']}\n\n" if tv["uk_tv"] else ""
                 self.fixture.tv += f"📺🌍 **TV** (Intl): [International TV Coverage]({tv['link']})\n\n"
-                
+
             print("DEBUG TV:", self.fixture.tv)
             markdown += self.fixture.tv
-        
-        # TODO: Images (Lineup & formation)
+
         if not self.cached_formations == self.fixture.formation:
             await imgurify(self.bot, self.fixture.formation)
             self.cached_formations = self.fixture.formation
-        # self.cached_formations = None
-        # TODO: statistics
-        # self.cached_statistics = None
-        # TODO: Table
-        # self.cached_table = None
-        
+
+        markdown += f"* [Formation]({self.cached_formations})\n"
+
+        stats_image = await self.fixture.get_stats(page)
+        if not self.cached_statistics == stats_image:
+            stats_image = await imgurify(self.bot, stats_image)
+            self.cached_statistics = stats_image
+
+        markdown += f"* [Stats]({self.cached_statistics})\n"
+
+        table_image = await self.fixture.get_table(page)
+        if not self.cached_table == table_image:
+            table_image = await imgurify(self.bot, table_image)
+            self.cached_table = table_image
+
+        markdown += f"* [Table]({self.cached_table})\n"
+
         if self.fixture.images:
             markdown += "## Match Pictures\n"
             markdown += ", ".join(f"[Picture {count}]({item})" for count, item in enumerate(self.fixture.images))
-            
+
         # Match Events
         formatted_ticker = ""
         penalty_mode = False
         for event in self.fixture.events:
-            # Header bars.
-            if event[0] == "header":
-                e = event[1]
-                markdown += f"### **{e[0]}**: {home_icon} {home} {' '.join(e[1:])} {away} {away_icon}\n---\n"
-                if "Penalties" in e:
-                    penalty_mode = True
-                continue
-            
-            team = home_icon if event[2] == "home" else away_icon
-            time = event[1]
-            
-            # Substitutions
-            if event[0] == "Sub":
-                markdown += f"{time}: {team} Substitution 🔺 {event[3][0]} 🔻 {event[3][1]}\n"
-                
-            # Disciplinaries
-            elif event[0] == "booking":
-                markdown += f"{time}: {team}{event[3]} Booking 🟨 {event[4]} {event[5]}\n"
-            elif event[0] == "2yellow":
-                markdown += f"{time}: {team}{event[3]} Second Yellow 🟨🟨🟥 {event[4]} {event[5]}\n"
-            elif event[0] == "dismissal":
-                markdown += f"{time}: {team}{event[3]} Red Card 🟥 {event[4]} {event[5]}\n"
-            
-            # Goals & Misses
-            elif event[0] in ["Goal", "Penalty miss"]:
-                player = event[3]
-                assist = event[4]
-                assist = "" if assist is None else assist + " "
-                desc = event[5].replace('Goal! ', '')
-                if event[0] == "Goal":
-                    text = "⚽ GOAL:" if penalty_mode is False else "⚽ Scored:"
-                else:
-                    text = "🔴 Missed!:"
-                markdown += f"**{time} {text} {team} {player} {assist}{desc}\n"
-                
-            # Warn unhandled.
-            else:
-                print("Warning: Unhandled event in ticker formatter", event)
+            team = event.team
+
+            team = home_icon if team == home else team
+            team = away_icon if team == away else team
+
+            event.team = team
+
+            markdown += str(event)
         
         markdown += "\n\n---\n\n" + formatted_ticker + "\n\n"
         markdown += "\n\n---\n\n^(*Beep boop, I am /u/Toon-bot, a bot coded ^badly by /u/Painezor. " \
@@ -447,32 +434,40 @@ class MatchThread:
 
 class MatchThreadCommands(commands.Cog):
     """MatchThread Commands and Spooler."""
-    
+
     def __init__(self, bot):
         self.bot = bot
         self.active_threads = []
-        self.schedule_threads.start()
+        self.scheduler_task = self.schedule_threads.start()
         reload(football)
-    
+
+    def cog_unload(self):
+        """Cancel all current match threads."""
+        self.scheduler_task.cancel()
+        for i in self.active_threads:
+            i.task.cancel()
+
     def cog_check(self, ctx):
+        """Assure commands can only be ran from the r/NUFC discord"""
         if ctx.guild:
             return ctx.guild.id in [332159889587699712, 250252535699341312]
-    
+
     async def spool_thread(self, f: football.Fixture, r: asyncpg.Record):
-        kwargs = {k: v for k, v in r}
-        subreddit = kwargs.pop('MatchThread')
-        
+        """Create match threads for all scheduled games."""
+        subreddit = r['subreddit']
+
         for i in self.active_threads:
             if (subreddit, i.url) in self.active_threads:
                 print(f'Not spooling duplicate thread: {subreddit} {i.score}.')
                 return
-        
+
             print(f"Spooling match thread: {subreddit} {i.score}")
             MatchThread(self.bot, subreddit, f)
             self.active_threads.append((subreddit, i.url))
     
     @tasks.loop(hours=24)
     async def schedule_threads(self):
+        """Schedule tomorrow's match threads"""
         # Number of minutes before the match to post
         connection = await self.bot.db.acquire()
         records = await connection.fetch("""SELECT * FROM mtb_schedule""")
@@ -480,15 +475,15 @@ class MatchThreadCommands(commands.Cog):
         
         for r in records:
             # Get upcoming games from flashscore.
-            fx = await football.Team().from_id(r["team_flashscore_id"]).get_fixtures()
+            page = await self.bot.browser.newPage()
+            team = await football.Team.by_id(r["team_flashscore_id"], page=page)
+            fx = await team.get_fixtures(page=page)
             for i in fx:
                 if i.time - datetime.datetime.now() > datetime.timedelta(days=3):
                     self.bot.loop.create_task(self.spool_thread(i, r))
-    
-    def cog_unload(self):
-        for i in self.active_threads:
-            i.task.cancel()
+            await page.close()
 
 
 def setup(bot):
+    """Load the match thread cog into the bot"""
     bot.add_cog(MatchThreadCommands(bot))

@@ -1,3 +1,4 @@
+"""Commands specific to the r/NUFC discord"""
 import random
 
 import discord
@@ -14,11 +15,13 @@ class NUFC(commands.Cog):
             self.girls = f.read().splitlines()
     
     def cog_check(self, ctx):
+        """Assure all commands in this cog can only be ran on the r/NUFC discord"""
         if ctx.guild:
             return ctx.guild.id in [238704683340922882, 332159889587699712]
 
     @commands.Cog.listener()
     async def on_message(self, m):
+        """On message reactions specific to the r/NUFC discord"""
         c = m.content.lower()
         if "toon toon" in c:
             try:
@@ -27,7 +30,6 @@ class NUFC(commands.Cog):
                 pass
             return
 
-        
         if not m.guild or not m.guild.id == 332159889587699712:
             return
         
@@ -50,7 +52,7 @@ class NUFC(commands.Cog):
                 
     @commands.Cog.listener()
     async def on_member_join(self, member):
-        # Bully kegs with a random girl's name.
+        """Bully kegs with a random girl's name."""
         if member.id == 272722118192529409:
             await member.edit(nick=random.choice(self.girls).title())
     
@@ -92,6 +94,7 @@ class NUFC(commands.Cog):
     @commands.command(hidden=True)
     @commands.is_owner()
     async def shake(self, ctx):
+        """Well to start off with..."""
         await self.bot.reply(ctx,
                              text="Well to start off with anyone who thinks you can trick women into sleeping with "
                                   "you, don't understand"
@@ -164,7 +167,7 @@ class NUFC(commands.Cog):
     @streams.command(name="del")
     async def stream_del(self, ctx, *, num: int):
         """Delete a stream from the stream list"""
-        num = num - 1
+        num -= 1
         if ctx.author.name not in self.bot.streams[f"{ctx.guild.id}"][num]:
             if not ctx.author.permissions_in(ctx.channel).manage_messages:
                 return await self.bot.reply(ctx, text="You didn't add that stream", delete_after=5, mention_author=True)
@@ -174,6 +177,7 @@ class NUFC(commands.Cog):
     @streams.command(name="clear")
     @commands.has_permissions(manage_messages=True)
     async def stream_clear(self, ctx):
+        """Remove all streams from guild stream list"""
         self.bot.streams[f"{ctx.guild.id}"] = []
         await self.bot.reply(ctx, text="Streams cleared.")
     
@@ -314,8 +318,10 @@ class NUFC(commands.Cog):
     
     @commands.command()
     async def radio(self, ctx):
+        """Sends a link to the NUFC radio channel"""
         await self.bot.reply(ctx, text="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
 
 
 def setup(bot):
+    """Load the NUFC Cog into the bot"""
     bot.add_cog(NUFC(bot))

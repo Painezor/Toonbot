@@ -1,9 +1,12 @@
+"""Utilities for working with future events"""
 import datetime
+
 import discord
 from discord.utils import sleep_until
 
 
 async def parse_time(time):
+	"""Parse a 1d2dh3m4s formatted time string."""
 	delta = datetime.timedelta()
 	if "d" in time:
 		d, time = time.split("d")
@@ -21,6 +24,7 @@ async def parse_time(time):
 
 
 async def spool_reminder(bot, record):
+	"""Bulk dispatch reminder messages"""
 	# Get data from records
 	channel = bot.get_channel(record['channel_id'])
 	msg = await channel.fetch_message(record['message_id'])
@@ -29,7 +33,7 @@ async def spool_reminder(bot, record):
 		mention = channel.guild.get_member(user_id).mention
 	except AttributeError:  # no guild
 		mention = channel.recipient.mention
-	
+
 	await sleep_until(record["target_time"])
 	
 	e = discord.Embed()

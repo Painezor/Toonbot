@@ -1,3 +1,4 @@
+"""Commands for creating time triggered message reminders."""
 import datetime
 from copy import deepcopy
 from importlib import reload
@@ -19,10 +20,12 @@ class Reminders(commands.Cog):
         reload(embed_utils)
     
     def cog_unload(self):
+        """Cancel all active tasks on cog reload"""
         for i in self.bot.reminders:
             i.cancel()
     
     async def spool_initial(self):
+        """Queue all active reminders"""
         connection = await self.bot.db.acquire()
         records = await connection.fetch("""SELECT * FROM reminders""")
         async with connection.transaction():
@@ -95,4 +98,5 @@ class Reminders(commands.Cog):
 
 
 def setup(bot):
+    """Load the reminders Cog into the bot"""
     bot.add_cog(Reminders(bot))

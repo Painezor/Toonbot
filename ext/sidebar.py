@@ -1,3 +1,4 @@
+"""Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
 import datetime
 import math
 import re
@@ -15,6 +16,7 @@ NUFC_DISCORD_LINK = "\n\n[](https://discord.gg/TuuJgrA)"  # NUFC.
 
 
 def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10240):
+    """Create sidebar popout tables"""
     rows = []
     for num, obj in enumerate(strings):
         # Every row we buffer the length of the new result.
@@ -51,19 +53,23 @@ class NUFCSidebar(commands.Cog):
         reload(football)
     
     def cog_unload(self):
+        """Cancel the sidebar task when Cog is unloaded."""
         self.bot.sidebar.cancel()
     
     async def cog_check(self, ctx):
+        """Assure commands can only be used on the r/NUFC discord."""
         if ctx.guild is not None:
             return ctx.guild.id in [332159889587699712, 250252535699341312]
     
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
+        """Background task, repeat every 6 hours to update the sidebar"""
         markdown = await self.make_sidebar()
         await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown, "NUFC")
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self):
+        """Grab information about teams from local database."""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             self.bot.teams = await connection.fetch("""SELECT * FROM team_data""")
@@ -71,11 +77,13 @@ class NUFCSidebar(commands.Cog):
     
     # Reddit interactions
     def upload_image(self, image_file_path, name, reason):
+        """Uploads an image to the r/NUFC Subreddit's stylesheet"""
         s = self.bot.reddit.subreddit("NUFC")
         s.stylesheet.upload(name, image_file_path)
         s.stylesheet.update(s.stylesheet().stylesheet, reason=reason)
     
     async def edit_caption(self, new_caption, subreddit="NUFC"):
+        """Edit sidebar wiki page to include a caption displayed in the sidebar."""
         # The 'sidebar' wiki page has two blocks of --- surrounding the "caption"
         # We get the old caption, then replace it with the new one, then re-upload the data.
         
@@ -84,15 +92,19 @@ class NUFCSidebar(commands.Cog):
         await self.bot.loop.run_in_executor(None, self.update_wiki, markdown, subreddit)
     
     def get_wiki(self, subreddit):
+        """Fetch the current sidebar information from the wiki page"""
         return self.bot.reddit.subreddit(subreddit).wiki['sidebar'].content_md
     
     def update_wiki(self, markdown, subreddit):  # Updates the manually editable sidebar page containing the caption.
+        """Update the caption on the sidebar wiki page"""
         self.bot.reddit.subreddit(subreddit).wiki['sidebar'].edit(markdown)
     
     def post_sidebar(self, markdown, subreddit):
+        """Update the sidebar"""
         self.bot.reddit.subreddit(subreddit).mod.update(description=markdown)
     
     def get_match_threads(self, last_opponent, subreddit="NUFC"):
+        """Search the subreddit for all recent match threads for pattern matching"""
         last_opponent = last_opponent.split(" ")[0]
         for i in self.bot.reddit.subreddit(subreddit).search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
             if last_opponent in i.title:
@@ -119,6 +131,7 @@ class NUFCSidebar(commands.Cog):
         return f"\n\n### {pre} - {match} - {post}"
     
     async def table(self, qry):
+        """Get the latest premier league table from the BBC website for formatting"""
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             if resp.status != 200:
                 return "Retry"
@@ -161,11 +174,12 @@ class NUFCSidebar(commands.Cog):
         return table_data
 
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
+        """Build the sidebar markdown"""
         # Fetch all data
         page = await self.bot.browser.newPage()
         top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
 
-        fsr = await football.Team().by_id(team_id, page)
+        fsr = await football.Team.by_id(team_id, page)
         fixtures = await fsr.get_fixtures(page, "/fixtures")
         results = await fsr.get_fixtures(page, "/results")
         table = await self.table(qry)
@@ -268,4 +282,5 @@ class NUFCSidebar(commands.Cog):
 
 
 def setup(bot):
+    """Load the Sidebar Updater Cog into the bot"""
     bot.add_cog(NUFCSidebar(bot))

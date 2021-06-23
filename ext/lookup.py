@@ -1,3 +1,4 @@
+"""Commands for fetching information about football entities from transfermarkt"""
 from copy import deepcopy
 from importlib import reload
 
@@ -55,7 +56,7 @@ class Lookups(commands.Cog):
         
         index = await embed_utils.page_selector(ctx, item_list=[i[0] for i in results])
         if index is None:
-            return # rip
+            return  # rip
         
         await ctx.invoke(results[index][1], qry=query)
 
@@ -97,7 +98,7 @@ class Lookups(commands.Cog):
     @commands.command(usage="<team to search for>")
     async def transfers(self, ctx, *, qry: commands.clean_content):
         """Get this window's transfers for a team on transfermarkt"""
-        if qry.startswith("set") and ctx.message.channel_mentions:
+        if str(qry).startswith("set") and ctx.message.channel_mentions:
             return await self.bot.reply(ctx, "You probably meant to use .tf, not .transfers.", mention_author=True)
         
         team = await transfer_tools.search(ctx, qry, "teams", special=True)
@@ -118,13 +119,13 @@ class Lookups(commands.Cog):
             e = deepcopy(base_embed)
             e.title = f"Inbound Transfers for {e.title}"
             e.colour = discord.Colour.green()
-            embeds += embed_utils.rows_to_embeds(e, [str(i) for i in inbound], rows_per=10)
+            embeds += embed_utils.rows_to_embeds(e, [str(i) for i in inbound])
 
         if outbound:
             e = base_embed
             e.title = f"Outbound Transfers for {e.title}"
             e.colour = discord.Colour.red()
-            embeds += embed_utils.rows_to_embeds(e, [str(i) for i in outbound], rows_per=10)
+            embeds += embed_utils.rows_to_embeds(e, [str(i) for i in outbound])
             
         await embed_utils.paginate(ctx, embeds)
             
@@ -138,13 +139,15 @@ class Lookups(commands.Cog):
         await transfer_tools.get_rumours(ctx, res)
 
     @commands.command()
-    async def contracts(self, ctx, *, qry:commands.clean_content):
+    async def contracts(self, ctx, *, qry: commands.clean_content):
         """Get a team's expiring contracts"""
         res = await transfer_tools.search(ctx, qry, "teams", special=True)
         if res is None:
             return
-        
+
         await transfer_tools.get_contracts(ctx, res)
 
+
 def setup(bot):
+    """Load the lookup cog into the bot"""
     bot.add_cog(Lookups(bot))

@@ -1,3 +1,4 @@
+"""Fetch latest information on televised matches from livesoccertv.com"""
 import datetime
 import json
 
@@ -16,11 +17,6 @@ class Tv(commands.Cog):
 		with open('tv.json') as f:
 			bot.tv = json.load(f)
 	
-	async def save_tv(self):
-		with await self.bot.configlock:
-			with open('tv.json', "w", encoding='utf-8') as f:
-				json.dump(self.bot.tv, f, ensure_ascii=True, sort_keys=True, indent=4, separators=(',', ':'))
-	
 	@commands.command()
 	async def tv(self, ctx, *, team: commands.clean_content = None):
 		"""Lookup next televised games for a team"""
@@ -35,8 +31,8 @@ class Tv(commands.Cog):
 				return await self.bot.reply(ctx, text=f"Could not find a matching team/league for {team}.")
 			matching_teams = [i for i in self.bot.tv if team in i.lower()]
 			index = await embed_utils.page_selector(ctx, matching_teams)
-			if index is None:
-				return
+			if index == -1:
+				return await self.bot.reply(f'No matching team found for query "{team}".')
 			team = matching_teams[index]
 			em.url = self.bot.tv[team]
 			em.title = f"Televised Fixtures for {team}"
@@ -112,4 +108,5 @@ class Tv(commands.Cog):
 
 
 def setup(bot):
+	"""Load TV Lookup Module into the bot."""
 	bot.add_cog(Tv(bot))

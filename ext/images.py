@@ -1,5 +1,4 @@
 import json
-import os
 import random
 import textwrap
 import typing
@@ -12,42 +11,12 @@ from discord.ext.commands.cooldowns import BucketType
 
 from ext.utils import embed_utils
 
-targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1"
-           "DobbyM8", "frostinator08", "GameProdigy", "Jamdearest", "KidneyCowboy", "Lord_Zath", "Masterchief1567",
-           "nebelfuss", "painezor", "Pelzmorph", "pops_place", "Redberen", "SeaRaptor00", "song_mg", "spacepickshovel",
-           "StatsBloke", "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend",
-           "Xairen", "Yuzral"]
-
 KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_TV_%28Hungary%29.svg" \
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
 
-def make_bauble(img):
-    # Open Avatar file.
-    avatar = Image.open(r"F:/Logos/" + img).convert(mode="RGBA")
-    
-    # Create Canvas & Paste Avatar
-    canvas = Image.new("RGBA", (300, 350), (0, 0, 0, 255))
-    canvas.paste(avatar, (0, 50))
-    
-    # Apply Bauble mask.
-    msk = Image.open("images/Bauble_MASK.png").convert('L')
-    canvas.putalpha(msk)
-    
-    # Apply bauble top overlay
-    bauble_top = Image.open("images/BaubleTop.png").convert(mode="RGBA")
-    canvas.paste(bauble_top, mask=bauble_top)
-    
-    output_loc = r"F:/Logo-Output/" + img.split('.')[0]
-    canvas.save(output_loc + ".png")
-
-
-def bulk_image():
-    directory = r'F:\Logos'
-    for img in os.listdir(directory):
-        make_bauble(img)
-
 
 def draw_tinder(image, av, name):
+    """Draw Images for the tinder command"""
     # Base Image
     im = Image.open("Images/tinder.png").convert(mode="RGBA")
     # Prepare mask
@@ -103,6 +72,7 @@ def draw_bob(image, response):
 
 
 def draw_knob(image, response):
+    """Draw a knob in someone's mouth for the knob command"""
     im = Image.open(BytesIO(image)).convert(mode="RGBA")
     knob = Image.open("Images/knob.png")
     
@@ -136,24 +106,24 @@ def draw_eyes(image, response):
         rix = int(i["faceLandmarks"]["eyeRightInner"]["x"])
         rty = int(i["faceLandmarks"]["eyeRightTop"]["y"])
         # rby = int(i["faceLandmarks"]["eyeRightBottom"]["y"])
-        
+
         lw = lix - lox
         rw = rox - rix
-        
+
         # Inflate
-        lix = lix + lw
-        lox = lox - lw
-        lty = lty - lw
+        lix += lw
+        lox -= lw
+        lty -= lw
         # lby = lby + lw
-        rox = rox + rw
-        rix = rix - rw
-        rty = rty - rw
+        rox += rw
+        rix -= rw
+        rty -= rw
         # rby = rby + rw
-        
+
         # Recalculate with new sizes.
         lw = lix - lox
         rw = rox - rix
-        
+
         # Open Eye Image, resize, paste twice
         eye = Image.open("Images/eye.png")
         left = ImageOps.fit(eye, (lw, lw))
@@ -190,6 +160,7 @@ def draw_tard(image, quote):
     
     # Get best size for text
     def get_first_size(quote_text):
+        """Measure font and shrink it to appropriate size."""
         font_size = 72
         ttf = 'Whitney-Medium.ttf'
         ftsz = ImageFont.truetype(ttf, font_size)
@@ -236,35 +207,25 @@ async def get_faces(ctx, target):
     """Retrieve face features from Project Oxford"""
     if isinstance(target, discord.Member):
         target = str(target.avatar_url_as(format="png"))
-    elif target is None:
-        for i in ctx.message.attachments:
-            if i.height is None:  # Not an image.
-                continue
-            target = i.url
-            break
-        else:
-            await ctx.bot.reply(ctx, text='🚫 To use this command either upload an image, tag a user, or specify url.')
-            return None, None, None
+    elif isinstance(target, discord.Attachment):
+        target = target.url
     elif "://" not in target:
         await ctx.bot.reply(ctx, text=f"{target} doesn't look like a valid url.")
         return None, None, None
     
     # Prepare POST
-    oxk = ctx.bot.credentials['Oxford']['OxfordKey']
-    h = {"Content-Type": "application/json", "Ocp-Apim-Subscription-Key": oxk}
-    body = {"url": target}
+    h = {"Content-Type": "application/json", "Ocp-Apim-Subscription-Key": ctx.bot.credentials['Oxford']['OxfordKey']}
     p = {"returnFaceId": "False", "returnFaceLandmarks": "True", "returnFaceAttributes": "headPose"}
-    d = json.dumps(body)
+    d = json.dumps({"url": target})
     url = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
 
     # Get Project Oxford reply
     async with ctx.bot.session.post(url, params=p, headers=h, data=d) as resp:
-        if resp.status != 200:
-            if resp.status == 400:
-                await ctx.bot.reply(ctx, text=await resp.json())
-                return False, False, False
-            else:
-                await ctx.bot.reply(ctx, f"HTTP Error {resp.status} accessing facial recognition API.")
+        if resp.status == 400:
+            await ctx.bot.reply(ctx, text=await resp.json())
+            return False, False, False
+        elif resp.status != 200:
+            await ctx.bot.reply(ctx, f"HTTP Error {resp.status} accessing facial recognition API.")
             return None, None, None
         response = await resp.json()
     
@@ -281,11 +242,11 @@ async def get_faces(ctx, target):
 
 class Images(commands.Cog):
     """Image manipulation commands"""
-    
+
     def __init__(self, bot):
         self.bot = bot
-        
-    @commands.command(usage="")
+
+    @commands.command(hidden=True)
     @commands.cooldown(2, 90, BucketType.user)
     async def tinder(self, ctx):
         """Try to Find your next date."""
@@ -333,41 +294,40 @@ class Images(commands.Cog):
         
         if response is None or response is False:
             return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
-        
+
         image = await self.bot.loop.run_in_executor(None, draw_bob, image, response)
         icon = "https://cdn4.vectorstock.com/i/thumb-large/79/33/painting-icon-image-vector-14647933.jpg"
-        
+
         base_embed = discord.Embed()
         base_embed.colour = 0xb4b2a7  # titanium h-white
         base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
         base_embed.description = ctx.author.mention
         base_embed.add_field(name="Source", value=target)
         await embed_utils.embed_image(ctx, base_embed, image, filename="bobross.png")
-        
-    @commands.is_nsfw()
-    @commands.command(usage='<@user, link to image, or upload a file>')
-    # TODO: Open mouth.
-    async def knob(self, ctx, *, target: typing.Union[discord.Member, str] = None):
-        """Draw knobs in mouth on an image. Mention a user to use their avatar. Only works for human faces."""
-        image, response, target = await get_faces(ctx, target)
-        
-        if response is None or response is False:
-            return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
-        
-        image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
-        
-        base_embed = discord.Embed()
-        base_embed.colour = 0xff66cc
-        base_embed.set_author(name=ctx.invoked_with, icon_url=KNOB_ICON)
-        base_embed.description = ctx.author.mention
-        base_embed.add_field(name="Source", value=target)
-        await embed_utils.embed_image(ctx, base_embed, image, filename="Knob.png")
+
+    # @commands.is_nsfw()
+    # @commands.command(usage='<@user, link to image, or upload a file>')
+    # async def knob(self, ctx, *, target: typing.Union[discord.Member, str] = None):
+    #     """Draw knobs in mouth on an image. Mention a user to use their avatar. Only works for human faces."""
+    #     image, response, target = await get_faces(ctx, target)
+    #
+    #     if response is None or response is False:
+    #         return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
+    #
+    #     image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
+    #
+    #     base_embed = discord.Embed()
+    #     base_embed.colour = 0xff66cc
+    #     base_embed.set_author(name=ctx.invoked_with, icon_url=KNOB_ICON)
+    #     base_embed.description = ctx.author.mention
+    #     base_embed.add_field(name="Source", value=target)
+    #     await embed_utils.embed_image(ctx, base_embed, image, filename="Knob.png")
 
     @commands.command(usage='<@user, link to image, or upload a file>')
     async def eyes(self, ctx, *, target: typing.Union[discord.Member, str] = None):
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
         image, response, target = await get_faces(ctx, target)
-        
+
         if response is None:
             return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", mention_author=True)
         elif response is False:
@@ -404,6 +364,7 @@ class Images(commands.Cog):
             
     @tard.error
     async def tard_error(self, ctx, exc):
+        """Handle errors for the tard command"""
         if isinstance(exc, commands.BadArgument):
             return await self.bot.reply(ctx, text="🚫 Bad argument provided: Pinging a user or use their ID",
                                         mention_author=True)
@@ -437,27 +398,27 @@ class Images(commands.Cog):
     async def fixed(self, ctx):
         """Fixed!"""
         await self.bot.reply(ctx, file=discord.File("Images/fixed.png"))
-    
+
     @commands.command(hidden=True)
     async def ructions(self, ctx):
         """WEW. RUCTIONS."""
         await self.bot.reply(ctx, file=discord.File("Images/ructions.png"))
-    
+
     @commands.command(hidden=True)
     async def helmet(self, ctx):
         """Helmet"""
         await self.bot.reply(ctx, file=discord.File("Images/helmet.jpg"))
-    
-    @commands.command(hidden=True, aliases=["f"])
+
+    @commands.command(aliases=["f"], hidden=True)
     async def pressf(self, ctx):
         """Press F to pay respects"""
         await self.bot.reply(ctx, text="https://i.imgur.com/zrNE05c.gif")
-    
+
     @commands.command(hidden=True)
     async def goala(self, ctx):
         """Party on Garth"""
         await self.bot.reply(ctx, file=discord.File('Images/goala.gif'))
-        
+
     @commands.command(usage="<an emoji>", aliases=['emoji'])
     async def emote(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji]):
         """View a bigger version of an Emoji"""
@@ -480,4 +441,5 @@ class Images(commands.Cog):
 
 
 def setup(bot):
+    """Load t he Images Cog into the bot"""
     bot.add_cog(Images(bot))

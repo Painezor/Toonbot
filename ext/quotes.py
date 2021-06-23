@@ -1,3 +1,4 @@
+"""Commands related to the Quote Database Functionality"""
 import asyncio
 import typing
 from importlib import reload
@@ -17,6 +18,7 @@ class QuoteDB(commands.Cog):
         reload(embed_utils)
         
     async def embed_quotes(self, records: list):
+        """Create an embed for a list of quotes"""
         embeds = []
         for r in records:
             # Fetch data.
@@ -175,7 +177,7 @@ class QuoteDB(commands.Cog):
     @quote.group(usage="<message text to search for>)", invoke_without_command=True)
     async def search(self, ctx, *, qry: commands.clean_content):
         """Search for a quote by quote text"""
-        await self._get_quote(ctx, qry=qry, all_guilds=False)
+        await self._get_quote(ctx, qry=qry)
 
     @search.command(name="all", usage="<message text to search for>", aliases=['global'])
     async def _all(self, ctx, *, qry: commands.clean_content):
@@ -214,6 +216,7 @@ class QuoteDB(commands.Cog):
         e = e[0]  # There will only be one quote to return for this.
         
         async def delete():
+            """Delete a quote from the database"""
             c = await self.bot.db.acquire()
             async with c.transaction():
                 await c.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
@@ -227,6 +230,7 @@ class QuoteDB(commands.Cog):
             return await delete()
             
         def check(reaction, user):
+            """Verify user reacting is the invoker of the command"""
             if reaction.message.id == m.id and user == ctx.author:
                 emoji = str(reaction.emoji)
                 return emoji.startswith(("👍", "👎"))
@@ -292,4 +296,5 @@ class QuoteDB(commands.Cog):
 
 
 def setup(bot):
+    """Load the quote database module into the bot"""
     bot.add_cog(QuoteDB(bot))

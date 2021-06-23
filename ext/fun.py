@@ -1,3 +1,4 @@
+"""Miscellaneous toys built for my own personal entertainment."""
 import asyncio
 import datetime
 import random
@@ -56,7 +57,7 @@ class Fun(commands.Cog):
     @commands.command(aliases=["horo"])
     async def horoscope(self, ctx, *, sign: commands.clean_content):
         """Find out your horoscope for this week"""
-        sign = sign.title()
+        sign = str(sign).title()
         horos = {
             "Aquarius": "♒", "Aries": "♈", "Cancer": "♋", "Capricorn": "♑", "Gemini": "♊", "Leo": "♌", "Libra": "♎",
             "Scorpius": "♏", "Scorpio": "♏", "Sagittarius": "♐", "Pisces": "♓", "Taurus": "♉", "Virgo": "♍",
@@ -115,6 +116,7 @@ class Fun(commands.Cog):
     async def wyr(self, ctx):
         """Would you rather..."""
         async def fetch():
+            """Attempt to fetch the data from rrrather"""
             async with self.bot.session.get("http://www.rrrather.com/botapi") as response:
                 if response.status != "200":
                     return int(response.status)
@@ -145,6 +147,7 @@ class Fun(commands.Cog):
             return
         
         async def write(response):
+            """Format returned response into readable markdown"""
             title = response["title"].strip().capitalize().rstrip('.?,:')
             opta = response["choicea"].strip().capitalize().rstrip('.?,!').lstrip('.')
             optb = response["choiceb"].strip().capitalize().rstrip('.?,!').lstrip('.')
@@ -156,6 +159,7 @@ class Fun(commands.Cog):
         
         # Re-roller
         def check(reaction, user):
+            """Reaction handling, re-roll upon user click."""
             if reaction.message.id == m.id and user == ctx.author:
                 e = str(reaction.emoji)
                 return e == '🎲'
@@ -278,7 +282,7 @@ class Fun(commands.Cog):
                 e.title = i["word"]
                 e.url = i["permalink"]
                 de = i["definition"]
-                for z in re.finditer(r'\[(.*?)\]', de):
+                for z in re.finditer(r'\[(.*?)]', de):
                     z1 = z.group(1).replace(' ', "%20")
                     z = z.group()
                     de = de.replace(z,
@@ -407,4 +411,5 @@ class Fun(commands.Cog):
 
 
 def setup(bot):
+    """Loadthe Fun cog into the bot"""
     bot.add_cog(Fun(bot))

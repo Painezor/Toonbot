@@ -1,24 +1,43 @@
-from discord.ext import commands
-from collections import Counter
-import ext.utils.codeblocks as codeblocks
-from importlib import reload
+"""Commands about the meta-state of the bot and information about users and servers"""
 import datetime
-import discord
 import typing
+from collections import Counter
+from importlib import reload
 
+import discord
+from discord.ext import commands
+
+import ext.utils.codeblocks as codeblocks
 from ext.utils.embed_utils import get_colour
 
 
 class Info(commands.Cog):
     """Get information about users or servers."""
-    
+
     def __init__(self, bot):
         self.bot = bot
         reload(codeblocks)
         if not hasattr(self.bot, "commands_used"):
             self.bot.commands_used = Counter()
-    
-    @commands.command(aliases=['botstats', "uptime", "hello", "inviteme", "invite"])
+
+    @commands.Cog.listener()
+    async def on_command(self, ctx):
+        """A counter for how many commands have been used this session"""
+        self.bot.commands_used[str(ctx.command)] += 1
+
+    @commands.command()
+    async def invite(self, ctx):
+        """Get my invite link"""
+        e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
+        owner = await self.bot.fetch_user(self.bot.owner_id)
+        e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
+        e.set_thumbnail(url=ctx.me.avatar_url)
+        e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
+        e.description = f"[Click to invite me](https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
+                        f"&permissions=67488768&scope=bot)\n"
+        await self.bot.reply(ctx, embed=e)
+
+    @commands.command(aliases=['botstats', "uptime", "hello"])
     async def about(self, ctx):
         """Tells you information about the bot itself."""
         e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
@@ -26,7 +45,7 @@ class Info(commands.Cog):
         e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
         e.set_thumbnail(url=ctx.me.avatar_url)
         e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
-        
+
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)
         members = f"{total_members} Members across {len(self.bot.guilds)} servers."
@@ -211,4 +230,5 @@ class Info(commands.Cog):
 
 
 def setup(bot):
+    """Load the Info cog into the bot"""
     bot.add_cog(Info(bot))
