@@ -144,34 +144,25 @@ class RSS(commands.Cog):
                 elif node.text.strip() == ":":
                     section = "**:**\n"
                 elif node.getparent().text is None:
-                    section = "**" + node.text + "**\n"
+                    section = f"**{node.text}**\n"
                 else:
-                    section = "**" + node.text + "**"
+                    section = f"**{node.text}**"
             elif node.tag == "span":
                 if "ship" in node.attrib['class']:
                     section = "**" + node.text + "**"
                 else:
                     section = ""
             elif node.tag == "ul":
-                bullet_type = "•"
-                if node.text:
-                    section = node.text.strip()
-                else:
-                    section = ""
-
-                if node.getparent().tag == "li":
-                    bullet_type = "∟○"
+                if not node.text:
+                    continue
+                section = node.text.strip()
 
             elif node.tag == "li":
                 if node.text is None:
                     continue
+                bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
+                section = f"{bullet_type} {node.text.strip()}\n"
 
-                section = f"{bullet_type} " + node.text.strip() + "\n"
-
-                if any([i.tag == "ul" for i in node.getchildren()]):
-                    pass
-                elif node.getnext() is None:
-                    section += "\n"
             elif node.tag == "img":
                 if main_image is None:
                     main_image = "http:" + node.attrib['src']
@@ -199,7 +190,7 @@ class RSS(commands.Cog):
     @commands.is_owner()
     async def rss(self, ctx):
         """Test dev blog output"""
-        url = "https://blog.worldofwarships.com/blog/164"
+        url = "https://blog.worldofwarships.com/blog/174"
         e = await self.parse(url)
         await ctx.send(embed=e)
 
