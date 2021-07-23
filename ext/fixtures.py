@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 # D.py
-from ext.utils import browser
+from ext.utils import browser, timed_events
 # Custom Utils
 from ext.utils import transfer_tools, football, embed_utils
 
@@ -23,7 +23,7 @@ class Fixtures(commands.Cog):
         if not hasattr(bot, "browser"):
             self.bot.loop.create_task(browser.make_browser(bot))
 
-        for package in [transfer_tools, football, embed_utils, browser]:
+        for package in [transfer_tools, football, embed_utils, browser, timed_events]:
             reload(package)
     
     # Master picker.
@@ -119,7 +119,7 @@ class Fixtures(commands.Cog):
             team = r["default_team"]
             league = r["default_league"]
             # Decide if found, yell if not.
-            if any([league, team]):
+            if team or league:
                 if mode == "team":
                     return team if team else league
                 return league if league else team
@@ -156,19 +156,21 @@ class Fixtures(commands.Cog):
         Navigate pages using reactions."""
         await self.bot.reply(ctx, text="Searching...", delete_after=5)
         fsr = await self._search(ctx, qry)
-        
+
         if fsr is None:
             return
-        
+
         page = await self.bot.browser.newPage()
         results = await fsr.get_fixtures(page, '/results')
         await page.close()
-        
+
         results = [str(i) for i in results]
+        results = ["No Fixtures Found :("] if not results else results
+
         embed = await fsr.base_embed
         embed.title = f"≡ Results for {embed.title}" if embed.title else "≡ Results "
         embeds = embed_utils.rows_to_embeds(embed, results)
-    
+
         await embed_utils.paginate(ctx, embeds)
     
     @commands.command(usage="[league or team to search for or leave blank to use server's default setting]")
@@ -444,6 +446,9 @@ class Fixtures(commands.Cog):
             page = await self.bot.browser.newPage()
             try:
                 sc = await fsr.get_scorers(page)
+            except ValueError:
+                print(f'Debug Log: Scorers Not Found for League {fsr.url}')
+                return await self.bot.reply(ctx, 'Scorers unavailable for this league.')
             except Exception as e:
                 raise e
             finally:
@@ -488,39 +493,31 @@ class Fixtures(commands.Cog):
         e = discord.Embed()
         e.colour = discord.Colour.blurple()
         if search_query:
-            e.set_author(name=f'Live Scores matching "{search_query}"')
+            e.set_author(name=f'Live Scores matching search "{search_query}"')
         else:
             e.set_author(name="Live Scores for all known competitions")
-        
+
         e.timestamp = datetime.datetime.now()
-        dtn = datetime.datetime.now().strftime("%H:%M")
+        dtn = timed_events.unix_time(countdown=True)
         q = str(search_query).lower()
-        
+
+        time = f"\nScores from: {dtn}"
+
         matches = [i for i in self.bot.games if q in (i.home + i.away + i.league + i.country).lower()]
-        
+
         if not matches:
             e.description = "No results found!"
             return await embed_utils.paginate(ctx, [e])
-        
+
         game_dict = defaultdict(list)
         for i in matches:
-            game_dict[i.full_league].append(f"[{i.live_score_text}]({i.url})")
-        
+            game_dict[i.full_league].append(i.scores_row)
+
         for league in game_dict:
             games = game_dict[league]
-            if not games:
-                continue
-            output = f"**{league}**\n"
-            discarded = 0
-            for i in games:
-                if len(output + i) < 1944:
-                    output += i + "\n"
-                else:
-                    discarded += 1
-            
-            e.description = output + f"*and {discarded} more...*" if discarded else output
-            e.description += f"\n*Time now: {dtn}\nPlease note this menu will NOT auto-update. It is a snapshot.*"
-            embeds.append(deepcopy(e))
+
+            league_embeds = embed_utils.rows_to_embeds(e, games, header=league, footer=time)
+            embeds += league_embeds
         await embed_utils.paginate(ctx, embeds)
     
     @commands.command(usage="<Team or Stadium name to search for.>")

@@ -27,7 +27,6 @@ class Notifications(commands.Cog):
     async def on_guild_join(self, guild):
         """Reload the cog's database info after joining a new guild"""
         await asyncio.sleep(10)  # Time for other cogs to do their shit.
-        print(f"Reloaded cache for new guild: {guild.name} // {guild.id} ({len(guild.members)} Members)")
         await self.update_cache()
 
     async def update_cache(self):
@@ -110,18 +109,20 @@ class Notifications(commands.Cog):
             ch = self.bot.get_channel(joins)
             rep = " not currently being output" if ch is None else f" currently being output to {ch.mention}"
             return await self.bot.reply(ctx, text=f'Member information is ' + rep)
-        
+
         if not ctx.me.permissions_in(channel).send_messages:
             return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
                                         mention_author=True)
-        
+
+        assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
+
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""UPDATE guild_settings SET joins_channel_id = $2 WHERE guild_id = $1""",
                                      ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        
+
         await self.bot.reply(ctx, text=f'Information about new users will be sent to {channel.mention} when they join.')
 
     @commands.has_permissions(manage_channels=True)
@@ -195,10 +196,12 @@ class Notifications(commands.Cog):
             ch = self.bot.get_channel(deletes)
             rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
             return await self.bot.reply(ctx, text=f'Deleted messages are ' + rep)
-    
+
         if not ctx.me.permissions_in(channel).send_messages:
             return await self.bot.reply(ctx, text=f"🚫 I can't send messages to {channel.mention}", mention_author=True)
-    
+
+        assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
+
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""UPDATE guild_settings SET deletes_channel_id = $2 WHERE guild_id = $1""",
@@ -228,10 +231,12 @@ class Notifications(commands.Cog):
             ch = self.bot.get_channel(leaves)
             rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
             return await self.bot.reply(ctx, text=f'Member leave information is ' + rep)
-        
+
         if not ctx.me.permissions_in(channel).send_messages:
             return await self.bot.reply(ctx, f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
-        
+
+        assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
+
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""
@@ -239,7 +244,7 @@ class Notifications(commands.Cog):
                """, ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        
+
         await self.bot.reply(ctx, text=f'Notifications will be sent to {channel.mention} when users leave.')
 
     @commands.has_permissions(manage_channels=True)
@@ -286,7 +291,9 @@ class Notifications(commands.Cog):
         if not ctx.me.permissions_in(channel).send_messages:
             return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
                                         mention_author=True)
-        
+
+        assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
+
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""UPDATE guild_settings SET mutes_channel_id = $2 WHERE guild_id = $1""",
@@ -317,11 +324,13 @@ class Notifications(commands.Cog):
             ch = self.bot.get_channel(emojis)
             rep = "not currently being output." if ch is None else f' currently being output to {ch.mention}'
             return await self.bot.reply(ctx, text="Emoji change notifications are " + rep)
-        
+
         if not ctx.me.permissions_in(channel).send_messages:
             return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
                                         mention_author=True)
-        
+
+        assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
+
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""

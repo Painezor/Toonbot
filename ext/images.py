@@ -205,6 +205,10 @@ def ruin(image):
 
 async def get_faces(ctx, target):
     """Retrieve face features from Project Oxford"""
+    if target is None:
+        await ctx.bot.reply(ctx, text="No target specified.")
+        return None, None, None
+
     if isinstance(target, discord.Member):
         target = str(target.avatar_url_as(format="png"))
     elif isinstance(target, discord.Attachment):
@@ -212,7 +216,7 @@ async def get_faces(ctx, target):
     elif "://" not in target:
         await ctx.bot.reply(ctx, text=f"{target} doesn't look like a valid url.")
         return None, None, None
-    
+
     # Prepare POST
     h = {"Content-Type": "application/json", "Ocp-Apim-Subscription-Key": ctx.bot.credentials['Oxford']['OxfordKey']}
     p = {"returnFaceId": "False", "returnFaceLandmarks": "True", "returnFaceAttributes": "headPose"}
@@ -392,22 +396,22 @@ class Images(commands.Cog):
     @commands.command(hidden=True)
     async def butter(self, ctx):
         """What is my purpose?"""
-        await self.bot.reply(ctx, file=discord.File("Images/butter.png"))
+        await self.bot.reply(ctx, image="Images/butter.png")
     
     @commands.command(hidden=True)
     async def fixed(self, ctx):
         """Fixed!"""
-        await self.bot.reply(ctx, file=discord.File("Images/fixed.png"))
+        await self.bot.reply(ctx, image="Images/fixed.png")
 
     @commands.command(hidden=True)
     async def ructions(self, ctx):
         """WEW. RUCTIONS."""
-        await self.bot.reply(ctx, file=discord.File("Images/ructions.png"))
+        await self.bot.reply(ctx, image="Images/ructions.png")
 
     @commands.command(hidden=True)
     async def helmet(self, ctx):
         """Helmet"""
-        await self.bot.reply(ctx, file=discord.File("Images/helmet.jpg"))
+        await self.bot.reply(ctx, image="Images/helmet.jpg")
 
     @commands.command(aliases=["f"], hidden=True)
     async def pressf(self, ctx):
@@ -417,7 +421,7 @@ class Images(commands.Cog):
     @commands.command(hidden=True)
     async def goala(self, ctx):
         """Party on Garth"""
-        await self.bot.reply(ctx, file=discord.File('Images/goala.gif'))
+        await self.bot.reply(ctx, image='Images/goala.gif')
 
     @commands.command(usage="<an emoji>", aliases=['emoji'])
     async def emote(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji]):

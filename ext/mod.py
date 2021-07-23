@@ -184,6 +184,9 @@ class Mod(commands.Cog):
             await ctx.message.delete()
         except discord.HTTPException:
             pass
+
+        assert destination.guild.id == ctx.guild.id, "You cannot send messages to other servers."
+
         await destination.send(msg)
     
     @commands.command(usage="topic <New Channel Topic>")
@@ -365,10 +368,12 @@ class Mod(commands.Cog):
         if channel is None:
             channel = ctx.channel
 
+        assert channel.guild.id == ctx.guild.id, "You cannot block a user from channels on other servers."
+
         ow = discord.PermissionOverwrite(read_messages=False, send_messages=False)
         for i in members:
             await channel.set_permissions(i, overwrite=ow)
-        
+
         await self.bot.reply(ctx, text=f'Blocked {" ,".join([i.mention for i in members])} from {channel.mention}')
 
     @commands.command(usage="unblock <Optional: #channel> <@member1 @member2> <Optional: reason>")
@@ -378,7 +383,9 @@ class Mod(commands.Cog):
         """Unblock a user from seeing or talking in this channel"""
         if channel is None:
             channel = ctx.channel
-            
+
+        assert channel.guild.id == ctx.guild.id, "You cannot unblock a user from channels on other servers."
+
         for i in members:
             await channel.set_permissions(i, overwrite=None)
 
@@ -390,7 +397,7 @@ class Mod(commands.Cog):
     async def mute(self, ctx, members: commands.Greedy[discord.Member], *, reason="No reason given."):
         """Prevent member(s) from talking on your server."""
         if not members:
-            return await self.bot.reply('No members specified.')
+            return await self.bot.reply(ctx, 'No members specified.')
 
         muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
         if not muted_role:

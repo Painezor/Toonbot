@@ -61,6 +61,7 @@ class Errors(commands.Cog):
             e.description = f"No channel called #{error.argument} found on this server."
         
         elif isinstance(error, commands.MissingRequiredArgument):
+            print(f'Missing Argument Error: {ctx.command} - {error.param.name}')
             e.description = f"{error.param.name} is a required argument but was not provided"
         
         elif isinstance(error, commands.CommandOnCooldown):

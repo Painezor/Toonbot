@@ -53,7 +53,10 @@ class Admin(commands.Cog):
         """Clear the command window."""
         system('cls')
         print(f'{self.bot.user}: {self.bot.initialised_at}\n-----------------------------------------')
-        await self.bot.reply(ctx, text="Console cleared.")
+        e = discord.Embed()
+        e.colour = discord.Colour.blurple()
+        e.description = "[ADMIN] Console Log Cleared."
+        await self.bot.reply(ctx, embed=e)
         print(f"Console cleared at: {datetime.datetime.utcnow()}")
 
     @commands.command(aliases=["releoad", "relaod"])  # I can't fucking type.
