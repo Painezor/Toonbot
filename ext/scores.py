@@ -143,7 +143,8 @@ class Scores(commands.Cog, name="LiveScores"):
     async def _pick_channels(self, ctx, channels):
         # Assure guild has score channel.
         if ctx.guild.id not in [i[0] for i in self.cache]:
-            await self.bot.reply(ctx, text=f'{ctx.guild.name} does not have any live scores channels set.',
+            await self.bot.reply(ctx, text=f'{ctx.guild.name} does not have any live scores channels set.\n'
+                                           f"Set one first with {ctx.prefix}ls create #channel_name",
                                  mention_author=True)
             return []
     
@@ -156,13 +157,17 @@ class Scores(commands.Cog, name="LiveScores"):
                     await self.bot.reply(ctx, text=f"{i.mention} is not set as a live scores channel.",
                                          mention_author=True)
                 else:
+                    checking = self.bot.get_channel(i.id)
+                    if checking is None or checking.guild.id != ctx.guild.id:  # Do not edit other server settings.
+                        continue
+
                     checked.append(i)
+
             channels = checked
     
         if not channels:
             channels = [self.bot.get_channel(i[1]) for i in self.cache if i[0] == ctx.guild.id]
-            # Filter out NoneTypes caused by deleted channels.
-            channels = [i for i in channels if i is not None]
+            channels = [i for i in channels if i is not None]  # Filter out NoneTypes caused by deleted channels.
     
         channel_links = [i.mention for i in channels]
         index = await embed_utils.page_selector(ctx, channel_links, choice_text="For which channel?")
@@ -179,10 +184,8 @@ class Scores(commands.Cog, name="LiveScores"):
         # Does league exist in both whitelist and found games.
         channel_leagues_required = self.game_cache.keys() & whitelist
 
-        # TODO: Insert Time Offset Field into DB
-
         chunks = []
-        this_chunk = datetime.datetime.now().strftime("Live Scores for **%a %d %b %Y** (Time Now: **%H:%M**)\n")
+        this_chunk = f"Live scores at <t:{str(datetime.datetime.now().timestamp()).split('.')[0]}:F>\n"
         if channel_leagues_required:
             # Build messages.
             for league in channel_leagues_required:
@@ -193,7 +196,6 @@ class Scores(commands.Cog, name="LiveScores"):
                     this_chunk = ""
                 this_chunk += hdr + "\n"
 
-                # TODO: Copy game, edit timestamp according to DB
                 for game in sorted(self.game_cache[league]):
                     if len(this_chunk + game) > 1999:
                         chunks += [this_chunk]
@@ -220,17 +222,21 @@ class Scores(commands.Cog, name="LiveScores"):
                         return await self.reset_channel(channel_id, chunks)
                     except discord.HTTPException:
                         pass  # can't help.
-        
+
         # Otherwise we build a new message list.
         else:
             await self.reset_channel(channel_id, chunks)
-    
+
+    def is_me(self, m):
+        """Handle purging more gracefully. Bot Only."""
+        return m.author == self.bot.user
+
     async def reset_channel(self, channel_id, chunks):
         """Remove all livescore messages from a channel"""
         channel = self.bot.get_channel(channel_id)
         try:
             self.msg_dict[channel_id] = []
-            await channel.purge()
+            await channel.purge(limit=10, check=self.is_me)
         except discord.HTTPException:
             pass
         except AttributeError:  # Channel not found.
@@ -255,10 +261,7 @@ class Scores(commands.Cog, name="LiveScores"):
         games = await self.fetch_games()
         
         # Purging of "expired" games.
-        target_day = datetime.datetime.now()
-        target_day = target_day.date()
-
-        games = [i for i in games if i.date >= target_day]
+        games = [i for i in games if i.day == datetime.datetime.now().day]
         
         # If we have an item with new data, force a full cache clear. This is expected behaviour at midnight.
         if not {i.url for i in self.bot.games} & {x.url for x in games}:
@@ -266,7 +269,7 @@ class Scores(commands.Cog, name="LiveScores"):
             
         # If we only have a partial match returned, for whatever reason
         self.bot.games = [i for i in self.bot.games if i.url not in [x.url for x in games]] + [x for x in games]
-        
+
         # Key games by league for intersections.
         game_dict = defaultdict(set)
         for i in self.bot.games:
@@ -300,6 +303,7 @@ class Scores(commands.Cog, name="LiveScores"):
         score_away = None
         url = None
         time = None
+        day = datetime.datetime.now().day
         state = None
         capture_group = []
         new_games = []
@@ -320,26 +324,23 @@ class Scores(commands.Cog, name="LiveScores"):
                 # Sub-span containing postponed data.
                 time = i.find('span').text if i.find('span') is not None else i.text
 
-                # Timezone Correction
-                try:
-                    # The time of the games we fetch is in
-                    time = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
-                    time = datetime.datetime.strftime(time, "%H:%M")
-                    hour, minute = time.split(':')
-                    now = datetime.datetime.now()
-                    date = now.replace(hour=int(hour), minute=int(minute))
-                    date = date.date()
-                except ValueError:
-                    if time in ["Cancelled", "Postponed", "Half Time", "Delayed"] or "'" in time:
-                        pass
-                    else:
-                        print(f'Could not convert time "{time}" to Datetime object.')
-
                 # Is the match finished?
                 try:
                     state = i.find('span').text
                 except AttributeError:
                     pass
+
+                # Timezone Correction
+                try:
+                    # The time of the games we fetch is in
+                    time = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
+                    hour, minute = datetime.datetime.strftime(time, "%H:%M").split(':')
+                    now = datetime.datetime.now()
+                    date = now.replace(hour=int(hour), minute=int(minute))
+                    time = date
+                except ValueError:
+                    if "'" not in time:
+                        state = time.lower()
             
             elif tag == "a":
                 url = i.attrib['href']
@@ -347,13 +348,13 @@ class Scores(commands.Cog, name="LiveScores"):
                 url = "http://www.flashscore.com/" + url
                 score_home, score_away = i.text.split(':')
                 if not state:
-                    state = i.attrib['class']
+                    state = i.attrib['class'].lower()
                 if score_away.endswith('aet'):
                     score_away = score_away.replace('aet', "").strip()
-                    time = "AET"
+                    state = "after extra time"
                 elif score_away.endswith('pen'):
                     score_away = score_away.replace('pen', "").strip()
-                    time = "After Pens"
+                    state = "after pens"
                 
                 try:
                     score_home = int(score_home)
@@ -390,28 +391,95 @@ class Scores(commands.Cog, name="LiveScores"):
                     fx = [f for f in self.bot.games if url == f.url][0]
                 except IndexError:
                     fx = football.Fixture(time=time, home=home, away=away, url=url, country=country, league=league,
-                                          score_home=score_home, score_away=score_away, state=state, date=date,
+                                          score_home=score_home, score_away=score_away, state=state, day=day,
                                           home_cards=home_cards, away_cards=away_cards)
                     new_games.append(fx)
                 # Otherwise, update the existing one and spool out notifications.
                 else:
-                    # Dispatch State Changes.
-                    if fx.state == "sched" and state == "fin":  # Scheduled -> fin = Final result only
-                        self.bot.dispatch("fixture_event", "final_result_only", fx)
-                    elif fx.state == "sched" and state == "live":  # Scheduled -> Live is Kick Off
-                        self.bot.dispatch("fixture_event", "kick_off", fx)
-                    elif fx.state == "live" and state == "ht":  # live -> ht is Half Time
-                        self.bot.dispatch("fixture_event", "half_time", fx)
-                    elif fx.state == "live" and state == "fin":  # live -> fin is Full Time
-                        self.bot.dispatch("fixture_event", "full_time", fx)
-                    elif fx.state == "ht" and state == "live":  # 2nd Half
-                        self.bot.dispatch("fixture_event", "second_half_begin", fx)
-                    elif fx.state == "sched" and state == "Delayed":
-                        self.bot.dispatch("fixture_event", "delayed", fx)
-                    elif fx.state == "Delayed" and state == "live":
-                        self.bot.dispatch("fixture_event", "kick_off", fx)
-                    elif fx.state != state:
-                        print(f'Unhandled State change: {fx.state} -> {state}')
+                    if state == fx.state or state == "awaiting":
+                        pass
+
+                    # Delays & Cancellations
+                    elif state == "live":
+                        if fx.state == "interrupted":
+                            self.bot.dispatch("fixture_event", "resumed", fx)
+                        elif fx.state in ["sched", "delayed"]:
+                            self.bot.dispatch("fixture_event", "kick_off", fx)
+                        elif fx.state == "ht":
+                            mode = "second_half_begin" if fx.state != "extra time" else "ht_et_end"
+                            self.bot.dispatch("fixture_event", mode, fx)
+                        elif fx.state == "break time":
+                            self.bot.dispatch("fixture_event", f"start_of_period_{fx.breaks + 1}", fx)
+                        elif fx.state == "awaiting":
+                            pass
+                        else:
+                            print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
+
+                    elif state in ["interrupted", "abandoned", "postponed", "cancelled", "delayed"]:
+                        self.bot.dispatch("fixture_event", state, fx)
+
+                    elif state == "sched":
+                        if fx.state == "delayed":
+                            self.bot.dispatch("fixture_event", "postponed", fx)
+                        else:
+                            print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
+
+                    # End Of Game
+                    elif state == "fin":
+                        if fx.state == "sched":
+                            self.bot.dispatch("fixture_event", "final_result_only", fx)
+                        elif fx.state == "live":
+                            self.bot.dispatch("fixture_event", "full_time", fx)
+                        else:
+                            print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
+
+                    elif state == "after extra time":
+                        self.bot.dispatch("fixture_event", "score_after_extra_time", fx)
+                    elif state == "after pens":
+                        self.bot.dispatch("fixture_event", "penalty_results", fx)
+
+                    # Half Time
+                    elif state == "ht":
+                        mode = "half_time" if fx.state != "extra time" else "ht_et_begin"
+                        self.bot.dispatch("fixture_event", mode, fx)
+
+                    # Other Breaks.
+                    elif state == "break time":
+                        fx.breaks += 1
+                        if fx.state == "live":
+                            if fx.periods == 2:  # A Standard Game.
+                                if fx.breaks == 1:
+                                    self.bot.dispatch("fixture_event", "end_of_normal_time", fx)
+                                elif fx.breaks == 2:
+                                    self.bot.dispatch("fixture_event", "end_of_extra_time", fx)
+                                else:
+                                    print(f'Scores No Mode found for break number {fx.breaks} - {fx.url}')
+                            else:
+                                self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}")
+                        elif fx.state == "extra time":
+                            if fx.breaks == 2 and fx.periods == 2:
+                                self.bot.dispatch("fixture_event", "end_of_extra_time", fx)
+                            else:
+                                self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}")
+                        else:
+                            print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
+
+                    elif state == "extra time":
+                        if fx.state == "break time":
+                            if fx.breaks == 1 and fx.periods == 2:
+                                self.bot.dispatch("fixture_event", "extra_time_begins", fx)
+                            elif fx.breaks == 2 and fx.periods == 2:
+                                self.bot.dispatch("fixture_event", "ht_et_end", fx)
+                            else:
+                                self.bot.dispatch("fixture_event", f"start_of_period_{fx.breaks + 1}", fx)
+                        else:
+                            print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
+
+                    elif state == "penalties":
+                        self.bot.dispatch("fixture_event", "penalties_begin", fx)
+
+                    else:
+                        print(f'Unhandled State change: {fx.url} | {fx.state} -> {state}')
 
                     # Dispatch Events for Goals
                     if score_home > fx.score_home and score_away > fx.score_away:
@@ -476,8 +544,8 @@ class Scores(commands.Cog, name="LiveScores"):
         """Create a live-scores channel for your server."""
 
         ow = {
-            ctx.me: discord.PermissionOverwrite(read_messages=True, send_messages=True, manage_messages=True,
-                                                read_message_history=True),
+            ctx.me: discord.PermissionOverwrite(read_messages=True, send_messages=True,
+                                                manage_messages=True, read_message_history=True),
             ctx.guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False,
                                                                 read_message_history=True)}
         
@@ -687,8 +755,11 @@ class Scores(commands.Cog, name="LiveScores"):
     @commands.is_owner()
     async def refresh(self, ctx):
         """ ADMIN: Force a cache refresh of the livescores """
+        e = discord.Embed()
+        e.colour = discord.Colour.blurple()
+        e.description = "[ADMIN] Cleared global games cache."
         self.bot.games = []
-        await self.bot.reply(ctx, "ADMIN: Cleared global games cache.")
+        await self.bot.reply(ctx, embed=e)
     
     @ls.command(usage="<channel_id>", hidden=True)
     @commands.is_owner()
