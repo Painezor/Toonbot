@@ -5,6 +5,14 @@ import discord
 from discord.utils import sleep_until
 
 
+def unix_time(countdown=False):
+	"""Get current unix timestamp"""
+	ut = str(datetime.datetime.now().timestamp()).split('.')[0]
+	mode = "t" if countdown is False else "R"
+	time = f"<t:{ut}:{mode}>"
+	return time
+
+
 async def parse_time(time):
 	"""Parse a 1d2dh3m4s formatted time string."""
 	delta = datetime.timedelta()
