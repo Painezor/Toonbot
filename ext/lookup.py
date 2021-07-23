@@ -4,7 +4,6 @@ from importlib import reload
 
 import discord
 from discord.ext import commands
-from lxml import html
 
 from ext.utils import transfer_tools, embed_utils
 
@@ -20,91 +19,73 @@ class Lookups(commands.Cog):
     @commands.group(invoke_without_command=True, usage="<Who you want to search for>")
     async def lookup(self, ctx, *, query: commands.clean_content):
         """Perform a database lookup on transfermarkt"""
-        p = {"query": query}  # html encode.
-        async with self.bot.session.post(f"http://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche",
-                                         params=p) as resp:
-            if resp.status != 200:
-                return await self.bot.reply(ctx, text=f"HTTP Error connecting to transfermarkt: {resp.status}")
-            tree = html.fromstring(await resp.text())
-
-        # Header names, scrape then compare (because they don't follow a pattern.)
-        categories = [i.lower().strip() for i in tree.xpath(".//div[@class='table-header']/text()")]
-
-        results = []
-        for i in categories:
-            length = "".join([n for n in i if n.isdecimal()])  # Just give number of matches (non-digit characters).
-            if 'search results for players' in i:
-                results.append((f"Players ({length} Found)", self._player))
-            elif 'search results: clubs' in i:
-                results.append((f"Teams ({length} Found)", self._team))
-            elif 'search results for agents' in i:
-                results.append((f"Agents ({length} Found)", self._agent))
-            elif 'search results for referees' in i:
-                results.append((f"Referees ({length} Found)", self._ref))
-            elif 'search results: managers & officials' in i:
-                results.append((f"Staff ({length} Found)", self._staff))
-            elif 'search results to competitions' in i:
-                results.append((f"Domestic Competitions ({length} found)", self._cup))
-            elif 'search results for international competitions' in i:
-                results.append((f"International Competitions ({length} found)", self._cup))
-            else:
-                print('lookup - unhandled category: ', i)
-                    
-        if not results:
-            await self.bot.reply(ctx, text=f":no_entry_sign: No results for {query}")
-            return None
-        
-        index = await embed_utils.page_selector(ctx, item_list=[i[0] for i in results])
-        if index is None:
-            return  # rip
-        
-        await ctx.invoke(results[index][1], qry=query)
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify something to search for.', mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query)
 
     @lookup.command(name="player")
-    async def _player(self, ctx, *, qry: commands.clean_content):
+    async def _player(self, ctx, *, query: commands.clean_content = None):
         """Lookup a player on transfermarkt"""
-        await transfer_tools.search(ctx, qry, "players")
-
-    @lookup.command(name="staff", aliases=["manager", "trainer", "trainers", "managers"])
-    async def _staff(self, ctx, *, qry: commands.clean_content):
-        """Lookup a manager/trainer/club official on transfermarkt"""
-        await transfer_tools.search(ctx, qry, "staff")
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a player name to search for.', mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query, category="Players")
 
     @lookup.command(name="team", aliases=["club"])
-    async def _team(self, ctx, *, qry: commands.clean_content):
+    async def _team(self, ctx, *, query: commands.clean_content = None):
         """Lookup a team on transfermarkt"""
-        await transfer_tools.search(ctx, qry, "teams")
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query, category="Players")
+
+    @lookup.command(name="staff", aliases=["manager", "trainer", "trainers", "managers"])
+    async def _staff(self, ctx, *, query: commands.clean_content = None):
+        """Lookup a manager/trainer/club official on transfermarkt"""
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a name to search for.', mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query, category="Staff")
 
     @lookup.command(name="ref")
-    async def _ref(self, ctx, *, qry: commands.clean_content):
+    async def _ref(self, ctx, *, query: commands.clean_content = None):
         """Lookup a referee on transfermarkt"""
-        await transfer_tools.search(ctx, qry, "referees")
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a referee name to search for.',
+                                        mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query, category="Referee")
 
     @lookup.command(name="cup", aliases=["domestic"])
-    async def _cup(self, ctx, *, qry: commands.clean_content):
+    async def _cup(self, ctx, *, query: commands.clean_content = None):
         """Lookup a domestic competition on transfermarkt"""
-        await transfer_tools.search(ctx, qry, "domestic")
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a competition to search for.', mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query, category="Domestic Competitions")
 
     @lookup.command(name="international", aliases=["int"])
-    async def _int(self, ctx, *, qry: commands.clean_content):
+    async def _int(self, ctx, *, query: commands.clean_content = None):
         """Lookup an international on transfermarkt"""
-        await transfer_tools.search(ctx, qry, "internationals")
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a competition to search for.', mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query, category="International Competitions")
 
     @lookup.command(name="agent")
-    async def _agent(self, ctx, *, qry: commands.clean_content):
+    async def _agent(self, ctx, *, query: commands.clean_content = None):
         """Lookup an agent on transfermarkt"""
-        await transfer_tools.search(ctx, qry, "agent")
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify an agent name to search for.', mention_author=True)
+        await transfer_tools.TransferSearch.search(ctx, query, category="Agents")
 
     @commands.command(usage="<team to search for>")
-    async def transfers(self, ctx, *, qry: commands.clean_content):
+    async def transfers(self, ctx, *, query: commands.clean_content = None):
         """Get this window's transfers for a team on transfermarkt"""
-        if str(qry).startswith("set") and ctx.message.channel_mentions:
-            return await self.bot.reply(ctx, "You probably meant to use .tf, not .transfers.", mention_author=True)
-        
-        team = await transfer_tools.search(ctx, qry, "teams", special=True)
+        if str(query).startswith("set") and ctx.message.channel_mentions:
+            return await self.bot.reply(ctx, "🚫 You probably meant to use .tf, not .transfers.", mention_author=True)
+
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', mention_author=True)
+
+        team = await transfer_tools.TransferSearch.search(ctx, query, category="Clubs", returns_object=True)
         if team is None:
             return  # rip
-        
+
         try:
             inbound, outbound, source_url = await team.get_transfers(ctx)
         except TypeError:
@@ -128,24 +109,50 @@ class Lookups(commands.Cog):
             embeds += embed_utils.rows_to_embeds(e, [str(i) for i in outbound])
             
         await embed_utils.paginate(ctx, embeds)
-            
+
     @commands.command(name="rumours", aliases=["rumors"])
-    async def _rumours(self, ctx, *, qry: commands.clean_content):
+    async def _rumours(self, ctx, *, query: commands.clean_content = None):
         """Get the latest transfer rumours for a team"""
-        res = await transfer_tools.search(ctx, qry, "teams", special=True)
+        if query is None:
+            return self.bot.reply(ctx, "You need to specify a team name to search for rumours from.")
+
+        res = await transfer_tools.TransferSearch.search(ctx, query, category="Clubs", returns_object=True)
         if res is None:
             return
-        
-        await transfer_tools.get_rumours(ctx, res)
+
+        await res.get_rumours(ctx)
 
     @commands.command()
-    async def contracts(self, ctx, *, qry: commands.clean_content):
+    async def contracts(self, ctx, *, query: commands.clean_content = None):
         """Get a team's expiring contracts"""
-        res = await transfer_tools.search(ctx, qry, "teams", special=True)
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for contracts from.',
+                                        mention_author=True)
+
+        res = await transfer_tools.TransferSearch.search(ctx, query, category="Clubs", returns_object=True)
         if res is None:
             return
 
-        await transfer_tools.get_contracts(ctx, res)
+        await res.get_contracts(ctx)
+
+    @commands.command()
+    async def trophies(self, ctx, *, query: commands.clean_content = None):
+        """Get a list of a team's trophies"""
+        if query is None:
+            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for trophies for.',
+                                        mention_author=True)
+
+        res = await transfer_tools.TransferSearch.search(ctx, query, category="Clubs", returns_object=True)
+        if res is None:
+            return
+
+        trophies = await res.get_trophies(ctx)
+        e = await res.base_embed
+        e.title = f"{res.name} Trophy Case"
+
+        trophies = ["No trophies found for team."] if not trophies else trophies
+        embeds = embed_utils.rows_to_embeds(e, trophies)
+        await embed_utils.paginate(ctx, embeds)
 
 
 def setup(bot):

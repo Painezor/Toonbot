@@ -13,7 +13,7 @@ from ext.utils import transfer_tools, embed_utils
 LG = [(":england: Premier League", "https://www.transfermarkt.co.uk/premier-league/startseite/wettbewerb/GB1"),
       (":england: Championship", "https://www.transfermarkt.co.uk/championship/startseite/wettbewerb/GB2"),
       ("🇳🇱 Eredivisie", "https://www.transfermarkt.co.uk/eredivisie/startseite/wettbewerb/NL1"),
-      ("🇩🇪 Bundesliga", "https://www.transfermarkt.co.uk/1-bundesliga/startseite/wettbewerb/L1"),
+      ("🇩🇪 Bundesliga", "https://www.transfermarkt.co.uk/bundesliga/startseite/wettbewerb/L1"),
       ("🇮🇹 Serie A", "https://www.transfermarkt.co.uk/serie-a/startseite/wettbewerb/IT1"),
       ("🇪🇸 LaLiga", "https://www.transfermarkt.co.uk/primera-division/startseite/wettbewerb/ES1"),
       ("🇫🇷 Ligue 1", "https://www.transfermarkt.co.uk/ligue-1/startseite/wettbewerb/FR1"),
@@ -257,16 +257,17 @@ class Transfers(commands.Cog):
 
     @commands.has_permissions(manage_channels=True)
     @tf.command(usage="<#Channel[, #Channel2, ...]> <Search query>")
-    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, qry: commands.clean_content):
+    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, query: commands.clean_content):
         """Add a league or team to your transfer ticker channel(s)"""
         channel = await self._pick_channels(ctx, channels)
         if not channel:
             return
-        
-        result = await transfer_tools.search(ctx, qry, "domestic", special=True)
+
+        result = await transfer_tools.TransferSearch.search(ctx, query, category="Domestic Competitions",
+                                                            returns_object=True)
         if result is None:
             return
-        
+
         alias = f"{result.flag} {result.name}"
 
         connection = await self.bot.db.acquire()
