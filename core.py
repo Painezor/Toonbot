@@ -13,8 +13,21 @@ with open('credentials.json') as f:
     credentials = json.load(f)
 
 
+def make_file(image=None, name=None):
+    """Create a discord File object for sending images"""
+    if image is None:
+        return None
+
+    if name is not None:
+        file = discord.File(fp=image, filename=name)
+    else:
+        file = discord.File(image)
+    return file
+
+
 class Bot(commands.Bot):
     """The core functionality of the bot."""
+
     def __init__(self, **kwargs):
         intents = discord.Intents.default()
         intents.members = True
@@ -31,7 +44,7 @@ class Bot(commands.Bot):
         self.session = aiohttp.ClientSession(loop=self.loop)
 
     # Custom reply handler.
-    async def reply(self, ctx, text=None, embed=None, file: discord.File = None, mention_author=False,
+    async def reply(self, ctx, text=None, embed=None, image=None, mention_author=False, filename=None,
                     delete_after=None):
         """Master reply handler for bot, with fallbacks."""
         if self.is_closed():
@@ -41,18 +54,21 @@ class Bot(commands.Bot):
         if ctx.me.permissions_in(ctx.channel).send_messages:
             if ctx.me.permissions_in(ctx.channel).embed_links or embed is None:
                 try:
-                    return await ctx.reply(text, embed=embed, file=file, mention_author=mention_author,
+                    image = make_file(image, filename)
+                    return await ctx.reply(text, embed=embed, file=image, mention_author=mention_author,
                                            delete_after=delete_after)
                 except discord.HTTPException:
                     try:
-                        return await ctx.send(text, embed=embed, file=file, delete_after=delete_after)
+                        image = make_file(image, filename)
+                        return await ctx.send(text, embed=embed, file=image, delete_after=delete_after)
                     except discord.HTTPException:
                         pass
 
         # Final fallback, DM invoker.
         try:
             await ctx.author.send(f"I cannot reply to your {ctx.command} command in {ctx.channel} on {ctx.guild}")
-            return await ctx.author.send(text, embed=embed, file=file)
+            image = make_file(image, filename)
+            return await ctx.author.send(text, embed=embed, file=image)
         except discord.HTTPException:
             if ctx.author.id == 210582977493598208:
                 print(text)
@@ -60,7 +76,6 @@ class Bot(commands.Bot):
         # At least try to warn them.
         if ctx.me.permissions_in(ctx.channel).add_reactions:
             await ctx.message.add_reaction('🤐')
-        return None
 
     async def on_ready(self):
         """Print notification to console that the bot has finished loading."""

@@ -52,11 +52,10 @@ class Substitution(MatchEvent):
 
     def __init__(self):
         super().__init__()
-        self.player_on = None
         self.player_off = None
 
     def __str__(self):
-        return f"`🔄 {self.time}` 🔻 {self.player_off} 🔺 {self.player_on} ({self.team})"
+        return f"`🔄 {self.time}`: 🔻 {self.player_off} 🔺 {self.player} ({self.team})"
 
 
 class Goal(MatchEvent):
@@ -68,7 +67,8 @@ class Goal(MatchEvent):
 
     def __str__(self):
         ass = "" if self.assist is None else " " + self.assist
-        return f"`⚽ {self.time}`: {self.player}{ass}"
+        note = "" if self.note is None else " " + self.note
+        return f"`⚽ {self.time}`: {self.player}{ass}{note}"
 
 
 class OwnGoal(Goal):
@@ -78,7 +78,8 @@ class OwnGoal(Goal):
         super().__init__()
 
     def __str__(self):
-        return f"`⚽ {self.time}`: {self.player} (Own Goal)"
+        note = "" if self.note is None else " " + self.note
+        return f"`⚽ {self.time}`: {self.player} (Own Goal) {note}"
 
 
 class Penalty(Goal):
@@ -90,7 +91,7 @@ class Penalty(Goal):
         self.missed = missed
 
     def __str__(self):
-        icon = "⚽" if self.missed is False else "🚫"
+        icon = "⚽" if self.missed is False else "❌"
         time = "" if self.shootout is True else " " + self.time
         return f"`{icon}{time}`: {self.player}"
 
@@ -103,9 +104,10 @@ class RedCard(MatchEvent):
         self.second_yellow = second_yellow
 
     def __str__(self):
-        ico = "🟨🟥" if self.second_yellow else "🟥"
+        ico = "🟨🟥" if self.second_yellow else "🅾️"
         note = " " + self.note if self.note else ""
-        return f"{ico} {self.time}: {self.player}{note}"
+        note = "" if "Yellow card / Red card" in note else note
+        return f"`{ico} {self.time}`: {self.player}{note}"
 
 
 class Booking(MatchEvent):
@@ -116,7 +118,8 @@ class Booking(MatchEvent):
 
     def __str__(self):
         note = " " + self.note if self.note else ""
-        return f"🟨 {self.time}: {self.player}{note}"
+        note = "" if "Yellow Card" in note else note
+        return f"`🟨 {self.time}`: {self.player}{note}"
 
 
 class VAR(MatchEvent):
@@ -127,7 +130,7 @@ class VAR(MatchEvent):
 
     def __str__(self):
         note = " " + self.note if self.note is not None else ""
-        return f"📹 VAR Review: {self.player}{note}"
+        return f"`📹 {self.time}`: VAR Review: {self.player}{note}"
 
 
 class Fixture:
@@ -145,6 +148,12 @@ class Fixture:
         self.away = away
         self.country = None
         self.league = None
+        self.infobox = None
+
+        # Fixes for really weird shit.
+        self.breaks = 0
+        self.periods = 2
+        self.period_length = 45
 
         # Initialise some vars...
         self.score_home = None
@@ -170,10 +179,7 @@ class Fixture:
         return f"Fixture({self.__dict__})"
     
     def __str__(self):
-        if self.url is not None:
-            return f"`{self.formatted_time}:` [{self.bold_score}{self.tv}]({self.url})"
-        else:
-            return f"`{self.formatted_time}:` {self.bold_score}{self.tv}"
+        return f"{self.relative_time}: [{self.bold_score}{self.tv}]({self.url})"
     
     @classmethod
     async def by_id(cls, match_id, page):
@@ -211,105 +217,181 @@ class Fixture:
         
         e.set_author(name=f"{self.country}: {self.league}")
         if isinstance(self.time, datetime.datetime):
-            e.timestamp = self.time
             if self.time > datetime.datetime.now():
-                e.set_footer(text=f"Kickoff in {self.time - datetime.datetime.now()}")
+                e.description = f"Kickoff in {self.match_time}"
         elif self.time == "Postponed":
-            e.set_footer(text="This match has been postponed.")
-            e.colour = discord.Color.red()
+            e.description = "This match has been postponed."
         else:
             e.set_footer(text=self.time)
             e.timestamp = datetime.datetime.now()
-        
-        e.colour = self.state_colour[1]
+
+        e.colour = self.colour[1]
         return e
-    
+
     @property
-    def formatted_time(self):
-        """Standardise the format of timestamps"""
-        if isinstance(self.time, datetime.datetime):
-            if self.time < datetime.datetime.now():  # in the past -> result
-                return self.time.strftime('%a %d %b')
-            else:
-                return self.time.strftime('%a %d %b %H:%M')
-        else:
+    def reddit_time(self):
+        """Standard Markdown Timestamps for Reddit"""
+        if not isinstance(self.time, datetime.datetime):
             return self.time
-    
+
+        dtn = datetime.datetime.now()
+        return self.time.strftime('%a %d %b') if self.time < dtn else self.time.strftime('%a %d %b %H:%M')
+
+    @property
+    def epoch_time(self):
+        """Get Epoch Time for stringification"""
+        return str(self.time.timestamp()).split('.')[0]
+
+    @property
+    def relative_time(self):
+        """Discord Native TimeStamping Experiment"""
+        if not isinstance(self.time, datetime.datetime):
+            return self.time
+
+        date = self.time.strftime('%a %d %b')
+
+        if self.time - datetime.timedelta(days=1) < datetime.datetime.now():
+            return f"<t:{self.epoch_time}:d>"
+        else:
+            return f"{date} <t:{self.epoch_time}:t>"
+
+    @property
+    def match_time(self):
+        """Discord Native TimeStamping Experiment"""
+        if not isinstance(self.time, datetime.datetime):
+            return self.time
+
+        if self.time < datetime.datetime.now():
+            return self.time
+
+        return f"<t:{self.epoch_time}:R>"
+
     @property
     def score(self) -> str:
         """Concatenate scores into home - away format"""
-        if self.score_home is not None:
-            return f"{self.score_home} - {self.score_away}"
-        return "vs"
-    
+        return "vs" if self.score_home is None else f"{self.score_home} - {self.score_away}"
+
     @property
     def bold_score(self) -> str:
         """Embolden the winning team of a fixture"""
-        if self.score_home is not None and self.score_home != "-":
-            # Embolden Winner.
-            if self.score_home > self.score_away:
-                return f"**{self.home} {self.score_home}** - {self.score_away} {self.away}"
-            elif self.score_home < self.score_away:
-                return f"{self.home} {self.score_home} - **{self.score_away} {self.away}**"
-            else:
-                return f"{self.home} {self.score_home} - {self.score_away} {self.away}"
-        else:
+        if self.score_home is None or self.score_home == "-":
             return f"{self.home} vs {self.away}"
-    
+
+        hb, ab = ('**', '') if self.score_home > self.score_away else ('', '**')
+        hb, ab = ("", "") if self.score_home == self.score_away else (hb, ab)
+        return f"{hb}{self.home} {self.score_home}{hb} - {ab}{self.score_away} {self.away}{ab}"
+
     @property
     def live_score_text(self) -> str:
         """Return a preformatted string showing the score and any red cards of the fixture"""
         if self.state == "ht":
-            self.time = "HT"
-        if self.state == "fin":
-            self.time = "FT"
-            
-        h_c = "`" + self.home_cards * '🟥' + "` " if self.home_cards else ""
-        a_c = " `" + self.away_cards * '🟥' + "`" if self.away_cards else ""
-    
-        return f"`{self.state_colour[0]}` {self.time} {h_c}{self.bold_score}{a_c}"
-    
+            time = "HT"
+        elif self.state == "fin":
+            time = "FT"
+        elif self.state == "postponed":
+            time = "PP"
+        elif self.state == "after extra time":
+            time = "AET"
+        else:
+            try:
+                e_t = str(self.time.timestamp()).split('.')[0]
+                time = f"<t:{e_t}:t>"
+            except AttributeError:
+                time = self.time
+
+        h_c = f"`{self.home_cards * '🟥'}` " if self.home_cards else ""
+        a_c = f" `{self.away_cards * '🟥'}`" if self.away_cards else ""
+
+        if self.state in ['after pens', "penalties"]:
+            actual_score = min([self.score_home, self.score_away])
+            time = "After Pens" if self.state == "after pens" else "PSO"
+
+            return f"`{self.colour[0]}` {time} {self.penalties_home} {self.home} - {self.away} {self.penalties_away}" \
+                   f"(FT: {actual_score} - {actual_score})"
+
+        return f"`{self.colour[0]}` {time} {h_c}{self.bold_score}{a_c}"
+
+    @property
+    def scores_row(self):
+        """Row for the .scores command"""
+        if self.state == "ht":
+            time = "HT"
+        elif self.state == "fin":
+            time = "FT"
+        elif self.state == "postponed":
+            time = "PP"
+        elif self.state == "after extra time":
+            time = "AET"
+        else:
+            try:
+                e_t = str(self.time.timestamp()).split('.')[0]
+                time = f"<t:{e_t}:t>"
+            except AttributeError:
+                time = self.time
+
+        h_c = f"`{self.home_cards * '🟥'}` " if self.home_cards else ""
+        a_c = f" `{self.away_cards * '🟥'}`" if self.away_cards else ""
+
+        if self.state in ['after pens', "penalties"]:
+            actual_score = min([self.score_home, self.score_away])
+            time = "After Pens" if self.state == "after pens" else "PSO"
+
+            return f"`{self.colour[0]}` {time} {self.penalties_home} {self.home} - {self.away} {self.penalties_away}" \
+                   f"(FT: {actual_score} - {actual_score})"
+
+        return f"`{self.colour[0]}` {time} [{h_c}{self.bold_score}{a_c}]({self.url})"
+
     # For discord.
     @property
     def full_league(self) -> str:
         """Return full information about the Country and Competition of the fixture"""
         return f"{self.country.upper()}: {self.league}"
-    
+
     @property
-    def state_colour(self) -> typing.Tuple:
+    def colour(self) -> typing.Tuple:
         """Return a tuple of (Emoji, 0xFFFFFF Colour code) based on the Meta-State of the Game"""
         if isinstance(self.time, datetime.datetime):
-            return "", discord.Embed.Empty  # Non-live matches
+            return "⚫", 0x010101  # Upcoming Games = Black
 
-        if self.state:
-            if self.state == "live":
-                if self.time == "Extra Time":
-                    return "⚪", 0xFFFFFF  # White
-                elif "+" in self.time:
-                    return "🟣", 0x9932CC  # Purple
-                else:
-                    return "🟢", 0x0F9D58  # Green
+        if not self.state:
+            print(f'Missing state for game {self.home} vs {self.away} | {self.url} @ {self.time}')
+            return "🔴", 0xFF0000  # Red
 
-            if self.state == "fin":
-                return "🔵", 0x4285F4  # Blue
-            
-            if self.state in ["Postponed", 'Cancelled', 'Abandoned']:
-                return "🔴", 0xFF0000  # Red
-            
-            if self.state in ["Delayed", "Interrupted"]:
-                return "🟠", 0xff6700  # Orange
-            
-            if self.state == "sched":
-                return "⚫", 0x010101  # Black
-            
-            if self.state == "ht":
-                return "🟡", 0xFFFF00  # Yellow
-            
+        if self.state == "live":
+            if "+" in self.time:
+                return "🟣", 0x9932CC  # Purple
             else:
-                print("Unhandled state:", self.state, self.home, self.away, self.url)
-                return "🔴", 0xFF0000  # Red
-        
+                return "🟢", 0x0F9D58  # Green
+
+        elif self.state in ["fin", "after extra time", "after pens"]:
+            return "🔵", 0x4285F4  # Blue
+
+        elif self.state in ["postponed", 'cancelled', 'abandoned']:
+            return "🔴", 0xFF0000  # Red
+
+        elif self.state in ["delayed", "interrupted"]:
+            return "🟠", 0xff6700  # Orange
+
+        elif self.state == "sched":
+            return "⚫", 0x010101  # Black
+
+        elif self.state == "ht":
+            return "🟡", 0xFFFF00  # Yellow
+
+        elif self.state == "extra time":
+            return "🟣", 0x9932CC  # Purple
+
+        elif self.state == "break time":
+            return "⚪", 0xFFFFFF  # White
+
+        elif self.state == "awaiting":
+            return "⚪", 0xFFFFFF  # White
+
+        elif self.state == "penalties":
+            return "⚪", 0xFFFFFF  # White
+
         else:
+            print("Football.py: Unhandled state:", self.state, self.home, self.away, self.url)
             return "⚫", 0x010101  # Black
 
     async def get_badge(self, page, team) -> BytesIO:
@@ -415,22 +497,33 @@ class Fixture:
             self.country = country
             self.league = competition
             self.comp_link = comp_link
-        
+
         if not for_discord:
             scores = tree.xpath('.//div[start-with(@class, "score")]//span//text()')
             self.score_home = int(scores[0])
             self.score_away = int(scores[1])
             self.formation = await self.get_formation(page)
             self.table = await self.get_table(page)
-        
+
+        # Grab infobox
+        ib = tree.xpath('.//div[contains(@class, "infoBoxModule")]/div[starts-with(@class, "info__")]/text()')
+        if ib:
+            self.infobox = "".join(ib)
+            if self.infobox.startswith('Format:'):
+                fmt = self.infobox.split(': ')[-1]
+                periods, length = fmt.split('x')
+                self.periods = int(periods)
+                length = length.split(' mins')[0].split(' minutes')[0].strip()
+                self.period_length = int(length)
+        else:
+            self.infobox = None
+
         event_rows = tree.xpath('.//div[starts-with(@class, "verticalSections")]/div')
         events = []
         pens = False
-        
+
         for i in event_rows:
             event_class = i.attrib['class']
-            event = MatchEvent()
-            
             # Detection for penalty mode, discard headers.
             if "Header" in event_class:
                 parts = [x.strip() for x in i.xpath('.//text()')]
@@ -449,12 +542,15 @@ class Fixture:
                 continue  # No events in half signifier.
             else:
                 team = None
-                
+
             e_n = i.xpath('./div[starts-with(@class, "incident_")]')[0]  # event_node
-            
+
             icon = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg/@class')).strip()
             event_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]/div/@title')).strip()
             icon_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg//text()')).strip()
+
+            # Data not always present.
+            player = "".join(e_n.xpath('.//a[starts-with(@class, "playerName")]//text()')).strip()
 
             if "goal" in icon.lower():
                 if "own" in icon.lower():
@@ -468,10 +564,9 @@ class Fixture:
                 event = Penalty(shootout=True, missed=True) if pens else Penalty(missed=True)
 
             elif "arrowUp" in icon:
-                sub_off = "".join(e_n.xpath('./div[starts-with(@class, "incidentSubOut")]/a/text()')).strip()
-                if sub_off:
-                    event.player_off = sub_off
                 event = Substitution()
+                event.player_on = "".join(e_n.xpath('.//div/a[starts-with(@class, "playerName")]//text()')).strip()
+                event.player_off = "".join(e_n.xpath('.//div[starts-with(@class, "incidentSubOut")]/a/text()')).strip()
 
             elif icon.startswith("redYellow"):
                 event = RedCard(second_yellow=True)
@@ -499,15 +594,14 @@ class Fixture:
             
             else:
                 if icon.startswith("card"):
-                    if icon_desc == "Red Card":
+                    if "red card" in icon_desc.lower():
                         event = RedCard()
+                    else:
+                        event = Booking()
                 else:
+                    event = MatchEvent()
                     print(self.url)
                     print('Undeclared event type for', icon)
-
-            # Data not always present.
-            player = "".join(e_n.xpath('.//a[starts-with(@class, "playerName")]//text()')).strip()
-            event.player = player
 
             assist = "".join(e_n.xpath('.//div[starts-with(@class, "assist")]//text()'))
             if assist:
@@ -520,6 +614,7 @@ class Fixture:
                 pass
 
             event.team = team
+            event.player = player
             event.time = "".join(e_n.xpath('.//div[starts-with(@class, "timeBox")]//text()')).strip()
             if event_desc:
                 event_desc = event_desc.replace('<br />', ' ')
@@ -724,8 +819,6 @@ class Competition(FlashScoreSearchResult):
             print(f'Error fetching Competition country/league by_link - {link}')
             title = "Unidentified League"
 
-        print("This is the by_link section of Competition")
-
         comp = cls(url=link, title=title)
         return comp
 
@@ -754,7 +847,7 @@ class Competition(FlashScoreSearchResult):
             links = i.xpath(".//a/@href")
             
             player_link, team_link = ["http://www.flashscore.com/" + i for i in links]
-            
+
             rank, name, tm, goals, assists = items
             
             country = "".join(i.xpath('.//span[contains(@class,"flag")]/@title')).strip()
@@ -1045,7 +1138,8 @@ async def fs_search(ctx, query) -> FlashScoreSearchResult or None:
     index = await embed_utils.page_selector(ctx, item_list)
 
     if index == -1:
-        await ctx.bot.reply(ctx, text=f"🚫 No leagues found for {query}, channel not modified.")
+        await ctx.bot.reply(ctx, text=f"🚫 Lookup Cancelled. If you didn't see the league you want, "
+                                      f"try using the league's link from the flashscore website")
         return None
     elif index is None:
         await ctx.bot.reply(ctx, text=f"🚫 Timed out waiting for you to reply, channel not modified.")
