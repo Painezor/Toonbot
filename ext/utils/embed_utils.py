@@ -20,7 +20,7 @@ async def bulk_react(ctx, message, react_list):
     for r in react_list:
         ctx.bot.loop.create_task(react(message, r))
 
-           
+
 async def react(message, reaction):
     """Send a single reaction to a message object"""
     try:
@@ -34,9 +34,8 @@ async def embed_image(ctx, base_embed, image, filename=None):
     if filename is None:
         filename = f"{ctx.message.content}{datetime.datetime.now().ctime()}.png"
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
-    file = discord.File(fp=image, filename=filename)
     base_embed.set_image(url=f"attachment://{filename}")
-    await ctx.bot.reply(ctx, file=file, embed=base_embed)
+    await ctx.bot.reply(ctx, image=image, filename=filename, embed=base_embed)
 
     
 async def get_colour(url=None):
@@ -141,17 +140,14 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
     # Add reaction, we only need "First" and "Last" if there are more than 2 pages.
     reacts = []
     if m is not None:
-        try:
-            if len(embeds) > 1:
-                if len(embeds) > 2:
-                    reacts.append("⏮")  # first
-                reacts.append("◀")  # prev
-                reacts.append("▶")  # next
-                if len(embeds) > 2:
-                    reacts.append("⏭")  # last
-            reacts.append('🚫')
-        except discord.HTTPException:
-            pass  # Early press or no permissions.
+        if len(embeds) > 1:
+            if len(embeds) > 2:
+                reacts.append("⏮")  # first
+            reacts.append("◀")  # prev
+            reacts.append("▶")  # next
+            if len(embeds) > 2:
+                reacts.append("⏭")  # last
+        reacts.append('🚫')
     
     try:
         await bulk_react(ctx, m, reacts)
