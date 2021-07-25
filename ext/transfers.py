@@ -137,7 +137,10 @@ class Transfers(commands.Cog):
                 if i.id not in [c[1] for c in self.cache]:
                     await self.bot.reply(ctx, text=f"{i.mention} is not set as a transfer ticker.", mention_author=True)
                 else:
-                    checked.append(i)
+                    checking = self.bot.get_channel(i.id)
+                    if checking is None or checking.guild.id != ctx.guild.id:  # Do not edit other server settings.
+                        continue
+
             channels = checked
 
         if not channels:
