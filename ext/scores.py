@@ -177,7 +177,7 @@ class Scores(commands.Cog, name="LiveScores"):
         channel = channels[index]
     
         return channel
-    
+
     async def update_channel(self, guild_id, channel_id):
         """Edit a live-score channel to have the latest scores"""
         whitelist = self.cache[(guild_id, channel_id)]
@@ -430,6 +430,8 @@ class Scores(commands.Cog, name="LiveScores"):
                             self.bot.dispatch("fixture_event", "final_result_only", fx)
                         elif fx.state == "live":
                             self.bot.dispatch("fixture_event", "full_time", fx)
+                        elif fx.state == "extra_time":
+                            self.bot.dispatch("fixture_event", "score_after_extra_time", fx)
                         else:
                             print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
 
@@ -455,12 +457,12 @@ class Scores(commands.Cog, name="LiveScores"):
                                 else:
                                     print(f'Scores No Mode found for break number {fx.breaks} - {fx.url}')
                             else:
-                                self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}")
+                                self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}", fx)
                         elif fx.state == "extra time":
                             if fx.breaks == 2 and fx.periods == 2:
                                 self.bot.dispatch("fixture_event", "end_of_extra_time", fx)
                             else:
-                                self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}")
+                                self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}", fx)
                         else:
                             print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
 
@@ -472,6 +474,8 @@ class Scores(commands.Cog, name="LiveScores"):
                                 self.bot.dispatch("fixture_event", "ht_et_end", fx)
                             else:
                                 self.bot.dispatch("fixture_event", f"start_of_period_{fx.breaks + 1}", fx)
+                        elif fx.state == "ht":
+                            self.bot.dispatch("fixture_event", "ht_et_end", fx)
                         else:
                             print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
 
@@ -576,11 +580,16 @@ class Scores(commands.Cog, name="LiveScores"):
         await self.update_cache()
         await self.update_channel(ch.guild.id, ch.id)
         await self.send_leagues(ctx, ch)
-    
+
     @commands.has_permissions(manage_channels=True)
     @ls.command(usage="[#channel] <search query or flashscore link>")
-    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, *, query: commands.clean_content):
+    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, *,
+                  query: commands.clean_content = None):
         """Add a league to an existing live-scores channel"""
+        if query is None:
+            err = '🚫 You need to specify a query or a flashscore team link'
+            return await self.bot.reply(ctx, text=err, mention_author=True)
+
         if "http" not in query:
             await self.bot.reply(ctx, text=f"Searching for {query}...", delete_after=5)
             res = await football.fs_search(ctx, query)
