@@ -260,8 +260,12 @@ class Transfers(commands.Cog):
 
     @commands.has_permissions(manage_channels=True)
     @tf.command(usage="<#Channel[, #Channel2, ...]> <Search query>")
-    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, query: commands.clean_content):
+    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, query: commands.clean_content = None):
         """Add a league or team to your transfer ticker channel(s)"""
+        if query is None:
+            err = '🚫 You need to specify a league name to search for'
+            return await self.bot.reply(ctx, text=err, mention_author=True)
+
         channel = await self._pick_channels(ctx, channels)
         if not channel:
             return
@@ -288,15 +292,20 @@ class Transfers(commands.Cog):
 
     @commands.has_permissions(manage_channels=True)
     @tf.group(usage="<name of country and league to remove>", invoke_without_command=True)
-    async def remove(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, *, target):
+    async def remove(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, *,
+                     target: commands.clean_content = None):
         """Remove a whitelisted item from your transfer channel ticker"""
+        if target is None:
+            err = '🚫 You need to specify which league to remove'
+            return await self.bot.reply(ctx, text=err, mention_author=True)
+
         channel = await self._pick_channels(ctx, channels)
         if not channel:
             return  # rip
 
-        target = target.strip('\'"')
+        target = str(target).strip('\'"')
         matches = [i for i in self.cache[(ctx.guild.id, channel.id)] if target.lower() in i[1].lower()]
-        
+
         # Verify which item the user wishes to remove.
         index = await embed_utils.page_selector(ctx, [f"{i[1]}]({i[0]})" for i in matches])
         if index is None or index == "cancelled" or index == -1:
