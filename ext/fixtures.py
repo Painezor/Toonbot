@@ -100,7 +100,7 @@ class Fixtures(commands.Cog):
         base_embed.title = "Select from live games"
         base_embed.colour = discord.Colour.blurple()
 
-        pickers = [str(i) for i in matches]
+        pickers = [i.scores_row for i in matches]
         index = await embed_utils.page_selector(ctx, pickers, base_embed=base_embed, confirm_single=True,
                                                 preserve_footer=False)
 
@@ -205,19 +205,20 @@ class Fixtures(commands.Cog):
                 return await self.bot.reply(f'🚫 No competitions found for {fsr.title}.')
 
             fsr = unique_comps[index]
-        
+
         page = await self.bot.browser.newPage()
         image = await fsr.get_table(page)
         await page.close()
-        
+
         embed = await fsr.base_embed
         if image is None:
             embed.description = "No table found."
             return await self.bot.reply(ctx, embed=embed)
-        
-        dtn = datetime.datetime.now().ctime()
-        embed.description = f"```yaml\n{dtn}```"
-        fn = f"Table-{qry}-{dtn}.png".strip()
+
+        time = timed_events.timestamp(mode="long")
+
+        embed.description = f"Table as of {time}"
+        fn = f"Table-{qry}.png".strip()
         await embed_utils.embed_image(ctx, embed, image, filename=fn)
     
     @commands.command(usage="[team to search for stats of game of]")
@@ -248,7 +249,6 @@ class Fixtures(commands.Cog):
             await page.close()
         
         page = await self.bot.browser.newPage()
-
         image = await fsr.get_stats(page)
         await page.close()
         
@@ -498,10 +498,10 @@ class Fixtures(commands.Cog):
             e.set_author(name="Live Scores for all known competitions")
 
         e.timestamp = datetime.datetime.now()
-        dtn = timed_events.unix_time(countdown=True)
+        dtn = timed_events.timestamp(mode="long")
         q = str(search_query).lower()
 
-        time = f"\nScores from: {dtn}"
+        time = f"\nScores as of: {dtn}"
 
         matches = [i for i in self.bot.games if q in (i.home + i.away + i.league + i.country).lower()]
 
@@ -513,10 +513,8 @@ class Fixtures(commands.Cog):
         for i in matches:
             game_dict[i.full_league].append(i.scores_row)
 
-        for league in game_dict:
-            games = game_dict[league]
-
-            league_embeds = embed_utils.rows_to_embeds(e, games, header=league, footer=time)
+        for league, games in sorted(game_dict.items()):
+            league_embeds = embed_utils.rows_to_embeds(e, games, header=f"**{league}**", footer=time)
             embeds += league_embeds
         await embed_utils.paginate(ctx, embeds)
     
