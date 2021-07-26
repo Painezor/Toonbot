@@ -1,6 +1,5 @@
 """Custom Utilities revolving around the usage of Discord Embeds"""
 import asyncio
-import datetime
 import typing
 from copy import deepcopy
 from io import BytesIO
@@ -10,7 +9,6 @@ import discord
 from PIL import UnidentifiedImageError
 from colorthief import ColorThief
 
-# Constant, used for footers.
 PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
 
 
@@ -32,12 +30,12 @@ async def react(message, reaction):
 async def embed_image(ctx, base_embed, image, filename=None):
     """Utility / Shortcut to upload image & set it within an embed."""
     if filename is None:
-        filename = f"{ctx.message.content}{datetime.datetime.now().ctime()}.png"
+        filename = f"{ctx.command}.png"
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     base_embed.set_image(url=f"attachment://{filename}")
     await ctx.bot.reply(ctx, image=image, filename=filename, embed=base_embed)
 
-    
+
 async def get_colour(url=None):
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None or url == discord.Embed.Empty:
