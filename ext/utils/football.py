@@ -394,41 +394,45 @@ class Fixture:
             print("Football.py: Unhandled state:", self.state, self.home, self.away, self.url)
             return "⚫", 0x010101  # Black
 
-    async def get_badge(self, page, team) -> BytesIO:
+    async def get_badge(self, page, team) -> BytesIO or None:
         """Fetch an image of a Team's Logo or Badge as a BytesIO object"""
-        return await browser.fetch(page, self.url, f'.//div[contains(@class, tlogo-{team})]//img', screenshot=True)
-    
-    async def get_table(self, page) -> BytesIO:
+        return await browser.fetch(page, self.url, f'.//div[contains(@class, "tlogo-{team}")]//img', screenshot=True)
+
+    async def get_table(self, page) -> BytesIO or None:
         """Fetch an image of the league table appropriate to the fixture as a bytesIO object"""
         xp = './/div[contains(@class, "tableWrapper")]'
         link = self.url + "/#standings/table/overall"
-        return await browser.fetch(page, link, xp, deletes=ADS, screenshot=True)
-    
-    async def get_stats(self, page) -> BytesIO:
+        return await browser.fetch(page, link, xp, delete=ADS, screenshot=True)
+
+    async def get_stats(self, page) -> BytesIO or None:
         """Get an image of a list of statistics pertaining to the fixture as a BytesIO object"""
         xp = ".//div[@id='detail']"
         link = self.url + "/#match-summary/match-statistics/0"
-        return await browser.fetch(page, link, xp, deletes=ADS, screenshot=True)
-    
-    async def get_formation(self, page) -> BytesIO:
+        return await browser.fetch(page, link, xp, delete=ADS, screenshot=True)
+
+    async def get_formation(self, page) -> BytesIO or None:
         """Get the formations used by both teams in the fixture"""
         xp = './/div[starts-with(@class, "fieldWrap")]'
-        formation = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, deletes=ADS, screenshot=True)
+        formation = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, delete=ADS, screenshot=True)
         xp = './/div[starts-with(@class, "lineUp")]'
-        lineup = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, deletes=ADS, screenshot=True)
-        
+        lineup = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, delete=ADS, screenshot=True)
+
+        if formation is None and lineup is None:
+            return None
+
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, image_utils.stitch_vertical, [formation, lineup])
-    
-    async def get_summary(self, page) -> BytesIO:
+
+    async def get_summary(self, page) -> BytesIO or None:
         """Fetch the summary of a Fixture"""
-        xp = ".//div[@id='summary-content']"
-        return await browser.fetch(page, self.url + "#match-summary", xp, deletes=ADS, screenshot=True)
+        xp = ".//div[starts-with(@class, 'verticalSections')]"
+        summary = await browser.fetch(page, self.url + "#match-summary", xp, delete=ADS, screenshot=True)
+        return summary
     
     async def head_to_head(self, page) -> typing.Dict:
         """Get results of recent games related to the two teams in the fixture"""
         xp = ".//div[@id='tab-h2h-overall']"
-        await browser.fetch(page, self.url + "/#h2h/overall", xp, deletes=ADS)
+        await browser.fetch(page, self.url + "/#h2h/overall", xp, delete=ADS)
         tree = html.fromstring(await page.content())
         games = {}
         for i in tree.xpath('.//div[starts-with(@class, "h2h")]//div[starts-with(@class, "section")]'):
@@ -458,7 +462,7 @@ class Fixture:
 
         return games
 
-    async def refresh(self, page, for_discord=True):
+    async def refresh(self, page, for_reddit=False):
         """Perform an intensive full lookup for a fixture"""
         xp = ".//div[@id='utime']"
 
@@ -498,7 +502,7 @@ class Fixture:
             self.league = competition
             self.comp_link = comp_link
 
-        if not for_discord:
+        if for_reddit:
             scores = tree.xpath('.//div[start-with(@class, "score")]//span//text()')
             self.score_home = int(scores[0])
             self.score_away = int(scores[1])
@@ -825,7 +829,7 @@ class Competition(FlashScoreSearchResult):
     async def get_table(self, page) -> BytesIO:
         """Fetch the table from a flashscore page and return it as a BytesIO object"""
         xp = './/div[contains(@class, "tableWrapper")]/parent::div'
-        table_image = await browser.fetch(page, self.url + "/standings/", xp, deletes=ADS, screenshot=True)
+        table_image = await browser.fetch(page, self.url + "/standings/", xp, delete=ADS, screenshot=True)
         await self.get_logo(page)
         return table_image
 
@@ -833,7 +837,7 @@ class Competition(FlashScoreSearchResult):
         """Fetch a list of scorers from a Flashscore Competition page returned as a list of Player Objects"""
         xp = ".//div[@class='tabs__group']"
         clicks = ['a[href$="top_scorers"]', 'div[class^="showMore"]']
-        await browser.fetch(page, self.url + "/standings", xp, clicks=clicks, deletes=ADS, debug=True)
+        await browser.fetch(page, self.url + "/standings", xp, clicks=clicks, delete=ADS, debug=True)
         await self.get_logo(page)
     
         tree = html.fromstring(await page.content())
