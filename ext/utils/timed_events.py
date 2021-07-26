@@ -5,12 +5,18 @@ import discord
 from discord.utils import sleep_until
 
 
-def unix_time(countdown=False):
+def timestamp(mode: str) -> str:
 	"""Get current unix timestamp"""
 	ut = str(datetime.datetime.now().timestamp()).split('.')[0]
-	mode = "t" if countdown is False else "R"
-	time = f"<t:{ut}:{mode}>"
-	return time
+
+	if mode == "long":
+		return f"<t:{ut}:f> (<t:{ut}:R>)"
+
+	elif mode == "countdown":
+		return f"<t:{ut}:R>"
+
+	else:
+		return f"<t:{ut}:t>"
 
 
 async def parse_time(time):
