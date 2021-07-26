@@ -1,5 +1,6 @@
 """Create and manipulate an instance of a headerless pyppeteer browser"""
 from io import BytesIO
+from typing import Union
 
 import pyppeteer
 from PIL import Image
@@ -40,16 +41,16 @@ async def make_browser(bot):
     bot.browser = await pyppeteer.launch()
 
 
-async def fetch(page, url, xpath, clicks=None, deletes=None, screenshot=False, debug=False):
+async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, debug=False) -> Union[str, BytesIO, None]:
     """Fetch a webpage's soruce code or an image"""
-    deletes = [] if deletes is None else deletes
+    deletes = [] if delete is None else delete
     clicks = [] if clicks is None else clicks
 
     assert url.startswith("http"), f"{url} does not appear to be a valid url."
     await page.goto(url)  # DEBUG, old code: (url, {'waitUntil': 'networkidle0'})
 
     src = await page.content()
-    
+
     for x in deletes:
         elements = await page.xpath(x)
         for element in elements:
@@ -75,7 +76,7 @@ async def fetch(page, url, xpath, clicks=None, deletes=None, screenshot=False, d
         try:
             element = element[0]
         except IndexError:
-            raw_screenshot = await page.screenshot()
+            return None
         else:
             raw_screenshot = await element.screenshot()
         
