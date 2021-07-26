@@ -1,5 +1,6 @@
 """Handler Cog for dispatched Fixture events, and database handling for channels using it."""
 import asyncio
+import typing
 from collections import defaultdict
 from copy import deepcopy
 from importlib import reload
@@ -89,18 +90,27 @@ def get_event_type(mode):
 
 def fallback(retry):
     """Handle fallback for automatic retrying of refreshing if data is not present"""
-    if retry == 0:
-        return 1  # 0 is false so we just wait 1 second instead.
-    if retry == 1:
-        return 120
-    elif retry == 2:
-        return 240
-    elif retry == 3:
-        return 600
-    elif retry == 4:
-        return 1200
-    else:
-        return False
+    return 60 * retry if retry in range(5) else False
+
+
+def check_mode(mode):
+    """Get appropriate DB Setting for ticker event"""
+    if mode in ["var_red_card", "var_goal"]:
+        mode = "var"
+
+    elif mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
+        mode = "delayed"
+
+    elif mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end"]:
+        mode = "extra_time"
+
+    elif mode == "score_after_extra_time":
+        mode = "full_time"
+
+    elif mode in ["penalties_begin", "penalty_results"]:
+        mode = "penalties"
+
+    return mode
 
 
 class Ticker(commands.Cog):
@@ -252,21 +262,7 @@ class Ticker(commands.Cog):
 
     async def spool_messages(self, fixture, embed, mode, full_embed=None):
         """Dispatch latest event embed to all applicable channels"""
-        # VAR is covered as one block
-        if mode in ("var_red_card", "var_goal"):
-            mode = "var"
-
-        elif mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
-            mode = "delayed"
-
-        elif mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end"]:
-            mode = "extra_time"
-
-        elif mode == "score_after_extra_time":
-            mode = "full_time"
-
-        elif mode in ["penalties_begin", "penalty_results"]:
-            mode = "penalties"
+        mode = check_mode(mode)
 
         messages = []
         cache_cache = self.cache.copy()
@@ -307,11 +303,10 @@ class Ticker(commands.Cog):
 
         return messages
 
-    async def bulk_edit(self, messages, mode, embed, full_embed):
+    async def bulk_edit(self, messages: typing.List[discord.Message],
+                        mode, embed: discord.Embed, full_embed: discord.Embed):
         """Check config settings for messages, choose appropriate embed, send messages."""
-        if mode in ("var_red_card", "var_goal"):
-            mode = "var"
-
+        mode = check_mode(mode)
         for m in messages:
             try:
                 settings = [i for i in self.settings if m.channel.id == i['channel_id']][0]
@@ -366,10 +361,14 @@ class Ticker(commands.Cog):
         needs_refresh = True
         messages = []
 
-        while fallback(retry) and needs_refresh:
+        while needs_refresh:
             if not retry == 0:
-                sleep_time = fallback(retry)
-                await asyncio.sleep(sleep_time)
+                timer = fallback(retry)
+                if timer is False:
+                    return
+
+                await asyncio.sleep(timer)
+
                 page = await self.bot.browser.newPage()
                 async with max_pages:
                     try:
@@ -385,12 +384,12 @@ class Ticker(commands.Cog):
 
             retry += 1
             # Handle State Changes
-            if mode in ("delayed", "interrupted", "cancelled", "resumed", "half_time", "second_half_begin",
+            if mode in ["delayed", "interrupted", "cancelled", "resumed", "half_time", "second_half_begin",
                         "full_time", "extra_time_begins", "ht_et_begin", "ht_et_end", "end_of_normal_time",
-                        "after_extra_time_result", "end_of_extra_time"):
+                        "score_after_extra_time", "end_of_extra_time"]:
 
-                if mode in ("half_time", "second_half_begin", "full_time", "final_result_only",
-                            "end_of_normal_time", "extra_time_begins ", "end_of_extra_time", "after_extra_time_result"):
+                if mode in ["half_time", "second_half_begin", "full_time", "final_result_only",
+                            "end_of_normal_time", "extra_time_begins ", "end_of_extra_time", "score_after_extra_time"]:
                     base_description = f"**{mode.title().replace('_', ' ')}** | [{f.bold_score}]({f.url})\n"
 
                 elif "ht_et" in mode:
@@ -456,9 +455,21 @@ class Ticker(commands.Cog):
             else:
                 try:
                     event = f.events[event_index]
+                    target_mode = get_event_type(mode)
                 except IndexError:
                     print(f'{mode} | Event_index {event_index} ({stored_event}) is missing for {f.url}')
                     continue
+
+                try:
+                    assert isinstance(event, target_mode)
+                except AssertionError:
+                    if mode == "goal":
+                        e.colour = discord.Colour.red()
+                        e.description = e.description.replace('Goal', 'Goal Overturned')
+                        e.description += f"\n\n🚫 **Goal Overturned**."
+                        e_ext = deepcopy(e)
+                        return await self.bulk_edit(messages, mode, e, e_ext)
+                    print(f'Warning: {f.url} index {event_index} changed mode: {target_mode} -> {type(event)}')
 
             e.set_footer(text=base_footer)
             e.description = base_description
@@ -573,8 +584,13 @@ class Ticker(commands.Cog):
 
     @commands.has_permissions(manage_channels=True)
     @ticker.command(usage="[#channel #ch2...] <search query or flashscore link>")
-    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, *, query: commands.clean_content):
+    async def add(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, *,
+                  query: commands.clean_content = None):
         """Add a league to a ticker for channel(s)"""
+        if query is None:
+            err = '🚫 You need to specify a query or a flashscore team link'
+            return await self.bot.reply(ctx, text=err, mention_author=True)
+
         if "http" not in query:
             await self.bot.reply(ctx, text=f"Searching for {query}...", delete_after=5)
             res = await football.fs_search(ctx, query)
