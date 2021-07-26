@@ -1,122 +1,110 @@
 """Utility for fetching Tweets from Twitter and exporting to Discord"""
 import html as htmlc
-import json
+import typing
 from datetime import datetime
 
 import discord
+import tweepy
+import tweepy.asynchronous
 from discord.ext import commands
-from lxml import html
-from peony import PeonyClient
+
+from ext.utils import embed_utils
 
 TWITTER_ICON = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
-
-# TODO: convert to use DB
-# TODO: Re-investigate the best way to do a twitter loop.
-# TODO: Add / remove per channel etc etc.
 
 
 class Twitter(commands.Cog):
     """Track twitter accounts"""
-    
+
     def __init__(self, bot):
         self.bot = bot
-        with open("twitter.json") as f:
-            self.track = json.load(f)
-        self.peony = PeonyClient(**self.bot.credentials['Twitter'])
-        self.bot.twitask = self.bot.loop.create_task(self.twat())
-    
+        self.records = None
+        self.credentials = self.bot.credentials['Twitter']
+        self.client = tweepy.asynchronous.AsyncStream(**self.credentials)
+
+        auth = tweepy.OAuthHandler(self.credentials["consumer_key"], self.credentials["consumer_secret"])
+        auth.set_access_token(self.credentials["access_token"], self.credentials["access_token_secret"])
+        self.api = tweepy.API(auth)
+
+        self.bot.loop.create_task(self.update_cache())
+        self.bot.twitter = self.bot.loop.create_task(self.twat())
+
     def cog_unload(self):
         """Cancel the twitter tracker when the cog is unloaded."""
-        self.bot.twitask.cancel()
-    
-    async def _save(self):
-        with await self.bot.configlock:
-            with open('twitter.json', "w", encoding='utf-8') as f:
-                json.dump(self.track, f, sort_keys=True, indent=4, separators=(',', ':'))
-    
+        self.bot.twitter.cancel()
+
+    async def update_cache(self):
+        """Fetch latest DB copy of tweets"""
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            self.records = await connection.fetch("""SELECT * FROM twitter""")
+        await self.bot.db.release(connection)
+
     async def twat(self):
         """Twitter tracker function"""
         await self.bot.wait_until_ready()
-        
+
         # Retrieve list of IDs to track
-        ids = ",".join([str(i[1]["id"]) for i in self.track.items()])
-        
-        ts = self.peony.stream.statuses.filter.post(follow=ids)
-        
+        ts = self.client.filter(follow=[r.id for r in self.records])
+
         async with ts as stream:
-            async for t in stream:
+            async for tweet in stream:
                 # Break loop if bot not running.
                 if self.bot.is_closed():
                     break
-                
+
                 # discard malformed tweets
-                if not hasattr(t, "user"):
+                if not hasattr(tweet, "user"):
                     continue
-                
-                # Set destination or discard non-tracked
-                u = t.user
-                if u.id_str in ids:
-                    s = self.track.items()
-                    chanid = [i[1]["channel"] for i in s if i[1]["id"] == int(u.id_str)][0]
-                    destin = self.bot.get_channel(chanid)
-                else:
-                    continue
-                
+
                 # discard retweets & adverts
-                if hasattr(t, 'retweeted_status') or t.text.startswith(("rt", 'ad')):
+                if hasattr(tweet, 'retweeted_status') or tweet.text.startswith(("rt", 'ad')):
                     continue
-                
+
                 # discard replies
-                if t["in_reply_to_status_id"] is not None:
+                if tweet["in_reply_to_status_id"] is not None:
                     continue
-                
-                if t.truncated:
-                    txt = htmlc.unescape(t.extended_tweet.full_text)
-                    ents = dict(t.entities)
-                    ents.update(dict(t.extended_tweet.entities))
+
+                # Set destination or discard non-tracked
+                records = [i for i in self.records if i.userid == tweet.user.id]
+
+                if not records:
+                    continue
+
+                user = tweet.user
+
+                if tweet.truncated:
+                    text = htmlc.unescape(tweet.extended_tweet.full_text)
+                    ents = dict(tweet.entities)
+                    ents.update(dict(tweet.extended_tweet.entities))
                 else:
-                    ents = t.entities
-                    txt = htmlc.unescape(t.text)
-                
-                # r/FIFA-specific
-                if u.id_str == "105297123":
-                    if not any(i in txt.lower() for i in ['potm', "totw", "title update"]):
-                        continue
-                
+                    ents = tweet.entities
+                    text = htmlc.unescape(tweet.text)
+
                 if "hashtags" in ents:
                     for i in ents["hashtags"]:
-                        frnt = f"[#{i.text}]"
-                        bk = f"(https://twitter.com/hashtag/{i.text})"
-                        rpl = frnt + bk
-                        txt = txt.replace(f'#{i.text}', rpl)
+                        text = text.replace(f'#{i.text}', f"[#{i.text}](https://twitter.com/hashtag/{i.text})")
                 if "urls" in ents:
                     for i in ents["urls"]:
-                        txt = txt.replace(i.url, i.expanded_url)
+                        text = text.replace(i.url, i.expanded_url)
                 if "user_mentions" in ents:
                     for i in ents["user_mentions"]:
-                        frnt = f"[@{i.screen_name}]"
-                        bk = f"(https://twitter.com/{i.screen_name})"
-                        rpl = frnt + bk
-                        txt = txt.replace(f'@{i.screen_name}', rpl)
-                
-                e = discord.Embed(description=txt)
-                if hasattr(u, "url"):
-                    e.url = u.url
-                if hasattr(u, "profile_link_color"):
-                    e.colour = int(u.profile_link_color, 16)
-                
-                e.set_thumbnail(url=u.profile_image_url)
-                e.timestamp = datetime.strptime(t.created_at, "%a %b %d %H:%M:%S %z %Y")
+                        name = i.screen_name
+                        text = text.replace(f'@{name}', f"[@{name}](https://twitter.com/{name})")
+
+                e = discord.Embed(description=name)
+                e.colour = int(user.profile_link_color, 16)
+                e.set_thumbnail(url=user.profile_image_url)
+                e.timestamp = datetime.strptime(tweet.created_at, "%a %b %d %H:%M:%S %z %Y")
                 e.set_footer(icon_url=TWITTER_ICON, text="Twitter")
-                
-                lk = f"http://www.twitter.com/{u.screen_name}/status/{t.id_str}"
-                e.title = f"{u.name} (@{u.screen_name})"
-                e.url = lk
-                
+
+                e.title = f"{user.name} (@{user.screen_name})"
+                e.url = f"http://www.twitter.com/{user.screen_name}/status/{tweet.id_str}"
+
                 # Extract entities to lists
                 photos = []
                 videos = []
-                
+
                 def extract_entities(alist):
                     """Fetch List of photo or video entities from Tweet"""
                     for i in alist:
@@ -126,15 +114,15 @@ class Twitter(commands.Cog):
                             videos.append(i.video_info.variants[1].url)
                         else:
                             print("Unrecognised TWITTER MEDIA TYPE", i)
-                
+
                 # Fuck this nesting kthx.
-                if hasattr(t, "extended_entities") and hasattr(t.extended_entities, "media"):
-                    extract_entities(t.extended_entities.media)
-                if hasattr(t, "quoted_status"):
-                    if hasattr(t.quoted_status, "extended_entities"):
-                        if hasattr(t.quoted_status.extended_entities, "media"):
-                            extract_entities(t.quoted_status.extended_entities.media)
-                
+                if hasattr(tweet, "extended_entities") and hasattr(tweet.extended_entities, "media"):
+                    extract_entities(tweet.extended_entities.media)
+                if hasattr(tweet, "quoted_status"):
+                    if hasattr(tweet.quoted_status, "extended_entities"):
+                        if hasattr(tweet.quoted_status.extended_entities, "media"):
+                            extract_entities(tweet.quoted_status.extended_entities.media)
+
                 # Set image if one image, else add embed field.
                 if len(photos) == 1:
                     e.set_image(url=photos[0])
@@ -142,76 +130,92 @@ class Twitter(commands.Cog):
                     en = enumerate(photos, start=1)
                     v = ", ".join([f"[{i}]({j})" for i, j in en])
                     e.add_field(name="Attached Photos", value=v)
-                
+
                 # Add embed field for videos
                 if videos:
                     if len(videos) > 1:
                         en = enumerate(videos, start=1)
                         v = ", ".join([f"[{i}]({j})" for i, j in en])
                         e.add_field(name="Attached Videos", value=v)
-                    else:
-                        await destin.send(embed=e)
-                        await destin.send(videos[0])
-                else:
-                    await destin.send(embed=e)
-    
-    @commands.group(aliases=["tweet", "tweets", "checkdelay", "twstatus"], invoke_without_command=True)
-    @commands.is_owner()
-    async def twitter(self, ctx):
-        """Check delay and status of twitter tracker"""
-        e = discord.Embed(title="Twitter Status", color=0x7EB3CD)
-        e.set_thumbnail(url="https://i.imgur.com/jSEtorp.png")
-        for i in set([i[1]["channel"] for i in self.track.items()]):
-            # Get Channel name from ID in JSON
-            fname = f"#{self.bot.get_channel(int(i)).name} Tracker"
-            # Find all tracks for this channel.
-            fvalue = "\n".join([c[0] for c in self.track.items() if c[1]["channel"] == i])
-            e.add_field(name=fname, value=fvalue)
-        
-        x = self.bot.twitask._state
-        if x == "PENDING":
-            v = "✅ Task running."
-        elif x == "CANCELLED":
-            v = "⚠ Task Cancelled."
-        elif x == "FINISHED":
-            self.bot.twitask.print_stack()
-            v = "⁉ Task Finished"
-            z = self.bot.twitask.exception()
-            e.add_field(name="Exception", value=z, inline=False)
-        else:
-            v = f"❔ `{x}`"
-        e.add_field(name="Debug Info", value=v, inline=False)
 
-        await self.bot.reply(ctx, embed=e)
-    
-    @twitter.command(name="add")
+                for r in records:
+                    destination = self.bot.get_channel(r.channel_id)
+                    if destination is None:
+                        print(f"Warning: Deleted Twitter Channel: {r.channel_id}")
+                        continue
+                    await destination.send(embed=e)
+                    if videos:
+                        await destination.send(videos[0])
+
+    async def send_config(self, ctx):
+        """List a server's twitter trackers"""
+        e = discord.Embed(color=0x7EB3CD)
+        e.set_thumbnail(url="https://i.imgur.com/jSEtorp.png")
+        e.set_author(name=f"{ctx.guild.name} Tracked Twitter accounts", icon_url=TWITTER_ICON)
+
+        tracked_items = [f"{i['name']} -> {self.bot.get_channel(i['channel_id']).mention}" for i in
+                         self.records if i['guild_id'] == ctx.guild.id]
+        embeds = embed_utils.rows_to_embeds(e, tracked_items)
+        await embed_utils.paginate(ctx, embeds)
+
+    # TODO: Add / remove per channel etc etc.
+    @commands.group(invoke_without_command=True)
+    async def twitter(self, ctx):
+        """View your server's twitter trackers"""
+        await self.send_config(ctx)
+
+    @twitter.command()
     @commands.is_owner()
-    async def _add(self, ctx, username):
-        """Add user to track for this channel"""
-        params = {"user_name": username, "submit": "GET+USER+ID"}
-        async with self.bot.session.get("http://gettwitterid.com/", params=params) as resp:
-            if resp.status != 200:
-                return await self.bot.reply(ctx, text=f"🚫 HTTP Error {resp.status} try again later.")
-            tree = html.fromstring(await resp.text())
-            try:
-                item_id = tree.xpath('.//tr[1]/td[2]/p/text()')[0]
-            except IndexError:
-                return await self.bot.reply(ctx, text="🚫 Couldn't find user with that name.")
-        self.track[username] = {"id": int(item_id), "channel": ctx.channel.id}
-        await self._save()
-        await self.bot.reply(f"{username} will be tracked in {ctx.channel.mention} from next restart.")
-    
-    @twitter.command(name="del")
+    async def add(self, ctx, channel: typing.Optional[discord.TextChannel] = None, *, username: commands.clean_content):
+        """Add user to track for a target channel"""
+        channel = ctx.channel if channel is None else channel
+        assert channel.guild.id == ctx.guild.id, "You cannot add a twitter tracker to other servers."
+
+        users = self.api.search_users(q=username)
+        e = discord.Embed()
+        e.colour = discord.Colour.blue()
+        embeds = embed_utils.rows_to_embeds(e, [str(i) for i in users])
+
+        index = await embed_utils.page_selector(ctx, embeds)
+        user = users[index]
+
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            self.records = await connection.fetch("""INSERT INTO twitter (userid, guild_id, channel_id) 
+            VALUES ($1, $2, $3)""", user.id, ctx.guild.id, channel.id)
+        await self.bot.db.release(connection)
+        await self.update_cache()
+        await self.bot.reply(ctx, f"{username} added to tracked users for {ctx.channel.mention}.")
+        await self.send_config(ctx)
+
+    @twitter.command(name="del", aliases=["remove"])
     @commands.is_owner()
     async def _del(self, ctx, username):
-        """Deletes a user from the twitter tracker"""
-        trk = [{k.lower(): k} for k in self.track.keys()]
-        if username.lower() in trk:
-            self.track.pop(trk[username.lower()])
-            await self._save()
-        await self.bot.reply(ctx, text=f"{username} deleted from twitter tracker")
-        
-        
+        """Deletes a user from the cahnnel's twitter tracker"""
+        guild_matches = [i.alias for i in self.records if i['guild_id'] == ctx.guild.id and username in i['alias']]
+
+        if not guild_matches:
+            return self.bot.reply(ctx, f"No followed twitter accounts found for {ctx.guild.name}")
+
+        index = await embed_utils.page_selector(ctx, guild_matches)
+        if index is None:
+            return
+
+        r = guild_matches[index]
+
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            self.records = await connection.fetch(
+                """DELETE FROM twitter WHERE (user_id, guild_id, channel_id, alias) = ($1, $2, $3, $)""",
+                r['user_id'], ctx.guild.id, r['channel_id'], r['alias'])
+        await self.bot.db.release(connection)
+        await self.update_cache()
+
+        await self.bot.reply(ctx, text=f"{r['alias']} deleted from twitter tracker")
+        await self.update_cache()
+        await self.send_config(ctx)
+
+
 def setup(bot):
     """Load Twitter tracker cog into the bot"""
     bot.add_cog(Twitter(bot))
