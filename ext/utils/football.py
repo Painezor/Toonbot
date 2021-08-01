@@ -229,6 +229,11 @@ class Fixture:
         return e
 
     @property
+    def event_footer(self):
+        """A string containing Country: League and time"""
+        return f"{self.country}: {self.league} | {self.time}"
+
+    @property
     def reddit_time(self):
         """Standard Markdown Timestamps for Reddit"""
         if not isinstance(self.time, datetime.datetime):
@@ -306,7 +311,7 @@ class Fixture:
             actual_score = min([self.score_home, self.score_away])
             time = "After Pens" if self.state == "after pens" else "PSO"
 
-            return f"`{self.colour[0]}` {time} {self.penalties_home} {self.home} - {self.away} {self.penalties_away}" \
+            return f"`{self.colour[0]}` {time} {self.home} {self.penalties_home} - {self.penalties_away} {self.away} " \
                    f"(FT: {actual_score} - {actual_score})"
 
         return f"`{self.colour[0]}` {time} {h_c}{self.bold_score}{a_c}"
@@ -524,7 +529,7 @@ class Fixture:
 
         event_rows = tree.xpath('.//div[starts-with(@class, "verticalSections")]/div')
         events = []
-        pens = False
+        after_pen_header = False
 
         for i in event_rows:
             event_class = i.attrib['class']
@@ -534,7 +539,7 @@ class Fixture:
                 if "Penalties" in parts:
                     self.penalties_home = parts[1]
                     self.penalties_away = parts[3]
-                    pens = True
+                    after_pen_header = True
                 continue
             
             # Detection of Teams
@@ -560,12 +565,15 @@ class Fixture:
                 if "own" in icon.lower():
                     event = OwnGoal()
                 else:
-                    event = Penalty(shootout=True) if pens else Goal()
-                    if "Penalty" in icon_desc:
+                    if after_pen_header:
+                        event = Penalty(shootout=True)
+                    elif "Penalty" in icon_desc:
                         event = Penalty()
+                    else:
+                        event = Goal()
 
             elif icon.startswith("penaltyMissed"):
-                event = Penalty(shootout=True, missed=True) if pens else Penalty(missed=True)
+                event = Penalty(shootout=True, missed=True) if after_pen_header else Penalty(missed=True)
 
             elif "arrowUp" in icon:
                 event = Substitution()
