@@ -2,11 +2,10 @@
 import asyncio
 import typing
 from collections import defaultdict
-from copy import deepcopy
 from importlib import reload
 
 import discord
-from asyncpg import UniqueViolationError
+from asyncpg import UniqueViolationError, Record
 from discord.ext import commands
 
 from ext.utils import football, embed_utils
@@ -46,6 +45,10 @@ edict = {
     "red_card": discord.Colour.red(),
     "var_goal": discord.Colour.blurple(),
     "var_red_card": discord.Colour.blurple(),
+    "goal_overturned": discord.Colour.blurple(),
+    "red_card_overturned": discord.Colour.blurple(),
+
+    "kick_off": discord.Colour.green(),
 
     "delayed": discord.Colour.orange(),
     "interrupted": discord.Colour.dark_orange(),
@@ -101,7 +104,7 @@ def check_mode(mode):
     elif mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
         mode = "delayed"
 
-    elif mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end"]:
+    elif mode in ["extra_time_begins", "end_of_normal_time", "end_of_extra_time", "ht_et_begin", "ht_et_end"]:
         mode = "extra_time"
 
     elif mode == "score_after_extra_time":
@@ -111,6 +114,303 @@ def check_mode(mode):
         mode = "penalties"
 
     return mode
+
+
+class TickerEvent:
+    """Handles dispatching and editing messages for a fixture event."""
+
+    def __init__(self, bot, fixture, mode, channels: typing.List[Record], home=False):
+        self.bot = bot
+        self.fixture = fixture
+        self.mode = mode
+        self.channels = channels
+        self.home = home
+
+        # dynamic properties
+        self.retry = 0
+        self.messages = []
+        self.needs_refresh = True
+
+        # For exact event.
+        self.event = None
+        self.event_index = None
+
+        # Begin loop on init
+        bot.loop.create_task(self.event_loop())
+
+    @property
+    async def embed(self):
+        """The embed for the fixture event."""
+        e = await self.fixture.base_embed
+        e.title = None
+        e.remove_author()
+
+        m = self.mode.title().replace('_', ' ')
+        if "ht_et" in self.mode:
+            temp_mode = "Half Time" if self.mode == "ht_et_begin" else "Second Half Begins"
+            m = f"Extra Time: {temp_mode}"
+
+        if self.mode in ["goal", "var_goal", "red_card", "var_red_card"]:
+            h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
+            h, a = ('**', '**') if self.home is None else h, a
+            home = f"{h}{self.fixture.home} {self.fixture.score_home}{h}"
+            away = f"{a}{self.fixture.score_away} {self.fixture.away}{a}"
+            e.description = f"**{m}**: [{home} - {away}]({self.fixture.url})\n"
+        elif self.mode in ["penalties_begin", "penalty_results"]:
+            try:
+                h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
+                home = f"{h}{self.fixture.home} {self.fixture.penalties_home}{h}"
+                away = f"{a}{self.fixture.penalties_away} {self.fixture.away}{a}"
+
+                e.description = f"**Penalties**: [{home} - {away}]({self.fixture.url})"
+            except TypeError:  # If penalties_home / penalties_away are Nonetype
+                e.description = f"**Penalties** | [{self.fixture.bold_score}]({self.fixture.url})\n"
+
+            events = [i for i in self.fixture.events if isinstance(i, football.Penalty) and i.shootout is True]
+
+            # iterate through everything after penalty header
+            home = [str(i) for i in events if i.team == self.fixture.home]
+            away = [str(i) for i in events if i.team == self.fixture.away]
+
+            self.retry = 1 if self.fixture.state != "fin" else self.retry
+
+            if home:
+                e.add_field(name=self.fixture.home, value="\n".join(home))
+            if away:
+                e.add_field(name=self.fixture.away, value="\n".join(away))
+
+        else:
+            e.description = f"**{m}** | [{self.fixture.bold_score}]({self.fixture.url})\n"
+
+        footer = self.fixture.event_footer
+
+        try:
+            e.colour = edict[self.mode]
+        except Exception as err:
+            print(f"Ticker: Edict error for mode {self.mode}", err)
+
+        if self.event is not None:
+            e.description += str(self.event)
+            if hasattr(self.event, "full_description"):
+                e.description += f"\n\n{self.event.full_description}"
+
+        if self.fixture.infobox is not None:
+            if "leg." in self.fixture.infobox:
+                footer += f" ({self.fixture.infobox}) "
+                e.set_footer(text=footer)
+
+            else:
+                e.description += f"```{self.fixture.infobox}```"
+
+        return e
+
+    @property
+    async def full_embed(self):
+        """Extended Embed with all events for Extended output mode"""
+        e = await self.embed
+        if self.fixture.events:
+            for i in self.fixture.events:
+                if isinstance(i, (football.Substitution, football.Booking)):
+                    continue
+                e.description += f"{str(i)}\n"
+
+        return e
+
+    @property
+    def fallback(self):
+        """Handle fallback for automatic retrying of refreshing if data is not present"""
+        return 60 * self.retry if self.retry in range(5) else False
+
+    @property
+    def valid_events(self):
+        """Valid events for ticker mode"""
+        if self.mode == "goal":
+            return tuple([football.Goal, football.VAR])
+        elif self.mode == "red_card":
+            return football.RedCard
+        elif self.mode in ("var_goal", "var_red_card"):
+            return football.VAR
+        return None
+
+    @property
+    def db_mode(self):
+        """Get appropriate DB Setting for ticker event"""
+        if self.mode in ["var_red_card", "var_goal", "red_card_overturned", "goal_overturned"]:
+            return "var"
+        elif self.mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
+            return "delayed"
+        elif self.mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end"]:
+            return "extra_time"
+        elif self.mode == "score_after_extra_time":
+            return "full_time"
+        elif self.mode in ["penalties_begin", "penalty_results"]:
+            return "penalties"
+        elif "start_of_period" in self.mode:
+            return "Half_time"
+        else:
+            return self.mode
+
+    async def retract_event(self):
+        """Handle corrections for erroneous events"""
+        if self.mode == "goal":
+            self.mode = "goal_overturned"
+            await self.bulk_edit()
+        elif self.mode == "red_card":
+            self.mode = "red_card_overturned"
+            await self.bulk_edit()
+        else:
+            print(f'[WARNING] Ticker: Attempted to retract event for missing mode: {self.mode}')
+
+    async def send_messages(self):
+        """Dispatch latest event embed to all applicable channels"""
+        check_once = True
+
+        full_embed = await self.full_embed
+        short_embed = await self.embed
+
+        for r in self.channels:
+            channel = self.bot.get_channel(r['channel_id'])
+
+            if r[self.db_mode] is None:  # Default Off Options.
+                if self.mode in ("kick_off", "half_time", "second_half_begin", "delayed"):
+                    continue
+
+            elif self.mode == "ht_et_begin":  # Special Check - Must pass both
+                if r["half_time"] == "off" or r["half_time"] is None:
+                    continue
+
+            elif self.mode == "ht_et_end":  # Special Check - Must pass both
+                if r["second_half_begin"] == "off" or r["second_half_begin"] is None:
+                    continue
+
+            elif r[self.db_mode] == "off":
+                continue  # If output is disabled for this channel skip output entirely.
+
+            if self.db_mode == "extended":
+                embed = full_embed
+                if check_once:
+                    check_once = False
+                    if all([i.player for i in self.fixture.events]):
+                        self.needs_refresh = False
+
+            else:
+                embed = short_embed
+
+            try:
+                self.messages.append(await channel.send(embed=embed))
+            except discord.HTTPException:
+                continue
+
+        if check_once:
+            if self.event is None or self.event.player:
+                self.needs_refresh = False
+
+    async def bulk_edit(self):
+        """Edit existing messages"""
+        check_once = True
+
+        for message in self.messages:
+            settings = [i for i in self.channels if i['channel_id'] == message.channel.id][-1]
+
+            if settings[self.db_mode] in [None, "off"]:  # Default Off Options.
+                if self.mode in ("kick_off", "half_time", "second_half_begin", "delayed"):
+                    continue
+
+            elif self.mode == "ht_et_begin":  # Special Check - Must pass both
+                if settings["half_time"] == "off" or settings["half_time"] is None:
+                    continue
+
+            elif self.mode == "ht_et_end":  # Special Check - Must pass both
+                if settings["second_half_begin"] == "off" or settings["second_half_begin"] is None:
+                    continue
+
+            if self.db_mode == "extended":
+                embed = await self.full_embed
+
+                if check_once:
+                    check_once = False
+                    if all([i.player for i in self.fixture.events]):
+                        self.needs_refresh = False
+
+            else:
+                embed = await self.embed
+
+            try:
+                await message.edit(embed=embed)
+            except discord.HTTPException:
+                continue
+
+        if check_once:
+            if self.event.player:
+                self.needs_refresh = False
+
+    async def event_loop(self):
+        """The Fixture event's internal loop"""
+        # Handle full time only events.
+        if self.mode == "kick_off":
+            e = await self.embed
+            e.description = f"**Kick Off** [{self.fixture.bold_score}]({self.fixture.url})"
+            e.colour = discord.Colour.lighter_gray()
+            await self.send_messages()
+            return
+
+        while self.needs_refresh:
+            timer = self.fallback
+            if timer is False:
+                return
+
+            await asyncio.sleep(timer)
+
+            page = await self.bot.browser.newPage()
+            async with max_pages:
+                try:
+                    await self.fixture.refresh(page)
+                except Exception as err:
+                    raise err
+                finally:  # ALWAYS close the browser after refreshing to avoid Memory leak
+                    await page.close()
+
+            self.retry += 1
+
+            # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
+            if self.event_index is None:
+                if not self.fixture.events:
+                    self.event = None
+                else:
+                    ve = self.valid_events
+                    if ve is not None:
+                        try:
+                            events = [i for i in self.fixture.events if isinstance(i, ve)]
+                            target_team = self.fixture.home if self.home else self.fixture.away
+                            event = [i for i in events if i.team == target_team][-1]
+                            self.event_index = self.fixture.events.index(event)
+                            self.event = event
+
+                        except IndexError:
+                            if self.mode not in ['var_goal', 'var_red_card']:
+                                target_team = self.fixture.home if self.home else self.fixture.away
+                                header = f"Found no matching {self.mode} - {target_team} event\n" \
+                                         f"{self.fixture.home} vs {self.fixture.away} // {self.fixture.url}"
+                                print('=' * len(header))
+                                print(header)
+                                print('-' * len(header))
+                                for x in self.fixture.events:
+                                    print(type(x), x.__dict__)
+                                print('=' * len(header))
+                            self.event = None
+                            self.event_index = None
+
+            else:
+                try:
+                    self.event = self.fixture.events[self.event_index]
+                    assert isinstance(self.event, self.valid_events)
+                except (AssertionError, IndexError):
+                    return await self.retract_event()
+
+            if not self.messages:
+                await self.send_messages()
+            else:
+                await self.bulk_edit()
 
 
 class Ticker(commands.Cog):
@@ -260,252 +560,13 @@ class Ticker(commands.Cog):
         e.description = header + f"```yaml\n{settings}```"
         await self.bot.reply(ctx, embed=e)
 
-    async def spool_messages(self, fixture, embed, mode, full_embed=None):
-        """Dispatch latest event embed to all applicable channels"""
-        mode = check_mode(mode)
-
-        messages = []
-        cache_cache = self.cache.copy()
-        for (guild_id, channel_id) in cache_cache:
-            if fixture.full_league in cache_cache[(guild_id, channel_id)]:
-                channel = self.bot.get_channel(channel_id)
-
-                try:
-                    settings = [i for i in self.settings if channel.id == i['channel_id']][0]
-
-                    if settings[mode] is None:  # Default Off Options.
-                        if mode in ("kick_off", "half_time", "second_half_begin", "delayed"):
-                            continue
-
-                    elif mode == "ht_et_begin":  # Special Check - Must pass both
-                        if settings["half_time"] == "off" or settings["half_time"] is None:
-                            continue
-
-                    elif mode == "ht_et_end":  # Special Check - Must pass both
-                        if settings["second_half_begin"] == "off" or settings["second_half_begin"] is None:
-                            continue
-
-                    elif settings[mode] == "off":
-                        continue  # If output is disabled for this channel skip output entirely.
-
-                    chosen_embed = full_embed if settings[mode] == "extended" and full_embed is not None else embed
-                except KeyError as e:
-                    chosen_embed = embed
-                    print(f"Ticker:: Key Error for mode: {mode}")
-                    print(e)
-                except IndexError:
-                    chosen_embed = embed
-
-                try:
-                    messages.append(await channel.send(embed=chosen_embed))
-                except discord.HTTPException:
-                    continue
-
-        return messages
-
-    async def bulk_edit(self, messages: typing.List[discord.Message],
-                        mode, embed: discord.Embed, full_embed: discord.Embed):
-        """Check config settings for messages, choose appropriate embed, send messages."""
-        mode = check_mode(mode)
-        for m in messages:
-            try:
-                settings = [i for i in self.settings if m.channel.id == i['channel_id']][0]
-                chosen_embed = full_embed if settings[mode] == "extended" else embed
-            except (IndexError, KeyError):
-                chosen_embed = embed
-
-            try:
-                if m.embeds[0] != chosen_embed:
-                    await m.edit(embed=chosen_embed)
-            except (discord.HTTPException, IndexError):
-                pass
-
     @commands.Cog.listener()
     async def on_fixture_event(self, mode, f: football.Fixture, home=True):
         """Event handler for when something occurs during a fixture."""
         # Perform an initial Refresh of the fixture
-        page = await self.bot.browser.newPage()
-
-        async with max_pages:
-            try:
-                await f.refresh(page)
-            except Exception as err:
-                raise err
-            finally:  # ALWAYS close the browser after refreshing to avoid Memory leak
-                await page.close()
-
-        e = await f.base_embed
-        e.title = None
-        e.remove_author()
-
-        base_footer = f"{f.country}: {f.league} | {f.time}"
-
-        e.set_footer(text=base_footer)
-
-        # Handle full time only events.
-        if mode == "kick_off":
-            e.description = f"**Kick Off** [{f.home} {f.score} {f.away}]({f.url})"
-            e.colour = discord.Colour.lighter_gray()
-            return await self.spool_messages(f, e, mode)
-
-        # Bold for Goal Event
-        h, a = ('**', '') if home else ('', '**')  # Bold Home or Away Team Name.
-        h, a = ('**', '**') if home is None else h, a
-
-        # Embed header row.
-        md = mode.replace('_', ' ').title()
-        base_description = f"**{md}**: [{h}{f.home} {f.score_home}{h} - {a}{f.score_away} {f.away}{a}]({f.url})\n"
-        retry = 0
-        event_index = None
-        stored_event = None
-        needs_refresh = True
-        messages = []
-
-        while needs_refresh:
-            if not retry == 0:
-                timer = fallback(retry)
-                if timer is False:
-                    return
-
-                await asyncio.sleep(timer)
-
-                page = await self.bot.browser.newPage()
-                async with max_pages:
-                    try:
-                        await f.refresh(page)
-                    except Exception as err:
-                        raise err
-                    finally:  # ALWAYS close the browser after refreshing to avoid Memory leak
-                        await page.close()
-            try:
-                e.colour = edict[mode]
-            except Exception as err:
-                print(err)
-
-            retry += 1
-            # Handle State Changes
-            if mode in ["delayed", "interrupted", "cancelled", "resumed", "half_time", "second_half_begin",
-                        "full_time", "extra_time_begins", "ht_et_begin", "ht_et_end", "end_of_normal_time",
-                        "score_after_extra_time", "end_of_extra_time"]:
-
-                if mode in ["half_time", "second_half_begin", "full_time", "final_result_only",
-                            "end_of_normal_time", "extra_time_begins ", "end_of_extra_time", "score_after_extra_time"]:
-                    base_description = f"**{mode.title().replace('_', ' ')}** | [{f.bold_score}]({f.url})\n"
-
-                elif "ht_et" in mode:
-                    temp_mode = "Half Time" if mode == "ht_et_begin" else "Second Half Begins"
-                    base_description = f"**Extra Time: {temp_mode}** | [{f.bold_score}]({f.url})\n"
-
-                event = None
-
-            # Handle Penalty Shootout Results
-            elif mode in ["penalties_begin", "penalty_results"]:
-                try:
-                    h, a = ("**", "") if f.penalties_home > f.penalties_away else ("", "**")
-                    d = f"**Penalties**: [{h}{f.home} {f.penalties_home}{h} - " \
-                        f"{a}{f.penalties_away} {f.away}{a}]({f.url})"
-                except TypeError:
-                    d = f"**Penalties: [{h}{f.home} {f.score_home}{h} - {a}{f.score_away} {f.away}{a}]({f.url})"
-
-                base_description = d
-
-                events = [i for i in f.events if isinstance(i, football.Penalty) and i.shootout is True]
-
-                # iterate through everything after penalty header
-                home = [str(i) for i in events if i.team == f.home]
-                away = [str(i) for i in events if i.team == f.away]
-
-                needs_refresh = False if all([i.player for i in events]) else True
-                needs_refresh = True if f.state != "fin" else needs_refresh
-
-                retry = 1 if not f.state == "fin" else retry
-
-                if home:
-                    e.add_field(name=f.home, value="\n".join(home))
-                if away:
-                    e.add_field(name=f.away, value="\n".join(away))
-
-                event = None
-
-            # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
-            elif event_index is None:
-                if not f.events:
-                    event = None
-                else:
-                    event_type = get_event_type(mode)
-                    try:
-                        events = [] if event_type is None else [i for i in f.events if isinstance(i, event_type)]
-                        target_team = f.home if home else f.away
-                        event = [i for i in events if i.team == target_team][-1]
-                        event_index = f.events.index(event)
-                        stored_event = event
-                    except IndexError:
-                        if mode not in ['var_goal', 'var_red_card']:
-                            target_team = f.home if home else f.away
-                            header = f"Found no matching {mode} - {target_team} event | {f.home} vs {f.away} // {f.url}"
-                            print('=' * len(header))
-                            print(header)
-                            print('-' * len(header))
-                            for x in f.events:
-                                print(type(x), x.__dict__)
-                            print('=' * len(header))
-                        event = None
-                        event_index = None
-
-            else:
-                try:
-                    event = f.events[event_index]
-                    target_mode = get_event_type(mode)
-                except IndexError:
-                    print(f'{mode} | Event_index {event_index} ({stored_event}) is missing for {f.url}')
-                    continue
-
-                try:
-                    assert isinstance(event, target_mode)
-                except AssertionError:
-                    if mode == "goal":
-                        e.colour = discord.Colour.red()
-                        e.description = e.description.replace('Goal', 'Goal Overturned')
-                        e.description += f"\n\n🚫 **Goal Overturned**."
-                        e_ext = deepcopy(e)
-                        return await self.bulk_edit(messages, mode, e, e_ext)
-                    print(f'Warning: {f.url} index {event_index} changed mode: {target_mode} -> {type(event)}')
-
-            e.set_footer(text=base_footer)
-            e.description = base_description
-
-            if event is not None:
-                needs_refresh = False if event.player else True
-
-                e.description += str(event)
-                e.description += f"\n\n{event.full_description}" if hasattr(event, "full_description") else ""
-
-            full_embed = deepcopy(e)
-
-            full_embed.description = base_description
-
-            for i in f.events:
-                if isinstance(i, (football.Substitution, football.Booking)):
-                    continue
-                full_embed.description += f"{str(i)}\n"
-
-            needs_refresh = False if all([i.player for i in f.events]) else needs_refresh
-
-            if not messages:
-                if f.infobox is not None:
-                    if "leg." in f.infobox:
-                        base_footer += f" ({f.infobox}) "
-                        e.set_footer(text=base_footer)
-
-                    else:
-                        e.description += f"**```{f.infobox}```**"
-                        full_embed.description += f"**```{f.infobox}```**"
-                messages = await self.spool_messages(f, e, mode, full_embed=full_embed)
-            else:
-                await self.bulk_edit(messages, mode, e, full_embed)
-
-            if not needs_refresh:
-                return
+        channels = [i[1] for i in self.cache if f.full_league in self.cache[i]]  # List oF IDs we want settings for
+        channels = [i for i in self.settings if i['channel_id'] in channels]  # Settings for those IDs
+        TickerEvent(self.bot, channels=channels, fixture=f, mode=mode, home=home)
 
     async def _pick_channels(self, ctx, channels):
         # Assure guild has goal ticker channel.
