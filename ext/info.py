@@ -7,7 +7,6 @@ from importlib import reload
 import discord
 from discord.ext import commands
 
-import ext.utils.codeblocks as codeblocks
 from ext.utils import timed_events
 from ext.utils.embed_utils import get_colour
 
@@ -17,7 +16,7 @@ class Info(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        reload(codeblocks)
+        reload(timed_events)
         if not hasattr(self.bot, "commands_used"):
             self.bot.commands_used = Counter()
 
