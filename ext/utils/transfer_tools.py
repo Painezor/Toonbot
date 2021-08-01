@@ -570,6 +570,10 @@ class TransferSearch:
             if index is None:
                 return
 
+            if index == -1:
+                await ctx.bot.reply(ctx, f'🚫 No results found for your search "{self.query}" in any category.')
+                return
+
             self.category = selectors[index][0]
 
         await self.fetch_page(ctx)
@@ -685,7 +689,8 @@ class TransferSearch:
         matches = "".join([i for i in matches if i.isdecimal()])
 
         if not matches:
-            await ctx.bot.reply(ctx, "🚫 No Results Found")
+            await ctx.bot.reply(ctx,
+                                f'🚫 No results found for your search "{self.query}" in category "{self.category}"')
             return None
 
         self.header = f"{self.category.title()}: {matches} results for '{self.query.title()}' found"
