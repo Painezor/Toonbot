@@ -190,9 +190,9 @@ class RSS(commands.Cog):
     @commands.is_owner()
     async def rss(self, ctx):
         """Test dev blog output"""
-        url = "https://blog.worldofwarships.com/blog/174"
+        url = "https://blog.worldofwarships.com/blog/183"
         e = await self.parse(url)
-        await ctx.send(embed=e)
+        await self.bot.reply(ctx, embed=e)
 
 
 def setup(bot):

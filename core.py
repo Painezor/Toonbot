@@ -75,7 +75,10 @@ class Bot(commands.Bot):
 
         # At least try to warn them.
         if ctx.me.permissions_in(ctx.channel).add_reactions:
-            await ctx.message.add_reaction('🤐')
+            try:
+                await ctx.message.add_reaction('🤐')
+            except discord.Forbidden:
+                return  # Fuck you then.
 
     async def on_ready(self):
         """Print notification to console that the bot has finished loading."""
@@ -86,6 +89,7 @@ class Bot(commands.Bot):
             'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.help', 'ext.images', 'ext.info',
             'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.rss',
             'ext.scores', 'ext.sidebar', 'ext.twitter', 'ext.lookup', 'ext.ticker', "ext.transfers", 'ext.tv',
+            'ext.warships'
         ]
         for c in load:
             try:
