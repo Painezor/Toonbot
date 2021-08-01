@@ -220,9 +220,10 @@ class NUFCSidebar(commands.Cog):
             page = await self.bot.browser.newPage()
             badge = await lm.get_badge(page, which_team)
             await page.close()
-            im = Image.open(badge)
-            im.save("TEMP_BADGE.png", "PNG")
-            await self.bot.loop.run_in_executor(None, self.upload_image, "TEMP_BADGE.png", "temp", "Upload a badge")
+            if badge is not None:
+                im = Image.open(badge)
+                im.save("TEMP_BADGE.png", "PNG")
+                await self.bot.loop.run_in_executor(None, self.upload_image, "TEMP_BADGE.png", "temp", "Upload a badge")
             
         top_bar = f"> [{lm.home}]({lm.home_subreddit}) [{lm.score}]({lm.url}) [{lm.away}]({lm.away_subreddit})"
         if fixtures:
