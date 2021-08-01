@@ -396,7 +396,9 @@ class Scores(commands.Cog, name="LiveScores"):
                     new_games.append(fx)
                 # Otherwise, update the existing one and spool out notifications.
                 else:
-                    if state == fx.state or state == "awaiting":
+                    state = fx.state if state == "awaiting" else state  # Ignore "awaiting" events,
+
+                    if state == fx.state:
                         pass
 
                     # Delays & Cancellations
@@ -421,12 +423,14 @@ class Scores(commands.Cog, name="LiveScores"):
                     elif state == "sched":
                         if fx.state == "delayed":
                             self.bot.dispatch("fixture_event", "postponed", fx)
+                        elif fx.state == "postponed":
+                            pass  # Don't bother sending New Date Announcement.
                         else:
                             print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
 
                     # End Of Game
                     elif state == "fin":
-                        if fx.state == "sched":
+                        if fx.state in ["sched", "ht"]:
                             self.bot.dispatch("fixture_event", "final_result_only", fx)
                         elif fx.state == "live":
                             self.bot.dispatch("fixture_event", "full_time", fx)
