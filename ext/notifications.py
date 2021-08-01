@@ -6,7 +6,7 @@ import typing
 import discord
 from discord.ext import commands
 
-from ext.utils import codeblocks
+from ext.utils import timed_events
 
 TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 
@@ -90,9 +90,9 @@ class Notifications(commands.Cog):
         if new_member.bot:
             e.description = '**This is a bot account**'
 
-        coloured_time = codeblocks.time_to_colour(new_member.created_at)
+        timestamp = timed_events.timestamp(mode="daterel", time=new_member.created_at)
 
-        e.add_field(name="Account Created", value=coloured_time, inline=False)
+        e.add_field(name="Account Created", value=timestamp, inline=False)
         e.set_thumbnail(url=new_member.avatar_url)
 
         try:

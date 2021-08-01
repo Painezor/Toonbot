@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 import ext.utils.codeblocks as codeblocks
+from ext.utils import timed_events
 from ext.utils.embed_utils import get_colour
 
 
@@ -160,10 +161,10 @@ class Info(commands.Cog):
         
         if member.avatar:
             e.set_thumbnail(url=member.avatar_url)
-        
+
         if isinstance(member, discord.Member):
-            coloured_time = codeblocks.time_to_colour(member.joined_at)
-            e.add_field(name=f'Joined {ctx.guild.name}', value=coloured_time, inline=False)
+            timestamp = timed_events.timestamp(mode="daterel", time=member.joined_at)
+            e.add_field(name=f'Joined {ctx.guild.name}', value=timestamp, inline=False)
 
         await self.bot.reply(ctx, embed=e)
     
@@ -211,7 +212,7 @@ class Info(commands.Cog):
         
         roles = [role.mention for role in guild.roles]
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
-        e.add_field(name="Creation Date", value=codeblocks.time_to_colour(guild.created_at))
+        e.add_field(name="Creation Date", value=timed_events.timestamp(mode="daterel", time=guild.created_at))
         e.set_footer(text=f"\nRegion: {str(guild.region).title()}")
         await self.bot.reply(ctx, embed=e)
     

@@ -5,15 +5,20 @@ import discord
 from discord.utils import sleep_until
 
 
-def timestamp(mode: str) -> str:
+def timestamp(mode: str = None, time: datetime.datetime = None) -> str:
 	"""Get current unix timestamp"""
-	ut = str(datetime.datetime.now().timestamp()).split('.')[0]
+	time = datetime.datetime.now() if time is None else time
+
+	ut = str(time.timestamp()).split('.')[0]
 
 	if mode == "long":
 		return f"<t:{ut}:f> (<t:{ut}:R>)"
 
 	elif mode == "countdown":
 		return f"<t:{ut}:R>"
+
+	elif mode == "daterel":
+		return f"<t:{ut}:d> (<t:{ut}:R>)"
 
 	else:
 		return f"<t:{ut}:t>"
