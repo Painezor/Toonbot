@@ -13,18 +13,6 @@ with open('credentials.json') as f:
     credentials = json.load(f)
 
 
-def make_file(image=None, name=None):
-    """Create a discord File object for sending images"""
-    if image is None:
-        return None
-
-    if name is not None:
-        file = discord.File(fp=image, filename=name)
-    else:
-        file = discord.File(image)
-    return file
-
-
 class Bot(commands.Bot):
     """The core functionality of the bot."""
 
@@ -43,43 +31,6 @@ class Bot(commands.Bot):
         self.initialised_at = datetime.utcnow()
         self.session = aiohttp.ClientSession(loop=self.loop)
 
-    # Custom reply handler.
-    async def reply(self, ctx, text=None, embed=None, image=None, mention_author=False, filename=None,
-                    delete_after=None):
-        """Master reply handler for bot, with fallbacks."""
-        if self.is_closed():
-            return
-
-        # First we attempt to use direct reply functionality
-        if ctx.me.permissions_in(ctx.channel).send_messages:
-            if ctx.me.permissions_in(ctx.channel).embed_links or embed is None:
-                try:
-                    image = make_file(image, filename)
-                    return await ctx.reply(text, embed=embed, file=image, mention_author=mention_author,
-                                           delete_after=delete_after)
-                except discord.HTTPException:
-                    try:
-                        image = make_file(image, filename)
-                        return await ctx.send(text, embed=embed, file=image, delete_after=delete_after)
-                    except discord.HTTPException:
-                        pass
-
-        # Final fallback, DM invoker.
-        try:
-            await ctx.author.send(f"I cannot reply to your {ctx.command} command in {ctx.channel} on {ctx.guild}")
-            image = make_file(image, filename)
-            return await ctx.author.send(text, embed=embed, file=image)
-        except discord.HTTPException:
-            if ctx.author.id == 210582977493598208:
-                print(text)
-
-        # At least try to warn them.
-        if ctx.me.permissions_in(ctx.channel).add_reactions:
-            try:
-                await ctx.message.add_reaction('🤐')
-            except discord.Forbidden:
-                return  # Fuck you then.
-
     async def on_ready(self):
         """Print notification to console that the bot has finished loading."""
         print(f'{self.user}: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
@@ -87,9 +38,9 @@ class Bot(commands.Bot):
         load = [
             'ext.globalchecks',  # needs to be loaded fist.
             'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.help', 'ext.images', 'ext.info',
-            'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.rss',
-            'ext.scores', 'ext.sidebar', 'ext.twitter', 'ext.lookup', 'ext.ticker', "ext.transfers", 'ext.tv',
-            'ext.warships'
+            'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.reply',
+            'ext.rss', 'ext.scores', 'ext.sidebar', 'ext.twitter', 'ext.lookup', 'ext.ticker', "ext.transfers",
+            'ext.tv', 'ext.warships'
         ]
         for c in load:
             try:
@@ -112,7 +63,7 @@ async def run():
         for i in bot.cogs:
             bot.unload_extension(i.name)
         await db.close()
-        await bot.logout()
+        await bot.close()
 
 
 loop = asyncio.get_event_loop()

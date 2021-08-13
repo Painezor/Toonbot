@@ -6,76 +6,197 @@ from discord.ext import commands
 
 from ext.utils import embed_utils
 
+INV = f"[Invite me to your discord](https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
+      f"&permissions=67488768&scope=bot)\n[Join the Toonbot Help & Testing Discord](http://www.discord.gg/a5NHvPx)" \
+      f"\n[Donate to the Author](https://paypal.me/Toonbot)"
 
-class Help(commands.HelpCommand):
-    """The Toonbot help command."""
+
+# Page Buttons
+class HelpButton(discord.ui.Button):
+    """Help Button"""
+
+    def __init__(self):
+        super().__init__()
+        self.label = "Help"
+        self.emoji = "❓"
+
+    async def callback(self, interaction):
+        """Button: Show Generic Help Embed"""
+        await interaction.response.defer()
+        await self.view.push_home_embed()
+
+
+class PreviousButton(discord.ui.Button):
+    """Previous Button for Pagination Views"""
+
+    def __init__(self):
+        super().__init__()
+        self.label = "Previous"
+        self.emoji = "⏮"
+        self.style = discord.ButtonStyle.secondary
+
+    async def callback(self, interaction: discord.Interaction):
+        """Do this when button is pressed"""
+        await interaction.response.defer()
+        self.view.index = self.view.index - 1 if self.view.index > 0 else self.view.index
+        await self.view.update()
+
+
+class NextButton(discord.ui.Button):
+    """Go to the next Page of Help Embeds for a Category"""
+
+    def __init__(self):
+        super().__init__()
+        self.emoji = '⏭'
+        self.label = "Next"
+        self.style = discord.ButtonStyle.secondary
+
+    async def callback(self, interaction: discord.Interaction):
+        """Go to the next embed page if there are multiple"""
+        await interaction.response.defer()
+        self.view.index += 1 if self.view.index + 1 < len(self.view.cogs) else self.view.index
+        await self.view.update()
+
+
+class StopButton(discord.ui.Button):
+    """The Button for hiding the View"""
+
+    def __init__(self):
+        super().__init__()
+        self.emoji = '🚫'
+        self.label = "Hide"
+        self.style = discord.ButtonStyle.secondary
+
+    async def callback(self, interaction: discord.Interaction):
+        """End the paginator and hide it's message."""
+        await self.view.message.delete()
+        self.view.stop()
+
+
+class PageButton(discord.ui.Button):
+    """The Page Changer / Displayer Button"""
+
+    def __init__(self):
+        super().__init__()
+        self.label = "Which category would you like help with?"
+        self.style = discord.ButtonStyle.primary
+        self.disabled = False
+        self.emoji = "⏬"
+
+    async def callback(self, interaction: discord.Interaction):
+        """The pages button."""
+        await interaction.response.defer()
+        dropdown = HelpDropDown(placeholder="Select A Category", cogs=self.view.cogs)
+        self.view.add_item(dropdown)
+        await self.view.message.edit(view=self.view)
+        await self.view.wait()
+
+
+class HelpDropDown(discord.ui.Select):
+    """The dropdown for our Cogs"""
+
+    def __init__(self, placeholder, cogs: list):
+        self.cogs = cogs
+        super().__init__()
+        self.placeholder = placeholder
+        for index, cog in enumerate(self.cogs):
+            emoji = None if not hasattr(cog, 'emoji') else cog.emoji
+            self.add_option(label=cog.qualified_name, description=cog.description, emoji=emoji, value=str(index))
+
+    async def callback(self, interaction: discord.Interaction):
+        """Return the requested item when the dropdown is selected"""
+        # Take Index of Value result and fetch from self.objects.
+        match = self.cogs[int(self.values[0])]
+        self.view.value = match
+        self.view.current_category = match.qualified_name
+        await interaction.response.defer()
+        await self.view.push_cog_embed(match)
+
+
+class HelpView(discord.ui.View):
+    """A view for an instance of the help command."""
+
+    def __init__(self, ctx, prefixes, cogs):
+        self.message = None
+        self.embeds = []
+        self.ctx = ctx
+        self.index = 0
+        self.current_category = None
+        self.cogs = cogs
+        self.prefixes = prefixes
+        super().__init__()
+        self.home = HelpButton()
+        self.prev = PreviousButton()
+        self.page = PageButton()
+        self.next = NextButton()
+        self.hide = StopButton()
+
+    def populate_buttons(self):
+        """Do our button population logic"""
+        if self.current_category is None:
+            self.page.label = "Choose a Help Category"
+        else:
+            categ = self.current_category
+            self.page.label = f"{categ} Help"
+            if len(self.embeds) > 1:
+                self.page.label += f" (Page {self.index + 1} of {len(self.embeds)})"
+
+        self.add_item(self.page)
+
+        if len(self.embeds) > 1:
+            self.add_item(self.prev)
+
+        if len(self.embeds) > 1:
+            self.add_item(self.next)
+
+        self.add_item(self.home)
+        self.add_item(self.hide)
+
+    async def update(self):
+        """Update the view"""
+        self.clear_items()
+        self.populate_buttons()
+        await self.message.edit(content=None, view=self, embed=self.embeds[self.index])
 
     @property
-    async def base_embed(self):
-        """Generic Embed for help commands."""
+    def base_embed(self):
+        """A generic help embed"""
         e = discord.Embed()
-        e.set_thumbnail(url=self.context.me.avatar_url)
+        e.set_thumbnail(url=self.ctx.me.avatar.url)
         e.colour = 0x2ecc71
+        e.set_author(name="Toonbot Help")
         return e
 
-    def get_command_signature(self, command):
-        """Example formatting of a command's usage."""
-        return f'{self.context.prefix}{command.qualified_name} {command.signature}'
+    async def push_home_embed(self):
+        """The default Home Embed"""
+        e = self.base_embed
+        e.description = "**Running Commands**:\n Use `.tb command` to run a command\n" \
+                        "Use `.tb help command` to get detailed help for that command."
+        e.add_field(name="Navigating Menus", value="Click on buttons to change between pages, "
+                                                   "Click on dropdowns to select items on those pages.", inline=False)
+        e.add_field(name="Links", value=INV, inline=False)
+        pf = f"You can use any of these prefixes to run commands: ```yaml\n {' '.join(self.prefixes)}```"
+        e.add_field(name="Prefixes", value=pf, inline=False)
+        self.embeds = [e]
+        self.index = 0
+        await self.update()
 
-    async def descriptor(self, command):
-        """Basic description of command or Group"""
-        string = f'• **{command.name.lower().strip()}**\n{command.short_doc.strip()}\n'
-        if isinstance(command, commands.Group):
-            r_s_c = await self.filter_commands(command.commands)
-            if r_s_c:
-                string += f"∟○ Subcommands: " + ", ".join([f"`{i.name}`" for i in r_s_c]) + "\n"
-
-        return string
-
-    async def send_bot_help(self, mapping):
-        """Painezor's custom helpformatter"""
-        # Base Embed
-        e = await self.base_embed
-        e.set_author(name="Toonbot Help: Category list.")
-
-        invite_and_stuff = f"[Invite me to your discord]" \
-                           f"(https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
-                           f"&permissions=67488768&scope=bot)\n"
-        invite_and_stuff += f"[Join my Support discord](http://www.discord.gg/a5NHvPx)\n"
-        invite_and_stuff += f"[Toonbot on Github](https://github.com/Painezor/Toonbot)\n"
-        invite_and_stuff += f"[Donate to the Author](https://paypal.me/Toonbot)"
-        
-        e.description = "Welcome to the Toonbot Help. Use the reactions below to navigate between pages.\n\n"
-        e.description += f"Use {self.context.prefix}help **CategoryName** to view commands for that category only " \
-                         f"(case sensitive)\n\n"
-        
-        e.add_field(name="Useful links", value=invite_and_stuff, inline=False)
-        
-        cogs = [self.context.bot.get_cog(cog) for cog in self.context.bot.cogs]
-        
-        embeds = []
-
-        for cog in sorted(cogs, key=lambda x: x.qualified_name):
-            cog_embeds = await self.cog_embed(cog)
-
-            if cog_embeds:
-                e.description += f"**{cog.qualified_name}**: {cog.description}\n"
-                embeds += cog_embeds
-                    
-        embeds = [e] + embeds
-        
-        await embed_utils.paginate(self.context, embeds)
-
-    async def send_cog_help(self, cog):
-        """Sends help for a single category"""
-        embeds = await self.cog_embed(cog)
-        await embed_utils.paginate(self.context, embeds, wait_length=300)
+    async def push_cog_embed(self, cog):
+        """Set the View to show a cog's embeds"""
+        self.embeds = await self.cog_embed(cog)
+        self.index = 0
+        await self.update()
 
     async def cog_embed(self, cog):
-        """The Embed containing all of the help documentation for a command Category"""
-        e = await self.base_embed
-        runnable = await self.filter_commands(cog.get_commands())
+        """The Embed containing help documentation for a cog"""
+        e = self.base_embed
         e.title = f'Category Help: {cog.qualified_name}'
+
+        runnable = []
+        for i in cog.get_commands():
+            if await i.can_run(self.ctx):
+                runnable.append(i)
+
         header = f"```fix\n{cog.description}\n```\n**Commands in this category**:\n"
 
         rows = sorted([await self.descriptor(command) for command in runnable])
@@ -84,13 +205,75 @@ class Help(commands.HelpCommand):
             return []
 
         e.add_field(value='Use help **command** to view the usage of that command.\n Subcommands are ran by using '
-                          f'`{self.context.prefix}command subcommand`', name="More help", inline=False)
+                          f'`{self.ctx.prefix}command subcommand`', name="More help", inline=False)
         embeds = embed_utils.rows_to_embeds(e, rows, header=header)
         return embeds
 
+    async def descriptor(self, command):
+        """Basic description of command or Group"""
+        string = f'• **{command.name.lower().strip()}**\n{command.short_doc.strip()}\n'
+        if isinstance(command, commands.Group):
+            runnable = []
+            for i in command.commands:
+                try:
+                    await i.can_run(self.ctx)
+                except:
+                    pass
+                else:
+                    runnable.append(i)
+                    break
+            if runnable:
+                string += f"∟○ Subcommands: " + ", ".join([f"`{i.name}`" for i in runnable]) + "\n"
+        return string
+
+
+class Help(commands.HelpCommand):
+    """The Toonbot help command."""
+
+    @property
+    def base_embed(self):
+        """Generic Embed for help commands."""
+        e = discord.Embed()
+        e.set_thumbnail(url=self.context.me.avatar.url)
+        e.colour = 0x2ecc71
+        return e
+
+    async def get_prefixes(self):
+        """Fetch Bot Prefixes"""
+        if self.context.guild is None:
+            pref = [".tb ", "!", "-", "`", "!", "?", ""]
+        else:
+            pref = self.context.bot.prefix_cache[self.context.guild.id]
+        pref = [".tb "] if not pref else pref
+        return pref
+
+    def get_command_signature(self, command):
+        """Example formatting of a command's usage."""
+        return f'{self.context.prefix}{command.qualified_name} {command.signature}'
+
+    async def get_valid_cogs(self):
+        """Generate SelectOptions for Dropdowns in usable format"""
+        options = list(set([i.cog for i in await self.filter_commands(self.context.bot.walk_commands())]))
+        print(f"Debug: {len(options)} Cogs found.")
+        return options
+
+    async def send_bot_help(self, mapping):
+        """Default Help Command: No Category or Command"""
+        cogs = await self.get_valid_cogs()
+        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs)
+        view.message = await self.context.send("Generating Help...", view=view)
+        await view.push_home_embed()
+
+    async def send_cog_help(self, cog):
+        """Sends help for a single category"""
+        cogs = await self.get_valid_cogs()
+        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs)
+        view.message = await self.context.send("Generating Help...", view=view)
+        await view.push_cog_embed(cog)
+
     async def send_group_help(self, group):
         """Send an embed containing Help documentation for a group of commands."""
-        e = await self.base_embed
+        e = self.base_embed
         e.title = f'Command help: {group.name.lower()}'
         e.description = f"```fix\n{group.help.strip()}```\nCommand usage:```{self.get_command_signature(group)}```"
 
@@ -113,18 +296,17 @@ class Help(commands.HelpCommand):
 
         e.add_field(name="Command arguments",
                     value='<> around an arguments means it is a <REQUIRED argument>\n'
-                          '[] around an argument means it is an [OPTIONAL argument]\n'
+                          '[] around an argument means it is an [OPTIONAL argument]\n\n*(Do not type the brackets!)*'
                           f'\nUse `{self.context.prefix}help <command> [subcommand]` for info on subcommands\n'
                           f'Don\'t type the <> or [].', inline=False)
         e.add_field(name="More help", inline=False,
                     value='Use help **command** to view the usage of that command.\n'
                           f'Subcommands are ran by using `{self.context.prefix}command subcommand`')
-        
         await self.context.bot.reply(self.context, embed=e)
 
     async def send_command_help(self, command):
         """Send documentation for a single command"""
-        e = await self.base_embed
+        e = self.base_embed
         e.title = f'Command help: {command}'
         e.description = f"```fix\n{command.help}```"
 
@@ -182,6 +364,7 @@ class HelpCog(commands.Cog):
     def __init__(self, bot):
         self._original_help_command = bot.help_command
         reload(embed_utils)
+        self.emoji = "❓"
         bot.help_command = Help()
         bot.help_command.cog = self
         self.bot = bot
