@@ -11,11 +11,14 @@ from ext.utils import timed_events
 from ext.utils.embed_utils import get_colour
 
 
+# TODO: Select / Button Pass.
+
 class Info(commands.Cog):
     """Get information about users or servers."""
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "ℹ"
         reload(timed_events)
         if not hasattr(self.bot, "commands_used"):
             self.bot.commands_used = Counter()
@@ -31,7 +34,7 @@ class Info(commands.Cog):
         e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         owner = await self.bot.fetch_user(self.bot.owner_id)
         e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
-        e.set_thumbnail(url=ctx.me.avatar_url)
+        e.set_thumbnail(url=ctx.me.avatar.url)
         e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
         e.description = f"[Click to invite me](https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
                         f"&permissions=67488768&scope=bot)\n"
@@ -43,7 +46,7 @@ class Info(commands.Cog):
         e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         owner = await self.bot.fetch_user(self.bot.owner_id)
         e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
-        e.set_thumbnail(url=ctx.me.avatar_url)
+        e.set_thumbnail(url=ctx.me.avatar.url)
         e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
 
         # statistics
@@ -63,7 +66,6 @@ class Info(commands.Cog):
                            f"(https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
                            f"&permissions=67488768&scope=bot)\n"
         invite_and_stuff += f"[Join my Support Server](http://www.discord.gg/a5NHvPx)\n"
-        invite_and_stuff += f"[Toonbot on Github](https://github.com/Painezor/Toonbot)"
         
         e.add_field(name="Using me", value=invite_and_stuff, inline=False)
         e.add_field(name="Donate", value="If you'd like to donate, you can do so [here](https://paypal.me/Toonbot)")
@@ -87,7 +89,7 @@ class Info(commands.Cog):
         await self.bot.reply(ctx, text="Searching...", delete_after=5)
         with ctx.typing():
             if ctx.author == target:
-                return await self.bot.reply(ctx, text="Last seen right now, being an idiot.", mention_author=True)
+                return await self.bot.reply(ctx, text="Last seen right now, being an idiot.", ping=True)
             
             async for msg in ctx.channel.history(limit=1000):
                 if msg.author.id == target.id:
@@ -103,67 +105,69 @@ class Info(commands.Cog):
         """Shows info about a member.
         This cannot be used in private messages. If you don't specify
         a member then the info returned will be yours.
-        
-        Names are case sensitive."""
-        if member is None:
-            member = ctx.author
-        
-        e = discord.Embed()
-        e.description = member.mention
-        e.colour = member.colour
-        e.set_footer(text='Account created').timestamp = member.created_at
-        
+        """
+        member = ctx.author if member is None else member
+
+        e = discord.Embed(colour=member.colour)
+        e.description = f"{'🤖 ' if member.bot else ''}{member.mention}\nUser ID: {member.id}"
+
         try:
-            roles = [role.mention for role in member.roles]
-            e.add_field(name='Roles', value=', '.join(roles), inline=False)
-            voice = member.voice
-            if voice is not None:
-                voice = voice.channel
-                other_people = len(voice.members) - 1
-                voice_fmt = f'{voice.name} with {other_people} others' if other_people else f'{voice.name} alone'
-                e.add_field(name='Voice Chat', value=voice_fmt, inline=False)
-            # status = str(member.status).title()
-            #
-            # if status == "Online":
-            #     status = "🟢 Online\n"
-            # elif status == "Offline":
-            #     status = "🔴 Offline\n"
-            # else:
-            #     status = f"🟡 {status}\n"
-            #
+            roles = [role.mention for role in reversed(member.roles) if not role.position == 0]
+            e.add_field(name='Roles', value=' '.join(roles))
+            status = str(member.status).title()
+
+            if status == "Online":
+                status = "🟢 Online\n"
+            elif status == "Offline":
+                status = "🔴 Offline\n"
+            else:
+                status = f"🟡 {status}\n"
+
             activity = member.activity
             try:
                 activity = f"{discord.ActivityType[activity.type]} {activity.name}\n"
             except KeyError:  # Fix on custom status update.
                 activity = ""
         except AttributeError:
-            # status = ""
+            status = ""
             activity = ""
             pass
 
-        shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id)
-        # field_1_text = f"{status}ID: {member.id}\n{activity}"
-        field_1_text = f"ID: {member.id}\n{activity}"
-        if shared - 1:
-            field_1_text += f"Seen in {shared} other discords."
-        e.add_field(name="User info", value=field_1_text)
-        e.set_author(name=str(member), icon_url=member.avatar_url or member.default_avatar_url)
-        
+        shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
+
+        e.set_author(name=str(member), icon_url=member.avatar.url or member.default_avatar.url)
+
         if member.bot:
             e.description += "\n**🤖 This user is a bot**"
-        
+
         try:
             if member.is_on_mobile():
                 e.description += "\n📱 Using mobile app."
         except AttributeError:  # User.
             pass
-        
+
         if member.avatar:
-            e.set_thumbnail(url=member.avatar_url)
+            e.set_thumbnail(url=member.avatar.url)
 
         if isinstance(member, discord.Member):
-            timestamp = timed_events.timestamp(mode="daterel", time=member.joined_at)
-            e.add_field(name=f'Joined {ctx.guild.name}', value=timestamp, inline=False)
+            e.description += f'\nJoined Server: {timed_events.timestamp(mode="countdown", time=member.joined_at)}'
+        e.description += f'\nCreated Account: {timed_events.timestamp(mode="countdown", time=member.created_at)}'
+
+        try:
+            voice = member.voice
+            if voice is not None:
+                voice = voice.channel
+                voice_members = len(voice.members) - 1
+                voice = f'In {voice.mention} {f"with {voice_members} others" if voice_members else "Alone"}'
+                e.description += f'\n\n**Voice Chat**: {voice}'
+        except AttributeError:
+            pass
+
+        if member.bot:
+            e.description += "\n**🤖 This user is a bot account.**"
+
+        if shared:
+            e.set_footer(text=f"User shares {shared} discords with Toonbot")
 
         await self.bot.reply(ctx, embed=e)
     
@@ -208,7 +212,10 @@ class Info(commands.Cog):
                 emojis += str(emoji)
         if emojis:
             e.add_field(name="Custom Emojis", value=emojis, inline=False)
-        
+
+        if guild.vanity_url is not None:
+            e.add_field(name="Custom invite URL", value=guild.vanity_url)
+
         roles = [role.mention for role in guild.roles]
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
         e.add_field(name="Creation Date", value=timed_events.timestamp(mode="daterel", time=guild.created_at))
@@ -222,10 +229,10 @@ class Info(commands.Cog):
             user = ctx.author
         e = discord.Embed()
         e.colour = user.color
-        e.set_footer(text=user.avatar_url)
-        e.timestamp = datetime.datetime.now()
+        e.set_footer(text=user.avatar.url)
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.description = f"{user.mention}'s avatar"
-        e.set_image(url=str(user.avatar_url))
+        e.set_image(url=str(user.avatar.url))
         await self.bot.reply(ctx, embed=e)
 
 

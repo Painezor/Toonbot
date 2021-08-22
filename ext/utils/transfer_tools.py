@@ -74,16 +74,27 @@ unidict = {
 }
 
 
-def get_flag(country) -> str:
+def get_flag(country, unicode=False) -> str:
     """Get a flag emoji from a string representing a country"""
-    country = country.strip()
-
+    try:
+        country = country.strip().replace('Retired', '')
+    except AttributeError:
+        return country
     if not country:
         return country
 
     # Check if pycountry has country
     if country.lower() in ["england", "scotland", "wales"]:
-        country = f":{country.lower()}:"
+        if unicode:
+            country = country.lower()
+            if country == "england":
+                return '🏴󠁧󠁢󠁥󠁮󠁧󠁿'
+            elif country == "scotland":
+                return '🏴󠁧󠁢󠁳󠁣󠁴󠁿'
+            elif country == "wales":
+                return '🏴󠁧󠁢󠁷󠁬󠁳󠁿'
+        else:
+            country = f":{country.lower()}:"
         return country
 
     try:
@@ -94,9 +105,8 @@ def get_flag(country) -> str:
             country = country_dict[country]
         except KeyError:
             print(f'No flag found for country: {country}')
-            return country  # Shrug.
-    country = country.lower()
 
+    country = country.lower()
     for key, value in unidict.items():
         country = country.replace(key, value)
     return country
@@ -571,7 +581,7 @@ class TransferSearch:
                 return
 
             if index == -1:
-                await ctx.bot.reply(ctx, f'🚫 No results found for your search "{self.query}" in any category.')
+                await ctx.bot.reply(ctx, text=f'🚫 No results found for your search "{self.query}" in any category.')
                 return
 
             self.category = selectors[index][0]
@@ -584,12 +594,12 @@ class TransferSearch:
             if self.returns_object:
                 return self.results[0]
 
-        self.message = await ctx.bot.reply(ctx, embed=self.embed)
+        self.message = await ctx.send(embed=self.embed)
 
         try:
             await embed_utils.bulk_react(ctx, self.message, self.react_list)
         except discord.Forbidden:
-            await ctx.bot.reply(ctx, text='No add_reactions permission, showing first page only.', mention_author=True)
+            await ctx.bot.reply(ctx, text='No add_reactions permission, showing first page only.', ping=True)
 
         def page_check(emo, usr):
             """Verify reactions are from user who invoked the command."""
@@ -625,8 +635,8 @@ class TransferSearch:
 
             if isinstance(res, discord.Message):
                 # It's a message.
-                await self.message.delete()
                 try:
+                    await self.message.delete()
                     await res.delete()
                 except (discord.NotFound, discord.Forbidden):
                     pass

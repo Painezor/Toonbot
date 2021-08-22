@@ -30,7 +30,7 @@ class Errors(commands.Cog):
         e = discord.Embed()
         e.colour = discord.Colour.red()
         e.title = f"Error: {error.__class__.__name__}"
-        e.set_thumbnail(url=str(ctx.me.avatar_url))
+        e.set_thumbnail(url=str(ctx.me.avatar.url))
 
         usage = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
         e.add_field(name="Command Usage Example", value=usage)
@@ -39,14 +39,14 @@ class Errors(commands.Cog):
             if ctx.guild is None:
                 e.title = 'NoPrivateMessage'  # Ugly override.
                 e.description = '🚫 This command cannot be used in DMs'
-        
+
         elif isinstance(error, commands.BotMissingPermissions):
-            if len(error.missing_perms) == 1:
-                perm_string = error.missing_perms[0]
+            if len(error.missing_permissions) == 1:
+                perm_string = error.missing_permissions[0]
             else:
-                last_perm = error.missing_perms.pop(-1)
-                perm_string = ", ".join(error.missing_perms) + " and " + last_perm
-            
+                last_perm = error.missing_permissions.pop(-1)
+                perm_string = ", ".join(error.missing_permissions) + " and " + last_perm
+
             e.description = f'\🚫 I need {perm_string} permissions to do that.\n'
             fixing = f'Use {ctx.me.mention} `disable {ctx.command}` to disable this command\n' \
                      f'Use {ctx.me.mention} `prefix remove {ctx.prefix}` ' \
@@ -76,7 +76,6 @@ class Errors(commands.Cog):
             if isinstance(cie, AssertionError):
                 e.title = "Sorry."
                 e.description = "".join(cie.args)
-                return await ctx.bot.reply(ctx, embed=e)
 
             location = "a DM" if ctx.guild is None else f"#{ctx.channel.name} on {ctx.guild.name} ({ctx.guild.id})"
             
@@ -91,7 +90,7 @@ class Errors(commands.Cog):
             e.add_field(name="Internal Error", value="Painezor has been notified of this error.", inline=False)
             
         # Handle the
-        elif not ctx.me.permissions_in(ctx.channel).send_messages:
+        elif not ctx.channel.permissions_for(ctx.me).send_messages:
             return await ctx.author.send(f'Unable to run {ctx.command} command in {ctx.channel} on {ctx.guild}, '
                                          f'I cannot send messages there')
         

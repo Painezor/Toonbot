@@ -13,11 +13,15 @@ from ext.utils import embed_utils
 TWITTER_ICON = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
 
 
+# TODO: Select / Button Pass.
+# TODO: Finish working on.
+
 class Twitter(commands.Cog):
     """Track twitter accounts"""
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "📣"
         self.records = None
         self.credentials = self.bot.credentials['Twitter']
         self.client = tweepy.asynchronous.AsyncStream(**self.credentials)
@@ -160,6 +164,7 @@ class Twitter(commands.Cog):
 
     # TODO: Add / remove per channel etc etc.
     @commands.group(invoke_without_command=True)
+    @commands.is_owner()
     async def twitter(self, ctx):
         """View your server's twitter trackers"""
         await self.send_config(ctx)

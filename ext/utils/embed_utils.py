@@ -14,7 +14,7 @@ PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
 
 async def bulk_react(ctx, message, react_list):
     """Spooler to send multiple reactions to a message object"""
-    assert ctx.me.permissions_in(ctx.channel).add_reactions
+    assert ctx.channel.permissions_for(ctx.me).add_reactions
     for r in react_list:
         ctx.bot.loop.create_task(react(message, r))
 
@@ -39,7 +39,7 @@ async def embed_image(ctx, base_embed, image, filename=None):
 async def get_colour(url=None):
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None or url == discord.Embed.Empty:
-        return discord.Colour.blurple()
+        return discord.Colour.og_blurple()
     async with aiohttp.ClientSession() as cs:
         async with cs.get(url) as resp:
             r = await resp.read()
@@ -50,30 +50,26 @@ async def get_colour(url=None):
                 # Convert to base 16 int.
                 return int('%02x%02x%02x' % c, 16)
             except UnidentifiedImageError:
-                return discord.Colour.blurple()
+                return discord.Colour.og_blurple()
 
 
 def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typing.List[discord.Embed]:
     """Create evenly distributed rows of text from a list of data"""
-    desc, count = "", 0
+    desc, count = header + "\n", 0
     embeds = []
     for row in rows:
-        if not desc:
-            desc = header + "\n"
-        
-        if len(desc + footer) + len(row) <= 2048 and count + 1 <= rows_per:
-            desc += row + "\n"
+        if len(desc + footer + row) <= 4096 and (count + 1 <= rows_per if rows_per is not None else True):
+            desc += f"{row}\n"
             count += 1
         else:
             desc += footer
             base_embed.description = desc
             embeds.append(deepcopy(base_embed))
-            desc, count = "", 0
+            desc, count = f"{header}\n{row}\n", 0
 
     desc += footer
     base_embed.description = desc
     embeds.append(deepcopy(base_embed))
-    
     return embeds
 
 
@@ -87,8 +83,8 @@ async def page_selector(ctx, item_list, base_embed=None, choice_text=None,
     if base_embed is None:
         base_embed = discord.Embed()
         base_embed.title = "Multiple results found."
-        base_embed.set_thumbnail(url=ctx.me.avatar_url)
-        base_embed.colour = discord.Colour.blurple()
+        base_embed.set_thumbnail(url=ctx.me.avatar.url)
+        base_embed.colour = discord.Colour.og_blurple()
     
     base_embed.add_field(name="Type the matching number for your choice",
                          value="```fix\nE.g. type 0 to select the item marked with [0]```",
@@ -127,7 +123,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
                 y.set_footer(icon_url=PAGINATION_FOOTER_ICON, text=page_line)
     
         # Warn about permisssions.
-        perms = ctx.me.permissions_in(ctx.channel)
+        perms = ctx.channel.permissions_for(ctx.me)
         if not perms.add_reactions and perms.send_messages:
             await ctx.bot.reply(ctx, text="I don't have add_reaction permissions so I can only show you page 1.")
             if not items:

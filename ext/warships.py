@@ -1,6 +1,6 @@
 """Private world of warships related commands"""
+import datetime
 import os
-from datetime import datetime
 
 import discord
 from PIL import Image
@@ -12,6 +12,9 @@ targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "dark
            "nebelfuss", "painezor", "Pelzmorph", "pops_place", "Redberen", "SeaRaptor00", "song_mg", "spacepickshovel",
            "StatsBloke", "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend",
            "Xairen", "Yuzral"]
+
+
+# TODO: Get appropriate perms.
 
 
 def make_bauble(img):
@@ -47,6 +50,7 @@ class Warships(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "🚢"
         self.now_live_cache = {}
 
     @commands.command()
@@ -56,7 +60,7 @@ class Warships(commands.Cog):
         out = input_string.replace(';', '').replace('|', ',').strip(' ;,')
         await self.bot.reply(ctx, f"```{out}```")
 
-    async def on_member_update(self, before, after):
+    async def on_presence_update(self, before, after):
         """Apply hoisted role to streamers when they go live."""
         # Check if this guild is tracking streaming status changes, grab row.:
         try:
@@ -95,14 +99,14 @@ class Warships(commands.Cog):
             name = f"Twitch: {activity.twitch_name}"
             e.colour = 0x6441A4
         else:
-            e.colour = discord.Colour.red() if activity.platform.lower() == "youtube" else discord.Colour.blurple()
+            e.colour = discord.Colour.red() if activity.platform.lower() == "youtube" else discord.Colour.og_blurple()
             name = f"{activity.platform}: {after.name}"
         e.set_author(name=name, url=activity.url)
         e.title = activity.game
 
         e.description = f"[**{after.mention} just went live**]({activity.url})\n\n{activity.name}"
-        e.timestamp = datetime.now()
-        e.set_thumbnail(url=after.avatar_url_as(format="png", size=1024))
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        e.set_thumbnail(url=after.avatar.url)
 
         await ch.send(embed=e)
 
@@ -117,8 +121,8 @@ class Warships(commands.Cog):
         tw = "http://www.twitch.tv/Painezor"
         e.description = f"[**{ctx.guild.get_member(ctx.bot.owner_id).mention} just went live!**]({tw})\n"
         e.description += "\nGold League Ranked & Regrinding Destroyers!"
-        e.timestamp = datetime.now()
-        url = ctx.guild.get_member(ctx.bot.owner_id).avatar_url_as(format="png", size=1024)
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        url = ctx.guild.get_member(ctx.bot.owner_id).avatar.url
         e.set_thumbnail(url=url)
 
         await ctx.send(tw, embed=e)

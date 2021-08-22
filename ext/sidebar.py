@@ -47,6 +47,7 @@ class NUFCSidebar(commands.Cog):
     """Edit the r/NUFC sidebar"""
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "🤖"
         self.bot.reddit = praw.Reddit(**bot.credentials["Reddit"])
         self.bot.teams = None
         self.bot.sidebar = self.sidebar_loop.start()
@@ -58,8 +59,9 @@ class NUFCSidebar(commands.Cog):
     
     async def cog_check(self, ctx):
         """Assure commands can only be used on the r/NUFC discord."""
-        if ctx.guild is not None:
-            return ctx.guild.id in [332159889587699712, 250252535699341312]
+        if not ctx.guild:
+            return False
+        return 859175736263180340 in [i.id for i in ctx.author.roles]
     
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
@@ -176,19 +178,21 @@ class NUFCSidebar(commands.Cog):
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
         """Build the sidebar markdown"""
         # Fetch all data
-        page = await self.bot.browser.newPage()
-        top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
 
-        fsr = await football.Team.by_id(team_id, page)
-        fixtures = await fsr.get_fixtures(page, "/fixtures")
-        results = await fsr.get_fixtures(page, "/results")
+        top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
+        page = await self.bot.browser.newPage()
+        try:
+            fsr = await football.Team.by_id(team_id, page)
+            fixtures = await fsr.get_fixtures(page, "/fixtures")
+            results = await fsr.get_fixtures(page, "/results")
+        finally:
+            await page.close()
+
         table = await self.table(qry)
-        
-        await page.close()
-        
+
         # Get match threads
         match_threads = await self.bot.loop.run_in_executor(None, self.get_match_threads, subreddit, qry)
-        
+
         # Insert team badges
         for x in fixtures + results:
             try:
@@ -218,8 +222,11 @@ class NUFCSidebar(commands.Cog):
         if not lm.home_icon or not lm.away_icon:
             which_team = "home" if not lm.home_icon else "away"
             page = await self.bot.browser.newPage()
-            badge = await lm.get_badge(page, which_team)
-            await page.close()
+            try:
+                badge = await lm.get_badge(page, which_team)
+            finally:
+                await page.close()
+
             if badge is not None:
                 im = Image.open(badge)
                 im.save("TEMP_BADGE.png", "PNG")
@@ -256,7 +263,6 @@ class NUFCSidebar(commands.Cog):
         return markdown
 
     @commands.command(invoke_without_command=True)
-    @commands.has_role(332161994738368523)
     async def sidebar(self, ctx, *, caption=None):
         """Force a sidebar update, or use sidebar manual"""
         # Check if message has an attachment, for the new sidebar image.
@@ -278,7 +284,7 @@ class NUFCSidebar(commands.Cog):
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
         e.set_author(icon_url=th, name="Sidebar updater")
         e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
-        e.timestamp = datetime.datetime.now()
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         await self.bot.reply(ctx, embed=e)
 
 

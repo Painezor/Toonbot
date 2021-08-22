@@ -116,7 +116,7 @@ class HelpDropDown(discord.ui.Select):
 class HelpView(discord.ui.View):
     """A view for an instance of the help command."""
 
-    def __init__(self, ctx, prefixes, cogs):
+    def __init__(self, ctx, prefixes, cogs, help_command):
         self.message = None
         self.embeds = []
         self.ctx = ctx
@@ -124,6 +124,7 @@ class HelpView(discord.ui.View):
         self.current_category = None
         self.cogs = cogs
         self.prefixes = prefixes
+        self.help_command = help_command
         super().__init__()
         self.home = HelpButton()
         self.prev = PreviousButton()
@@ -133,6 +134,11 @@ class HelpView(discord.ui.View):
 
     def populate_buttons(self):
         """Do our button population logic"""
+        self.add_item(self.home)
+
+        if len(self.embeds) > 1:
+            self.add_item(self.prev)
+
         if self.current_category is None:
             self.page.label = "Choose a Help Category"
         else:
@@ -144,19 +150,22 @@ class HelpView(discord.ui.View):
         self.add_item(self.page)
 
         if len(self.embeds) > 1:
-            self.add_item(self.prev)
-
-        if len(self.embeds) > 1:
             self.add_item(self.next)
-
-        self.add_item(self.home)
         self.add_item(self.hide)
+
+    async def on_timeout(self):
+        """Clean up"""
+        try:
+            await self.message.delete()
+        except discord.HTTPException:
+            pass
 
     async def update(self):
         """Update the view"""
         self.clear_items()
         self.populate_buttons()
-        await self.message.edit(content=None, view=self, embed=self.embeds[self.index])
+        await self.message.edit(content=None, view=self, embed=self.embeds[self.index],
+                                allowed_mentions=discord.AllowedMentions().none())
 
     @property
     def base_embed(self):
@@ -177,6 +186,7 @@ class HelpView(discord.ui.View):
         e.add_field(name="Links", value=INV, inline=False)
         pf = f"You can use any of these prefixes to run commands: ```yaml\n {' '.join(self.prefixes)}```"
         e.add_field(name="Prefixes", value=pf, inline=False)
+        self.current_category = None
         self.embeds = [e]
         self.index = 0
         await self.update()
@@ -185,27 +195,28 @@ class HelpView(discord.ui.View):
         """Set the View to show a cog's embeds"""
         self.embeds = await self.cog_embed(cog)
         self.index = 0
-        await self.update()
+        self.current_category = cog.qualified_name
+        if self.current_category == "HelpCog":
+            await self.push_home_embed()
+        else:
+            await self.update()
 
     async def cog_embed(self, cog):
         """The Embed containing help documentation for a cog"""
         e = self.base_embed
         e.title = f'Category Help: {cog.qualified_name}'
 
-        runnable = []
-        for i in cog.get_commands():
-            if await i.can_run(self.ctx):
-                runnable.append(i)
-
+        command_list = cog.get_commands()
+        runnable = await self.help_command.filter_commands(command_list)
         header = f"```fix\n{cog.description}\n```\n**Commands in this category**:\n"
-
         rows = sorted([await self.descriptor(command) for command in runnable])
 
         if not rows:
             return []
 
-        e.add_field(value='Use help **command** to view the usage of that command.\n Subcommands are ran by using '
-                          f'`{self.ctx.prefix}command subcommand`', name="More help", inline=False)
+        e.add_field(value='Use `.tb help command` to view extended help of that command.\n Subcommands are ran by using'
+                          f'` `.tb command subcommand``', name="More help", inline=False)
+        e.add_field(name="Changing Category", value="Click the blue button below to change help category.")
         embeds = embed_utils.rows_to_embeds(e, rows, header=header)
         return embeds
 
@@ -213,15 +224,7 @@ class HelpView(discord.ui.View):
         """Basic description of command or Group"""
         string = f'• **{command.name.lower().strip()}**\n{command.short_doc.strip()}\n'
         if isinstance(command, commands.Group):
-            runnable = []
-            for i in command.commands:
-                try:
-                    await i.can_run(self.ctx)
-                except:
-                    pass
-                else:
-                    runnable.append(i)
-                    break
+            runnable = await self.help_command.filter_commands(command.commands)
             if runnable:
                 string += f"∟○ Subcommands: " + ", ".join([f"`{i.name}`" for i in runnable]) + "\n"
         return string
@@ -254,21 +257,20 @@ class Help(commands.HelpCommand):
     async def get_valid_cogs(self):
         """Generate SelectOptions for Dropdowns in usable format"""
         options = list(set([i.cog for i in await self.filter_commands(self.context.bot.walk_commands())]))
-        print(f"Debug: {len(options)} Cogs found.")
         return options
 
     async def send_bot_help(self, mapping):
         """Default Help Command: No Category or Command"""
         cogs = await self.get_valid_cogs()
-        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs)
-        view.message = await self.context.send("Generating Help...", view=view)
+        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs, help_command=self)
+        view.message = await self.context.bot.reply(self.context, "Generating Help...", view=view)
         await view.push_home_embed()
 
     async def send_cog_help(self, cog):
         """Sends help for a single category"""
         cogs = await self.get_valid_cogs()
-        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs)
-        view.message = await self.context.send("Generating Help...", view=view)
+        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs, help_command=self)
+        view.message = await self.context.bot.reply(self.context, "Generating Help...", view=view)
         await view.push_cog_embed(cog)
 
     async def send_group_help(self, group):

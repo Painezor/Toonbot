@@ -43,10 +43,10 @@ WORLD_CUP_LEAGUES = [
 edict = {
     "goal": discord.Colour.dark_green(),
     "red_card": discord.Colour.red(),
-    "var_goal": discord.Colour.blurple(),
-    "var_red_card": discord.Colour.blurple(),
-    "goal_overturned": discord.Colour.blurple(),
-    "red_card_overturned": discord.Colour.blurple(),
+    "var_goal": discord.Colour.og_blurple(),
+    "var_red_card": discord.Colour.og_blurple(),
+    "goal_overturned": discord.Colour.og_blurple(),
+    "red_card_overturned": discord.Colour.og_blurple(),
 
     "kick_off": discord.Colour.green(),
 
@@ -77,6 +77,9 @@ edict = {
 
 # Refresh a maximum of x fixtures at a time
 max_pages = asyncio.Semaphore(5)
+
+
+# TODO: Select / Button Pass.
 
 
 def get_event_type(mode):
@@ -155,14 +158,14 @@ class TickerEvent:
             h, a = ('**', '**') if self.home is None else h, a
             home = f"{h}{self.fixture.home} {self.fixture.score_home}{h}"
             away = f"{a}{self.fixture.score_away} {self.fixture.away}{a}"
-            e.description = f"**{m}**: [{home} - {away}]({self.fixture.url})\n"
+            e.description = f"**{m}** | [{home} - {away}]({self.fixture.url})\n"
         elif self.mode in ["penalties_begin", "penalty_results"]:
             try:
                 h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
                 home = f"{h}{self.fixture.home} {self.fixture.penalties_home}{h}"
                 away = f"{a}{self.fixture.penalties_away} {self.fixture.away}{a}"
 
-                e.description = f"**Penalties**: [{home} - {away}]({self.fixture.url})"
+                e.description = f"**Penalties** | [{home} - {away}]({self.fixture.url})"
             except TypeError:  # If penalties_home / penalties_away are Nonetype
                 e.description = f"**Penalties** | [{self.fixture.bold_score}]({self.fixture.url})\n"
 
@@ -184,10 +187,14 @@ class TickerEvent:
 
         footer = self.fixture.event_footer
 
-        try:
-            e.colour = edict[self.mode]
-        except Exception as err:
-            print(f"Ticker: Edict error for mode {self.mode}", err)
+        if "end_of_period" in self.mode:
+            e.colour = discord.Colour.greyple()
+
+        else:
+            try:
+                e.colour = edict[self.mode]
+            except Exception as err:
+                print(f"Ticker: Edict error for mode {self.mode}", err)
 
         if self.event is not None:
             e.description += str(self.event)
@@ -239,9 +246,9 @@ class TickerEvent:
             return "var"
         elif self.mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
             return "delayed"
-        elif self.mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end"]:
+        elif self.mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end", "end_of_extra_time"]:
             return "extra_time"
-        elif self.mode == "score_after_extra_time":
+        elif self.mode in ["score_after_extra_time", "full_time"]:
             return "full_time"
         elif self.mode in ["penalties_begin", "penalty_results"]:
             return "penalties"
@@ -259,12 +266,10 @@ class TickerEvent:
             self.mode = "red_card_overturned"
             await self.bulk_edit()
         else:
-            print(f'[WARNING] Ticker: Attempted to retract event for missing mode: {self.mode}')
+            print(f'[WARNING] {self.fixture} Ticker: Attempted to retract event for missing mode: {self.mode}')
 
     async def send_messages(self):
         """Dispatch latest event embed to all applicable channels"""
-        check_once = True
-
         full_embed = await self.full_embed
         short_embed = await self.embed
 
@@ -288,27 +293,18 @@ class TickerEvent:
 
             if self.db_mode == "extended":
                 embed = full_embed
-                if check_once:
-                    check_once = False
-                    if all([i.player for i in self.fixture.events]):
-                        self.needs_refresh = False
 
             else:
                 embed = short_embed
 
             try:
                 self.messages.append(await channel.send(embed=embed))
-            except discord.HTTPException:
+            except discord.HTTPException as err:
+                print(err)
                 continue
-
-        if check_once:
-            if self.event is None or self.event.player:
-                self.needs_refresh = False
 
     async def bulk_edit(self):
         """Edit existing messages"""
-        check_once = True
-
         for message in self.messages:
             settings = [i for i in self.channels if i['channel_id'] == message.channel.id][-1]
 
@@ -327,11 +323,6 @@ class TickerEvent:
             if self.db_mode == "extended":
                 embed = await self.full_embed
 
-                if check_once:
-                    check_once = False
-                    if all([i.player for i in self.fixture.events]):
-                        self.needs_refresh = False
-
             else:
                 embed = await self.embed
 
@@ -339,10 +330,6 @@ class TickerEvent:
                 await message.edit(embed=embed)
             except discord.HTTPException:
                 continue
-
-        if check_once:
-            if self.event.player:
-                self.needs_refresh = False
 
     async def event_loop(self):
         """The Fixture event's internal loop"""
@@ -365,8 +352,6 @@ class TickerEvent:
             async with max_pages:
                 try:
                     await self.fixture.refresh(page)
-                except Exception as err:
-                    raise err
                 finally:  # ALWAYS close the browser after refreshing to avoid Memory leak
                     await page.close()
 
@@ -385,18 +370,8 @@ class TickerEvent:
                             event = [i for i in events if i.team == target_team][-1]
                             self.event_index = self.fixture.events.index(event)
                             self.event = event
-
+                            self.needs_refresh = False if all([i.player for i in self.fixture.events]) else True
                         except IndexError:
-                            if self.mode not in ['var_goal', 'var_red_card']:
-                                target_team = self.fixture.home if self.home else self.fixture.away
-                                header = f"Found no matching {self.mode} - {target_team} event\n" \
-                                         f"{self.fixture.home} vs {self.fixture.away} // {self.fixture.url}"
-                                print('=' * len(header))
-                                print(header)
-                                print('-' * len(header))
-                                for x in self.fixture.events:
-                                    print(type(x), x.__dict__)
-                                print('=' * len(header))
                             self.event = None
                             self.event_index = None
 
@@ -404,6 +379,7 @@ class TickerEvent:
                 try:
                     self.event = self.fixture.events[self.event_index]
                     assert isinstance(self.event, self.valid_events)
+                    self.needs_refresh = False if all([i.player for i in self.fixture.events]) else True
                 except (AssertionError, IndexError):
                     return await self.retract_event()
 
@@ -418,6 +394,7 @@ class Ticker(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "⚽"
         self.cache = defaultdict(set)
         self.settings = defaultdict(set)
         self.bot.loop.create_task(self.update_cache())
@@ -450,7 +427,7 @@ class Ticker(commands.Cog):
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
                 continue
 
-            perms = ch.guild.me.permissions_in(ch)
+            perms = ch.permissions_for(ch.guild.me)
             if not perms.send_messages or not perms.embed_links:
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
 
@@ -476,12 +453,12 @@ class Ticker(commands.Cog):
         if deleted > 0:
             await self.bot.reply(ctx, f"{deleted} of your ticker channel(s) appear to be deleted.")
 
-        no_send_perms = [i.mention for i in not_deleted if not ctx.me.permissions_in(i).send_messages]
+        no_send_perms = [i.mention for i in not_deleted if not i.permissions_for(ctx.me).send_messages]
         if no_send_perms:
             await self.bot.reply(ctx, f"WARNING: I do not have send_messages permissions in {''.join(no_send_perms)}\n"
                                       f"**Ticker Events will not be output**")
 
-        no_embed_perms = [i.mention for i in not_deleted if not ctx.me.permissions_in(i).embed_links]
+        no_embed_perms = [i.mention for i in not_deleted if not i.permissions_for(ctx.me).embed_links]
         if no_embed_perms:
             await self.bot.reply(ctx, f"WARNING: I do not have embed_links permissions in {''.join(no_send_perms)}\n"
                                       f"**Ticker Events will not be output**")
@@ -492,7 +469,7 @@ class Ticker(commands.Cog):
         e = discord.Embed()
         e.colour = discord.Colour.dark_teal()
         e.title = "Toonbot Ticker config"
-        e.set_thumbnail(url=self.bot.user.avatar_url)
+        e.set_thumbnail(url=self.bot.user.avatar.url)
         return e
 
     async def send_leagues(self, ctx, channel):
@@ -500,9 +477,9 @@ class Ticker(commands.Cog):
         e = await self.base_embed
         header = f'Tracked leagues for {channel.mention}'
         # Warn if they fuck up permissions.
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             header += f"```css\n[WARNING]: I do not have send_messages permissions in {channel.mention}!"
-        if not ctx.me.permissions_in(channel).embed_links:
+        if not channel.permissions_for(ctx.me).embed_links:
             header += f"```css\n[WARNING]: I do not have embed_links permissions in {channel.mention}!"
         leagues = self.cache[(ctx.guild.id, channel.id)]
 
@@ -523,9 +500,9 @@ class Ticker(commands.Cog):
         e = await self.base_embed
         header = f"Tracked events for {channel.mention}"
         # Warn if they fuck up permissions.
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             header += f"```css\n[WARNING]: I do not have send_messages permissions in {channel.mention}!"
-        if not ctx.me.permissions_in(channel).embed_links:
+        if not channel.permissions_for(ctx.me).embed_links:
             header += f"```css\n[WARNING]: I do not have embed_links permissions in {channel.mention}!"
 
         channel_settings = [i for i in self.settings if i['channel_id'] == channel.id][0]
@@ -573,7 +550,7 @@ class Ticker(commands.Cog):
         channels = [channels] if isinstance(channels, discord.TextChannel) else channels
 
         if ctx.guild.id not in [i[0] for i in self.cache]:
-            await self.bot.reply(ctx, text=f'{ctx.guild.name} does not have any tickers.', mention_author=True)
+            await self.bot.reply(ctx, text=f'{ctx.guild.name} does not have any tickers.', ping=True)
             channels = []
 
         if channels:
@@ -581,7 +558,7 @@ class Ticker(commands.Cog):
             checked = []
             for i in channels:
                 if i.id not in [c[1] for c in self.cache]:
-                    await self.bot.reply(ctx, text=f"{i.mention} does not have any tickers.", mention_author=True)
+                    await self.bot.reply(ctx, text=f"{i.mention} does not have any tickers.", ping=True)
                 else:
                     checked.append(i)
             channels = checked
@@ -650,7 +627,7 @@ class Ticker(commands.Cog):
         """Add a league to a ticker for channel(s)"""
         if query is None:
             err = '🚫 You need to specify a query or a flashscore team link'
-            return await self.bot.reply(ctx, text=err, mention_author=True)
+            return await self.bot.reply(ctx, text=err, ping=True)
 
         if "http" not in query:
             await self.bot.reply(ctx, text=f"Searching for {query}...", delete_after=5)
@@ -659,13 +636,13 @@ class Ticker(commands.Cog):
                 return
         else:
             if "flashscore" not in query:
-                return await self.bot.reply(ctx, text='🚫 Invalid link provided', mention_author=True)
+                return await self.bot.reply(ctx, text='🚫 Invalid link provided', ping=True)
 
             page = await self.bot.browser.newPage()
             try:
                 res = await football.Competition.by_link(query, page)
             except IndexError:
-                return await self.bot.reply(ctx, text='🚫 Invalid link provided', mention_author=True)
+                return await self.bot.reply(ctx, text='🚫 Invalid link provided', ping=True)
             finally:
                 await page.close()
 
@@ -687,7 +664,7 @@ class Ticker(commands.Cog):
                   invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def _remove(self, ctx, channels: commands.Greedy[discord.TextChannel] = None, *,
-                      target: commands.clean_content):
+                      target: commands.clean_content = None):
         """Remove a competition from a channel's ticker"""
         # Verify we have a valid goal ticker channel target.
         channel = await self._pick_channels(ctx, channels)
@@ -695,7 +672,10 @@ class Ticker(commands.Cog):
             return  # rip
 
         target = str(target).strip("'\"")  # Remove quotes, idiot proofing.
-        leagues = [i for i in self.cache[(ctx.guild.id, channel.id)] if target.lower() in i.lower()]
+        if target is not None:
+            leagues = [i for i in self.cache[(ctx.guild.id, channel.id)] if target.lower() in i.lower()]
+        else:
+            leagues = self.cache[(ctx.guild.id, channel.id)]
 
         if not leagues:
             return await self.bot.reply(ctx, f"{channel.mention} has no tracked leagues to remove.")
@@ -807,15 +787,13 @@ class Ticker(commands.Cog):
         await self.bot.db.release(connection)
 
     async def settings_upsert(self, column, cid, value):
-        """Insert or update scores_settings db entry"""
+        """Insert or update ticker_settings db entry"""
         c = await self.bot.db.acquire()
         try:
             async with c.transaction():
                 await c.execute(f"""INSERT INTO ticker_settings (channel_id, {column}) VALUES ($1, $2) 
                                 ON CONFLICT (channel_id)
                                 DO UPDATE SET {column} = $2 WHERE EXCLUDED.channel_id = $1""", cid, value)
-        except Exception as e:
-            raise e
         finally:
             await self.bot.db.release(c)
 

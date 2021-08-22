@@ -9,10 +9,15 @@ from discord.ext import commands
 from ext.utils import timed_events, embed_utils
 
 
+# TODO: Select / Button Pass.
+
+
 class Reminders(commands.Cog):
     """Set yourself reminders"""
+
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "⏰"
         self.active_module = True
         self.bot.reminders = []  # A list of tasks.
         self.bot.loop.create_task(self.spool_initial())
@@ -45,24 +50,26 @@ class Reminders(commands.Cog):
             return await self.bot.reply(ctx, text='Invalid time specified.')
         except OverflowError:
             return await self.bot.reply(ctx, text="You'll be dead by then'")
-        
+
         try:
-            remind_at = datetime.datetime.now() + delta
+            remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
         except OverflowError:
             return await self.bot.reply(ctx, text="You'll be dead by then.")
         human_time = datetime.datetime.strftime(remind_at, "%a %d %b at %H:%M:%S")
-        
+
         connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            record = await connection.fetchrow("""INSERT INTO reminders
-            (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""",
-                                               ctx.message.id, ctx.channel.id, ctx.guild.id, message,
-                                               ctx.message.created_at,
-                                               remind_at, ctx.author.id)
-        await self.bot.db.release(connection)
+        try:
+            async with connection.transaction():
+                record = await connection.fetchrow("""INSERT INTO reminders
+                (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""",
+                                                   ctx.message.id, ctx.channel.id, ctx.guild.id, message,
+                                                   ctx.message.created_at,
+                                                   remind_at, ctx.author.id)
+        finally:
+            await self.bot.db.release(connection)
         self.bot.reminders.append(self.bot.loop.create_task(timed_events.spool_reminder(self.bot, record)))
-        
+
         e = discord.Embed()
         e.title = "⏰ Reminder Set"
         e.description = f"**{human_time}**\n{message}"

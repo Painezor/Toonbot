@@ -56,6 +56,7 @@ WORLD_CUP_LEAGUES = [
 
 
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
+# TODO: Select / Button Pass.
 
 
 class Scores(commands.Cog, name="LiveScores"):
@@ -63,6 +64,7 @@ class Scores(commands.Cog, name="LiveScores"):
     
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "⚽"
         
         # Reload utils
         reload(football)
@@ -89,7 +91,7 @@ class Scores(commands.Cog, name="LiveScores"):
         e = discord.Embed()
         e.colour = discord.Colour.dark_orange()
         e.title = "Toonbot Live Scores config"
-        e.set_thumbnail(url=self.bot.user.avatar_url)
+        e.set_thumbnail(url=self.bot.user.avatar.url)
         return e
 
     async def send_leagues(self, ctx, channel):
@@ -97,19 +99,28 @@ class Scores(commands.Cog, name="LiveScores"):
         e = await self.base_embed
         header = f'Tracked leagues for {channel.mention}'
         # Warn if they fuck up permissions.
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             header += "```css\n[WARNING]: I do not have send_messages permissions in that channel!"
-        leagues = self.cache[(ctx.guild.id, channel.id)]
-        
-        if leagues == {None}:
+
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                records = await connection.fetch("""
+                SELECT league FROM scores_leagues WHERE channel_id = $1""", channel.id)
+        finally:
+            await self.bot.db.release(connection)
+
+        records = [r['league'] for r in records]
+
+        if not records:
             e.description = header
             e.description += "```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"
             embeds = [e]
         else:
             header += "```yaml\n"
             footer = "```"
-            embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer=footer)
-        
+            embeds = embed_utils.rows_to_embeds(e, sorted(records), header=header, footer=footer)
+
         await embed_utils.paginate(ctx, embeds)
     
     async def update_cache(self):
@@ -144,8 +155,8 @@ class Scores(commands.Cog, name="LiveScores"):
         # Assure guild has score channel.
         if ctx.guild.id not in [i[0] for i in self.cache]:
             await self.bot.reply(ctx, text=f'{ctx.guild.name} does not have any live scores channels set.\n'
-                                           f"Set one first with {ctx.prefix}ls create #channel_name",
-                                 mention_author=True)
+                                           f"Set one first with {ctx.prefix}ls create channel_name",
+                                 ping=True)
             return []
     
         if channels:
@@ -155,7 +166,7 @@ class Scores(commands.Cog, name="LiveScores"):
             for i in channels:
                 if i.id not in [c[1] for c in self.cache]:
                     await self.bot.reply(ctx, text=f"{i.mention} is not set as a live scores channel.",
-                                         mention_author=True)
+                                         ping=True)
                 else:
                     checking = self.bot.get_channel(i.id)
                     if checking is None or checking.guild.id != ctx.guild.id:  # Do not edit other server settings.
@@ -401,19 +412,17 @@ class Scores(commands.Cog, name="LiveScores"):
                     if state == fx.state:
                         pass
 
-                    # Delays & Cancellations
                     elif state == "live":
-                        if fx.state == "interrupted":
-                            self.bot.dispatch("fixture_event", "resumed", fx)
-                        elif fx.state in ["sched", "delayed"]:
+                        if fx.state in ["sched", "delayed"]:
                             self.bot.dispatch("fixture_event", "kick_off", fx)
                         elif fx.state == "ht":
-                            mode = "second_half_begin" if fx.state != "extra time" else "ht_et_end"
-                            self.bot.dispatch("fixture_event", mode, fx)
+                            self.bot.dispatch("fixture_event", "second_half_begin", fx)
+
+                        # Delays & Cancellations
+                        elif fx.state == "interrupted":
+                            self.bot.dispatch("fixture_event", "resumed", fx)
                         elif fx.state == "break time":
                             self.bot.dispatch("fixture_event", f"start_of_period_{fx.breaks + 1}", fx)
-                        elif fx.state == "awaiting":
-                            pass
                         else:
                             print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
 
@@ -480,6 +489,8 @@ class Scores(commands.Cog, name="LiveScores"):
                                 self.bot.dispatch("fixture_event", f"start_of_period_{fx.breaks + 1}", fx)
                         elif fx.state == "ht":
                             self.bot.dispatch("fixture_event", "ht_et_end", fx)
+                        elif fx.state == "live":
+                            self.bot.dispatch("fixture_event", "extra_time_begins", fx)
                         else:
                             print(f'DEBUG: Unhandled state change: {fx.state} -> {state} | {fx.url}')
 
@@ -592,7 +603,7 @@ class Scores(commands.Cog, name="LiveScores"):
         """Add a league to an existing live-scores channel"""
         if query is None:
             err = '🚫 You need to specify a query or a flashscore team link'
-            return await self.bot.reply(ctx, text=err, mention_author=True)
+            return await self.bot.reply(ctx, text=err, ping=True)
 
         if "http" not in query:
             await self.bot.reply(ctx, text=f"Searching for {query}...", delete_after=5)
@@ -601,7 +612,7 @@ class Scores(commands.Cog, name="LiveScores"):
                 return
         else:
             if "flashscore" not in query:
-                return await self.bot.reply(ctx, text='🚫 Invalid link provided', mention_author=True)
+                return await self.bot.reply(ctx, text='🚫 Invalid link provided', ping=True)
 
             qry = str(query).strip('[]<>')  # idiots
             page = await self.bot.browser.newPage()
@@ -707,8 +718,6 @@ class Scores(commands.Cog, name="LiveScores"):
         try:
             async with connection.transaction():
                 await connection.execute(sql, channel_id, league)
-        except ForeignKeyViolationError as err:
-            raise err
         finally:
             await self.bot.db.release(connection)
         
@@ -769,7 +778,7 @@ class Scores(commands.Cog, name="LiveScores"):
     async def refresh(self, ctx):
         """ ADMIN: Force a cache refresh of the livescores """
         e = discord.Embed()
-        e.colour = discord.Colour.blurple()
+        e.colour = discord.Colour.og_blurple()
         e.description = "[ADMIN] Cleared global games cache."
         self.bot.games = []
         await self.bot.reply(ctx, embed=e)

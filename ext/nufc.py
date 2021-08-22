@@ -10,6 +10,7 @@ class NUFC(commands.Cog):
     
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "👕"
         self.bot.streams = {}
         with open('girls_names.txt', "r") as f:
             self.girls = f.read().splitlines()
@@ -68,7 +69,7 @@ class NUFC(commands.Cog):
             d_colo = discord.Colour(int(colour, 16))
         except ValueError:
             return await self.bot.reply(ctx, 'Invalid colour. Check <http://htmlcolorcodes.com/color-picker/>',
-                                        mention_author=True)
+                                        ping=True)
         
         e = discord.Embed(color=d_colo)
         e.description = f"Your colour has been updated."
@@ -169,8 +170,8 @@ class NUFC(commands.Cog):
         """Delete a stream from the stream list"""
         num -= 1
         if ctx.author.name not in self.bot.streams[f"{ctx.guild.id}"][num]:
-            if not ctx.author.permissions_in(ctx.channel).manage_messages:
-                return await self.bot.reply(ctx, text="You didn't add that stream", delete_after=5, mention_author=True)
+            if not ctx.channel.permissions_for(ctx.author).manage_messages:
+                return await self.bot.reply(ctx, text="You didn't add that stream", delete_after=5, ping=True)
         removed = self.bot.streams[f"{ctx.guild.id}"].pop(num)
         await self.bot.reply(ctx, text=f"<{removed}> removed from streams list.")
     

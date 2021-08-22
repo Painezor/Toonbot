@@ -7,12 +7,13 @@ from discord.ext import commands
 
 
 # TODO: Bad words filters
-
+# TODO: Select / Button Pass.
 
 class AutoMod(commands.Cog):
     """Set up automated moderation tools"""
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "🛡️"
         self.bot.loop.create_task(self.update_cache())
         self.cache = defaultdict()
 
@@ -49,27 +50,27 @@ class AutoMod(commands.Cog):
                                                       f"mentions. Use {ctx.prefix}mentionspam <number> "
                                                       f"<action ('kick', 'ban' or 'mute')> to change this")
         elif threshold < 4:
-            return await self.bot.reply(ctx, text="Please set a limit higher than 3.", mention_author=True)
+            return await self.bot.reply(ctx, text="Please set a limit higher than 3.", ping=True)
 
         if action is None or action.lower() not in ['kick', 'ban', 'mute']:
             return await self.bot.reply(ctx, text="🚫 Invalid action specified, choose 'kick', 'ban', 'mute'.",
-                                        mention_author=True)
+                                        ping=True)
 
         action = action.lower()
         if action == "kick":
-            if not ctx.me.permissions_in(ctx.channel).kick_members:
+            if not ctx.channel.permissions_for(ctx.me).kick_members:
                 return await self.bot.reply(ctx, text="🚫 I need the 'kick_members' permission to do that.",
-                                            mention_author=True)
-            if not ctx.author.permissions_in(ctx.channel).kick_members:
+                                            ping=True)
+            if not ctx.channel.permissions_for(ctx.author).kick_members:
                 return await self.bot.reply(ctx, text="🚫 You need the 'kick_members' permission to do that.",
-                                            mention_author=True)
+                                            ping=True)
         elif action == "ban":
-            if not ctx.me.permissions_in(ctx.channel).ban_members:
+            if not ctx.channel.permissions_for(ctx.me).ban_members:
                 return await self.bot.reply(ctx, text="🚫 I need the 'ban_members' permission to do that.",
-                                            mention_author=True)
-            if not ctx.author.permissions_in(ctx.channel).ban_members:
+                                            ping=True)
+            if not ctx.channel.permissions_for(ctx.author).ban_members:
                 return await self.bot.reply(ctx, text="🚫 You need the 'ban_members' permission to do that.",
-                                            mention_author=True)
+                                            ping=True)
 
         connection = await self.bot.db.acquire()
         await connection.execute("""

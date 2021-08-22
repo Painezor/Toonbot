@@ -5,13 +5,574 @@ from collections import defaultdict
 from copy import deepcopy
 from importlib import reload
 
+# D.py
 import discord
 from discord.ext import commands
 
-# D.py
-from ext.utils import browser, timed_events
 # Custom Utils
-from ext.utils import transfer_tools, football, embed_utils
+from ext.utils import browser, timed_events, transfer_tools, football, embed_utils, image_utils, view_utils
+
+# How many minutes a user has to wait between refreshes of the table within a command.
+IMAGE_UPDATE_RATE_LIMIT = 1
+
+# Long ass strings.
+DF = "Use `.tb default team <team name>` to set a default team\nUse `.tb default league <league name>` to set a " \
+     "default league.\n\nThis will allow you to skip the selection process to get information about your favourites."
+INJURY_EMOJI = "<:injury:682714608972464187>"
+
+
+class LeagueTableSelect(discord.ui.Select):
+    """Push a Specific League Table"""
+
+    def __init__(self, objects):
+        self.objects = objects
+        super().__init__(placeholder="Select which league to get table from...")
+        for num, _ in enumerate(objects):
+            self.add_option(label=_.full_league, emoji='🏆', description=_.url, value=str(num))
+
+    async def callback(self, interaction):
+        """Upon Item Selection do this"""
+        await interaction.response.defer()
+        await self.view.push_table(self.objects[int(self.values[0])])
+
+
+class CompetitionView(discord.ui.View):
+    """The view sent to a user about a Competition"""
+
+    def __init__(self, ctx, competition: football.Competition, page):
+        super().__init__()
+        self.page = page
+        self.ctx = ctx
+        self.competition = competition
+        self.message = None
+        self.players = []
+
+        # Embed and internal index.
+        self.base_embed = None
+        self.pages = []
+        self.index = 0
+
+        # Button Disabling
+        self._current_mode = None
+
+        # Player Filtering
+        self.nationality_filter = None
+        self.team_filter = None
+        self.filter_mode = "goals"
+
+        # Rate Limiting
+        # TODO: Migrate Timestamping to Bot Var
+        self.table_timestamp = None
+        self.table_image = None
+
+    async def interaction_check(self, interaction):
+        """Assure only the command's invoker can select a result"""
+        return interaction.user.id == self.ctx.author.id
+
+    async def on_timeout(self):
+        """Cleanup"""
+        self.clear_items()
+        await self.message.edit(view=self)
+        self.stop()
+
+    async def update(self):
+        """Update the view for the Competition"""
+        if self.filter_mode is not None:
+            await self.filter_players()
+
+        await self.generate_buttons()
+        embed = self.pages[self.index]
+        await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        self.clear_items()
+        await self.wait()
+
+    async def generate_buttons(self):
+        """Add our View's Buttons"""
+        self.clear_items()
+
+        if len(self.pages) > 1:
+            self.add_item(view_utils.PreviousButton())
+            dd = view_utils.PageButton()
+            dd.label = f"Page {self.index + 1} of {len(self.pages)}"
+            self.add_item(dd)
+            self.add_item(view_utils.NextButton())
+
+        items = [view_utils.Button(label="Table", func=self.push_table, row=3),
+                 view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=3),
+                 view_utils.Button(label="Fixtures", func=self.push_fixtures, emoji='📆', row=3),
+                 view_utils.Button(label="Results", func=self.push_results, emoji='⚽', row=3),
+                 view_utils.StopButton()
+                 ]
+
+        if self.filter_mode is not None:
+            teams = set(
+                [('👕', str(i.team), str(i.team_url)) for i in self.players if getattr(i, self.filter_mode) > 0])
+
+            _ = view_utils.MultipleSelect(placeholder="Filter by Team...", options=teams, attribute='team_filter')
+            if self.team_filter is not None:
+                _.placeholder = f"Teams: {', '.join(self.team_filter)}"
+            self.add_item(_)
+
+            flags = set([(transfer_tools.get_flag(i.country, unicode=True), i.country, "") for i in self.players])
+            ph = "Filter by Nationality..."
+            _ = view_utils.MultipleSelect(placeholder=ph, options=flags, attribute='nationality_filter')
+            if self.nationality_filter is not None:
+                _.placeholder = f"Countries:{', '.join(self.nationality_filter)}"
+            self.add_item(_)
+
+        for _ in items:
+            self.add_item(_)
+            _.disabled = True if self._current_mode == _.label else False
+
+    async def filter_players(self):
+        """Filter player list according to dropdowns."""
+        embed = await self.get_embed()
+        players = await self.get_players()
+
+        if self.nationality_filter is not None:
+            print(self.nationality_filter)
+            players = [i for i in players if i.country in self.nationality_filter]
+            print(players)
+        if self.team_filter is not None:
+            players = [i for i in players if i.team in self.team_filter]
+
+        if self.filter_mode == "goals":
+            srt = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
+            embed.title = f"≡ Top Scorers for {embed.title}"
+            rows = [i.scorer_row for i in srt]
+        elif self.filter_mode == "assists":
+            srt = sorted([i for i in players if i.assists > 0], key=lambda x: x.assists, reverse=True)
+            embed.title = f"≡ Top Assists for {embed.title}"
+            rows = [i.assist_row for i in srt]
+        else:
+            rows = []
+
+        embeds = embed_utils.rows_to_embeds(embed, rows, rows_per=None)
+        self.pages = embeds
+
+    async def get_embed(self):
+        """Fetch Generic Embed for Team"""
+        self.base_embed = await self.competition.base_embed if self.base_embed is None else self.base_embed
+        return deepcopy(self.base_embed)
+
+    async def get_players(self):
+        """Grab the list of players"""
+        self.players = await self.competition.get_scorers(page=self.page) if not self.players else self.players
+        return self.players
+
+    async def push_table(self):
+        """Push Table to View"""
+        dtn = datetime.datetime.now()
+        ts = self.table_timestamp
+        if ts is None or ts > dtn - datetime.timedelta(minutes=IMAGE_UPDATE_RATE_LIMIT):
+            img = await self.competition.get_table(page=self.page)
+            self.table_image = await image_utils.dump_image(self.ctx, img)
+            self.table_timestamp = datetime.datetime.now()
+
+        embed = await self.get_embed()
+        embed.clear_fields()
+        embed.title = f"≡ Table for {self.competition.title}"
+        embed.description = "No Table Found" if self.table_image is None else timed_events.timestamp(mode="long")
+        embed.set_image(url=self.table_image)
+        self.pages = [embed]
+        self._current_mode = "Table"
+        self.filter_mode = None
+        await self.update()
+
+    async def push_scorers(self):
+        """PUsh the Scorers Embed to View"""
+        self.index = 0
+        self.filter_mode = "goals"
+        self._current_mode = "Scorers"
+        await self.update()
+
+    async def push_assists(self):
+        """PUsh the Scorers Embed to View"""
+        self.index = 0
+        self.filter_mode = "assists"
+        self._current_mode = "Assists"
+        await self.update()
+
+    async def push_fixtures(self):
+        """Push upcoming competition fixtures to View"""
+        rows = await self.competition.get_fixtures(page=self.page, subpage='/fixtures')
+        rows = [str(i) for i in rows] if rows else ["No Fixtures Found :("]
+        embed = await self.get_embed()
+        embed.title = f"≡ Fixtures for {self.competition.title}"
+        embed.timestamp = discord.Embed.Empty
+
+        self.index = 0
+        self.pages = embed_utils.rows_to_embeds(embed, rows)
+        self._current_mode = "Fixtures"
+        self.filter_mode = None
+        await self.update()
+
+    async def push_results(self):
+        """Push results fixtures to View"""
+        rows = await self.competition.get_fixtures(page=self.page, subpage='/results')
+        rows = [str(i) for i in rows] if rows else ["No Results Found :("]
+        embed = await self.get_embed()
+        embed.title = f"≡ Results for {self.competition.title}"
+        embed.timestamp = discord.Embed.Empty
+
+        self.index = 0
+        self.pages = embed_utils.rows_to_embeds(embed, rows)
+        self._current_mode = "Results"
+        self.filter_mode = None
+        await self.update()
+
+
+class TeamView(discord.ui.View):
+    """The View sent to a user about a Team"""
+
+    def __init__(self, ctx, team: football.Team, page):
+        super().__init__()
+        self.page = page  # Browser Page
+        self.team = team
+        self.ctx = ctx
+        self.message = None
+
+        # Pagination
+        self.pages = []
+        self.index = 0
+        self.value = None
+        self._current_mode = None
+
+        # Specific Selection
+        self._currently_selecting = []
+
+        # Fetch Once Objects
+        self.base_embed = None
+        self.players = None
+
+        # Image Rate Limiting.
+        # TODO: Migrate Timestamping to Bot Var
+        self.table_image = None
+        self.table_timestamp = None
+
+    async def on_timeout(self):
+        """Cleanup"""
+        self.clear_items()
+        await self.message.edit(view=self)
+        self.stop()
+
+    async def interaction_check(self, interaction):
+        """Assure only the command's invoker can select a result"""
+        return interaction.user.id == self.ctx.author.id
+
+    async def get_embed(self):
+        """Fetch Generic Embed for Team"""
+        self.base_embed = await self.team.base_embed if self.base_embed is None else self.base_embed
+        return deepcopy(self.base_embed)  # Do not mutate.
+
+    async def get_players(self):
+        """Grab the list of players"""
+        self.players = await self.team.get_players(page=self.page) if not self.players else self.players
+        return self.players
+
+    async def update(self):
+        """Update the view for the user"""
+        self.generate_buttons()
+        embed = self.pages[self.index] if self.pages else None
+        await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions().none())
+        await self.wait()
+
+    def generate_buttons(self):
+        """Add buttons to the Team embed."""
+        self.clear_items()
+
+        if len(self.pages) > 1:
+            self.add_item(view_utils.PreviousButton())
+            dd = view_utils.PageButton()
+            dd.label = f"Page {self.index + 1} of {len(self.pages)}"
+            self.add_item(dd)
+            self.add_item(view_utils.NextButton())
+
+        if self._currently_selecting:
+            dd = LeagueTableSelect(objects=self._currently_selecting)
+            self.add_item(dd)
+            self._currently_selecting = []
+
+        buttons = [view_utils.Button(label="Squad", func=self.push_squad, row=3),
+                   view_utils.Button(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI, row=3),
+                   view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=3),
+                   view_utils.Button(label="Table", func=self.select_table, row=4),
+                   view_utils.Button(label="Fixtures", func=self.push_fixtures, row=4),
+                   view_utils.Button(label="Results", func=self.push_results, row=4),
+                   view_utils.StopButton(row=4)
+                   ]
+
+        for _ in buttons:
+            _.disabled = True if self._current_mode == _.label else False
+            self.add_item(_)
+
+    async def push_squad(self):
+        """PUsh the Squad Embed to View"""
+        players = await self.get_players()
+        srt = sorted(players, key=lambda x: x.number)
+        p = [i.squad_row for i in srt]
+
+        # Data must be fetched before embed url is updated.
+        embed = await self.get_embed()
+        embed.title = f"≡ Squad for {self.team.title}"
+        embed.url = self.page.url
+        self.index = 0
+        self.pages = embed_utils.rows_to_embeds(embed, p)
+        self._current_mode = "Squad"
+        await self.update()
+
+    async def push_injuries(self):
+        """PUsh the Injuries Embed to View"""
+        embed = await self.get_embed()
+        players = await self.get_players()
+        players = [i.injury_row for i in players if i.injury]
+        players = players if players else ['No injuries found']
+        embed.title = f"≡ Injuries for {self.team.title}"
+        embed.url = self.page.url
+        embed.description = "\n".join(players)
+        self.index = 0
+        self.pages = [embed]
+        self._current_mode = "Injuries"
+        await self.update()
+
+    async def push_scorers(self):
+        """PUsh the Scorers Embed to View"""
+        embed = await self.get_embed()
+        players = await self.get_players()
+        srt = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
+        embed.title = f"≡ Top Scorers for {self.team.title}"
+
+        rows = [i.scorer_row for i in srt]
+
+        embed_utils.rows_to_embeds(embed, rows, rows_per=None)
+
+        embed.url = self.page.url
+        self.index = 0
+        self.pages = [embed]
+        self._current_mode = "Scorers"
+        await self.update()
+
+    async def select_table(self):
+        """Select Which Table to push from"""
+        self.pages, self.index = [await self.get_embed()], 0
+        all_fixtures = await self.team.get_fixtures(self.page)
+        unique_comps = []
+        [unique_comps.append(x) for x in all_fixtures if x.full_league not in [y.full_league for y in unique_comps]]
+
+        if len(unique_comps) == 1:
+            return await self.push_table(unique_comps[0])
+
+        self._currently_selecting = unique_comps
+        await self.update()
+
+    async def push_table(self, res):
+        """Fetch All Comps, Confirm Result, Get Table Image, Send"""
+        embed = await self.get_embed()
+        ts, dtn = self.table_timestamp, datetime.datetime.now()
+        if ts is None or ts > dtn - datetime.timedelta(minutes=IMAGE_UPDATE_RATE_LIMIT):
+            img = await res.get_table(self.page)
+            if img is not None:
+                self.table_image = await image_utils.dump_image(self.ctx, img)
+                self.table_timestamp = datetime.datetime.now()
+
+        embed.title = f"≡ Table for {res.full_league}"
+        if self.table_image is not None:
+            embed.set_image(url=self.table_image)
+            embed.description = timed_events.timestamp(mode="long")
+        else:
+            embed.description = f"No Table found."
+        embed.url = self.page.url
+        self.pages = [embed]
+        self._current_mode = "Table"
+        await self.update()
+
+    async def push_fixtures(self):
+        """Push upcoming fixtures to View"""
+        rows = await self.team.get_fixtures(page=self.page, subpage='/fixtures')
+        rows = [str(i) for i in rows] if rows else ["No Fixtures Found :("]
+        embed = await self.get_embed()
+        embed.title = f"≡ Fixtures for {self.team.title}" if embed.title else "≡ Fixtures "
+        embed.timestamp = discord.Embed.Empty
+
+        self.index = 0
+        self.pages = embed_utils.rows_to_embeds(embed, rows)
+        self._current_mode = "Fixtures"
+        await self.update()
+
+    async def push_results(self):
+        """Push results fixtures to View"""
+        rows = await self.team.get_fixtures(page=self.page, subpage='/results')
+        rows = [str(i) for i in rows] if rows else ["No Results Found :("]
+        embed = await self.get_embed()
+        embed.title = f"≡ Results for {self.team.title}" if embed.title else "≡ Results "
+        embed.timestamp = discord.Embed.Empty
+
+        self.index = 0
+        self.pages = embed_utils.rows_to_embeds(embed, rows)
+        self._current_mode = "Results"
+        await self.update()
+
+
+class FixtureView(discord.ui.View):
+    """The View sent to users about a fixture."""
+
+    def __init__(self, ctx, fixture: football.Fixture, page):
+        self.fixture = fixture
+        self.ctx = ctx
+        self.message = None
+
+        self.page = page
+        super().__init__()
+
+        # Pagination
+        self.pages = []
+        self.index = 0
+        self.base_embed = None
+
+        # Button Disabling
+        self._current_mode = None
+
+    async def on_timeout(self):
+        """Cleanup"""
+        self.clear_items()
+        await self.message.edit(view=self)
+        self.stop()
+
+    async def interaction_check(self, interaction):
+        """Assure only the command's invoker can select a result"""
+        return interaction.user.id == self.ctx.author.id
+
+    async def update(self):
+        """Update the view for the user"""
+        embed = self.pages[self.index]
+        self.generate_buttons()
+        await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions().none())
+        await self.wait()
+
+    def generate_buttons(self):
+        """Generate our view's buttons"""
+        self.clear_items()
+
+        buttons = [view_utils.Button(label="Stats", func=self.push_stats, emoji="📊"),
+                   view_utils.Button(label="Table", func=self.push_table),
+                   view_utils.Button(label="Lineups", func=self.push_lineups),
+                   view_utils.Button(label="Summary", func=self.push_summary),
+                   view_utils.Button(label="Head To Head", func=self.push_head_to_head, emoji="⚔", row=3),
+                   view_utils.StopButton()
+                   ]
+
+        for _ in buttons:
+            _.disabled = True if self._current_mode == _.label else False
+            self.add_item(_)
+
+    async def get_embed(self):
+        """Fetch Generic Embed for Team"""
+        self.base_embed = await self.fixture.base_embed if self.base_embed is None else self.base_embed
+        return deepcopy(self.base_embed)
+
+    async def push_stats(self):
+        """Push Stats to View"""
+        self._current_mode = "Stats"
+
+        dtn = datetime.datetime.now()
+        ts = self.fixture.stats_timestamp
+        if ts is None or ts > dtn - datetime.timedelta(minutes=IMAGE_UPDATE_RATE_LIMIT):
+            img = await self.fixture.get_stats(page=self.page)
+            self.fixture.stats_image = await image_utils.dump_image(self.ctx, img)
+            self.fixture.stats_timestamp = datetime.datetime.now()
+
+        image = self.fixture.stats_image
+        embed = await self.get_embed()
+        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
+        embed.url = self.page.url
+        embed.description += "No Stats Found" if image is None else ""
+        embed.title = f"≡ Stats for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
+        self.pages = [embed]
+        await self.update()
+
+    async def push_lineups(self):
+        """Push Lineups to View"""
+        self._current_mode = "Lineups"
+        self.index = 0
+
+        dtn = datetime.datetime.now()
+        ts = self.fixture.formation_timestamp
+        if ts is None or ts > dtn - datetime.timedelta(minutes=IMAGE_UPDATE_RATE_LIMIT):
+            img = await self.fixture.get_formation(page=self.page)
+            self.fixture.formation_image = await image_utils.dump_image(self.ctx, img)
+            self.fixture.formation_timestamp = datetime.datetime.now()
+
+        image = self.fixture.formation_image
+
+        embed = await self.get_embed()
+        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
+        embed.url = self.page.url
+        embed.description += "No Lineups Found" if image is None else ""
+        embed.title = f"≡ Lineups for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
+        self.pages = [embed]
+        await self.update()
+
+    async def push_table(self):
+        """Push Table to View"""
+        self._current_mode = "Table"
+        self.index = 0
+
+        dtn = datetime.datetime.now()
+        ts = self.fixture.table_timestamp
+        if ts is None or ts > dtn - datetime.timedelta(minutes=IMAGE_UPDATE_RATE_LIMIT):
+            img = await self.fixture.get_table(page=self.page)
+            self.fixture.table_image = await image_utils.dump_image(self.ctx, img)
+            self.fixture.table_timestamp = datetime.datetime.now()
+
+        image = self.fixture.table_image
+
+        embed = await self.get_embed()
+        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
+        embed.url = self.page.url
+        embed.description += "No Table Found" if image is None else ""
+        embed.title = f"≡ Table for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
+        self.pages = [embed]
+        await self.update()
+
+    async def push_summary(self):
+        """Push Summary to View"""
+        self._current_mode = "Summary"
+        self.index = 0
+
+        dtn = datetime.datetime.now()
+        ts = self.fixture.summary_timestamp
+        if ts is None or ts > dtn - datetime.timedelta(minutes=IMAGE_UPDATE_RATE_LIMIT):
+            img = await self.fixture.get_summary(page=self.page)
+            self.fixture.summary_image = await image_utils.dump_image(self.ctx, img)
+            self.fixture.summary_timestamp = datetime.datetime.now()
+
+        image = self.fixture.summary_image
+
+        embed = await self.get_embed()
+        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
+        embed.url = self.page.url
+        embed.description += "No Summary Found" if image is None else ""
+        embed.title = f"≡ Summary for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
+        self.pages = [embed]
+        await self.update()
+
+    async def push_head_to_head(self):
+        """Push Head to Head to View"""
+        self._current_mode = "Head To Head"
+        self.index = 0
+
+        fixtures = await self.fixture.head_to_head(page=self.page)
+        embed = await self.get_embed()
+        embed.title = f"≡ Head to Head for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
+        for k, v in fixtures.items():
+            x = "\n".join([f"{i.relative_time} [{i.bold_score}]({i.url})" for i in v])
+            embed.add_field(name=k, value=x, inline=False)
+        self.pages = [embed]
+        await self.update()
 
 
 class Fixtures(commands.Cog):
@@ -19,485 +580,334 @@ class Fixtures(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "⚽"
 
         if not hasattr(bot, "browser"):
             self.bot.loop.create_task(browser.make_browser(bot))
 
-        for package in [transfer_tools, football, embed_utils, browser, timed_events]:
+        for package in [transfer_tools, football, embed_utils, browser, timed_events, image_utils, view_utils]:
             reload(package)
-    
-    # Master picker.
-    async def _search(self, ctx, qry, mode=None) -> typing.Union[football.Team, football.Competition, None]:
-        # Handle stupidity
+
+    # Selection View/Filter/Pickers.
+    async def search(self, ctx, qry, mode=None, include_live=False, include_fs=False) \
+            -> typing.Union[football.Team, football.Competition, football.Fixture] or None:
+        """Get Matches from Live Games & FlashScore Search Results"""
+        # Handle Server Defaults
         if qry is None:
             if ctx.guild is not None:
                 default = await self._fetch_default(ctx, mode)
                 if default is not None:
                     page = await self.bot.browser.newPage()
-                    if mode == "team":
-                        team_id = default.split('/')[-1]
-                        fsr = await football.Team.by_id(team_id, page)
-                    else:
-                        fsr = await football.Competition.by_link(default, page)
-                    await page.close()
+                    try:
+                        if mode == "team":
+                            team_id = default.split('/')[-1]
+                            fsr = await football.Team.by_id(team_id, page)
+                        else:
+                            fsr = await football.Competition.by_link(default, page)
+                    except Exception as e:
+                        raise e  # Re raise, this is specifically to assure page closure.
+                    finally:
+                        await page.close()
                     return fsr
             return None
-        
-        search_results = await football.get_fs_results(qry)
-        
-        if not search_results:
-            output = f'No search results found for query: `{qry}`'
-            if mode is not None:
-                output += f" ({mode})"
-            await self.bot.reply(ctx, text=output)
-            return None
-        
-        pt = 0 if mode == "league" else 1 if mode == "team" else None  # Mode is a hard override.
-        if pt is not None:
-            item_list = [i.title for i in search_results if i.participant_type_id == pt]  # Check for specifics.
-        else:  # All if no mode
-            item_list = [i.title for i in search_results]
-        
-        if not item_list:
-            await self.bot.reply(ctx, text=f"No matching {mode} found for query {qry}")
-            return None
-        
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_green()
-        e.title = "Flashscore Search: Multiple results found"
-        e.set_thumbnail(url=ctx.me.avatar_url)
 
-        index = await embed_utils.page_selector(ctx, item_list, e, preserve_footer=False)
+        # Gather live games.
+        query = str(qry).lower()
+        if include_live:
+            if mode == "team":
+                live = [i for i in ctx.bot.games if query in f"{i.home.lower()} vs {i.away.lower()}"]
+            else:
+                live = [i for i in ctx.bot.games if query in (i.home + i.away + i.league + i.country).lower()]
 
-        if index == "cancelled":
-            await self.bot.reply(ctx, text="Lookup cancelled.")
-            return None
-        elif index is None:
-            await self.bot.reply(ctx, text="Timed out waiting for your response.")
-            return None
-        elif index == -1:
-            await self.bot.reply(ctx, f"No matching results for query: {qry}")
-            return None
-
-        item = search_results[index]
-
-        assert isinstance(item, (football.Team, football.Competition)), "FlashScoreResult was not a Team or League!"
-        return item
-    
-    # Fetch from bot games.
-    async def _pick_game(self, ctx, q: str, search_type=None) -> typing.Union[football.Fixture, None] or False:
-        q = q.lower()
-        
-        if search_type == "team":
-            matches = [i for i in self.bot.games if q in f"{i.home.lower()} vs {i.away.lower()}"]
+            live_options = [("⚽", f"{i.home} {i.score} {i.away}", f"{i.country.upper()}: {i.league}") for i in live]
         else:
-            matches = [i for i in self.bot.games if q in (i.home + i.away + i.league + i.country).lower()]
-        if not matches:
+            live = live_options = []
+
+        # Gather Other Search Results
+        if include_fs:
+            search_results = await football.get_fs_results(qry)
+            pt = 0 if mode == "league" else 1 if mode == "team" else None  # Mode is a hard override.
+            if pt is not None:
+                search_results = [i for i in search_results if i.participant_type_id == pt]  # Check for specifics.
+
+            for result in search_results:
+                result.emoji = '👕' if result.participant_type_id == 1 else '🏆'
+
+            fs_options = [(i.emoji, i.title, i.url) for i in search_results]
+        else:
+            fs_options = search_results = []
+
+        markers = live_options + fs_options
+        items = live + search_results
+
+        if not markers:
+            await ctx.send(f'{ctx.command.name.title()}: No results found for {qry}')
             return None
 
-        base_embed = discord.Embed()
-        base_embed.set_footer(text="If you did not want a live game, click the '🚫' reaction to search all teams")
-        base_embed.title = "Select from live games"
-        base_embed.colour = discord.Colour.blurple()
+        view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
+        view.message = await self.bot.reply(ctx, '⏬ Multiple results found, choose from the dropdown.', view=view)
+        await view.wait()
 
-        pickers = [i.scores_row for i in matches]
-        index = await embed_utils.page_selector(ctx, pickers, base_embed=base_embed, confirm_single=True,
-                                                preserve_footer=False)
+        if view.value is None:
+            return None
 
-        if index is None or index == -1 or index == "cancelled":
-            return None  # timeout or abort.
+        fsr = items[view.value]
+        return fsr
 
-        return matches[index]
-    
     async def _fetch_default(self, ctx, mode=None):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            r = await connection.fetchrow("""SELecT * FROM scores_settings WHERE (guild_id) = $1
+            r = await connection.fetchrow("""SELecT * FROM fixtures_defaults WHERE (guild_id) = $1
                  AND (default_league is NOT NULL OR default_team IS NOT NULL)""", ctx.guild.id)
         await self.bot.db.release(connection)
-        if r:
-            team = r["default_team"]
-            league = r["default_league"]
-            # Decide if found, yell if not.
-            if team or league:
-                if mode == "team":
-                    return team if team else league
-                return league if league else team
-        return None
-    
-    @commands.command(aliases=['fx'], usage="<Team or league name to search for>")
+
+        if not r:
+            return None
+
+        team = r["default_team"]
+        league = r["default_league"]
+        if team or league:
+            if mode == "team":
+                return team if team else league
+            return league if league else team
+
+    async def pick_recent_game(self, ctx, fsr: football.Team, page, upcoming=False):
+        """Choose from recent games from team"""
+        subpage = "/fixtures" if upcoming else "/results"
+        items = await fsr.get_fixtures(page, subpage)
+
+        markers = [("⚽", f"{i.home} {i.score} {i.away}", f"{i.country.upper()}: {i.league}") for i in items]
+        view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
+        view.message = await self.bot.reply(ctx, '⏬ Please choose a recent game.', view=view)
+        await view.wait()
+
+        if view.value is None:
+            return None
+
+        return items[view.value]
+
+    # Actual Commands
+    @commands.command(aliases=['fx', 'fix'], usage="<Team or league name to search for>")
     async def fixtures(self, ctx, *, qry: commands.clean_content = None):
-        """Fetch upcoming fixtures for a team or league.
-        Navigate pages using reactions."""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._search(ctx, qry)
-
+        """Fetch upcoming fixtures for a team or league."""
+        fsr = await self.search(ctx, qry, include_fs=True)
         if fsr is None:
             return
 
         page = await self.bot.browser.newPage()
-        fx = await fsr.get_fixtures(page, '/fixtures')
-        await page.close()
 
-        fixtures = [str(i) for i in fx]
+        try:
+            if isinstance(fsr, football.Competition):
+                view = CompetitionView(ctx, fsr, page)
+            elif isinstance(fsr, football.Team):
+                view = TeamView(ctx, fsr, page)
+            else:
+                raise ValueError(f'Expected type football.Competition or football.Team, got {type(fsr)}')
+            view.message = await self.bot.reply(ctx, text=f"Fetching fixtures data for {fsr.title}...", view=view)
+            await view.push_fixtures()
+        finally:
+            await page.close()
 
-        fixtures = ["No Fixtures Found :("] if not fixtures else fixtures
-
-        embed = await fsr.base_embed
-        embed.title = f"≡ Fixtures for {embed.title}" if embed.title else "≡ Fixtures "
-
-        embeds = embed_utils.rows_to_embeds(embed, fixtures)
-
-        await embed_utils.paginate(ctx, embeds)
-    
-    @commands.command(aliases=['rx'], usage="<Team or league name to search for>")
+    @commands.command(aliases=['rx', 'res'], usage="<Team or league name to search for>")
     async def results(self, ctx, *, qry: commands.clean_content = None):
-        """Get past results for a team or league.
-        Navigate pages using reactions."""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._search(ctx, qry)
-
+        """Get past results for a team or league."""
+        fsr = await self.search(ctx, qry, include_fs=True)
         if fsr is None:
             return
 
         page = await self.bot.browser.newPage()
-        results = await fsr.get_fixtures(page, '/results')
-        await page.close()
 
-        results = [str(i) for i in results]
-        results = ["No Fixtures Found :("] if not results else results
+        try:
+            if isinstance(fsr, football.Competition):
+                view = CompetitionView(ctx, fsr, page)
+            elif isinstance(fsr, football.Team):
+                view = TeamView(ctx, fsr, page)
+            else:
+                raise ValueError(f'Expected type football.Competition or football.Team, got {type(fsr)}')
+            view.message = await self.bot.reply(ctx, text=f"Fetching results data for {fsr.title}...", view=view)
+            await view.push_results()
+        finally:
+            await page.close()
 
-        embed = await fsr.base_embed
-        embed.title = f"≡ Results for {embed.title}" if embed.title else "≡ Results "
-        embeds = embed_utils.rows_to_embeds(embed, results)
-
-        await embed_utils.paginate(ctx, embeds)
-    
-    @commands.command(usage="[league or team to search for or leave blank to use server's default setting]")
+    @commands.command(aliases=['tbl'], usage="<Team or league name to search for>")
     async def table(self, ctx, qry: commands.clean_content = None):
         """Get table for a league"""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._pick_game(ctx, str(qry)) if qry is not None else None
+        fsr = await self.search(ctx, qry, include_fs=True)
+        page = await self.bot.browser.newPage()
+        try:
+            if fsr is None:
+                return
 
-        if fsr is None:
-            fsr = await self._search(ctx, qry)
+            assert isinstance(fsr, (football.Team, football.Competition))
 
-        if fsr is None:
-            return
+            if isinstance(fsr, football.Team):
+                view = TeamView(ctx=ctx, page=page, team=fsr)
+                text = f"Fetching Table for {fsr.title}..."
+                view.message = await self.bot.reply(ctx, text, view=view)
+                await view.select_table()
+            else:
+                view = CompetitionView(ctx=ctx, page=page, competition=fsr)
+                text = f"Fetching Table for {fsr.title}..."
+                view.message = await self.bot.reply(ctx, text, view=view)
+                await view.push_table()
 
-        if isinstance(fsr, football.Team):  # Select from team's leagues.
-
-            page = await self.bot.browser.newPage()
-            all_fixtures = await fsr.get_fixtures(page)
+        finally:
             await page.close()
 
-            unique_comps = []
-            for i in all_fixtures:
-                if i.full_league not in [x.full_league for x in unique_comps]:
-                    unique_comps.append(i)
-
-            for_picking = [i.full_league for i in unique_comps]
-            embed = await fsr.base_embed
-            index = await embed_utils.page_selector(ctx, for_picking, deepcopy(embed), preserve_footer=False)
-            if index is None or index == "cancelled":
-                return  # rip
-            if index == -1:
-                return await self.bot.reply(f'🚫 No competitions found for {fsr.title}.')
-
-            fsr = unique_comps[index]
-
-        page = await self.bot.browser.newPage()
-        image = await fsr.get_table(page)
-        await page.close()
-
-        embed = await fsr.base_embed
-        if image is None:
-            embed.description = "No table found."
-            return await self.bot.reply(ctx, embed=embed)
-
-        time = timed_events.timestamp(mode="long")
-
-        embed.description = f"Table as of {time}"
-        fn = f"Table-{qry}.png".strip()
-        await embed_utils.embed_image(ctx, embed, image, filename=fn)
-    
-    @commands.command(usage="[team to search for stats of game of]")
+    @commands.command(aliases=['st'], usage="<team to search for>")
     async def stats(self, ctx, *, qry: commands.clean_content):
-        """Look up the stats for a game."""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._pick_game(ctx, str(qry), search_type="team")
-        
+        """Look up the stats for a fixture."""
+        fsr = await self.search(ctx, qry, include_fs=True, include_live=True, mode="team")
         if fsr is None:
-            fsr = await self._search(ctx, qry)
-        
-        if fsr is None:
-            return  # rip
-        
-        other_embed = await fsr.base_embed
-        
+            return  # Rip
+
         page = await self.bot.browser.newPage()
         try:
-            all_fixtures = await fsr.get_fixtures(page)
-            embed = await fsr.base_embed
-            index = await embed_utils.page_selector(ctx, all_fixtures, embed, preserve_footer=False)
-            if index is None or index == "cancelled" or index == -1:
-                return  # rip
-            fsr = all_fixtures[index]
-        except AttributeError:
-            pass
+            if isinstance(fsr, football.Team):
+                fsr = await self.pick_recent_game(ctx, fsr, page)
+                if fsr is None:
+                    return
+
+            view = FixtureView(ctx, fixture=fsr, page=page)
+            text = f"Fetching Stats for {fsr.home} vs {fsr.away}"
+            view.message = await self.bot.reply(ctx, text, view=view)
+            await view.push_stats()
         finally:
             await page.close()
-        
-        page = await self.bot.browser.newPage()
-        image = await fsr.get_stats(page)
-        await page.close()
-        
-        embed = await fsr.base_embed
-        embed.colour = other_embed.colour
-        embed.set_thumbnail(url=other_embed.thumbnail.url)
-        
-        if image is None:
-            embed.description = "No stats found."
-            return await self.bot.reply(ctx, embed=embed)
-        
-        await embed_utils.embed_image(ctx, embed, image)
-    
-    @commands.command(usage="<team to search for>", aliases=["formations", "lineup", "lineups"])
+
+    @commands.command(usage="<team to search for>", aliases=["formations", "lineup", "lineups", 'fm'])
     async def formation(self, ctx, *, qry: commands.clean_content):
-        """Get the formations for the teams in one of today's games"""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._pick_game(ctx, str(qry), search_type="team")
-        
+        """Look up the formation for a Fixture."""
+        fsr = await self.search(ctx, qry, include_fs=True, include_live=True)
         if fsr is None:
-            fsr = await self._search(ctx, qry)
-        
-        if fsr is None:
-            return  # rip
-        
-        other_embed = await fsr.base_embed
-        
+            return  # Rip
+
         page = await self.bot.browser.newPage()
         try:
-            all_fixtures = await fsr.get_fixtures(page)
-            embed = await fsr.base_embed
-            index = await embed_utils.page_selector(ctx, all_fixtures, embed, preserve_footer=False)
-            if index is None or index == "cancelled" or index == -1:
-                return  # rip
-            fsr = all_fixtures[index]
-        except AttributeError:
-            pass
+            if isinstance(fsr, football.Team):
+                fsr = await self.pick_recent_game(ctx, fsr, page)
+                if fsr is None:
+                    return
+
+            view = FixtureView(ctx, fixture=fsr, page=page)
+            text = f"Fetching Formation for {fsr.home} vs {fsr.away}"
+            view.message = await self.bot.reply(ctx, text, view=view)
+            await view.push_lineups()
         finally:
             await page.close()
-        
-        page = await self.bot.browser.newPage()
-        image = await fsr.get_formation(page)
-        await page.close()
-        
-        embed = await fsr.base_embed
-        embed.colour = other_embed.colour
-        embed.set_thumbnail(url=other_embed.thumbnail.url)
-        
-        if image is None:
-            embed.description = "No formation data found."
-            return await self.bot.reply(ctx, embed=embed)
-    
-        await embed_utils.embed_image(ctx, embed, image)
-    
-    @commands.command()
+
+    @commands.command(aliases=["sum"])
     async def summary(self, ctx, *, qry: commands.clean_content):
         """Get a summary for one of today's games."""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._pick_game(ctx, str(qry), search_type="team")
-        
+        fsr = await self.search(ctx, qry, include_fs=True, include_live=True)
         if fsr is None:
-            fsr = await self._search(ctx, qry)
-        
-        if fsr is None:
-            return  # rip
-        
-        other_embed = await fsr.base_embed
-        
+            return  # Rip
+
         page = await self.bot.browser.newPage()
         try:
-            all_fixtures = await fsr.get_fixtures(page)
-            embed = await fsr.base_embed
-            index = await embed_utils.page_selector(ctx, all_fixtures, embed, preserve_footer=False)
-            if index is None or index == "cancelled" or index == -1:
-                await page.close()
-                return  # rip
-            fsr = all_fixtures[index]
-        except AttributeError:
-            pass
+            if isinstance(fsr, football.Team):
+                fsr = await self.pick_recent_game(ctx, fsr, page)
+                if fsr is None:
+                    return
 
-        image = await fsr.get_summary(page)
-        await page.close()
-        
-        embed = await fsr.base_embed
-        embed.colour = other_embed.colour
-        embed.set_thumbnail(url=other_embed.thumbnail.url)
-        
-        if image is None:
-            embed.description = "No summary found."
-            return await self.bot.reply(ctx, embed=embed)
-        
-        await embed_utils.embed_image(ctx, embed, image)
-    
-    @commands.command(aliases=["form"], usage="<Team name to search for>")
-    async def h2h(self, ctx, *, qry: commands.clean_content):
-        """Get Head to Head data for a team fixtures"""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._pick_game(ctx, str(qry), search_type="team") if qry is not None else None
-        if fsr is False:
-            return
-        
-        if fsr is None:
-            fsr = await self._search(ctx, qry, mode="team")
-        
-        if fsr is None:
-            return
-
-        if isinstance(fsr, football.Team):  # Select from team's leagues.
-            page = await self.bot.browser.newPage()
-            choices = await fsr.get_fixtures(page)
-            await page.close()
-            
-            e = await fsr.base_embed
-            e.title = f"Games for {fsr.title}"
-            
-            index = await embed_utils.page_selector(ctx, choices, deepcopy(e), preserve_footer=False)
-            if index is None:
-                return  # rip or cancelled
-            fsr = choices[index]
-        
-        page = await self.bot.browser.newPage()
-        try:
-            h2h = await fsr.head_to_head(page)
-        except IndexError as e:
-            print(e)
-            return await self.bot.reply(ctx, 'No Head to head data found.')
+            view = FixtureView(ctx, fixture=fsr, page=page)
+            text = f"Fetching Summary for {fsr.home} vs {fsr.away}"
+            view.message = await self.bot.reply(ctx, text, view=view)
+            await view.push_summary()
         finally:
             await page.close()
-        
-        e = await fsr.base_embed
-        
-        e.title = f"Head to Head data for {fsr.home} vs {fsr.away}"
-        
-        for k, v in h2h.items():
-            e.add_field(name=k, value="\n".join([str(i) for i in v]), inline=False)
-    
-        await self.bot.reply(ctx, embed=e)
+
+    @commands.command(aliases=["form", "head"], usage="<Team name to search for>")
+    async def h2h(self, ctx, *, qry: commands.clean_content):
+        """Lookup the head to head details for a Fixture"""
+        fsr = await self.search(ctx, qry, include_fs=True, include_live=True)
+        if fsr is None:
+            return  # Rip
+
+        page = await self.bot.browser.newPage()
+        try:
+            if isinstance(fsr, football.Team):
+                fsr = await self.pick_recent_game(ctx, fsr, page, upcoming=True)
+                if fsr is None:
+                    return
+
+            view = FixtureView(ctx, fixture=fsr, page=page)
+            text = f"Fetching Head to Head Data for {fsr.home} vs {fsr.away}"
+            view.message = await self.bot.reply(ctx, text, view=view)
+            await view.push_head_to_head()
+        finally:
+            await page.close()
     
     # Team specific.
-    @commands.command(aliases=["suspensions"], usage="<Team name to search for>")
+    @commands.command(aliases=["suspensions", 'inj'], usage="<Team name to search for>")
     async def injuries(self, ctx, *, qry: commands.clean_content = None):
         """Get a team's current injuries"""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._search(ctx, qry, mode="team")
-
+        fsr = await self.search(ctx, qry, include_fs=True, mode="team")
         if fsr is None:
-            return
+            return  # Rip
 
-        assert isinstance(fsr, football.Team), f"Expected football.Team, got {type(fsr)}"
+        assert isinstance(fsr, football.Team)
 
         page = await self.bot.browser.newPage()
-        players = await fsr.get_players(page)
-        await page.close()
+        try:
+            view = TeamView(ctx=ctx, page=page, team=fsr)
+            view.message = await self.bot.reply(ctx, f"Fetching injuries for {fsr.title}...", view=view)
+            await view.push_injuries()
+        finally:
+            await page.close()
 
-        embed = await fsr.base_embed
-        players = [f"{i.flag} [{i.name}]({i.url}) ({i.position}): {i.injury}" for i in players if i.injury and i]
-        players = players if players else ['No injuries found']
-        embed.title = f"≡ Injuries for {embed.title}" if embed.title else "≡ Injuries "
-        embeds = embed_utils.rows_to_embeds(embed, players)
-        await embed_utils.paginate(ctx, embeds)
-    
-    @commands.command(aliases=["team", "roster"], usage="<Team name to search for>")
+    @commands.command(aliases=["team", "roster", "sqd"], usage="<Team name to search for>")
     async def squad(self, ctx, *, qry: commands.clean_content = None):
         """Lookup a team's squad members"""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._search(ctx, qry, mode="team")
-
+        fsr = await self.search(ctx, qry, include_fs=True, mode="team")
         if fsr is None:
             return
 
+        assert isinstance(fsr, football.Team)
+
         page = await self.bot.browser.newPage()
+        try:
+            view = TeamView(ctx=ctx, page=page, team=fsr)
+            view.message = await self.bot.reply(ctx, f"Fetching Squad Data for {fsr.title}", view=view)
+            await view.push_squad()
+        finally:
+            await page.close()
 
-        assert isinstance(fsr, football.Team), f"Expected type: football.Team, got type {type(fsr)}"
-
-        players = await fsr.get_players(page)
-        await page.close()
-        srt = sorted(players, key=lambda x: x.number)
-        embed = await fsr.base_embed
-        embed.title = f"≡ Squad for {embed.title}" if embed.title else "≡ Squad "
-        players = [f"`{str(i.number).rjust(2)}`: {i.flag} [{i.name}]({i.url}) {i.position}{i.injury}" for i in
-                   srt if i]
-        embeds = embed_utils.rows_to_embeds(embed, players)
-        
-        await embed_utils.paginate(ctx, embeds)
-    
     @commands.command(invoke_without_command=True, aliases=['sc'], usage="<team or league to search for>")
     async def scorers(self, ctx, *, qry: commands.clean_content = None):
         """Get top scorers from a league, or search for a team and get their top scorers in a league."""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
-        fsr = await self._search(ctx, qry)
+        fsr = await self.search(ctx, qry, include_fs=True)
         if fsr is None:
             return
-            
-        if isinstance(fsr, football.Competition):
-            page = await self.bot.browser.newPage()
-            try:
-                sc = await fsr.get_scorers(page)
-            except ValueError:
-                print(f'Debug Log: Scorers Not Found for League {fsr.url}')
-                return await self.bot.reply(ctx, 'Scorers unavailable for this league.')
-            except Exception as e:
-                raise e
-            finally:
-                await page.close()
 
-            embed = await fsr.base_embed
-            players = [i.scorer_row for i in sc]
-            embed.title = f"≡ Top Scorers for {embed.title}" if embed.title else "≡ Top Scorers "
-        elif isinstance(fsr, football.Team):
-            page = await self.bot.browser.newPage()
-            choices = await fsr.get_competitions(page)
+        page = await self.bot.browser.newPage()
+        try:
+            if isinstance(fsr, football.Competition):
+                view = CompetitionView(ctx=ctx, page=page, competition=fsr)
+                target = fsr.title
+            elif isinstance(fsr, football.Team):
+                view = TeamView(ctx=ctx, page=page, team=fsr)
+                target = fsr.name
+            else:
+                raise ValueError(f"Expected Football.Team or Football.Competition, got {type(fsr)}")
+
+            view.message = await self.bot.reply(ctx, f"Fetching Top Scorer Data for {target}...", view=view)
+            await view.push_scorers()
+        finally:
             await page.close()
 
-            embed = await fsr.base_embed
-            embed.set_author(name="Pick a competition")
-            index = await embed_utils.page_selector(ctx, choices, deepcopy(embed))
-            if index is None or index == "cancelled" or index == -1:
-                return  # rip
-
-            page = await self.bot.browser.newPage()
-            players = await fsr.get_players(page, index)
-            await page.close()
-
-            players = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
-            players = [f"{i.flag} [{i.name}]({i.url}) {i.goals} in {i.apps} appearances" for i in players]
-
-            embed = await fsr.base_embed
-
-            embed.title = f"≡ Top Scorers for {embed.title} in {choices[index]}" if embed.title \
-                else f"Top Scorers in {choices[index]}"
-        else:
-            raise ValueError(f'Expected football.Team or football.Competition, but got {type(fsr)}!')
-        
-        embeds = embed_utils.rows_to_embeds(embed, players)
-        
-        await embed_utils.paginate(ctx, embeds)
-    
     @commands.command(usage="<league to search for>")
     async def scores(self, ctx, *, search_query: commands.clean_content = ""):
         """Fetch current scores for a specified league"""
         embeds = []
         e = discord.Embed()
-        e.colour = discord.Colour.blurple()
+        e.colour = discord.Colour.og_blurple()
         if search_query:
             e.set_author(name=f'Live Scores matching search "{search_query}"')
         else:
             e.set_author(name="Live Scores for all known competitions")
 
-        e.timestamp = datetime.datetime.now()
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         dtn = timed_events.timestamp(mode="long")
         q = str(search_query).lower()
 
@@ -517,44 +927,56 @@ class Fixtures(commands.Cog):
             league_embeds = embed_utils.rows_to_embeds(e, games, header=f"**{league}**", footer=time)
             embeds += league_embeds
         await embed_utils.paginate(ctx, embeds)
-    
-    @commands.command(usage="<Team or Stadium name to search for.>")
+
+    @commands.command(aliases=["std"], usage="<Team or Stadium name to search for.>")
     async def stadium(self, ctx, *, query: commands.clean_content):
         """Lookup information about a team's stadiums"""
         stadiums = await football.get_stadiums(query)
-        
-        item_list = [str(i) for i in stadiums]
-        
-        index = await embed_utils.page_selector(ctx, item_list)
-        
-        if index is None or index == -1:
-            return  # Timeout or abort.
-        
-        await self.bot.reply(ctx, embed=await stadiums[index].to_embed)
 
-    @commands.group(invoke_without_command=True)
-    @commands.has_permissions(manage_messages=True)
-    async def default(self, ctx):
-        """Check the defai;t team and league for your server's Fixture commands"""
+        markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.league})") for i in stadiums]
+        view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
+        view.message = await self.bot.reply(ctx, '⏬ Choose a Stadium.', view=view)
+        await view.wait()
+
+        if view.value is None:
+            return None
+
+        embed = await stadiums[view.value].to_embed
+        await self.bot.reply(ctx, embed=embed)
+
+    # Server defaults
+    async def send_defaults(self, ctx):
+        """Base Embed for Fixtures Config Embeds"""
+        e = discord.Embed()
+        e.colour = 0x2ecc71
+        e.set_thumbnail(url=self.bot.user.avatar.url)
+        e.title = '⚙ Toonbot Config: Fixture Defaults'
+        e.add_field(name="Setting defaults", value=DF)
+
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            record = await connection.fetchrow("""SELecT * FROM scores_settings
+            record = await connection.fetchrow("""SELECT * FROM fixtures_defaults
             WHERE (guild_id) = $1 AND (default_league is NOT NULL OR default_team IS NOT NULL)""", ctx.guild.id)
         await self.bot.db.release(connection)
         if not record:
-            return await self.bot.reply(ctx, text=f"{ctx.guild.name} does not currently have any defaults set.")
-        
-        league = "not set." if record["default_league"] is None else record["default_league"]
-        team = "not set." if record["default_team"] is None else record["default_team"]
-        return await self.bot.reply(ctx, text=f"Your default league is: <{league}>"
-                                              f"\nYour default team is: <{team}>")
-    
+            e.description = f"{ctx.guild.name} does not currently have any defaults set."
+        else:
+            league = "not set." if record["default_league"] is None else record["default_league"]
+            team = "not set." if record["default_team"] is None else record["default_team"]
+            e.description = f"Your default league is: {league}\nYour default team is: {team}"
+
+        await self.bot.reply(ctx, embed=e)
+
+    @commands.group(invoke_without_command=True)
+    async def default(self, ctx):
+        """Check the default team and league for your server's Fixture commands"""
+        return await self.send_defaults(ctx)
+
     @default.group()
     @commands.has_permissions(manage_guild=True)
     async def team(self, ctx, qry: commands.clean_content = None):
         """Set a default team for your server's Fixture commands"""
-        await self.bot.reply(ctx, text=f'Searching for {qry}...', delete_after=5)
-        fsr = await self._search(ctx, qry, mode="team")
+        fsr = await self.search(ctx, qry, mode="team", include_fs=True)
 
         if fsr is None:
             return
@@ -564,44 +986,47 @@ class Fixtures(commands.Cog):
         url = fsr.url
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(f"""INSERT INTO scores_settings (guild_id, default_team) VALUES ($1,$2)
+            await connection.execute(f"""INSERT INTO fixtures_defaults (guild_id, default_team) VALUES ($1,$2)
                  ON CONFLICT (guild_id) DO UPDATE SET default_team = $2 WHERE excluded.guild_id = $1
            """, ctx.guild.id, url)
         await self.bot.db.release(connection)
-        await self.bot.reply(ctx, text=f'Your Fixtures commands will now use {fsr.name} as a default team')
-    
+        await self.bot.reply(ctx, text=f'Your Fixtures commands will now use {fsr.title} as a default league')
+        await self.send_defaults(ctx)
+
     @team.command(name="reset", aliases=["none"])
     @commands.has_permissions(manage_guild=True)
     async def reset_team(self, ctx):
         """Unsets your server's default team for your Fixtures commands"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(f"""INSERT INTO scores_settings (guild_id, default_team)  VALUES ($1,$2)
+            await connection.execute(f"""INSERT INTO fixtures_defaults (guild_id, default_team)  VALUES ($1,$2)
                 ON CONFLICT (guild_id) DO UPDATE SET default_team = $2 WHERE excluded.guild_id = $1""",
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.bot.reply(ctx, text='Your Fixtures commands will no longer use a default team.')
+        await self.send_defaults(ctx)
     
     @default.group(invoke_without_commands=True)
     @commands.has_permissions(manage_guild=True)
     async def league(self, ctx, qry: commands.clean_content = None):
         """Set a default league for your server's Fixture commands"""
         await self.bot.reply(ctx, text=f'Searching for {qry}...', delete_after=5)
-        fsr = await self._search(ctx, qry, mode="league")
+        fsr = await self.search(ctx, qry, mode="league", include_fs=True)
 
         if fsr is None:
             return
 
-        assert isinstance(fsr, football.Competition), "Expected football."
+        assert isinstance(fsr, football.Competition), f"Expected football.Competition, got {type(fsr)}"
 
         url = fsr.url
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(f"""INSERT INTO scores_settings (guild_id, default_league) VALUES ($1,$2)
+            await connection.execute(f"""INSERT INTO fixtures_defaults (guild_id, default_league) VALUES ($1,$2)
                    ON CONFLICT (guild_id) DO UPDATE SET default_league = $2 WHERE excluded.guild_id = $1
              """, ctx.guild.id, url)
         await self.bot.db.release(connection)
         await self.bot.reply(ctx, text=f'Your Fixtures commands will now use {fsr.title} as a default league')
+        await self.send_defaults(ctx)
     
     @league.command(name="reset", aliases=["none"])
     @commands.has_permissions(manage_guild=True)
@@ -609,22 +1034,17 @@ class Fixtures(commands.Cog):
         """Unsets your server's default league for your Fixtures commands"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(f"""INSERT INTO scores_settings (guild_id,default_league) VALUES ($1,$2)
+            await connection.execute(f"""INSERT INTO fixtures_defaults (guild_id,default_league) VALUES ($1,$2)
                                          ON CONFLICT (guild_id) DO UPDATE SET default_league = $2
                                          WHERE excluded.guild_id = $1""",
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.bot.reply(ctx, text='Your commands will no longer use a default league.')
-
-    @commands.command()
-    @commands.is_owner()
-    async def kill_browser(self, ctx):
-        """ Restart browser when you potato. """
-        await self.bot.browser.close()
-        await self.bot.reply(ctx, "Browser closed.")
-        await browser.make_browser(ctx.bot)
+        await self.send_defaults(ctx)
 
 
 def setup(bot):
     """Load the fixtures Cog into the bot"""
     bot.add_cog(Fixtures(bot))
+
+# Maybe To do?: League.archive -> https://www.flashscore.com/football/england/premier-league/archive/

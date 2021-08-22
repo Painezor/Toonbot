@@ -9,11 +9,15 @@ from lxml import html
 from ext.utils import embed_utils
 
 
+# TODO:  Convert to use new timestamps.
+# TODO: Select / Button Pass.
+
 class Tv(commands.Cog):
 	"""Search for live TV matches"""
-	
+
 	def __init__(self, bot):
 		self.bot = bot
+		self.emoji = "📺"
 		with open('tv.json') as f:
 			bot.tv = json.load(f)
 	
@@ -107,7 +111,7 @@ class Tv(commands.Cog):
 		dtn = datetime.datetime.now().strftime("%H:%M")
 		
 		em.set_footer(text=f"Time now: {dtn} Your Time:")
-		em.timestamp = datetime.datetime.now()
+		em.timestamp = datetime.datetime.now(datetime.timezone.utc)
 		embeds = embed_utils.rows_to_embeds(em, tvlist)
 		await embed_utils.paginate(ctx, embeds)
 

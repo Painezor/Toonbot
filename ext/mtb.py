@@ -68,6 +68,7 @@ class MatchThread:
         self.active = True
         self.subreddit = subreddit
         self.fixture = fixture
+        self.emoji = "⚽"
         
         # Fetch once
         self.tv = None
@@ -135,9 +136,6 @@ class MatchThread:
         page = await self.bot.browser.newPage()
         try:
             await self.fixture.refresh(page)
-        except Exception as e:
-            print("Error when refreshing match thread fixture")
-            raise e
         finally:
             await page.close()
         
@@ -164,15 +162,17 @@ class MatchThread:
     
         for i in range(300):  # Maximum number of loops.
             page = await self.bot.browser.newPage()
-            await self.fixture.refresh(page)
-            await page.close()
-            
+            try:
+                await self.fixture.refresh(page)
+            finally:
+                await page.close()
+
             title, markdown = await self.write_markdown()
             # Only need to update if something has changed.
             if markdown != self.old_markdown:
                 await self.bot.loop.run_in_executor(None, post.edit, markdown)
                 self.old_markdown = markdown
-        
+
             if not self.active:  # Set in self.scrape.
                 break
         
@@ -288,8 +288,11 @@ class MatchThread:
     async def write_markdown(self, is_post_match=False):
         """Write markdown for the current fixture"""
         page = await self.bot.browser.newPage()
-        await self.fixture.refresh(page)
-        
+        try:
+            await self.fixture.refresh(page)
+        finally:
+            await page.close()
+
         # Alias for easy replacing.
         home = self.fixture.home
         away = self.fixture.away
@@ -476,13 +479,18 @@ class MatchThreadCommands(commands.Cog):
         for r in records:
             # Get upcoming games from flashscore.
             page = await self.bot.browser.newPage()
-            team = await football.Team.by_id(r["team_flashscore_id"], page=page)
-            fx = await team.get_fixtures(page=page)
-            for i in fx:
-                if i.time - datetime.datetime.now() > datetime.timedelta(days=3):
-                    self.bot.loop.create_task(self.spool_thread(i, r))
-            await page.close()
+            try:
+                team = await football.Team.by_id(r["team_flashscore_id"], page=page)
+                fx = await team.get_fixtures(page=page)
+            finally:
+                await page.close()
 
+            for i in fx:
+                try:
+                    if i.time - datetime.datetime.now() > datetime.timedelta(days=3):
+                        self.bot.loop.create_task(self.spool_thread(i, r))
+                except TypeError:
+                    self.bot.loop.create_task(self.spool_thread(i, r))
 
 def setup(bot):
     """Load the match thread cog into the bot"""

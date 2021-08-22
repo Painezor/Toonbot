@@ -8,40 +8,43 @@ from discord.ext import commands
 from ext.utils import transfer_tools, embed_utils
 
 
+# TODO: Select / Button Pass.
+
 class Lookups(commands.Cog):
     """Transfer market lookups"""
 
     def __init__(self, bot):
         self.bot = bot
         reload(transfer_tools)
+        self.emoji = "🔎"
 
     # Base lookup - No Sub-command invoked.
     @commands.group(invoke_without_command=True, usage="<Who you want to search for>")
     async def lookup(self, ctx, *, query: commands.clean_content):
         """Perform a database lookup on transfermarkt"""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify something to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify something to search for.', ping=True)
         await transfer_tools.TransferSearch.search(ctx, query)
 
     @lookup.command(name="player")
     async def _player(self, ctx, *, query: commands.clean_content = None):
         """Lookup a player on transfermarkt"""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify a player name to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify a player name to search for.', ping=True)
         await transfer_tools.TransferSearch.search(ctx, query, category="Players")
 
     @lookup.command(name="team", aliases=["club"])
     async def _team(self, ctx, *, query: commands.clean_content = None):
         """Lookup a team on transfermarkt"""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', ping=True)
         await transfer_tools.TransferSearch.search(ctx, query, category="Players")
 
     @lookup.command(name="staff", aliases=["manager", "trainer", "trainers", "managers"])
     async def _staff(self, ctx, *, query: commands.clean_content = None):
         """Lookup a manager/trainer/club official on transfermarkt"""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify a name to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify a name to search for.', ping=True)
         await transfer_tools.TransferSearch.search(ctx, query, category="Staff")
 
     @lookup.command(name="ref")
@@ -49,38 +52,38 @@ class Lookups(commands.Cog):
         """Lookup a referee on transfermarkt"""
         if query is None:
             return await self.bot.reply(ctx, '🚫 You need to specify a referee name to search for.',
-                                        mention_author=True)
+                                        ping=True)
         await transfer_tools.TransferSearch.search(ctx, query, category="Referee")
 
     @lookup.command(name="cup", aliases=["domestic"])
     async def _cup(self, ctx, *, query: commands.clean_content = None):
         """Lookup a domestic competition on transfermarkt"""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify a competition to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify a competition to search for.', ping=True)
         await transfer_tools.TransferSearch.search(ctx, query, category="Domestic Competitions")
 
     @lookup.command(name="international", aliases=["int"])
     async def _int(self, ctx, *, query: commands.clean_content = None):
         """Lookup an international on transfermarkt"""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify a competition to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify a competition to search for.', ping=True)
         await transfer_tools.TransferSearch.search(ctx, query, category="International Competitions")
 
     @lookup.command(name="agent")
     async def _agent(self, ctx, *, query: commands.clean_content = None):
         """Lookup an agent on transfermarkt"""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify an agent name to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify an agent name to search for.', ping=True)
         await transfer_tools.TransferSearch.search(ctx, query, category="Agents")
 
     @commands.command(usage="<team to search for>")
     async def transfers(self, ctx, *, query: commands.clean_content = None):
         """Get this window's transfers for a team on transfermarkt"""
         if str(query).startswith("set") and ctx.message.channel_mentions:
-            return await self.bot.reply(ctx, "🚫 You probably meant to use .tf, not .transfers.", mention_author=True)
+            return await self.bot.reply(ctx, "🚫 You probably meant to use .tf, not .transfers.", ping=True)
 
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', mention_author=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', ping=True)
 
         team = await transfer_tools.TransferSearch.search(ctx, query, category="Clubs", returns_object=True)
         if team is None:
@@ -107,11 +110,11 @@ class Lookups(commands.Cog):
             e.title = f"Outbound Transfers for {e.title}"
             e.colour = discord.Colour.red()
             embeds += embed_utils.rows_to_embeds(e, [str(i) for i in outbound])
-            
+
         await embed_utils.paginate(ctx, embeds)
 
-    @commands.command(name="rumours", aliases=["rumors"])
-    async def _rumours(self, ctx, *, query: commands.clean_content = None):
+    @commands.command(aliases=["rumors"])
+    async def rumours(self, ctx, *, query: commands.clean_content = None):
         """Get the latest transfer rumours for a team"""
         if query is None:
             return self.bot.reply(ctx, "You need to specify a team name to search for rumours from.")
@@ -127,7 +130,7 @@ class Lookups(commands.Cog):
         """Get a team's expiring contracts"""
         if query is None:
             return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for contracts from.',
-                                        mention_author=True)
+                                        ping=True)
 
         res = await transfer_tools.TransferSearch.search(ctx, query, category="Clubs", returns_object=True)
         if res is None:
@@ -140,7 +143,7 @@ class Lookups(commands.Cog):
         """Get a list of a team's trophies"""
         if query is None:
             return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for trophies for.',
-                                        mention_author=True)
+                                        ping=True)
 
         res = await transfer_tools.TransferSearch.search(ctx, query, category="Clubs", returns_object=True)
         if res is None:

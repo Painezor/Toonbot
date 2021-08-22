@@ -23,13 +23,17 @@ poll_emojis = ["1\N{variation selector-16}\N{combining enclosing keycap}",
                ":keycap_ten:"]
 
 
+# TODO: Select / Button Pass.
+
+
 class Fun(commands.Cog):
     """Toys"""
-    
+
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "🤡"
         reload(embed_utils)
-    
+
     @commands.command(name="8ball", aliases=["8"])
     async def eightball(self, ctx):
         """Magic Geordie 8ball"""
@@ -87,7 +91,7 @@ class Fun(commands.Cog):
     async def poll(self, ctx, *, poll_string):
         """Create a poll with multiple choice answers.
         
-        End the question with a ? and separate each answer with"""
+        End the question with a ? and separate each answer with a ','"""
         try:
             question, answers = poll_string.split('?')
             if answers:     
@@ -163,12 +167,12 @@ class Fun(commands.Cog):
             if reaction.message.id == m.id and user == ctx.author:
                 e = str(reaction.emoji)
                 return e == '🎲'
-        
+
         while True:
             try:
                 rea = await self.bot.wait_for("reaction_add", check=check, timeout=120)
             except asyncio.TimeoutError:
-                await m.remove_reaction('🎲', ctx.me)
+                await m.clear_reactions()
                 break
             rea = rea[0]
             if rea.emoji == '🎲':
@@ -178,13 +182,15 @@ class Fun(commands.Cog):
                 except discord.Forbidden:
                     pass
                 await m.edit(content=await write(resp), allowed_mentions=discord.AllowedMentions().none())
-    
+
     @commands.command(aliases=["choice", "pick", "select"], usage="Option 1, Option 2, Option 3 ...")
-    async def choose(self, ctx, *, choices):
+    async def choose(self, ctx, *, choices: commands.clean_content = None):
         """Make a decision for me (seperate choices with commas)"""
-        choices = discord.utils.escape_mentions(choices)
-        x = choices.split(",")
-        await self.bot.reply(ctx, text=f"{random.choice(x)}")
+        if choices is None:
+            return await self.bot.send(ctx, "You need to specify some options to choose from.")
+
+        choices = str(choices).split(", ")
+        await self.bot.reply(ctx, f"{random.choice(choices)}")
     
     @commands.command(hidden=True)
     @commands.bot_has_permissions(kick_members=True)
@@ -195,11 +201,11 @@ class Fun(commands.Cog):
         outcome = random.choice(x)
         if outcome == "🔫 BANG!":
             try:
-                await self.bot.reply(ctx, text=f"🔫 BANG!", mention_author=True)
+                await self.bot.reply(ctx, text=f"🔫 BANG!", ping=True)
                 await ctx.author.kick(reason="roulette")
             except discord.Forbidden:
                 await self.bot.reply(ctx, text=f"Your skull is too thick to penetrate with these bullets.",
-                                     mention_author=True)
+                                     ping=True)
         else:
             await self.bot.reply(ctx, text=outcome)
     
@@ -365,7 +371,7 @@ class Fun(commands.Cog):
                     sides = int(sides)
                 
                 if dice > 100 or sides > 10001:
-                    return await self.bot.reply(ctx, text='Fuck off, no.', mention_author=True)
+                    return await self.bot.reply(ctx, text='Fuck off, no.', ping=True)
             
             e.description += f"{roll}: "
             total_roll = 0

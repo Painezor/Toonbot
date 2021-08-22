@@ -9,14 +9,17 @@ import discord
 from discord.ext import commands
 from discord.ext.commands import ExtensionNotLoaded, ExtensionNotFound
 
-from ext.utils import codeblocks, embed_utils
+from ext.utils import codeblocks, embed_utils, browser
 
+
+# TODO: Select / Button Pass.
 
 class Admin(commands.Cog):
     """Code debug & 1oading of modules"""
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "🛠️"
         self.bot.socket_stats = Counter()
         self.bot.loop.create_task(self.update_ignored())
 
@@ -43,7 +46,7 @@ class Admin(commands.Cog):
         """Change the bot's avatar"""
         async with self.bot.session.get(new_pic) as resp:
             if resp.status != 200:
-                return await self.bot.reply(ctx, text=f"HTTP Error: Status Code {resp.status}", mention_author=True)
+                return await self.bot.reply(ctx, text=f"HTTP Error: Status Code {resp.status}", ping=True)
             profile_img = await resp.read()
         await self.bot.user.edit(avatar=profile_img)
 
@@ -54,7 +57,7 @@ class Admin(commands.Cog):
         system('cls')
         print(f'{self.bot.user}: {self.bot.initialised_at}\n-----------------------------------------')
         e = discord.Embed()
-        e.colour = discord.Colour.blurple()
+        e.colour = discord.Colour.og_blurple()
         e.description = "[ADMIN] Console Log Cleared."
         await self.bot.reply(ctx, embed=e)
         print(f"Console cleared at: {datetime.datetime.utcnow()}")
@@ -70,10 +73,10 @@ class Admin(commands.Cog):
             try:
                 self.bot.load_extension(module)
             except ExtensionNotFound:
-                return await self.bot.reply(ctx, text=f'🚫 Invalid extension {module}', mention_author=True)
+                return await self.bot.reply(ctx, text=f'🚫 Invalid extension {module}', ping=True)
             await self.bot.reply(ctx, text=f':gear: Loaded {module}')
         except Exception as e:
-            await self.bot.reply(ctx, text=codeblocks.error_to_codeblock(e), mention_author=True)
+            await self.bot.reply(ctx, text=codeblocks.error_to_codeblock(e), ping=True)
 
     @commands.command()
     @commands.is_owner()
@@ -82,7 +85,7 @@ class Admin(commands.Cog):
         try:
             self.bot.load_extension(module)
         except Exception as e:
-            await self.bot.reply(ctx, text=codeblocks.error_to_codeblock(e), mention_author=True)
+            await self.bot.reply(ctx, text=codeblocks.error_to_codeblock(e), ping=True)
         else:
             await self.bot.reply(ctx, text=f':gear: Loaded {module}')
 
@@ -93,7 +96,7 @@ class Admin(commands.Cog):
         try:
             self.bot.unload_extension(module)
         except Exception as e:
-            await self.bot.reply(ctx, text=codeblocks.error_to_codeblock(e), mention_author=True)
+            await self.bot.reply(ctx, text=codeblocks.error_to_codeblock(e), ping=True)
         else:
             await self.bot.reply(ctx, text=f':gear: Unloaded {module}')
 
@@ -127,7 +130,7 @@ class Admin(commands.Cog):
     async def commandstats(self, ctx):
         """Counts how many commands have been ran this session."""
         e = discord.Embed()
-        e.colour = discord.Colour.blurple()
+        e.colour = discord.Colour.og_blurple()
         e.title = f"{sum(self.bot.commands_used.values())} commands ran this session"
         
         counter = self.bot.commands_used
@@ -174,7 +177,7 @@ class Admin(commands.Cog):
         user = self.bot.get_user(user_id)
         e = discord.Embed(color=0x00ff00)
         e.title = f"User found on {len(matches)} servers."
-        e.set_author(name=f"{user} (ID: {user_id})", icon_url=user.avatar_url or user.default_avatar_url)
+        e.set_author(name=f"{user} (ID: {user_id})", icon_url=user.avatar.url or user.default_avatar.url)
 
         embeds = embed_utils.rows_to_embeds(e, matches)
         await embed_utils.paginate(ctx, embeds)
@@ -197,6 +200,14 @@ class Admin(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, *escaped)
             await self.bot.db.release(connection)
+
+    @commands.command()
+    @commands.is_owner()
+    async def kill_browser(self, ctx):
+        """ Restart browser when you potato. """
+        await self.bot.browser.close()
+        await self.bot.reply(ctx, "Browser closed.")
+        await browser.make_browser(ctx.bot)
 
 
 def setup(bot):

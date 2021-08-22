@@ -16,6 +16,7 @@ class RSS(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "📣"
         self.bot.eu_news = self.eu_news.start()
         self.bot.dev_blog = self.dev_blog.start()
         self.cache = []
@@ -64,9 +65,11 @@ class RSS(commands.Cog):
 
             # Fetch Image from JS Heavy news page because it looks pretty.
             page = await self.bot.browser.newPage()
-            await browser.fetch(page, link, xpath=".//div[@class='header__background']")
-            tree = html.fromstring(await page.content())
-            await page.close()
+            try:
+                await browser.fetch(page, link, xpath=".//div[@class='header__background']")
+                tree = html.fromstring(await page.content())
+            finally:
+                await page.close()
 
             try:
                 background_image = "".join(tree.xpath('.//div[@class="header__background"]/@style')).split('"')[1]
@@ -121,13 +124,12 @@ class RSS(commands.Cog):
         e.set_author(name="World of Warships Development Blog", url="https://blog.worldofwarships.com/")
         e.title = title
         e.url = url
-        e.timestamp = datetime.datetime.now()
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
         main_image = None
 
         desc = ""
 
-        bullet_type = "•"
         for node in article_html.iterdescendants():
             if node.tag == "p":
                 if node.text is None:
@@ -146,10 +148,10 @@ class RSS(commands.Cog):
                 elif node.getparent().text is None:
                     section = f"**{node.text}**\n"
                 else:
-                    section = f"**{node.text}**"
+                    section = f"**{node.text}** "
             elif node.tag == "span":
                 if "ship" in node.attrib['class']:
-                    section = "**" + node.text + "**"
+                    section = "**" + node.text + "** "
                 else:
                     section = ""
             elif node.tag == "ul":
@@ -165,11 +167,19 @@ class RSS(commands.Cog):
 
             elif node.tag == "img":
                 if main_image is None:
-                    main_image = "http:" + node.attrib['src']
+                    src = str(node.attrib['src'])
+
+                    if not src.startswith(('http:', 'https:')):
+                        main_image = "http:" + node.attrib['src']
+                    else:
+                        main_image = node.attrib['src']
                     e.set_image(url=main_image)
                 section = ""
             else:
-                print("No tag found:", node.text)
+                if node.text:
+                    print("No tag found:", node.text)
+                else:
+                    print(node.__dict__)
                 section = ""
 
             if "Announced adjustments and features" in section:
@@ -179,9 +189,11 @@ class RSS(commands.Cog):
             if len(desc) + len(section) < 2048:
                 desc += section
             else:
-                trunc = f"... \n\n[Read Full Article]({url})"
-                desc = desc.ljust(2048)[:2048 - len(trunc)] + trunc
+                trunc = f"...\n[Read Full Article]({url})"
+                desc = desc.ljust(2048)[:2000 - len(trunc)] + trunc
                 break
+
+        print(len(desc))
 
         e.description = desc
         return e
@@ -190,8 +202,17 @@ class RSS(commands.Cog):
     @commands.is_owner()
     async def rss(self, ctx):
         """Test dev blog output"""
-        url = "https://blog.worldofwarships.com/blog/183"
-        e = await self.parse(url)
+        async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
+            tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
+
+        articles = tree.xpath('.//item')
+        link = ""
+        for i in articles:
+            link = "".join(i.xpath('.//guid/text()'))
+            if link:
+                break
+
+        e = await self.parse(link)
         await self.bot.reply(ctx, embed=e)
 
 

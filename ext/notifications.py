@@ -11,12 +11,15 @@ from ext.utils import timed_events
 TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 
 
+# TODO: Select / Button Pass.
+
 class Notifications(commands.Cog):
     """Guild Moderation Commands"""
-    
+
     def __init__(self, bot):
         self.bot = bot
         self.records = []
+        self.emoji = "📣"
         self.bot.loop.create_task(self.update_cache())
     
     # TODO: Custom welcome message
@@ -70,34 +73,37 @@ class Notifications(commands.Cog):
     
     # Join messages
     @commands.Cog.listener()
-    async def on_member_join(self, new_member):
+    async def on_member_join(self, member):
         """Event handler to Dispatch new member information for servers that request it"""
         try:
-            joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == new_member.guild.id][0]
-            ch = self.bot.get_channel(joins)
-            if ch is None:
-                return
+            joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == member.guild.id][0]
         except IndexError:
+            return
+
+        ch = self.bot.get_channel(joins)
+        if ch is None:
             return
 
         # Extended member join information.
         e = discord.Embed()
         e.colour = 0x7289DA
-        s = sum(1 for m in self.bot.get_all_members() if m.id == new_member.id)
-        e.title = str(new_member)
-        e.add_field(name='User ID', value=new_member.id)
-        e.add_field(name='Mutual Servers', value=f'{s} shared')
-        if new_member.bot:
-            e.description = '**This is a bot account**'
+        e.description = f"➡ {member.mention} joined {member.guild.name}"
+        e.description += f'\n**User ID**: {member.id}'
 
-        timestamp = timed_events.timestamp(mode="daterel", time=new_member.created_at)
+        other_servers = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
+        if other_servers:
+            e.add_field(name='Shared Servers', value=f'Seen on {other_servers} other_servers')
+        if member.bot:
+            e.description += '\n\n🤖 **This is a bot account**'
+
+        timestamp = timed_events.timestamp(mode="daterel", time=member.created_at)
 
         e.add_field(name="Account Created", value=timestamp, inline=False)
-        e.set_thumbnail(url=new_member.avatar_url)
+        e.set_thumbnail(url=member.avatar.url)
 
         try:
             await ch.send(embed=e)
-        except discord.Forbidden:  # If you wanna fuck up your settings it's not my fault.
+        except discord.HTTPException:  # If you wanna fuck up your settings it's not my fault.
             pass
     
     @commands.has_permissions(manage_channels=True)
@@ -110,9 +116,9 @@ class Notifications(commands.Cog):
             rep = " not currently being output" if ch is None else f" currently being output to {ch.mention}"
             return await self.bot.reply(ctx, text=f'Member information is ' + rep)
 
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
-                                        mention_author=True)
+                                        ping=True)
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -166,12 +172,12 @@ class Notifications(commands.Cog):
                 return
         except IndexError:
             return
-        
+
         a = message.author
-        
+
         e = discord.Embed()
-        e.set_author(name=f"{a} (ID: {a.id})", icon_url=a.avatar_url)
-        e.timestamp = datetime.datetime.now()
+        e.set_author(name=f"{a} (ID: {a.id})", icon_url=a.avatar.url)
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.set_footer(text=f"🗑️ Deleted message from {message.channel.name}")
         e.description = message.clean_content
 
@@ -197,8 +203,8 @@ class Notifications(commands.Cog):
             rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
             return await self.bot.reply(ctx, text=f'Deleted messages are ' + rep)
 
-        if not ctx.me.permissions_in(channel).send_messages:
-            return await self.bot.reply(ctx, text=f"🚫 I can't send messages to {channel.mention}", mention_author=True)
+        if not channel.permissions_for(ctx.me).send_messages:
+            return await self.bot.reply(ctx, text=f"🚫 I can't send messages to {channel.mention}", ping=True)
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -232,8 +238,8 @@ class Notifications(commands.Cog):
             rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
             return await self.bot.reply(ctx, text=f'Member leave information is ' + rep)
 
-        if not ctx.me.permissions_in(channel).send_messages:
-            return await self.bot.reply(ctx, f'🚫 I cannot send messages to {channel.mention}.', mention_author=True)
+        if not channel.permissions_for(ctx.me).send_messages:
+            return await self.bot.reply(ctx, f'🚫 I cannot send messages to {channel.mention}.', ping=True)
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -288,9 +294,9 @@ class Notifications(commands.Cog):
             rep = " not currently being output" if ch is None else f" currently being output to {ch.mention}"
             return await self.bot.reply(ctx, text=f'Mute notifications are' + rep)
 
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
-                                        mention_author=True)
+                                        ping=True)
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -325,9 +331,9 @@ class Notifications(commands.Cog):
             rep = "not currently being output." if ch is None else f' currently being output to {ch.mention}'
             return await self.bot.reply(ctx, text="Emoji change notifications are " + rep)
 
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
-                                        mention_author=True)
+                                        ping=True)
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 

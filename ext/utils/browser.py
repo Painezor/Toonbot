@@ -72,20 +72,18 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
     
     if screenshot:
         await page.setViewport({"width": 1900, "height": 1100})
-        element = await page.xpath(xpath)
-        try:
-            element = element[0]
-        except IndexError:
-            return None
+        elements = await page.xpath(xpath)
+        if elements:
+            bbox = await elements[0].boundingBox()
+            bbox['height'] *= len(elements)
+            screenshot = Image.open(BytesIO(await page.screenshot(clip=bbox)))
         else:
-            raw_screenshot = await element.screenshot()
-        
-        im = Image.open(BytesIO(raw_screenshot))
+            return None
+
         output = BytesIO()
-        im.save(output, 'PNG')
-        im.close()
+        screenshot.save(output, 'PNG')
+        screenshot.close()
         output.seek(0)
-        
         return output
     else:
         return src

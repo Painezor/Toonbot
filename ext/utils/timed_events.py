@@ -5,6 +5,17 @@ import discord
 from discord.utils import sleep_until
 
 
+# Time Formats:
+# <t:1628343360:d>	07/08/2021
+# <t:1628343360:f>	7 August 2021 14:36
+# <t:1628343360:t>	14:36
+# <t:1628343360:D>	7 August 2021
+# <t:1628343360:F>	Saturday, 7 August 2021 14:36
+# <t:1628343360:R>	a few seconds ago
+# <t:1628343360:T>	14:36:00
+#
+
+
 def timestamp(mode: str = None, time: datetime.datetime = None) -> str:
 	"""Get current unix timestamp"""
 	time = datetime.datetime.now() if time is None else time
@@ -14,11 +25,20 @@ def timestamp(mode: str = None, time: datetime.datetime = None) -> str:
 	if mode == "long":
 		return f"<t:{ut}:f> (<t:{ut}:R>)"
 
+	elif mode == "daterel":
+		return f"<t:{ut}:d> (<t:{ut}:R>)"
+
+	elif mode == "time_relative":
+		return f"<t:{ut}:t> (<t:{ut}:R>)"
+
 	elif mode == "countdown":
 		return f"<t:{ut}:R>"
 
-	elif mode == "daterel":
-		return f"<t:{ut}:d> (<t:{ut}:R>)"
+	elif mode == "date":
+		return f"<t:{ut}:d>"
+
+	elif mode == "datetime":
+		return f"<t:{ut}:f>"
 
 	else:
 		return f"<t:{ut}:t>"
@@ -97,7 +117,7 @@ async def spool_reminder(bot, record):
 		pass
 	
 	try:
-		await msg.reply(embed=e, mention_author=True)
+		await msg.reply(embed=e, ping=True)
 	except discord.NotFound:
 		try:
 			await msg.channel.send(mention, embed=e)

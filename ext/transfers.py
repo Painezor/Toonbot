@@ -20,11 +20,14 @@ LG = [(":england: Premier League", "https://www.transfermarkt.co.uk/premier-leag
       ("🇺🇸 Major League Soccer", "https://www.transfermarkt.co.uk/major-league-soccer/startseite/wettbewerb/MLS1")]
 
 
+# TODO: Select / Button Pass.
+
 class Transfers(commands.Cog):
     """Create and configure Transfer Ticker channels"""
-    
+
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "💸"
         self.parsed = []
         self.bot.transfers = self.transfer_ticker.start()
         self.warn_once = []
@@ -62,7 +65,7 @@ class Transfers(commands.Cog):
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
                 continue
 
-            perms = ch.guild.me.permissions_in(ch)
+            perms = ch.permissions_for(ch.guild.me)
             if not perms.send_messages or not perms.embed_links:
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
 
@@ -74,7 +77,7 @@ class Transfers(commands.Cog):
         e = discord.Embed()
         e.colour = discord.Colour.dark_blue()
         e.title = "Toonbot Transfer Ticker config"
-        e.set_thumbnail(url=self.bot.user.avatar_url)
+        e.set_thumbnail(url=self.bot.user.avatar.url)
         return e
 
     async def warn_missing_perms(self, ctx):
@@ -90,12 +93,12 @@ class Transfers(commands.Cog):
         if deleted > 0:
             await self.bot.reply(ctx, f"{deleted} of your transfer-ticker channel(s) appear to be deleted.")
 
-        no_send_perms = [i.mention for i in not_deleted if not ctx.me.permissions_in(i).send_messages]
+        no_send_perms = [i.mention for i in not_deleted if not i.permissions_for(ctx.me).send_messages]
         if no_send_perms:
             await self.bot.reply(ctx, f"WARNING: I do not have send_messages permissions in {''.join(no_send_perms)}\n"
                                       f"**Transfers will not be output**")
 
-        no_embed_perms = [i.mention for i in not_deleted if not ctx.me.permissions_in(i).embed_links]
+        no_embed_perms = [i.mention for i in not_deleted if not i.permissions_for(ctx.me).embed_links]
         if no_embed_perms:
             await self.bot.reply(ctx, f"WARNING: I do not have embed_links permissions in {''.join(no_send_perms)}\n"
                                       f"**Transfers will not be output**")
@@ -105,9 +108,9 @@ class Transfers(commands.Cog):
         e = await self.base_embed
         header = f'Tracked leagues for {channel.mention}\n'
 
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             header += "```css\n[WARNING]: I do not have send_messages permissions in that channel!"
-        if not ctx.me.permissions_in(channel).embed_links:
+        if not channel.permissions_for(ctx.me).embed_links:
             header += "```css\n[WARNING]: I do not have embed_links permissions in that channel!"
 
         leagues = self.cache[(ctx.guild.id, channel.id)]
@@ -126,7 +129,7 @@ class Transfers(commands.Cog):
         # Assure guild has transfer channel.
         if ctx.guild.id not in [i[0] for i in self.cache]:
             await self.bot.reply(ctx, text=f'{ctx.guild.name} does not have any transfer tickers set.',
-                                 mention_author=True)
+                                 ping=True)
             return []
         
         if channels:
@@ -135,7 +138,7 @@ class Transfers(commands.Cog):
             channels = [channels] if isinstance(channels, discord.TextChannel) else channels
             for i in channels:
                 if i.id not in [c[1] for c in self.cache]:
-                    await self.bot.reply(ctx, text=f"{i.mention} is not set as a transfer ticker.", mention_author=True)
+                    await self.bot.reply(ctx, text=f"{i.mention} is not set as a transfer ticker.", ping=True)
                 else:
                     checking = self.bot.get_channel(i.id)
                     if checking is None or checking.guild.id != ctx.guild.id:  # Do not edit other server settings.
@@ -237,7 +240,7 @@ class Transfers(commands.Cog):
                     if link in new_league_link or link in old_league_link:
                         try:
                             await ch.send(embed=e)
-                        except (discord.NotFound, discord.Forbidden):  # This is your problem, not mine.
+                        except discord.HTTPException:  # This is your problem, not mine.
                             pass
                         break
 
@@ -264,7 +267,7 @@ class Transfers(commands.Cog):
         """Add a league or team to your transfer ticker channel(s)"""
         if query is None:
             err = '🚫 You need to specify a league name to search for'
-            return await self.bot.reply(ctx, text=err, mention_author=True)
+            return await self.bot.reply(ctx, text=err, ping=True)
 
         channel = await self._pick_channels(ctx, channels)
         if not channel:
@@ -297,7 +300,7 @@ class Transfers(commands.Cog):
         """Remove a whitelisted item from your transfer channel ticker"""
         if target is None:
             err = '🚫 You need to specify which league to remove'
-            return await self.bot.reply(ctx, text=err, mention_author=True)
+            return await self.bot.reply(ctx, text=err, ping=True)
 
         channel = await self._pick_channels(ctx, channels)
         if not channel:
@@ -378,12 +381,12 @@ class Transfers(commands.Cog):
         if channel is None:
             channel = ctx.channel
 
-        if not ctx.me.permissions_in(channel).send_messages:
+        if not channel.permissions_for(ctx.me).send_messages:
             failmsg = "� I do not have send_messages permissions in that channel."
-            return await self.bot.reply(ctx, text=failmsg, mention_author=True)
-        elif not ctx.me.permissions_in(channel).embed_links:
+            return await self.bot.reply(ctx, text=failmsg, ping=True)
+        elif not channel.permissions_for(ctx.me).embed_links:
             failmsg = "� I do not have embed_links permissions in that channel."
-            return await self.bot.reply(ctx, text=failmsg, mention_author=True)
+            return await self.bot.reply(ctx, text=failmsg, ping=True)
         
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -407,15 +410,18 @@ class Transfers(commands.Cog):
     @commands.has_permissions(manage_channels=True)
     async def unset(self, ctx, channels: commands.Greedy[discord.TextChannel] = None):
         """Remove a channel's transfer ticker"""
-        channel = await self._pick_channels(ctx, channels)
-        if channel is None:
+        channels = await self._pick_channels(ctx, channels)
+        if channels is None:
             return
 
         connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
+        channels = [channels] if isinstance(channels, discord.TextChannel) else channels
+
+        for i in channels:
+            async with connection.transaction():
+                await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", i.id)
+                await self.bot.reply(ctx, text=f"✅ Removed transfer ticker from {i.mention}")
         await self.bot.db.release(connection)
-        await self.bot.reply(ctx, text=f"✅ Removed transfer ticker from {channel.mention}")
         await self.update_cache()
 
     @tf.command(usage="<channel_id>", hidden=True)

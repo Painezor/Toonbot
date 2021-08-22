@@ -10,13 +10,16 @@ from discord.ext import commands
 from ext.utils import embed_utils
 
 
+# TODO: Select / Button Pass.
+
 class QuoteDB(commands.Cog):
     """Quote Database module"""
 
     def __init__(self, bot):
         self.bot = bot
+        self.emoji = "💬"
         reload(embed_utils)
-        
+
     async def embed_quotes(self, records: list):
         """Create an embed for a list of quotes"""
         embeds = []
@@ -33,7 +36,7 @@ class QuoteDB(commands.Cog):
             try:
                 author = self.bot.get_user(r["author_user_id"])
                 e.set_author(name=f"{author.display_name} in #{channel}", icon_url=quote_img)
-                e.set_thumbnail(url=author.avatar_url)
+                e.set_thumbnail(url=author.avatar.url)
             except AttributeError:
                 e.set_author(name=f"Deleted User in #{channel}")
                 e.set_thumbnail(url=quote_img)
@@ -47,7 +50,7 @@ class QuoteDB(commands.Cog):
             e.description += r["message_content"]
                 
             try:
-                e.set_footer(text=f"Added by {submitter}", icon_url=submitter.avatar_url)
+                e.set_footer(text=f"Added by {submitter}", icon_url=submitter.avatar.url)
             except AttributeError:
                 e.set_footer(text="Added by a Deleted User")
             
@@ -142,13 +145,13 @@ class QuoteDB(commands.Cog):
         elif isinstance(target, discord.Message):
             m = target
         else:
-            return await self.bot.reply(ctx, text='Invalid argument provided for target.', mention_author=True)
+            return await self.bot.reply(ctx, text='Invalid argument provided for target.', ping=True)
 
         if m.author.id == ctx.author.id:
-            return await self.bot.reply(ctx, text="You can't quote yourself.", mention_author=True)
+            return await self.bot.reply(ctx, text="You can't quote yourself.", ping=True)
 
         if not m.content:
-            return await self.bot.reply(ctx, text='That message has no content.', mention_author=True)
+            return await self.bot.reply(ctx, text='That message has no content.', ping=True)
         
         await self.bot.reply(ctx, text="Attempting to add quote to db...", delete_after=5)
         connection = await self.bot.db.acquire()
@@ -206,11 +209,11 @@ class QuoteDB(commands.Cog):
         await self.bot.db.release(connection)
         
         if r is None:
-            return await self.bot.reply(ctx, text=f"No quote found with ID #{quote_id}", mention_author=True)
+            return await self.bot.reply(ctx, text=f"No quote found with ID #{quote_id}", ping=True)
 
         if r["guild_id"] != ctx.guild.id:
             if ctx.author.id != self.bot.owner_id:
-                return await self.bot.reply(ctx, text=f"You can't delete other servers quotes.", mention_author=True)
+                return await self.bot.reply(ctx, text=f"You can't delete other servers quotes.", ping=True)
 
         e = await self.embed_quotes([r])
         e = e[0]  # There will only be one quote to return for this.
@@ -224,7 +227,7 @@ class QuoteDB(commands.Cog):
             await self.bot.reply(ctx, text=f"Quote #{quote_id} has been deleted.")
         
         try:
-            m = await self.bot.reply(ctx, text="Delete this quote?", embed=e, mention_author=True)
+            m = await self.bot.reply(ctx, text="Delete this quote?", embed=e, ping=True)
             await embed_utils.bulk_react(ctx, m, ["👍", "👎"])
         except AssertionError:  # Skip confirm if can't react.
             return await delete()
@@ -253,7 +256,7 @@ class QuoteDB(commands.Cog):
     @quote.command(usage="<#channel or @user>")
     async def stats(self, ctx, target: typing.Union[discord.Member, discord.TextChannel] = None):
         """See quote stats for a user or channel"""
-        e = discord.Embed(color=discord.Color.blurple())
+        e = discord.Embed(color=discord.Color.og_blurple())
         if target is None:
             target = ctx.author
         try:
@@ -280,13 +283,13 @@ class QuoteDB(commands.Cog):
         e.set_author(icon_url="https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png", name="Quote Stats")
 
         if isinstance(target, discord.Member):
-            e.set_thumbnail(url=target.avatar_url)
+            e.set_thumbnail(url=target.avatar.url)
             if ctx.guild:
                 e.add_field(name=ctx.guild.name, value=f"Quoted {r['auth_g']} times.\n Added {r['sub_g']} quotes.",
                             inline=False)
             e.add_field(name="Global", value=f"Quoted {r['author']} times.\n Added {r['sub']} quotes.", inline=False)
         else:
-            e.set_thumbnail(url=target.guild.icon_url)
+            e.set_thumbnail(url=target.guild.icon.url)
             e.add_field(name="Channel quotes", value=f"{r['channel']} quotes from in this channel", inline=False)
             e.add_field(name=f"{target.guild.name} quotes", value=f"{r['guild']} quotes found from this guild.",
                         inline=False)

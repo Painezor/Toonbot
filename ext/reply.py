@@ -41,20 +41,21 @@ class ReplyHandler(commands.Cog):
             image = None
 
         try:  # First we attempt to use direct reply functionality
-            await ctx.reply(text, embed=embed, view=view, file=image, delete_after=delete_after, mention_author=ping)
-            return
+            return await ctx.reply(text, embed=embed, view=view, file=image, delete_after=delete_after,
+                                   mention_author=ping)
         except discord.HTTPException:
             try:
-                await ctx.send(text, embed=embed, view=view, file=image, delete_after=delete_after, mention_author=ping)
-                return
+                return await ctx.send(text, embed=embed, view=view, file=image, delete_after=delete_after,
+                                      mention_author=ping)
             except discord.HTTPException:
                 pass
 
         # Final fallback, DM invoker.
         try:
             target = ctx.author
-            await target.send(text, embed=embed, view=view, file=image, delete_after=delete_after, mention_author=ping)
-            return
+            return await target.send(text, embed=embed, view=view, file=image, delete_after=delete_after,
+                                     mention_author=ping)
+
         except discord.HTTPException:
             if ctx.author.id == 210582977493598208:
                 print(text)
