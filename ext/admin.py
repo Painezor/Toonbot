@@ -283,7 +283,7 @@ class Admin(commands.Cog):
         rows = [i['user_id'] for i in ignored_list]
         embeds = embed_utils.rows_to_embeds(self.base_embed, rows)
         view = view_utils.Paginator(ctx.author, embeds)
-        view.message = await self.bot.reply(ctx, "Fetching Shared Servers...", view=view)
+        view.message = await self.bot.reply(ctx, "Fetching Ignored Users...", view=view)
         await view.update()
 
     @commands.command()
