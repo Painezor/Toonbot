@@ -781,7 +781,7 @@ class Fixtures(commands.Cog):
             await page.close()
 
     @commands.command(aliases=['st'], usage="<team to search for>")
-    async def stats(self, ctx, *, qry: commands.clean_content):
+    async def stats(self, ctx, *, qry: commands.clean_content = None):
         """Look up the stats for a fixture."""
         fsr = await self.search(ctx, qry, include_fs=True, include_live=True, mode="team")
         if fsr is None:
@@ -802,7 +802,7 @@ class Fixtures(commands.Cog):
             await page.close()
 
     @commands.command(usage="<team to search for>", aliases=["formations", "lineup", "lineups", 'fm'])
-    async def formation(self, ctx, *, qry: commands.clean_content):
+    async def formation(self, ctx, *, qry: commands.clean_content = None):
         """Look up the formation for a Fixture."""
         fsr = await self.search(ctx, qry, include_fs=True, include_live=True)
         if fsr is None:
@@ -823,7 +823,7 @@ class Fixtures(commands.Cog):
             await page.close()
 
     @commands.command(aliases=["sum"])
-    async def summary(self, ctx, *, qry: commands.clean_content):
+    async def summary(self, ctx, *, qry: commands.clean_content = None):
         """Get a summary for one of today's games."""
         fsr = await self.search(ctx, qry, include_fs=True, include_live=True)
         if fsr is None:
@@ -922,41 +922,12 @@ class Fixtures(commands.Cog):
         finally:
             await page.close()
 
-    @commands.command(usage="<league to search for>")
-    async def scores(self, ctx, *, search_query: commands.clean_content = ""):
-        """Fetch current scores for a specified league"""
-        embeds = []
-        e = discord.Embed()
-        e.colour = discord.Colour.og_blurple()
-        if search_query:
-            e.set_author(name=f'Live Scores matching search "{search_query}"')
-        else:
-            e.set_author(name="Live Scores for all known competitions")
-
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        dtn = timed_events.timestamp(mode="long")
-        q = str(search_query).lower()
-
-        time = f"\nScores as of: {dtn}"
-
-        matches = [i for i in self.bot.games if q in (i.home + i.away + i.league + i.country).lower()]
-
-        if not matches:
-            e.description = "No results found!"
-            return await embed_utils.paginate(ctx, [e])
-
-        game_dict = defaultdict(list)
-        for i in matches:
-            game_dict[i.full_league].append(i.scores_row)
-
-        for league, games in sorted(game_dict.items()):
-            league_embeds = embed_utils.rows_to_embeds(e, games, header=f"**{league}**", footer=time)
-            embeds += league_embeds
-        await embed_utils.paginate(ctx, embeds)
-
     @commands.command(aliases=["std"], usage="<Team or Stadium name to search for.>")
-    async def stadium(self, ctx, *, query: commands.clean_content):
+    async def stadium(self, ctx, *, query: commands.clean_content = None):
         """Lookup information about a team's stadiums"""
+        if query is None:
+            return await self.bot.reply(ctx, "🚫 You need to specify something to search for.", ping=True)
+
         stadiums = await football.get_stadiums(query)
         if not stadiums:
             return await self.bot.reply(ctx, f"🚫 No stadiums found matching search: {query}")
@@ -1002,8 +973,11 @@ class Fixtures(commands.Cog):
 
     @default.group()
     @commands.has_permissions(manage_guild=True)
-    async def team(self, ctx, qry: commands.clean_content = None):
+    async def team(self, ctx, qry: commands.clean_content):
         """Set a default team for your server's Fixture commands"""
+        if qry is None:
+            return await self.bot.reply()
+
         fsr = await self.search(ctx, qry, mode="team", include_fs=True)
 
         if fsr is None:
@@ -1033,13 +1007,16 @@ class Fixtures(commands.Cog):
         await self.bot.db.release(connection)
         await self.bot.reply(ctx, text='Your Fixtures commands will no longer use a default team.')
         await self.send_defaults(ctx)
-    
+
     @default.group(invoke_without_commands=True)
     @commands.has_permissions(manage_guild=True)
-    async def league(self, ctx, qry: commands.clean_content = None):
+    async def league(self, ctx, query: commands.clean_content):
         """Set a default league for your server's Fixture commands"""
-        await self.bot.reply(ctx, text=f'Searching for {qry}...', delete_after=5)
-        fsr = await self.search(ctx, qry, mode="league", include_fs=True)
+        if query is None:
+            return await self.bot.reply(ctx, "🚫 You need to specify something to search for.", ping=True)
+
+        await self.bot.reply(ctx, text=f'Searching for {query}...', delete_after=5)
+        fsr = await self.search(ctx, query, mode="league", include_fs=True)
 
         if fsr is None:
             return
@@ -1070,9 +1047,43 @@ class Fixtures(commands.Cog):
         await self.bot.reply(ctx, text='Your commands will no longer use a default league.')
         await self.send_defaults(ctx)
 
+    @commands.command(usage="<league to search for>")
+    async def scores(self, ctx, *, search_query: commands.clean_content = ""):
+        """Fetch current scores for a specified league"""
+
+        embeds = []
+        e = discord.Embed()
+        e.colour = discord.Colour.og_blurple()
+        if search_query:
+            e.set_author(name=f'Live Scores matching search "{search_query}"')
+        else:
+            e.set_author(name="Live Scores for all known competitions")
+
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        dtn = timed_events.timestamp(mode="long")
+        q = str(search_query).lower()
+
+        time = f"\nScores as of: {dtn}"
+
+        matches = [i for i in self.bot.games if q in (i.home + i.away + i.league + i.country).lower()]
+
+        if not matches:
+            e.description = "No results found!"
+            return await embed_utils.paginate(ctx, [e])
+
+        game_dict = defaultdict(list)
+        for i in matches:
+            game_dict[i.full_league].append(i.scores_row)
+
+        for league, games in sorted(game_dict.items()):
+            league_embeds = embed_utils.rows_to_embeds(e, games, header=f"**{league}**", footer=time)
+            embeds += league_embeds
+        await embed_utils.paginate(ctx, embeds)
+
 
 def setup(bot):
     """Load the fixtures Cog into the bot"""
     bot.add_cog(Fixtures(bot))
 
 # Maybe To do?: League.archive -> https://www.flashscore.com/football/england/premier-league/archive/
+# Maybe to do?: League.Form table.
