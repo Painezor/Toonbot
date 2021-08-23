@@ -794,7 +794,9 @@ class FlashScoreSearchResult:
             elif not time:
                 time = "?"
             elif "Postp" in time:
-                time = "🚫 Postponed "
+                time = "⏸ Postponed "
+            elif "Abn" in time:
+                time = "🚫 Abandoned"
             elif "Awrd" in time:
                 try:
                     time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m.%Y')
@@ -804,6 +806,7 @@ class FlashScoreSearchResult:
                 time = f"{time} 🚫 FF"  # Forfeit
             else:
                 try:  # Should be dd.mm hh:mm or dd.mm.yyyy
+
                     time = datetime.datetime.strptime(time, '%d.%m.%Y')
                     if time.year != datetime.datetime.now().year:
                         time = time.strftime("%d/%m/%Y")
