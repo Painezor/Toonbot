@@ -1,10 +1,11 @@
 """Generic Objects for discord Views"""
+# Generic Buttons
+import typing
 from typing import Iterable, List, Callable, Tuple
 
 import discord
 
 
-# Generic Buttons
 class PreviousButton(discord.ui.Button):
     """Previous Button for Pagination Views"""
 
@@ -68,9 +69,10 @@ class StopButton(discord.ui.Button):
     """A generic button to stop a View"""
 
     def __init__(self, row=3):
-        super().__init__(row=row)
+        super().__init__()
         self.label = "Hide"
         self.emoji = "🚫"
+        self.row = row
 
     async def callback(self, interaction: discord.Interaction):
         """Do this when button is pressed"""
@@ -164,6 +166,7 @@ class MultipleSelect(discord.ui.Select):
         """When selected assign view's requested attribute to values of selection."""
         await interaction.response.defer()
         setattr(self.view, self.attribute, self.values)
+        self.view.index = 0
         await self.view.update()
 
 
@@ -205,3 +208,44 @@ class Button(discord.ui.Button):
         """A Generic Callback"""
         await interaction.response.defer()
         await self.func()
+
+
+class Paginator(discord.ui.View):
+    """Generic Paginator that returns nothing."""
+
+    def __init__(self, author: typing.Union[discord.Member, discord.User], embeds: typing.List[discord.Embed]):
+        super().__init__()
+        self.index = 0
+        self.pages = embeds
+        self.author = author
+        self.message = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Verify clicker is owner of interaction"""
+        return self.author.id == interaction.user.id
+
+    async def update(self):
+        """Refresh the view and send to user"""
+        self.generate_buttons()
+        await self.message.edit(content="", embed=self.pages[self.index], view=self,
+                                allowed_mentions=discord.AllowedMentions.none())
+        await self.wait()
+
+    def generate_buttons(self):
+        """Add buttons to the Team embed."""
+        self.clear_items()
+
+        _ = PreviousButton()
+        _.disabled = True if self.index == 0 else False
+        self.add_item(_)
+
+        _ = PageButton()
+        _.label = f"Page {self.index + 1} of {len(self.pages)}"
+        _.disabled = True if len(self.pages) == 1 else False
+        self.add_item(_)
+
+        _ = NextButton()
+        _.disabled = True if self.index == len(self.pages) - 1 else False
+        self.add_item(_)
+
+        self.add_item(StopButton(row=0))

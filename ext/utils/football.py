@@ -5,6 +5,7 @@ import json
 import typing
 import urllib.parse
 from importlib import reload
+from inspect import getframeinfo, currentframe
 from io import BytesIO
 from json import JSONDecodeError
 
@@ -256,6 +257,7 @@ class Fixture:
     def relative_time(self):
         """Discord Native TimeStamping"""
         if not isinstance(self.time, datetime.datetime):
+            print(f"{self.time} is not an instance of datetime")
             try:
                 time = datetime.datetime.strptime(self.time, "%d.%m.%Y")
                 return timed_events.timestamp(mode="date", time=time)
@@ -449,6 +451,13 @@ class Fixture:
                 home = "".join(game.xpath('.//span[starts-with(@class, "homeParticipant")]/text()')).strip().title()
                 away = "".join(game.xpath('.//span[starts-with(@class, "awayParticipant")]/text()')).strip().title()
                 time = game.xpath('.//span[starts-with(@class, "date")]/text()')[0]
+                try:
+                    time = datetime.datetime.strptime(time, "%d.%m.%y")
+                except ValueError:
+                    f = getframeinfo(currentframe())
+                    print(f.filename, f.lineno)
+                    print(time, "format is not %d.%m.%y")
+
                 score_home, score_away = game.xpath('.//span[starts-with(@class, "regularTime")]//text()')[0].split(':')
 
                 score_home, score_away = int(score_home.strip()), int(score_away.strip())
@@ -765,20 +774,18 @@ class FlashScoreSearchResult:
                     country, league = i.xpath('.//div[contains(@class, "event__title")]//text()')
                     league = league.split(' - ')[0]
                 continue
-    
+
             # score
+            home, away = i.xpath('.//div[contains(@class,"event__participant")]/text()')
+
             try:
                 score_home, score_away = i.xpath('.//div[contains(@class,"event__scores")]/span/text()')
-            except ValueError:
-                score_home, score_away = None, None
-            else:
                 score_home = int(score_home.strip())
                 score_away = int(score_away.strip())
-    
-            home, away = i.xpath('.//div[contains(@class,"event__participant")]/text()')
-    
+            except ValueError:
+                score_home, score_away = None, None
+
             time = "".join(i.xpath('.//div[@class="event__time"]//text()'))
-    
             for x in ["Pen", 'AET', 'FRO', 'WO']:
                 time = time.replace(x, '')
     
@@ -795,8 +802,8 @@ class FlashScoreSearchResult:
                     time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m. %H:%M')
                 time = time.strftime("%d/%m/%Y")
                 time = f"{time} 🚫 FF"  # Forfeit
-            else:  # Should be dd.mm hh:mm or dd.mm.yyyy
-                try:
+            else:
+                try:  # Should be dd.mm hh:mm or dd.mm.yyyy
                     time = datetime.datetime.strptime(time, '%d.%m.%Y')
                     if time.year != datetime.datetime.now().year:
                         time = time.strftime("%d/%m/%Y")
@@ -806,6 +813,11 @@ class FlashScoreSearchResult:
                         time = datetime.datetime.strptime(f"{dtn.year}.{time}", '%Y.%d.%m. %H:%M')
                     except ValueError:
                         time = datetime.datetime.strptime(f"{dtn.year}.{dtn.day}.{dtn.month}.{time}", '%Y.%d.%m.%H:%M')
+
+                    if subpage == "/fixtures":
+                        # Fixtures: Year Correction - if in Past, increase by one year.
+                        if time < datetime.datetime.now():
+                            time = time.replace(year=time.year + 1)
     
             is_televised = True if i.xpath(".//div[contains(@class,'tv')]") else False
             fixture = Fixture(time, home.strip(), away.strip(), score_home=score_home, score_away=score_away,
@@ -834,11 +846,13 @@ class Competition(FlashScoreSearchResult):
         url = "http://flashscore.com/?r=2:" + comp_id
         await browser.fetch(page, url, ".//div[@class='team spoiler-content']")
         tree = html.fromstring(await page.content())
-        
+
         country = tree.xpath('.//h2[@class="tournament"]/a[2]//text()')[0].strip()
         league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
         title = f"{country.upper()}: {league}"
-        return cls(url=url, title=title)
+        obj = cls(url=url, title=title)
+        await obj.get_logo(page)
+        return obj
 
     @classmethod
     async def by_link(cls, link, page):
@@ -858,6 +872,7 @@ class Competition(FlashScoreSearchResult):
             title = "Unidentified League"
 
         comp = cls(url=link, title=title)
+        await comp.get_logo(page)
         return comp
 
     async def get_table(self, page) -> BytesIO:
@@ -999,7 +1014,9 @@ class Stadium:
         """Fetch more data about a target stadium"""
         async with aiohttp.ClientSession() as cs:
             async with cs.get(self.url) as resp:
-                tree = html.fromstring(await resp.text())
+                src = await resp.read()
+                src = src.decode('ISO-8859-1')
+                tree = html.fromstring(src)
         self.image = "".join(tree.xpath('.//div[@class="page-img"]/img/@src'))
         
         # Teams
@@ -1154,4 +1171,3 @@ async def fs_search(ctx, query) -> FlashScoreSearchResult or None:
         return None
 
     return search_results[index]
-
