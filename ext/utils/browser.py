@@ -8,37 +8,45 @@ from PIL import Image
 
 async def make_browser(bot):
     """Spawn an instance of Pyppeteer"""
-    # # options = {"args": [
-    # #     '--no-sandbox',
-    # #     '--disable-setuid-sandbox',
-    # #     '--disable-infobars',
-    # #     '--single-process',
-    # #     '--no-zygote',
-    # #     '--no-first-run',
-    # #     '--window-position=0,0',
-    # #     '--ignore-certificate-errors',
-    # #     '--ignore-certificate-errors-skip-list',
-    # #     '--disable-dev-shm-usage',
-    # #     '--disable-accelerated-2d-canvas',
-    # #     '--disable-gpu',
-    # #     '--hide-scrollbars',
-    # #     '--disable-notifications',
-    # #     '--disable-background-timer-throttling',
-    # #     '--disable-backgrounding-occluded-windows',
-    # #     '--disable-breakpad',
-    # #     '--disable-component-extensions-with-background-pages',
-    # #     '--disable-extensions',
-    # #     '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-    # #     '--disable-ipc-flooding-protection',
-    # #     '--disable-renderer-backgrounding',
-    # #     '--enable-features=NetworkService,NetworkServiceInProcess',
-    # #     '--force-color-profile=srgb',
-    # #     '--metrics-recording-only',
-    # #     '--mute-audio'
-    # # ]}
-    #
-    # bot.browser = await pyppeteer.launch(options=options)
-    bot.browser = await pyppeteer.launch()
+    options = {"args": [
+        '--autoplay-policy=user-gesture-required',
+        '--disable-accelerated-2d-canvas',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-background-timer-throttling',
+        '--disable-breakpad',
+        '--disable-client-side-phishing-detection',
+        '--disable-component-extensions-with-background-pages',
+        '--disable-component-update',
+        '--disable-default-apps',
+        '--disable-dev-shm-usage',
+        '--disable-extensions',
+        '--disable-features=BlinkGenPropertyTrees',
+        '--disable-ipc-flooding-protection',
+        '--disable-infobars',
+        '--disable-notifications',
+        '--disable-renderer-backgrounding',
+        '--disable-setuid-sandbox',
+        '--disable-sync',
+        '--disable-translate',
+
+        '--enable-features=NetworkService,NetworkServiceInProcess',
+        '--force-color-profile=srgb',
+
+        '--hide-scrollbars',
+
+        '--ignore-certificate-errors',
+        '--ignore-certificate-errors-skip-list',
+
+        '--metrics-recording-only',
+        '--mute-audio',
+        '--no-default-browser-check',
+        '--no-first-run',
+        '--no-zygote',
+
+        '--window-position=0,0'
+    ]}
+
+    bot.browser = await pyppeteer.launch(options=options)
 
 
 async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, debug=False) -> Union[str, BytesIO, None]:
@@ -55,8 +63,12 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
         elements = await page.xpath(x)
         for element in elements:
             await page.evaluate("""(element) => element.parentNode.removeChild(element)""", element)
-    
+
     for x in clicks:
+        try:
+            await page.waitForSelector(x, {"timeout": 1000})
+        except TimeoutError:
+            continue
         element = await page.querySelector(x)
         if element is not None:
             await element.click()
