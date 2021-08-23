@@ -19,7 +19,6 @@ def shared_check():
     def predicate(ctx):
         """THe actual check"""
         return ctx.author.id == 210582977493598208 or ctx.guild.id == 533677885748150292
-
     return commands.check(predicate)
 
 
@@ -199,11 +198,11 @@ class Admin(commands.Cog):
     async def kill(self, ctx):
         """Restarts the bot"""
         e = self.base_embed
-        await self.bot.db.close()
-        await self.bot.logout()
         e.description = ":gear: Restarting."
         e.colour = discord.Colour.red()
         await self.bot.reply(ctx, embed=e)
+        await self.bot.db.close()
+        await self.bot.logout()
 
     @commands.is_owner()
     @commands.command(aliases=['streaming', 'watching', 'listening'])
@@ -250,13 +249,11 @@ class Admin(commands.Cog):
         view.message = await self.bot.reply(ctx, "Fetching Shared Servers...", view=view)
         await view.update()
 
-    # TODO: Select / Button Pass.
     @commands.command()
     @commands.is_owner()
     async def ignore(self, ctx, users: commands.Greedy[discord.User], *, reason=None):
         """Toggle Ignoring commands from a user (reason optional)"""
         connection = await self.bot.db.acquire()
-
         e = self.base_embed
         e.title = "Ignoring Users"
         e.description = ""
@@ -267,7 +264,7 @@ class Admin(commands.Cog):
                     escaped = [i.id]
                     e.description += f"Stopped ignoring commands from {i}.\n"
                 else:
-                    sql = """INSERT INTO ignored_users (user_id,reason) = ($1,$2)"""
+                    sql = """INSERT INTO ignored_users (user_id,reason) VALUES ($1,$2)"""
                     escaped = [i.id, reason]
                     self.bot.ignored.update({i.id: reason})
                     e.description += f"Ignoring commands from {i}."
@@ -277,12 +274,28 @@ class Admin(commands.Cog):
 
     @commands.command()
     @commands.is_owner()
+    async def ignored(self, ctx):
+        """List all ignored users."""
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            ignored_list = await connection.fetchrow("""SELECT * FROM ignored_users""")
+        await self.bot.db.release(connection)
+        rows = [i['user_id'] for i in ignored_list]
+        embeds = embed_utils.rows_to_embeds(self.base_embed, rows)
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, "Fetching Shared Servers...", view=view)
+        await view.update()
+
+    @commands.command()
+    @commands.is_owner()
     async def kill_browser(self, ctx):
         """ Restart browser when you potato. """
         await self.bot.browser.close()
         await browser.make_browser(ctx.bot)
-
-        await self.bot.reply(ctx, "Browser closed.")
+        e = self.base_embed
+        e.description = ":gear: Restarting Browser."
+        e.colour = discord.Colour.red()
+        await self.bot.reply(ctx, embed=e)
 
 
 def setup(bot):
