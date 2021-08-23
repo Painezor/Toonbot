@@ -13,7 +13,8 @@ async def dump_image(ctx, img):
         return None
     ch = ctx.bot.get_channel(874655045633843240)
     img_msg = await ch.send(file=discord.File(fp=img, filename="embed_image.png"))
-    return img_msg.attachments[0].url
+    url = img_msg.attachments[0].url
+    return None if url == "none" else url
 
 
 def stitch(images: List[Image.Image]) -> BytesIO:
