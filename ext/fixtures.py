@@ -1,7 +1,6 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
 import datetime
 import typing
-from collections import defaultdict
 from copy import deepcopy
 from importlib import reload
 
@@ -1059,26 +1058,39 @@ class Fixtures(commands.Cog):
         else:
             e.set_author(name="Live Scores for all known competitions")
 
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        dtn = timed_events.timestamp(mode="long")
         q = str(search_query).lower()
-
-        time = f"\nScores as of: {dtn}"
-
         matches = [i for i in self.bot.games if q in (i.home + i.away + i.league + i.country).lower()]
 
         if not matches:
             e.description = "No results found!"
-            return await embed_utils.paginate(ctx, [e])
+            view = view_utils.Paginator(ctx.author, [e])
+            view.message = await self.bot.reply(ctx, "Fetching Current Live Games...", view=view)
+            await view.update()
+            return
 
-        game_dict = defaultdict(list)
-        for i in matches:
-            game_dict[i.full_league].append(i.scores_row)
+        header = f'Scores as of: {timed_events.timestamp(mode="long")}\n'
+        embeds = []
+        matches = [(i.full_league, i.scores_row) for i in matches]
+        _ = None
+        e.description = header
+        for x, y in matches:
+            if x != _:  # We need a new header if it's a new league.
+                _ = x
+                output = f"\n**{x}**\n{y}\n"
+            else:
+                output = f"{y}\n"
 
-        for league, games in sorted(game_dict.items()):
-            league_embeds = embed_utils.rows_to_embeds(e, games, header=f"**{league}**", footer=time)
-            embeds += league_embeds
-        await embed_utils.paginate(ctx, embeds)
+            if len(e.description + output) < 2048:
+                e.description += output
+            else:
+                embeds.append(deepcopy(e))
+                e.description = header + f"\n**{x}**\n{y}\n"
+        else:
+            embeds.append(deepcopy(e))
+
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, "Fetching Current Live Games...", view=view)
+        await view.update()
 
 
 def setup(bot):
