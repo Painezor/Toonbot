@@ -6,16 +6,23 @@ import discord
 from discord.ext import commands
 
 
-# TODO: Bad words filters
-# TODO: Select / Button Pass.
-
 class AutoMod(commands.Cog):
     """Set up automated moderation tools"""
+
     def __init__(self, bot):
         self.bot = bot
         self.emoji = "🛡️"
         self.bot.loop.create_task(self.update_cache())
         self.cache = defaultdict()
+
+    @property
+    def base_embed(self):
+        """Base Embed for commands in this cog."""
+        e = discord.Embed()
+        e.set_author(name=f"{self.emoji} {self.qualified_name}")
+        e.colour = discord.Colour.og_blurple()
+        e.set_thumbnail(url=self.bot.user.avatar.url)
+        return e
 
     async def update_cache(self):
         """Reload the latest version of the database into memory"""
@@ -31,75 +38,86 @@ class AutoMod(commands.Cog):
                  "mention_action": r['mention_action']}}
             self.cache.update(r)
 
-    @commands.has_permissions(kick_members=True, ban_members=True)
-    @commands.bot_has_permissions(kick_members=True, ban_members=True)
+    @commands.has_permissions(manage_guild=True)
     @commands.command(usage="mentionspam <number of pings> <'kick', 'mute' or 'ban'>", aliases=["pingspam"])
     async def mentionspam(self, ctx, threshold: typing.Optional[int] = None, action=None):
         """Automatically kick or ban a member for pinging more than x users in a message.
-        
         Use '0' for threshold to turn the feature off."""
-        if threshold is None:
-            # Get current data.
+        e = self.base_embed
+        e.title = "Ping Spamming"
+        error = ""
+
+        if threshold is None:  # Get current settings.
             try:
-                guild_cache = self.cache[ctx.guild.id]
-                return await self.bot.reply(ctx, text=f"I will {guild_cache['mention_action']} members who ping "
-                                                      f"{guild_cache['mention_threshold']} or more other users in "
-                                                      f"a message.")
+                c = self.cache[ctx.guild.id]
+                action = c['mention_action']
+                threshold = c['mention_threshold']
+                e.description = f"I will {action} members who ping {threshold} or more other users in a message."
             except KeyError:
-                return await self.bot.reply(ctx, text=f"No action is currently being taken against users who spam "
-                                                      f"mentions. Use {ctx.prefix}mentionspam <number> "
-                                                      f"<action ('kick', 'ban' or 'mute')> to change this")
-        elif threshold < 4:
-            return await self.bot.reply(ctx, text="Please set a limit higher than 3.", ping=True)
+                e.description = f"No action is currently being taken against users who spam mentions."
+            return await self.bot.reply(ctx, embed=e)
 
-        if action is None or action.lower() not in ['kick', 'ban', 'mute']:
-            return await self.bot.reply(ctx, text="🚫 Invalid action specified, choose 'kick', 'ban', 'mute'.",
-                                        ping=True)
+        if threshold < 4:
+            error += "Please set a limit higher than 3.\n"
 
-        action = action.lower()
-        if action == "kick":
+        action = action.lower() if action is not None else action
+        if action is None or action not in ['kick', 'ban', 'mute']:
+            error += "🚫 Invalid action specified, valid modes are: `kick`, `ban`, `mute`.",
+        elif action == "kick":
             if not ctx.channel.permissions_for(ctx.me).kick_members:
-                return await self.bot.reply(ctx, text="🚫 I need the 'kick_members' permission to do that.",
-                                            ping=True)
+                error += "🚫 I need the 'kick_members' permission to do that.\n"
             if not ctx.channel.permissions_for(ctx.author).kick_members:
-                return await self.bot.reply(ctx, text="🚫 You need the 'kick_members' permission to do that.",
-                                            ping=True)
+                error += "🚫 You need the 'kick_members' permission to do that.\n"
         elif action == "ban":
             if not ctx.channel.permissions_for(ctx.me).ban_members:
-                return await self.bot.reply(ctx, text="🚫 I need the 'ban_members' permission to do that.",
-                                            ping=True)
+                error += "🚫 I need the 'ban_members' permission to do that.\n"
             if not ctx.channel.permissions_for(ctx.author).ban_members:
-                return await self.bot.reply(ctx, text="🚫 You need the 'ban_members' permission to do that.",
-                                            ping=True)
+                error += "🚫 You need the 'ban_members' permission to do that.\n"
+        elif action == "mute":
+            if not ctx.channel.permissions_for(ctx.me).manage_roles:
+                error += "🚫 I need the 'manage_roles' permission to do that.\n"
+            if not ctx.channel.permissions_for(ctx.author).manage_roles:
+                error += "🚫 You need the 'manage_roles' permission to do that.\n"
+
+        if error:
+            e.description = error
+            e.colour = discord.Colour.red()
+            return await self.bot.reply(ctx, embed=e)
 
         connection = await self.bot.db.acquire()
-        await connection.execute("""
-        INSERT INTO mention_spam (guild_id,mention_threshold, mention_action)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (guild_id) DO UPDATE SET
-             (mention_threshold, mention_action) = ($2,$3)
-        WHERE
-             EXCLUDED.guild_id = $1
-        """, ctx.guild.id, threshold, action)
+        async with connection.transaction():
+            await connection.execute(
+                """INSERT INTO mention_spam (guild_id,mention_threshold, mention_action) VALUES ($1, $2, $3) ON CONFLICT 
+                (guild_id) DO UPDATE SET (mention_threshold, mention_action) = ($2,$3)WHERE EXCLUDED.guild_id = $1""",
+                ctx.guild.id, threshold, action)
+        await self.bot.db.release(connection)
         await self.update_cache()
-        return await self.bot.reply(ctx, text=f"✅ I will {action} users who ping {threshold} users in a message.")
+
+        action += "n" if action == "ban" else ""
+        action += "ed" if action != "mute" else "d"
+        e.description = f"Users will be {action} if they ping {threshold} users in a message."
+        return await self.bot.reply(ctx, embed=e)
 
     @commands.Cog.listener()
     async def on_message(self, message):
         """Check every single message to see if they trigger any auto-moderation rules"""
         try:
             guild_cache = self.cache[message.guild.id]
+            if guild_cache["mention_threshold"] > len(message.mentions):
+                return
         except (KeyError, AttributeError):
             return
-        if guild_cache["mention_threshold"] > len(message.mentions):
+
+        try:
+            assert guild_cache["mention_action"] in ['kick', 'ban', 'mute']
+        except AssertionError:
             return
 
         if guild_cache["mention_action"] == "kick":
             try:
                 await message.author.kick(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
             except discord.Forbidden:
-                reply = "I would have kicked you, for mentioning {len(message.mentions)} but " \
-                        "I don\'t have permissions to do that."
+                return
             else:
                 reply = f"{message.author.mention} was kicked for mention spamming."
 
@@ -107,33 +125,30 @@ class AutoMod(commands.Cog):
             try:
                 await message.author.ban(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
             except discord.HTTPException:
-                reply = f'I would have banned you for mentioning {len(message.mentions)} but ' \
-                        'I don\'t have permissions to do that.'
+                return
             else:
                 reply = f"☠️{message.author.mention} was banned for mention spamming."
 
-        elif guild_cache["mention_action"] == "mute":
+        else:
             muted_role = discord.utils.get(message.guild.roles, name='Muted')
-            if not muted_role:
+            if not muted_role:  # Create role if cannot find.
                 muted_role = await message.guild.create_role(name="Muted")
                 pos = message.guild.me.top_role.position - 1
                 await muted_role.edit(position=pos)
-                ow = discord.PermissionOverwrite(add_reactions=False, send_messages=False)
-                try:
-                    for i in message.guild.text_channels:
-                        await i.set_permissions(muted_role, overwrite=ow)
-                except discord.Forbidden:
-                    pass
-
             try:
                 await message.author.add_roles(*[muted_role])
             except discord.HTTPException:
-                reply = f'I would have muted you for mentioning {len(message.mentions)} but ' \
-                        'I don\'t have permissions to do that.'
+                return
             else:
                 reply = f"{message.author.mention} was muted for mention spam."
-        else:
-            return
+
+            # Refresh overwrites.
+            ow = discord.PermissionOverwrite(add_reactions=False, send_messages=False)
+            try:
+                for i in message.guild.text_channels:
+                    await i.set_permissions(muted_role, overwrite=ow)
+            except discord.Forbidden:
+                pass
 
         try:
             return await message.reply(reply)
@@ -144,3 +159,5 @@ class AutoMod(commands.Cog):
 def setup(bot):
     """Load the Automatic Moderation Cog"""
     bot.add_cog(AutoMod(bot))
+
+# TODO: Bad words filters
