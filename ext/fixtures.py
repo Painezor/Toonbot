@@ -188,6 +188,7 @@ class CompetitionView(discord.ui.View):
         embed.description = "No Table Found" if self.table_image is None else timed_events.timestamp(mode="long")
         embed.set_image(url=self.table_image)
         self.pages = [embed]
+        self.index = 0
         self._current_mode = "Table"
         self.filter_mode = None
         await self.update()
@@ -803,7 +804,7 @@ class Fixtures(commands.Cog):
     @commands.command(usage="<team to search for>", aliases=["formations", "lineup", "lineups", 'fm'])
     async def formation(self, ctx, *, qry: commands.clean_content = None):
         """Look up the formation for a Fixture."""
-        fsr = await self.search(ctx, qry, include_fs=True, include_live=True)
+        fsr = await self.search(ctx, qry, include_fs=True, include_live=True, mode="team")
         if fsr is None:
             return  # Rip
 
@@ -824,7 +825,7 @@ class Fixtures(commands.Cog):
     @commands.command(aliases=["sum"])
     async def summary(self, ctx, *, qry: commands.clean_content = None):
         """Get a summary for one of today's games."""
-        fsr = await self.search(ctx, qry, include_fs=True, include_live=True)
+        fsr = await self.search(ctx, qry, include_fs=True, include_live=True, mode="team")
         if fsr is None:
             return  # Rip
 
