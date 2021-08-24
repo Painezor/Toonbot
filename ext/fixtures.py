@@ -185,8 +185,12 @@ class CompetitionView(discord.ui.View):
         embed = await self.get_embed()
         embed.clear_fields()
         embed.title = f"≡ Table for {self.competition.title}"
-        embed.description = "No Table Found" if self.table_image is None else timed_events.timestamp(mode="long")
-        embed.set_image(url=self.table_image)
+        if self.table_image is not None:
+            embed.set_image(url=self.table_image)
+            embed.description = timed_events.timestamp(mode="long")
+        else:
+            embed.description = "No Table Found"
+
         self.pages = [embed]
         self.index = 0
         self._current_mode = "Table"
