@@ -96,7 +96,7 @@ def get_event_type(mode):
 
 def fallback(retry):
     """Handle fallback for automatic retrying of refreshing if data is not present"""
-    return 60 * retry if retry in range(5) else False
+    return 120 * retry if retry in range(5) else False
 
 
 def check_mode(mode):
@@ -333,6 +333,10 @@ class TickerEvent:
 
     async def event_loop(self):
         """The Fixture event's internal loop"""
+        # Verify this event is actually wanted by something.
+        if self.fixture.league not in self.bot.filtered_leagues:
+            print(f'Saved you some lookups. - Nobody wants {self.fixture.league}')
+
         # Handle full time only events.
         if self.mode == "kick_off":
             e = await self.embed
@@ -396,6 +400,7 @@ class Ticker(commands.Cog):
         self.bot = bot
         self.emoji = "⚽"
         self.cache = defaultdict(set)
+        self.bot.filtered_leagues = set()
         self.settings = defaultdict(set)
         self.bot.loop.create_task(self.update_cache())
         self.warn_once = []
@@ -432,6 +437,7 @@ class Ticker(commands.Cog):
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
 
             self.cache[(r["guild_id"], r["channel_id"])].add(r["league"])
+            self.bot.filtered_leagues.add(r["league"])
 
         connection = await self.bot.db.acquire()
         async with connection.transaction():
