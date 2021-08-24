@@ -4,6 +4,7 @@ from typing import Union
 
 import pyppeteer
 from PIL import Image
+from pyppeteer.errors import TimeoutError as _TimeoutError
 
 
 async def make_browser(bot):
@@ -55,8 +56,11 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
     clicks = [] if clicks is None else clicks
 
     assert url.startswith("http"), f"{url} does not appear to be a valid url."
-    await page.goto(url)  # DEBUG, old code: (url, {'waitUntil': 'networkidle0'})
-
+    await page.goto(url)
+    # try:
+    #     await page.waitForXPath(xpath, {"timeout": 5000})
+    # except TimeoutError:
+    #     return None
     src = await page.content()
 
     for x in deletes:
@@ -67,7 +71,7 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
     for x in clicks:
         try:
             await page.waitForSelector(x, {"timeout": 1000})
-        except TimeoutError:
+        except _TimeoutError:
             continue
         element = await page.querySelector(x)
         if element is not None:
