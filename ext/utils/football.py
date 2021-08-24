@@ -257,11 +257,11 @@ class Fixture:
     def relative_time(self):
         """Discord Native TimeStamping"""
         if not isinstance(self.time, datetime.datetime):
-            print(f"{self.time} is not an instance of datetime")
             try:
                 time = datetime.datetime.strptime(self.time, "%d.%m.%Y")
                 return timed_events.timestamp(mode="date", time=time)
             except ValueError:
+                print(f"Could not make relative timestamp for {type(self.time)}: {self.time}")
                 return self.time
 
         if self.time - datetime.timedelta(days=1) < datetime.datetime.now():
@@ -802,14 +802,14 @@ class FlashScoreSearchResult:
                     time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m.%Y')
                 except ValueError:
                     time = datetime.datetime.strptime(time.strip('Awrd'), '%d.%m. %H:%M')
-                time = time.strftime("%d/%m/%Y")
+                time = time.strftime("%d.%m.%Y")
                 time = f"{time} 🚫 FF"  # Forfeit
             else:
                 try:  # Should be dd.mm hh:mm or dd.mm.yyyy
 
                     time = datetime.datetime.strptime(time, '%d.%m.%Y')
                     if time.year != datetime.datetime.now().year:
-                        time = time.strftime("%d/%m/%Y")
+                        time = time.strftime("%d.%m.%Y")
                 except ValueError:
                     dtn = datetime.datetime.now()
                     try:
