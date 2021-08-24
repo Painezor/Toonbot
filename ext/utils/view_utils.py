@@ -149,8 +149,10 @@ class ObjectSelectView(discord.ui.View):
         """Cleanup"""
         self.clear_items()
         self.stop()
-        await self.message.delete()
-
+        try:
+            await self.message.delete()
+        except discord.NotFound:
+            pass
 
 class MultipleSelect(discord.ui.Select):
     """Select multiple matching items."""
@@ -219,6 +221,15 @@ class Paginator(discord.ui.View):
         self.pages = embeds
         self.author = author
         self.message = None
+
+    async def on_timeout(self):
+        """Remove buttons and dropdowns when listening stops."""
+        self.clear_items()
+        self.stop()
+        try:
+            await self.message.edit(view=self)
+        except discord.HTTPException:
+            pass
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Verify clicker is owner of interaction"""
