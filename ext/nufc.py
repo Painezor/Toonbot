@@ -316,11 +316,48 @@ class NUFC(commands.Cog):
         ]
         this = random.choice(facts)
         await self.bot.reply(ctx, text=f"<:mbemba:332196308825931777> Mbemba {this}?")
-    
+
     @commands.command()
     async def radio(self, ctx):
         """Sends a link to the NUFC radio channel"""
         await self.bot.reply(ctx, text="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(add_reactions=True)
+    async def uprafa(self, ctx):
+        """Adds an upvote reaction to the last 10 messages"""
+        async for message in ctx.channel.history(limit=10):
+            await message.add_reaction(":upvote:332196220460072970")
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(add_reactions=True)
+    async def downrafa(self, ctx):
+        """Adds a downvote reaction to the last 10 messages"""
+        async for message in ctx.channel.history(limit=10):
+            await message.add_reaction(":downvote:332196251959427073")
+
+    @commands.command(hidden=True)
+    @commands.has_permissions(manage_messages=True)
+    async def norafa(self, ctx, *, msgs=30):
+        """Remove reactions from last x messages"""
+        async for message in ctx.channel.history(limit=msgs):
+            await message.clear_reactions()
+
+    @commands.command(hidden=True)
+    @commands.bot_has_permissions(kick_members=True)
+    @commands.cooldown(2, 60, discord.ext.commands.cooldowns.BucketType.user)
+    async def roulette(self, ctx):
+        """Russian Roulette"""
+        x = ["click.", "click.", "click.", "click.", "click.", "🔫 BANG!"]
+        outcome = random.choice(x)
+        if outcome == "🔫 BANG!":
+            try:
+                await self.bot.reply(ctx, text=f"🔫 BANG!", ping=True)
+                await ctx.author.kick(reason="roulette")
+            except discord.Forbidden:
+                await self.bot.reply(ctx, text=f"Your skull is too thick to penetrate with these bullets.", ping=True)
+        else:
+            await self.bot.reply(ctx, text=outcome)
 
 
 def setup(bot):
