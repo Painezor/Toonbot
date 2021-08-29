@@ -594,7 +594,7 @@ class TransferSearch:
             if self.returns_object:
                 return self.results[0]
 
-        self.message = await ctx.send(embed=self.embed)
+        self.message = await ctx.bot.reply(embed=self.embed)
 
         try:
             await embed_utils.bulk_react(ctx, self.message, self.react_list)
