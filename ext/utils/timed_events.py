@@ -15,7 +15,7 @@ from discord.utils import sleep_until
 # <t:1628343360:T>	14:36:00
 #
 
-
+# TODO: Make this a class & have properties.
 def timestamp(mode: str = None, time: datetime.datetime = None) -> str:
 	"""Get current unix timestamp"""
 	time = datetime.datetime.now() if time is None else time
