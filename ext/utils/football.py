@@ -676,7 +676,7 @@ class Player:
         if hasattr(self, 'rank'):
             out += f"`{self.rank.rjust(3, ' ')}`"
 
-        out += f"{self.flag} [**{self.name}**]({self.url}) "
+        out += f"{self.flag} **[{self.name}]({self.url})** "
 
         if self.team is not None:
             out += f"([{self.team}]({self.team_url})) "
@@ -720,6 +720,9 @@ class FlashScoreSearchResult:
 
     async def get_logo(self, page):
         """Fetch any logo representing the target object"""
+        if self.logo_url is not None and "http" in self.logo_url:
+            return  # Only need to fetch once.
+
         try:
             logo = await page.xpath('.//div[contains(@class,"logo")]')
             logo = logo[0]
@@ -880,28 +883,35 @@ class Competition(FlashScoreSearchResult):
 
     async def get_table(self, page) -> BytesIO:
         """Fetch the table from a flashscore page and return it as a BytesIO object"""
+        await self.get_logo(page)
         xp = './/div[contains(@class, "tableWrapper")]/parent::div'
         table_image = await browser.fetch(page, self.url + "/standings/", xp, delete=ADS, screenshot=True)
-        await self.get_logo(page)
         return table_image
 
     async def get_scorers(self, page) -> typing.List[Player]:
         """Fetch a list of scorers from a Flashscore Competition page returned as a list of Player Objects"""
         xp = ".//div[@class='tabs__group']"
         clicks = ['a[href$="top_scorers"]', 'div[class^="showMore"]']
-        await browser.fetch(page, self.url + "/standings", xp, clicks=clicks, delete=ADS, debug=True)
         await self.get_logo(page)
+
+        uri = self.url + "/standings"
+        await browser.fetch(page, uri, xp, clicks=clicks, delete=ADS, debug=True)
 
         tree = html.fromstring(await page.content())
         rows = tree.xpath('.//div[contains(@class,"table__body")]/div')
-        
+
         players = []
         for i in rows:
             items = i.xpath('.//text()')
             items = [i.strip() for i in items if i.strip()]
             links = i.xpath(".//a/@href")
             player_link, team_link = ["http://www.flashscore.com" + i for i in links]
-            rank, name, tm, goals, assists = items
+            try:
+                rank, name, tm, goals, assists = items
+            except ValueError:
+                print(f"Unable to fetch scorer info for row on get_scorers for {uri}")
+                continue
+
             country = "".join(i.xpath('.//span[contains(@class,"flag")]/@title')).strip()
             flag = transfer_tools.get_flag(country)
             players.append(Player(rank=rank, flag=flag, name=name, url=player_link, team=tm, team_url=team_link,
