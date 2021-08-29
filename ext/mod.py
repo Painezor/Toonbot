@@ -7,8 +7,7 @@ from collections import defaultdict
 import discord
 from discord.ext import commands
 
-from ext.utils import embed_utils
-from ext.utils.embed_utils import paginate
+from ext.utils import embed_utils, view_utils
 from ext.utils.timed_events import parse_time, spool_reminder
 
 
@@ -18,18 +17,24 @@ from ext.utils.timed_events import parse_time, spool_reminder
 
 async def get_prefix(bot, message):
     """Get allowed prefixes for message context"""
-    if message.guild is None:
-        pref = [".tb ", "!", "-", "`", "!", "?", ""]
-    else:
-        pref = bot.prefix_cache[message.guild.id]
-    if not pref:
-        pref = [".tb "]
+    pref = [".tb ", "!", "-", "`", "!", "?", ""] if message.guild is None else bot.prefix_cache[message.guild.id]
+    pref = [".tb "] if not pref else pref
     return commands.when_mentioned_or(*pref)(bot, message)
+
+
+def me_or_mod(self):
+    """Verify the invoker is a moderator, or is Painezor."""
+
+    def predicate(ctx):
+        """THe actual check"""
+        return ctx.channel.permissions_for(ctx.author).manage_channels or ctx.author.id == self.bot.owner_id
+
+    return commands.check(predicate)
 
 
 class Mod(commands.Cog):
     """Guild Moderation Commands"""
-    
+
     def __init__(self, bot):
         self.bot = bot
         self.emoji = "🛡️"
@@ -41,15 +46,6 @@ class Mod(commands.Cog):
         if not hasattr(self.bot, "lockdown_cache"):
             self.bot.lockdown_cache = {}
 
-    def me_or_mod(self):
-        """Verify the invoker is a moderator, or is Painezor."""
-
-        def predicate(ctx):
-            """THe actual check"""
-            return ctx.channel.permissions_for(ctx.author).manage_channels or ctx.author.id == self.bot.owner_id
-
-        return commands.check(predicate)
-    
     # Listeners
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -58,9 +54,8 @@ class Mod(commands.Cog):
         if ctx.message.content == ctx.me.mention:
             if message.guild is None:
                 return await self.bot.reply(ctx, text=f'What?')
-            await self.bot.reply(ctx, text=f"Forgot your prefixes? They're ```css\n"
-                                           f"{', '.join(self.bot.prefix_cache[message.guild.id])}```",
-                                 ping=True)
+            _ = ', '.join(self.bot.prefix_cache[message.guild.id])
+            await self.bot.reply(ctx, text=f"Forgot your prefixes? They're ```css\n{_}```", ping=True)
     
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
@@ -186,8 +181,8 @@ class Mod(commands.Cog):
         """Rename the bot for your server."""
         await ctx.me.edit(nick=new_name)
         await self.bot.reply(ctx, text=f"My new name is {new_name} on your server.")
-    
-    @commands.command(usage="say <Channel (optional)< <what you want the bot to say>")
+
+    @commands.command(usage="[Channel] <what you want the bot to say>")
     @commands.check(me_or_mod)
     async def say(self, ctx, destination: typing.Optional[discord.TextChannel] = None, *, msg):
         """Say something as the bot in specified channel"""
@@ -199,7 +194,6 @@ class Mod(commands.Cog):
             pass
 
         assert destination.guild.id == ctx.guild.id, "You cannot send messages to other servers."
-
         await destination.send(msg)
     
     @commands.command(usage="topic <New Channel Topic>")
@@ -370,8 +364,11 @@ class Mod(commands.Cog):
         e.set_thumbnail(url="https://i.ytimg.com/vi/eoTDquDWrRI/hqdefault.jpg")
         e.title = "User (Reason)"
 
-        ban_embeds = embed_utils.rows_to_embeds(e, ban_lines)
-        await paginate(ctx, ban_embeds)
+        embeds = embed_utils.rows_to_embeds(e, ban_lines)
+
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = self.bot.reply(ctx, "Fetching banlist...", view=view)
+        await view.update()
     
     ### Mutes & Blocks
     @commands.command(usage="Block <Optional: #channel> <@member1 @member2> <Optional: reason>")
@@ -583,23 +580,27 @@ class Mod(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
         return await self.bot.reply(ctx, text=f"The {command} command was disabled for {ctx.guild.name}")
-    
+
     @commands.command(usage="disabled")
     @commands.has_permissions(manage_guild=True)
     async def disabled(self, ctx):
         """Check which commands are disabled on this server"""
         try:
             disabled = self.bot.disabled_cache[ctx.guild.id]
-            header = f"The following commands are disabled on this server:"
-            embeds = embed_utils.rows_to_embeds(discord.Embed(), disabled)
-            await paginate(ctx, embeds, header=header)
         except KeyError:
-            return await self.bot.reply(ctx, text=f'No commands are currently disabled on {ctx.guild.name}')
+            disabled = ["None"]
+
+        header = f"The following commands are disabled on this server:"
+        embeds = embed_utils.rows_to_embeds(discord.Embed(), disabled, header=header)
+
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, "Fetching disabled commands...", view=view)
+        await view.update()
 
     @commands.command(usage="tempban <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
     @commands.has_permissions(ban_members=True)
     @commands.bot_has_permissions(ban_members=True)
-    async def tempban(self, ctx,  members: commands.Greedy[discord.Member], time, *,
+    async def tempban(self, ctx, members: commands.Greedy[discord.Member], time, *,
                       reason: commands.clean_content = None):
         """Temporarily ban member(s)"""
         try:
