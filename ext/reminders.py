@@ -6,7 +6,7 @@ from importlib import reload
 import discord
 from discord.ext import commands
 
-from ext.utils import timed_events, embed_utils
+from ext.utils import timed_events, embed_utils, view_utils
 
 
 # TODO: Select / Button Pass.
@@ -90,7 +90,7 @@ class Reminders(commands.Cog):
         e.colour = 0x7289DA
         e.title = f"⏰ {ctx.author.name}'s reminders"
         for r in records:
-            delta = r['target_time'] - datetime.datetime.now()
+            delta = r['target_time'] - datetime.datetime.now(datetime.timezone.utc)
             this_string = "**`" + str(delta).split(".")[0] + "`** " + r['reminder_content'] + "\n"
             if len(e.description) + len(this_string) > 2000:
                 embeds.append(deepcopy(e))
@@ -98,7 +98,10 @@ class Reminders(commands.Cog):
             else:
                 e.description += this_string
         embeds.append(e)
-        await embed_utils.paginate(ctx, embeds)
+
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, "Fetching your reminders...", view=view)
+        await view.update()
 
 
 # TODO: timed poll.
