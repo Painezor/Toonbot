@@ -5,7 +5,7 @@ from importlib import reload
 import discord
 from discord.ext import commands
 
-from ext.utils import transfer_tools, embed_utils
+from ext.utils import transfer_tools, embed_utils, view_utils
 
 
 # TODO: Select / Button Pass.
@@ -106,12 +106,14 @@ class Lookups(commands.Cog):
             embeds += embed_utils.rows_to_embeds(e, [str(i) for i in inbound])
 
         if outbound:
-            e = base_embed
+            e = deepcopy(base_embed)
             e.title = f"Outbound Transfers for {e.title}"
             e.colour = discord.Colour.red()
             embeds += embed_utils.rows_to_embeds(e, [str(i) for i in outbound])
 
-        await embed_utils.paginate(ctx, embeds)
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, f"Fetching transfers for {base_embed.title}", view=view)
+        await view.update()
 
     @commands.command(aliases=["rumors"])
     async def rumours(self, ctx, *, query: commands.clean_content = None):
@@ -155,7 +157,10 @@ class Lookups(commands.Cog):
 
         trophies = ["No trophies found for team."] if not trophies else trophies
         embeds = embed_utils.rows_to_embeds(e, trophies)
-        await embed_utils.paginate(ctx, embeds)
+
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, f"Fetching trophies for {res.name}", view=view)
+        await view.update()
 
 
 def setup(bot):
