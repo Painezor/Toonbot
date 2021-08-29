@@ -7,7 +7,7 @@ import discord
 import pycountry
 from lxml import html
 
-from ext.utils import embed_utils
+from ext.utils import embed_utils, view_utils, timed_events
 
 # Manual Country Code Flag Dict
 country_dict = {
@@ -377,7 +377,10 @@ class Team(TransferResult):
             pos = "".join(i.xpath('.//td[1]//tr[2]/td/text()'))
             age = "".join(i.xpath('./td[2]/text()')).split('(')[-1].replace(')', '').strip()
             flag = " ".join([get_flag(f) for f in i.xpath('.//td[3]/img/@title')])
-            expiry = "".join(i.xpath('.//td[4]//text()')).strip()
+            date = "".join(i.xpath('.//td[4]//text()')).strip()
+            _ = datetime.datetime.strptime(date, "%b %d, %Y")
+            expiry = timed_events.timestamp(time=_, mode="countdown")
+
             option = "".join(i.xpath('.//td[5]//text()')).strip()
             option = f"\n∟ {option.title()}" if option != "-" else ""
 
@@ -385,7 +388,9 @@ class Team(TransferResult):
 
         rows = ["No expiring contracts found."] if not rows else rows
 
-        await embed_utils.paginate(ctx, embed_utils.rows_to_embeds(e, rows))
+        view = view_utils.Paginator(ctx.author, embed_utils.rows_to_embeds(e, rows))
+        view.message = await ctx.bot.reply(ctx, f"Fetching contracts for {self.name}", view=view)
+        await view.update()
 
     async def get_rumours(self, ctx):
         """Fetch a list of transfer rumours for a team."""
@@ -420,11 +425,13 @@ class Team(TransferResult):
                 team_link = "http://www.transfermarkt.com" + team_link
             source = "".join(i.xpath('.//td[8]//a/@href'))
             src = f"[Info]({source})"
-            rows.append(f"{flag} **[{name}]({link})** ({src})\n{age}, {ppos} [{team}]({team_link})\n\n")
+            rows.append(f"{flag} **[{name}]({link})** ({src})\n{age}, {ppos} [{team}]({team_link})\n")
 
         rows = ["No rumours about new signings found."] if not rows else rows
 
-        await embed_utils.paginate(ctx, embed_utils.rows_to_embeds(e, rows))
+        view = view_utils.Paginator(ctx.author, embed_utils.rows_to_embeds(e, rows))
+        view.message = await ctx.bot.reply(ctx, f"Fetching rumours for {self.name}", view=view)
+        await view.update()
 
 
 class Referee(TransferResult):
@@ -594,7 +601,7 @@ class TransferSearch:
             if self.returns_object:
                 return self.results[0]
 
-        self.message = await ctx.bot.reply(embed=self.embed)
+        self.message = await ctx.bot.reply(ctx, embed=self.embed)
 
         try:
             await embed_utils.bulk_react(ctx, self.message, self.react_list)
