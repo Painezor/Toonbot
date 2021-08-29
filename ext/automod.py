@@ -21,7 +21,7 @@ class AutoMod(commands.Cog):
         e = discord.Embed()
         e.set_author(name=f"{self.emoji} {self.qualified_name}")
         e.colour = discord.Colour.og_blurple()
-        e.set_thumbnail(url=self.bot.user.avatar.url)
+        e.set_thumbnail(url=self.bot.user.display_avatar.url)
         return e
 
     async def update_cache(self):
