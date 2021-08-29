@@ -94,29 +94,22 @@ def get_event_type(mode):
         return None
 
 
-def fallback(retry):
-    """Handle fallback for automatic retrying of refreshing if data is not present"""
-    return 120 * retry if retry in range(5) else False
-
-
 def check_mode(mode):
     """Get appropriate DB Setting for ticker event"""
-    if mode in ["var_red_card", "var_goal"]:
-        mode = "var"
-
+    if mode in ["var_red_card", "var_goal", "red_card_overturned", "goal_overturned"]:
+        return "var"
     elif mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
-        mode = "delayed"
-
-    elif mode in ["extra_time_begins", "end_of_normal_time", "end_of_extra_time", "ht_et_begin", "ht_et_end"]:
-        mode = "extra_time"
-
-    elif mode == "score_after_extra_time":
-        mode = "full_time"
-
+        return "delayed"
+    elif mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end", "end_of_extra_time"]:
+        return "extra_time"
+    elif mode in ["score_after_extra_time", "full_time"]:
+        return "full_time"
     elif mode in ["penalties_begin", "penalty_results"]:
-        mode = "penalties"
-
-    return mode
+        return "penalties"
+    elif "start_of_period" in mode:
+        return "Half_time"
+    else:
+        return mode
 
 
 class TickerEvent:
@@ -149,33 +142,40 @@ class TickerEvent:
         e.remove_author()
 
         m = self.mode.title().replace('_', ' ')
-        if "ht_et" in self.mode:
-            temp_mode = "Half Time" if self.mode == "ht_et_begin" else "Second Half Begins"
-            m = f"Extra Time: {temp_mode}"
+        if self.mode == "Kick off":
+            e = await self.embed
+            e.description = f"**Kick Off** | [{self.fixture.bold_score}]({self.fixture.url})"
+            e.colour = discord.Colour.lighter_gray()
 
-        if self.mode in ["goal", "var_goal", "red_card", "var_red_card"]:
+        elif "ht_et" in self.mode:
+            temp_mode = "Half Time" if self.mode == "ht_et_begin" else "Second Half Begins"
+            e.description = f"Extra Time: {temp_mode} | [{self.fixture.bold_score}]({self.fixture.url})"
+
+        elif self.mode in ["goal", "var_goal", "red_card", "var_red_card"]:
             h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
             h, a = ('**', '**') if self.home is None else h, a
             home = f"{h}{self.fixture.home} {self.fixture.score_home}{h}"
             away = f"{a}{self.fixture.score_away} {self.fixture.away}{a}"
             e.description = f"**{m}** | [{home} - {away}]({self.fixture.url})\n"
-        elif self.mode in ["penalties_begin", "penalty_results"]:
+
+        elif self.mode == "penalties_begin":
+            e.description = f"**Penalties Begin** | {self.fixture.bold_score}"
+
+        elif self.mode == "penalty_results":
             try:
                 h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
                 home = f"{h}{self.fixture.home} {self.fixture.penalties_home}{h}"
                 away = f"{a}{self.fixture.penalties_away} {self.fixture.away}{a}"
 
-                e.description = f"**Penalties** | [{home} - {away}]({self.fixture.url})"
-            except TypeError:  # If penalties_home / penalties_away are Nonetype
-                e.description = f"**Penalties** | [{self.fixture.bold_score}]({self.fixture.url})\n"
+                e.description = f"**Penalty Shootout Results** | [{home} - {away}]({self.fixture.url})"
+            except TypeError:  # If penalties_home / penalties_away are NoneType
+                e.description = f"**Penalty Shootout Results** | [{self.fixture.bold_score}]({self.fixture.url})\n"
 
             events = [i for i in self.fixture.events if isinstance(i, football.Penalty) and i.shootout is True]
 
             # iterate through everything after penalty header
             home = [str(i) for i in events if i.team == self.fixture.home]
             away = [str(i) for i in events if i.team == self.fixture.away]
-
-            self.retry = 1 if self.fixture.state != "fin" else self.retry
 
             if home:
                 e.add_field(name=self.fixture.home, value="\n".join(home))
@@ -185,30 +185,26 @@ class TickerEvent:
         else:
             e.description = f"**{m}** | [{self.fixture.bold_score}]({self.fixture.url})\n"
 
-        footer = self.fixture.event_footer
-
+        # Fetch Embed Colour
         if "end_of_period" in self.mode:
             e.colour = discord.Colour.greyple()
-
         else:
             try:
                 e.colour = edict[self.mode]
             except Exception as err:
-                print(f"Ticker: Edict error for mode {self.mode}", err)
+                print(f"Ticker Embed Colour: edict error for mode {self.mode}", err)
 
+        # Append our event
         if self.event is not None:
             e.description += str(self.event)
             if hasattr(self.event, "full_description"):
                 e.description += f"\n\n{self.event.full_description}"
 
+        # Append extra info
         if self.fixture.infobox is not None:
-            if "leg." in self.fixture.infobox:
-                footer += f" ({self.fixture.infobox}) "
-                e.set_footer(text=footer)
+            e.description += f"```yaml\n{self.fixture.infobox}```"
 
-            else:
-                e.description += f"```{self.fixture.infobox}```"
-
+        e.set_footer(text=self.fixture.event_footer)
         return e
 
     @property
@@ -224,11 +220,6 @@ class TickerEvent:
         return e
 
     @property
-    def fallback(self):
-        """Handle fallback for automatic retrying of refreshing if data is not present"""
-        return 60 * self.retry if self.retry in range(5) else False
-
-    @property
     def valid_events(self):
         """Valid events for ticker mode"""
         if self.mode == "goal":
@@ -238,24 +229,6 @@ class TickerEvent:
         elif self.mode in ("var_goal", "var_red_card"):
             return football.VAR
         return None
-
-    @property
-    def db_mode(self):
-        """Get appropriate DB Setting for ticker event"""
-        if self.mode in ["var_red_card", "var_goal", "red_card_overturned", "goal_overturned"]:
-            return "var"
-        elif self.mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
-            return "delayed"
-        elif self.mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end", "end_of_extra_time"]:
-            return "extra_time"
-        elif self.mode in ["score_after_extra_time", "full_time"]:
-            return "full_time"
-        elif self.mode in ["penalties_begin", "penalty_results"]:
-            return "penalties"
-        elif "start_of_period" in self.mode:
-            return "Half_time"
-        else:
-            return self.mode
 
     async def retract_event(self):
         """Handle corrections for erroneous events"""
@@ -270,13 +243,12 @@ class TickerEvent:
 
     async def send_messages(self):
         """Dispatch latest event embed to all applicable channels"""
-        full_embed = await self.full_embed
-        short_embed = await self.embed
+        db_mode = check_mode(self.mode)
 
         for r in self.channels:
             channel = self.bot.get_channel(r['channel_id'])
 
-            if r[self.db_mode] is None:  # Default Off Options.
+            if r[db_mode] is None:  # Default Off Options.
                 if self.mode in ("kick_off", "half_time", "second_half_begin", "delayed"):
                     continue
 
@@ -288,43 +260,39 @@ class TickerEvent:
                 if r["second_half_begin"] == "off" or r["second_half_begin"] is None:
                     continue
 
-            elif r[self.db_mode] == "off":
+            elif r[db_mode] == "off":
                 continue  # If output is disabled for this channel skip output entirely.
 
-            if self.db_mode == "extended":
-                embed = full_embed
-
-            else:
-                embed = short_embed
+            _ = await self.full_embed if r[db_mode] == "extended" else await self.embed
 
             try:
-                self.messages.append(await channel.send(embed=embed))
+                self.messages.append(await channel.send(embed=_))
             except discord.HTTPException as err:
                 print(err)
                 continue
 
     async def bulk_edit(self):
         """Edit existing messages"""
+        db_mode = check_mode(self.mode)
         for message in self.messages:
-            settings = [i for i in self.channels if i['channel_id'] == message.channel.id][-1]
+            r = next((i for i in self.channels if i['channel_id'] == 'message.channel.id'), None)
 
-            if settings[self.db_mode] in [None, "off"]:  # Default Off Options.
+            if r is None:
+                continue
+
+            if r[db_mode] in [None, "off"]:  # Default Off Options.
                 if self.mode in ("kick_off", "half_time", "second_half_begin", "delayed"):
                     continue
 
             elif self.mode == "ht_et_begin":  # Special Check - Must pass both
-                if settings["half_time"] == "off" or settings["half_time"] is None:
+                if r["half_time"] == "off" or r["half_time"] is None:
                     continue
 
             elif self.mode == "ht_et_end":  # Special Check - Must pass both
-                if settings["second_half_begin"] == "off" or settings["second_half_begin"] is None:
+                if r["second_half_begin"] == "off" or r["second_half_begin"] is None:
                     continue
 
-            if self.db_mode == "extended":
-                embed = await self.full_embed
-
-            else:
-                embed = await self.embed
+            embed = await self.full_embed if r[db_mode] == "extended" else await self.embed
 
             try:
                 await message.edit(embed=embed)
@@ -333,24 +301,18 @@ class TickerEvent:
 
     async def event_loop(self):
         """The Fixture event's internal loop"""
-        # Verify this event is actually wanted by something.
-        if self.fixture.league not in self.bot.filtered_leagues:
-            print(f'Saved you some lookups. - Nobody wants {self.fixture.league}')
-
         # Handle full time only events.
         if self.mode == "kick_off":
-            e = await self.embed
-            e.description = f"**Kick Off** [{self.fixture.bold_score}]({self.fixture.url})"
-            e.colour = discord.Colour.lighter_gray()
             await self.send_messages()
             return
 
         while self.needs_refresh:
-            timer = self.fallback
-            if timer is False:
+            # Fallback, Wait 2 minutes extra pre refresh
+            _ = 120 * self.retry if self.retry in range(5) else False
+            if _ is False:
                 return
-
-            await asyncio.sleep(timer)
+            else:
+                await asyncio.sleep(_)
 
             page = await self.bot.browser.newPage()
             async with max_pages:
@@ -363,9 +325,7 @@ class TickerEvent:
 
             # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
             if self.event_index is None:
-                if not self.fixture.events:
-                    self.event = None
-                else:
+                if self.fixture.events:
                     ve = self.valid_events
                     if ve is not None:
                         try:
@@ -374,7 +334,8 @@ class TickerEvent:
                             event = [i for i in events if i.team == target_team][-1]
                             self.event_index = self.fixture.events.index(event)
                             self.event = event
-                            self.needs_refresh = False if all([i.player for i in self.fixture.events]) else True
+                            if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
+                                self.needs_refresh = False
                         except IndexError:
                             self.event = None
                             self.event_index = None
@@ -383,14 +344,12 @@ class TickerEvent:
                 try:
                     self.event = self.fixture.events[self.event_index]
                     assert isinstance(self.event, self.valid_events)
-                    self.needs_refresh = False if all([i.player for i in self.fixture.events]) else True
+                    if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
+                        self.needs_refresh = False
                 except (AssertionError, IndexError):
                     return await self.retract_event()
 
-            if not self.messages:
-                await self.send_messages()
-            else:
-                await self.bulk_edit()
+            await self.bulk_edit() if self.messages else await self.send_messages()
 
 
 class Ticker(commands.Cog):
@@ -437,7 +396,6 @@ class Ticker(commands.Cog):
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
 
             self.cache[(r["guild_id"], r["channel_id"])].add(r["league"])
-            self.bot.filtered_leagues.add(r["league"])
 
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -475,7 +433,7 @@ class Ticker(commands.Cog):
         e = discord.Embed()
         e.colour = discord.Colour.dark_teal()
         e.title = "Toonbot Ticker config"
-        e.set_thumbnail(url=self.bot.user.avatar.url)
+        e.set_thumbnail(url=self.bot.user.display_avatar.url)
         return e
 
     async def send_leagues(self, ctx, channel):
@@ -548,7 +506,13 @@ class Ticker(commands.Cog):
         """Event handler for when something occurs during a fixture."""
         # Perform an initial Refresh of the fixture
         channels = [i[1] for i in self.cache if f.full_league in self.cache[i]]  # List oF IDs we want settings for
+
+        if not channels:
+            return  # Don't bother fetching
+
         channels = [i for i in self.settings if i['channel_id'] in channels]  # Settings for those IDs
+        # TODO: Iterate through settings versus mode -> Return if unwanted
+
         TickerEvent(self.bot, channels=channels, fixture=f, mode=mode, home=home)
 
     async def _pick_channels(self, ctx, channels):
