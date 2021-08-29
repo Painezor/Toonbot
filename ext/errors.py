@@ -16,7 +16,6 @@ async def react(ctx, emoji):
 
 class Errors(commands.Cog):
     """Error Handling Cog"""
-
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
         """Event listener for when commands raise exceptions"""
@@ -30,7 +29,7 @@ class Errors(commands.Cog):
         e = discord.Embed()
         e.colour = discord.Colour.red()
         e.title = f"Error: {error.__class__.__name__}"
-        e.set_thumbnail(url=str(ctx.me.avatar.url))
+        e.set_thumbnail(url=str(ctx.me.display_avatar.url))
 
         usage = f"{ctx.prefix}{ctx.command.qualified_name} {ctx.command.signature}"
         e.add_field(name="Command Usage Example", value=usage)
