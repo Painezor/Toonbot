@@ -39,7 +39,7 @@ class Admin(commands.Cog):
         e = discord.Embed()
         e.set_author(name=f"{self.emoji} {self.qualified_name}")
         e.colour = discord.Colour.og_blurple()
-        e.set_thumbnail(url=self.bot.user.avatar.url)
+        e.set_thumbnail(url=self.bot.user.display_avatar.url)
         return e
 
     async def update_ignored(self):
@@ -104,11 +104,11 @@ class Admin(commands.Cog):
             try:
                 self.bot.load_extension(module)
             except ExtensionNotFound:
-                e.description = "🚫 Invalid extension {module}"
+                e.description = f"🚫 Invalid extension {module}"
                 ping = True
                 e.colour = discord.Colour.red()
             else:
-                e.description = ':gear: Loaded {module}'
+                e.description = f':gear: Loaded {module}'
                 ping = False
         except Exception as err:
             e.description = codeblocks.error_to_codeblock(err)
@@ -241,7 +241,7 @@ class Admin(commands.Cog):
         user = self.bot.get_user(user_id)
         e = self.base_embed
         e.title = f"User found on {len(matches)} servers."
-        e.set_footer(text=f"{user} (ID: {user_id})", icon_url=user.avatar.url or user.default_avatar.url)
+        e.set_footer(text=f"{user} (ID: {user_id})", icon_url=user.display_avatar.url)
 
         embeds = embed_utils.rows_to_embeds(e, matches, 20)
 
