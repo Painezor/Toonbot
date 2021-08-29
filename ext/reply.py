@@ -22,7 +22,7 @@ class ReplyHandler(commands.Cog):
         self.bot.reply = self.reply
 
     # Custom reply handler.
-    async def reply(self, ctx,
+    async def reply(self, ctx: discord.ext.commands.Context,
                     text: str = None,
                     view: discord.ui.View = None,
                     embed: discord.Embed = None,
@@ -55,10 +55,14 @@ class ReplyHandler(commands.Cog):
             target = ctx.author
             return await target.send(text, embed=embed, view=view, file=image, delete_after=delete_after,
                                      mention_author=ping)
-
         except discord.HTTPException:
-            if ctx.author.id == 210582977493598208:
-                print(text)
+            pass
+
+        try:  # Ok, Why did this fail?
+            await ctx.reply(text, embed=embed, view=view, file=image, delete_after=delete_after, mention_author=ping)
+        except Exception as e:
+            print(f"{ctx.command} raised an Exception:")
+            print(e)
 
         # At least try to warn them.
         try:
