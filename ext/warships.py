@@ -104,9 +104,9 @@ class Warships(commands.Cog):
         e.set_author(name=name, url=activity.url)
         e.title = activity.game
 
-        e.description = f"[**{after.mention} just went live**]({activity.url})\n\n{activity.name}"
+        e.description = f"**[{after.mention} just went live]({activity.url})**\n\n{activity.name}"
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        e.set_thumbnail(url=after.avatar.url)
+        e.set_thumbnail(url=after.display_avatar.url)
 
         await ch.send(embed=e)
 
@@ -122,10 +122,10 @@ class Warships(commands.Cog):
         e.description = f"[**{ctx.guild.get_member(ctx.bot.owner_id).mention} just went live!**]({tw})\n"
         e.description += "\nGold League Ranked & Regrinding Destroyers!"
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        url = ctx.guild.get_member(ctx.bot.owner_id).avatar.url
+        url = ctx.guild.get_member(ctx.bot.owner_id).display_avatar.url
         e.set_thumbnail(url=url)
 
-        await ctx.send(tw, embed=e)
+        await self.bot.reply(ctx, tw, embed=e)
 
 
 def setup(bot):
