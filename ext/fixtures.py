@@ -71,8 +71,12 @@ class CompetitionView(discord.ui.View):
     async def on_timeout(self):
         """Cleanup"""
         self.clear_items()
-        await self.message.edit(view=self)
-        self.stop()
+        try:
+            await self.message.edit(view=self)
+        except discord.HTTPException:
+            return
+        finally:
+            self.stop()
 
     async def update(self):
         """Update the view for the Competition"""
@@ -464,7 +468,10 @@ class FixtureView(discord.ui.View):
     async def on_timeout(self):
         """Cleanup"""
         self.clear_items()
-        await self.message.edit(view=self)
+        try:
+            await self.message.edit(view=self)
+        except discord.HTTPException:
+            pass
         self.stop()
 
     async def interaction_check(self, interaction):
@@ -514,7 +521,8 @@ class FixtureView(discord.ui.View):
         embed = await self.get_embed()
         embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
-        embed.url = self.page.url
+        if self.page.url.startswith("http"):
+            embed.url = self.page.url
         embed.description += "No Stats Found" if image is None else ""
         embed.title = f"≡ Stats for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
         self.pages = [embed]
@@ -537,7 +545,8 @@ class FixtureView(discord.ui.View):
         embed = await self.get_embed()
         embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
-        embed.url = self.page.url
+        if self.page.url.startswith("http"):
+            embed.url = self.page.url
         embed.description += "No Lineups Found" if image is None else ""
         embed.title = f"≡ Lineups for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
         self.pages = [embed]
@@ -560,7 +569,8 @@ class FixtureView(discord.ui.View):
         embed = await self.get_embed()
         embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
-        embed.url = self.page.url
+        if self.page.url.startswith("http"):
+            embed.url = self.page.url
         embed.description += "No Table Found" if image is None else ""
         embed.title = f"≡ Table for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
         self.pages = [embed]
@@ -583,7 +593,8 @@ class FixtureView(discord.ui.View):
         embed = await self.get_embed()
         embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
-        embed.url = self.page.url
+        if self.page.url.startswith("http"):
+            embed.url = self.page.url
         embed.description += "No Summary Found" if image is None else ""
         embed.title = f"≡ Summary for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
         self.pages = [embed]
@@ -597,6 +608,8 @@ class FixtureView(discord.ui.View):
         fixtures = await self.fixture.head_to_head(page=self.page)
         embed = await self.get_embed()
         embed.title = f"≡ Head to Head for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
+        if self.page.url.startswith("http"):
+            embed.url = self.page.url
         for k, v in fixtures.items():
             x = "\n".join([f"{i.relative_time} [{i.bold_score}]({i.url})" for i in v])
             embed.add_field(name=k, value=x, inline=False)
@@ -670,7 +683,7 @@ class Fixtures(commands.Cog):
         items = live + search_results
 
         if not markers:
-            await ctx.send(f'{ctx.command.name.title()}: No results found for {qry}')
+            await self.bot.reply(ctx, f'🚫 {ctx.command.name.title()}: No results found for {qry}', ping=True)
             return None
 
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
@@ -760,7 +773,7 @@ class Fixtures(commands.Cog):
             await page.close()
 
     @commands.command(aliases=['tbl'], usage="<Team or league name to search for>")
-    async def table(self, ctx, qry: commands.clean_content = None):
+    async def table(self, ctx, *, qry: commands.clean_content = None):
         """Get table for a league"""
         fsr = await self.search(ctx, qry, include_fs=True)
         page = await self.bot.browser.newPage()
@@ -952,7 +965,7 @@ class Fixtures(commands.Cog):
         """Base Embed for Fixtures Config Embeds"""
         e = discord.Embed()
         e.colour = 0x2ecc71
-        e.set_thumbnail(url=self.bot.user.avatar.url)
+        e.set_thumbnail(url=self.bot.user.display_avatar.url)
         e.title = '⚙ Toonbot Config: Fixture Defaults'
         e.add_field(name="Setting defaults", value=DF)
 
