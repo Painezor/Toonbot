@@ -83,7 +83,7 @@ async def page_selector(ctx, item_list, base_embed=None, choice_text=None,
     if base_embed is None:
         base_embed = discord.Embed()
         base_embed.title = "Multiple results found."
-        base_embed.set_thumbnail(url=ctx.me.avatar.url)
+        base_embed.set_thumbnail(url=ctx.me.display_avatar.url)
         base_embed.colour = discord.Colour.og_blurple()
     
     base_embed.add_field(name="Type the matching number for your choice",
