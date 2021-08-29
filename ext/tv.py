@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 from lxml import html
 
-from ext.utils import embed_utils
+from ext.utils import embed_utils, view_utils
 
 
 # TODO:  Convert to use new timestamps.
@@ -103,17 +103,20 @@ class Tv(commands.Cog):
 						dt = time
 					else:
 						dt = date
-				
+
 				tvlist.append(f'`{dt}` [{match}]({link})')
-		
+
 		if not tvlist:
 			return await self.bot.reply(ctx, text=f"No televised matches found, check online at {em.url}")
 		dtn = datetime.datetime.now().strftime("%H:%M")
-		
+
 		em.set_footer(text=f"Time now: {dtn} Your Time:")
 		em.timestamp = datetime.datetime.now(datetime.timezone.utc)
 		embeds = embed_utils.rows_to_embeds(em, tvlist)
-		await embed_utils.paginate(ctx, embeds)
+
+		view = view_utils.Paginator(ctx.author, embeds)
+		view.message = await self.bot.reply(ctx, "Fetching televised matches...", view=view)
+		await view.update()
 
 
 def setup(bot):
