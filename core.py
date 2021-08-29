@@ -12,6 +12,14 @@ from discord.ext.commands import ExtensionAlreadyLoaded
 with open('credentials.json') as f:
     credentials = json.load(f)
 
+COGS = [
+    'ext.globalchecks',  # needs to be loaded fist.
+    'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.help', 'ext.images', 'ext.info',
+    'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.reply',
+    'ext.rss', 'ext.scores', 'ext.sidebar', 'ext.twitter', 'ext.lookup', 'ext.ticker', "ext.transfers",
+    'ext.tv', 'ext.warships'
+]
+
 
 class Bot(commands.Bot):
     """The core functionality of the bot."""
@@ -31,18 +39,7 @@ class Bot(commands.Bot):
         self.initialised_at = datetime.utcnow()
         self.session = aiohttp.ClientSession(loop=self.loop)
 
-    async def on_ready(self):
-        """Print notification to console that the bot has finished loading."""
-        print(f'{self.user}: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
-        # Startup Modules
-        load = [
-            'ext.globalchecks',  # needs to be loaded fist.
-            'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.help', 'ext.images', 'ext.info',
-            'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.reply',
-            'ext.rss', 'ext.scores', 'ext.sidebar', 'ext.twitter', 'ext.lookup', 'ext.ticker', "ext.transfers",
-            'ext.tv', 'ext.warships'
-        ]
-        for c in load:
+        for c in COGS:
             try:
                 self.load_extension(c)
             except ExtensionAlreadyLoaded:
@@ -51,6 +48,11 @@ class Bot(commands.Bot):
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
             else:
                 print(f"Loaded extension {c}")
+
+    async def on_ready(self):
+        """Print notification to console that the bot has finished loading."""
+        print(f'{self.user}: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
+        # Startup Modules
 
 
 async def run():
