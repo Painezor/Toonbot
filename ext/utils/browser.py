@@ -55,12 +55,19 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
     deletes = [] if delete is None else delete
     clicks = [] if clicks is None else clicks
 
-    assert url.startswith("http"), f"{url} does not appear to be a valid url."
-    await page.goto(url)
-    # try:
-    #     await page.waitForXPath(xpath, {"timeout": 5000})
-    # except TimeoutError:
-    #     return None
+    assert url.startswith("http"), f"BROWSER - FETCH: {url} does not appear to be a valid url."
+
+    try:
+        await page.goto(url)
+    except _TimeoutError:
+        print(f"Fetch Page timed out trying to access {url}")
+        return None
+
+    try:
+        await page.waitForXPath(xpath, {"timeout": 5000})
+    except _TimeoutError:
+        pass
+
     src = await page.content()
 
     for x in deletes:
