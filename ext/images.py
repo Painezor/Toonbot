@@ -14,8 +14,8 @@ from ext.utils import embed_utils
 KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_TV_%28Hungary%29.svg" \
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
 
-# TODO: Select / Button Pass.
 
+# TODO: Select / Button Pass.
 def draw_tinder(image, av, name):
     """Draw Images for the tinder command"""
     # Base Image
