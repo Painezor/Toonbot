@@ -36,7 +36,7 @@ class QuoteDB(commands.Cog):
             try:
                 author = self.bot.get_user(r["author_user_id"])
                 e.set_author(name=f"{author.display_name} in #{channel}", icon_url=quote_img)
-                e.set_thumbnail(url=author.avatar.url)
+                e.set_thumbnail(url=author.display_avatar.url)
             except AttributeError:
                 e.set_author(name=f"Deleted User in #{channel}")
                 e.set_thumbnail(url=quote_img)
@@ -50,7 +50,7 @@ class QuoteDB(commands.Cog):
             e.description += r["message_content"]
                 
             try:
-                e.set_footer(text=f"Added by {submitter}", icon_url=submitter.avatar.url)
+                e.set_footer(text=f"Added by {submitter}", icon_url=submitter.display_avatar.url)
             except AttributeError:
                 e.set_footer(text="Added by a Deleted User")
             
@@ -283,7 +283,7 @@ class QuoteDB(commands.Cog):
         e.set_author(icon_url="https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png", name="Quote Stats")
 
         if isinstance(target, discord.Member):
-            e.set_thumbnail(url=target.avatar.url)
+            e.set_thumbnail(url=target.display_avatar.url)
             if ctx.guild:
                 e.add_field(name=ctx.guild.name, value=f"Quoted {r['auth_g']} times.\n Added {r['sub_g']} quotes.",
                             inline=False)

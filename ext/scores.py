@@ -91,7 +91,7 @@ class Scores(commands.Cog, name="LiveScores"):
         e = discord.Embed()
         e.colour = discord.Colour.dark_orange()
         e.title = "Toonbot Live Scores config"
-        e.set_thumbnail(url=self.bot.user.avatar.url)
+        e.set_thumbnail(url=self.bot.user.display_avatar.url)
         return e
 
     async def send_leagues(self, ctx, channel):

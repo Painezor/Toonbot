@@ -34,7 +34,7 @@ class Info(commands.Cog):
         e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         owner = await self.bot.fetch_user(self.bot.owner_id)
         e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
-        e.set_thumbnail(url=ctx.me.avatar.url)
+        e.set_thumbnail(url=ctx.me.display_avatar.url)
         e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
         e.description = f"[Click to invite me](https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
                         f"&permissions=67488768&scope=bot)\n"
@@ -46,7 +46,7 @@ class Info(commands.Cog):
         e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         owner = await self.bot.fetch_user(self.bot.owner_id)
         e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
-        e.set_thumbnail(url=ctx.me.avatar.url)
+        e.set_thumbnail(url=ctx.me.display_avatar.url)
         e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
 
         # statistics
@@ -135,7 +135,7 @@ class Info(commands.Cog):
 
         shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
 
-        e.set_author(name=str(member), icon_url=member.avatar.url or member.default_avatar.url)
+        e.set_author(name=str(member), icon_url=member.display_avatar.url)
 
         if member.bot:
             e.description += "\n**🤖 This user is a bot**"
@@ -147,7 +147,7 @@ class Info(commands.Cog):
             pass
 
         if member.avatar:
-            e.set_thumbnail(url=member.avatar.url)
+            e.set_thumbnail(url=member.display_avatar.url)
 
         if isinstance(member, discord.Member):
             e.description += f'\nJoined Server: {timed_events.timestamp(mode="countdown", time=member.joined_at)}'
@@ -229,10 +229,10 @@ class Info(commands.Cog):
             user = ctx.author
         e = discord.Embed()
         e.colour = user.color
-        e.set_footer(text=user.avatar.url)
+        e.set_footer(text=user.display_avatar.url)
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.description = f"{user.mention}'s avatar"
-        e.set_image(url=str(user.avatar.url))
+        e.set_image(url=str(user.display_avatar.url))
         await self.bot.reply(ctx, embed=e)
 
 

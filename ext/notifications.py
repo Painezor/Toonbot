@@ -99,7 +99,7 @@ class Notifications(commands.Cog):
         timestamp = timed_events.timestamp(mode="daterel", time=member.created_at)
 
         e.add_field(name="Account Created", value=timestamp, inline=False)
-        e.set_thumbnail(url=member.avatar.url)
+        e.set_thumbnail(url=member.display_avatar.url)
 
         try:
             await ch.send(embed=e)
@@ -176,7 +176,7 @@ class Notifications(commands.Cog):
         a = message.author
 
         e = discord.Embed()
-        e.set_author(name=f"{a} (ID: {a.id})", icon_url=a.avatar.url)
+        e.set_author(name=f"{a} (ID: {a.id})", icon_url=a.display_avatar.url)
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.set_footer(text=f"🗑️ Deleted message from {message.channel.name}")
         e.description = message.clean_content

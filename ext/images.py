@@ -211,7 +211,7 @@ async def get_faces(ctx, target):
         return None, None, None
 
     if isinstance(target, discord.Member):
-        target = target.avatar.with_format("png").url
+        target = target.display_avatar.with_format("png").url
     elif isinstance(target, discord.Attachment):
         target = target.url
     elif "://" not in target:
@@ -263,13 +263,13 @@ class Images(commands.Cog):
             if not match:
                 return await self.bot.reply(ctx, text="Nobody swiped right on you.")
 
-            av = await ctx.author.avatar.with_format("png").read()
+            av = await ctx.author.display_avatar.with_format("png").read()
             match = random.choice(ctx.guild.members)
             # TODO: Get presence intents.
             # match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
             name = match.display_name
 
-            target = await match.avatar.with_format("png").read()
+            target = await match.display_avatar.with_format("png").read()
             output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
             if match == ctx.author:
                 caption = f"{ctx.author.mention} matched with themself, How pathetic."
@@ -353,7 +353,7 @@ class Images(commands.Cog):
         if target.id == 210582977493598208:
             target = ctx.author
 
-        image = target.avatar.with_format("png").read()
+        image = target.display_avatar.with_format("png").read()
         image = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
 
         base_embed = discord.Embed()
@@ -376,7 +376,7 @@ class Images(commands.Cog):
         with ctx.typing():
             if target is None:
                 target = ctx.author
-            av = await target.avatar.with_format("png").read()
+            av = await target.display_avatar.with_format("png").read()
             image = await self.bot.loop.run_in_executor(None, ruin, av)
 
             base_embed = discord.Embed()
