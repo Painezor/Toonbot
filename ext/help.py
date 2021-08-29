@@ -107,6 +107,7 @@ class HelpDropDown(discord.ui.Select):
         """Return the requested item when the dropdown is selected"""
         # Take Index of Value result and fetch from self.objects.
         match = self.cogs[int(self.values[0])]
+        self.view.index = 0
         self.view.value = match
         self.view.current_category = match.qualified_name
         await interaction.response.defer()
@@ -126,32 +127,28 @@ class HelpView(discord.ui.View):
         self.prefixes = prefixes
         self.help_command = help_command
         super().__init__()
-        self.home = HelpButton()
-        self.prev = PreviousButton()
-        self.page = PageButton()
-        self.next = NextButton()
-        self.hide = StopButton()
 
     def populate_buttons(self):
         """Do our button population logic"""
-        self.add_item(self.home)
+        self.add_item(HelpButton())
 
         if len(self.embeds) > 1:
-            self.add_item(self.prev)
+            _ = PreviousButton()
+            _.disabled = True if self.index == 0 else False
+            self.add_item(_)
 
-        if self.current_category is None:
-            self.page.label = "Choose a Help Category"
-        else:
-            categ = self.current_category
-            self.page.label = f"{categ} Help"
-            if len(self.embeds) > 1:
-                self.page.label += f" (Page {self.index + 1} of {len(self.embeds)})"
-
-        self.add_item(self.page)
+        _ = PageButton()
+        _.label = "Choose a Help Category" if self.current_category is None else f"{self.current_category} Help"
+        if len(self.embeds) > 1:
+            _.label += f" (Page {self.index + 1} of {len(self.embeds)})"
+        self.add_item(_)
 
         if len(self.embeds) > 1:
-            self.add_item(self.next)
-        self.add_item(self.hide)
+            _.disabled = True if self.index == len(self.embeds) - 1 else False
+            _ = NextButton()
+            self.add_item(_)
+
+        self.add_item(StopButton())
 
     async def on_timeout(self):
         """Clean up"""
@@ -171,7 +168,7 @@ class HelpView(discord.ui.View):
     def base_embed(self):
         """A generic help embed"""
         e = discord.Embed()
-        e.set_thumbnail(url=self.ctx.me.avatar.url)
+        e.set_thumbnail(url=self.ctx.me.display_avatar.url)
         e.colour = 0x2ecc71
         e.set_author(name="Toonbot Help")
         return e
@@ -179,8 +176,8 @@ class HelpView(discord.ui.View):
     async def push_home_embed(self):
         """The default Home Embed"""
         e = self.base_embed
-        e.description = "**Running Commands**:\n Use `.tb command` to run a command\n" \
-                        "Use `.tb help command` to get detailed help for that command."
+        e.description = f"**Running Commands**:\n Use `{self.ctx.prefix}command` to run a command\n" \
+                        f"Use `{self.ctx.prefix}help command` to get detailed help for that command."
         e.add_field(name="Navigating Menus", value="Click on buttons to change between pages, "
                                                    "Click on dropdowns to select items on those pages.", inline=False)
         e.add_field(name="Links", value=INV, inline=False)
@@ -214,8 +211,9 @@ class HelpView(discord.ui.View):
         if not rows:
             return []
 
-        e.add_field(value='Use `.tb help command` to view extended help of that command.\n Subcommands are ran by using'
-                          f'` `.tb command subcommand``', name="More help", inline=False)
+        e.add_field(value=f'Use `{self.ctx.prefix}help command` to view extended help of that command.\n'
+                          f'Subcommands are ran by using `{self.ctx.prefix}command subcommand`',
+                    name="More help", inline=False)
         e.add_field(name="Changing Category", value="Click the blue button below to change help category.")
         embeds = embed_utils.rows_to_embeds(e, rows, header=header)
         return embeds
@@ -237,7 +235,7 @@ class Help(commands.HelpCommand):
     def base_embed(self):
         """Generic Embed for help commands."""
         e = discord.Embed()
-        e.set_thumbnail(url=self.context.me.avatar.url)
+        e.set_thumbnail(url=self.context.me.display_avatar.url)
         e.colour = 0x2ecc71
         return e
 
