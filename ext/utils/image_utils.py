@@ -40,7 +40,7 @@ def stitch_vertical(images) -> BytesIO or None:
         return None
 
     if len(images) == 1:
-        return images[0]
+        return next(images)
 
     images = [Image.open(i) for i in images]
 
