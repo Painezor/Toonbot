@@ -326,13 +326,13 @@ class TeamView(discord.ui.View):
             self.add_item(LeagueTableSelect(objects=self._currently_selecting))
             self._currently_selecting = []
 
-        buttons = [view_utils.Button(label="Squad", func=self.push_squad, row=3),
-                   view_utils.Button(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI, row=3),
-                   view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=3),
-                   view_utils.Button(label="Table", func=self.select_table, row=4),
-                   view_utils.Button(label="Fixtures", func=self.push_fixtures, row=4),
-                   view_utils.Button(label="Results", func=self.push_results, row=4),
-                   view_utils.StopButton(row=4)
+        buttons = [view_utils.Button(label="Squad", func=self.push_squad),
+                   view_utils.Button(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI),
+                   view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽'),
+                   view_utils.Button(label="Table", func=self.select_table, row=3),
+                   view_utils.Button(label="Fixtures", func=self.push_fixtures, row=3),
+                   view_utils.Button(label="Results", func=self.push_results, row=3),
+                   view_utils.StopButton(row=0)
                    ]
 
         for _ in buttons:
