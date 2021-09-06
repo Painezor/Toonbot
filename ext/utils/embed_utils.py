@@ -108,11 +108,11 @@ async def page_selector(ctx, item_list, base_embed=None, choice_text=None,
     return index
 
 
-async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: int = 60, header="") -> int or None:
+async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: int = 60) -> int or None:
     """Graphical UI for user to page through multiple embeds using reactions"""
     assert len(embeds) > 0, "No results found."
     page = 0
-    
+
     # Add our page number info.
     if len(embeds) > 1:
         for x, y in enumerate(embeds, 1):
@@ -129,7 +129,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
             if not items:
                 return None
 
-    m = await ctx.bot.reply(ctx, text=header, embed=embeds[page])
+    m = await ctx.bot.reply(ctx, embed=embeds[page])
 
     # Add reaction, we only need "First" and "Last" if there are more than 2 pages.
     reacts = []
