@@ -233,7 +233,8 @@ class Fixture:
         elif self.time == "Postponed":
             e.description = "This match has been postponed."
         else:
-            e.set_footer(text=self.time)
+            if not isinstance(self.time, datetime.datetime):
+                e.set_footer(text=self.time)
             e.timestamp = datetime.datetime.now(datetime.timezone.utc)
 
         e.colour = self.colour[1]
