@@ -191,7 +191,7 @@ class CompetitionView(discord.ui.View):
         embed.title = f"≡ Table for {self.competition.title}"
         if self.table_image is not None:
             embed.set_image(url=self.table_image)
-            embed.description = timed_events.timestamp(mode="long")
+            embed.description = timed_events.Timestamp().long
         else:
             embed.description = "No Table Found"
 
@@ -411,7 +411,7 @@ class TeamView(discord.ui.View):
         embed.title = f"≡ Table for {res.full_league}"
         if self.table_image is not None:
             embed.set_image(url=self.table_image)
-            embed.description = timed_events.timestamp(mode="long")
+            embed.description = timed_events.Timestamp().long
         else:
             embed.description = f"No Table found."
         embed.url = self.page.url
@@ -519,7 +519,7 @@ class FixtureView(discord.ui.View):
 
         image = self.fixture.stats_image
         embed = await self.get_embed()
-        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.description = f"{timed_events.Timestamp().time_relative}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
         if self.page.url.startswith("http"):
             embed.url = self.page.url
@@ -543,7 +543,7 @@ class FixtureView(discord.ui.View):
         image = self.fixture.formation_image
 
         embed = await self.get_embed()
-        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.description = f"{timed_events.Timestamp().time_relative}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
         if self.page.url.startswith("http"):
             embed.url = self.page.url
@@ -567,7 +567,7 @@ class FixtureView(discord.ui.View):
         image = self.fixture.table_image
 
         embed = await self.get_embed()
-        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.description = f"{timed_events.Timestamp().time_relative}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
         if self.page.url.startswith("http"):
             embed.url = self.page.url
@@ -591,7 +591,7 @@ class FixtureView(discord.ui.View):
         image = self.fixture.summary_image
 
         embed = await self.get_embed()
-        embed.description = f"{timed_events.timestamp(mode='time_relative', time=datetime.datetime.now())}\n"
+        embed.description = f"{timed_events.Timestamp().time_relative}\n"
         embed.set_image(url=image if isinstance(image, str) else discord.Embed.Empty)
         if self.page.url.startswith("http"):
             embed.url = self.page.url
@@ -1086,7 +1086,7 @@ class Fixtures(commands.Cog):
             await view.update()
             return
 
-        header = f'Scores as of: {timed_events.timestamp(mode="long")}\n'
+        header = f'Scores as of: {timed_events.Timestamp().long}\n'
         embeds = []
         matches = [(i.full_league, i.scores_row) for i in matches]
         _ = None

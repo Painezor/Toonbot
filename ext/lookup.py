@@ -9,6 +9,24 @@ from ext.utils import transfer_tools, embed_utils, view_utils
 
 
 # TODO: Select / Button Pass.
+class Lookup(discord.ui.View):
+    """An instance of a transfer search view."""
+
+    def __init__(self, query, mode):
+        super().__init__()
+        self.index = 0
+        self.query = query
+        self.mode = mode
+        self.message = None
+
+    async def update(self):
+        """Update to latest version of view."""
+        await self.generate_buttons()
+        self.message.edit(content="", view=self)
+
+    async def generate_buttons(self):
+        """Refresh buttons for view"""
+
 
 class Lookups(commands.Cog):
     """Transfer market lookups"""

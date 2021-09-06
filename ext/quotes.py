@@ -7,7 +7,7 @@ import discord
 from asyncpg import UniqueViolationError
 from discord.ext import commands
 
-from ext.utils import embed_utils
+from ext.utils import embed_utils, view_utils
 
 
 # TODO: Select / Button Pass.
@@ -111,14 +111,16 @@ class QuoteDB(commands.Cog):
                 r = await connection.fetchrow(sql, *escaped)
                 if r:
                     r = [r]
-                
+
         await self.bot.db.release(connection)
-        
+
         if not r:
             return await self.bot.reply(ctx, text=failure)
-        
+
         embeds = await self.embed_quotes(r)
-        await embed_utils.paginate(ctx, embeds, preserve_footer=True, header=success)
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, f"Fetching {success}", view=view)
+        await view.update()
 
     @commands.group(invoke_without_command=True, aliases=["quotes"],
                     usage="[quote id number or a @user to search quotes from them]")

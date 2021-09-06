@@ -8,7 +8,7 @@ import discord
 from asyncpg import UniqueViolationError, Record
 from discord.ext import commands
 
-from ext.utils import football, embed_utils
+from ext.utils import football, embed_utils, view_utils
 
 DEFAULT_LEAGUES = [
     "WORLD: Friendly international",
@@ -121,6 +121,7 @@ class TickerEvent:
         self.mode = mode
         self.channels = channels
         self.home = home
+        self.needs_extended = True if any([i[check_mode(mode)] for i in channels]) else False
 
         # dynamic properties
         self.retry = 0
@@ -153,7 +154,7 @@ class TickerEvent:
 
         elif self.mode in ["goal", "var_goal", "red_card", "var_red_card"]:
             h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
-            h, a = ('**', '**') if self.home is None else h, a
+            h, a = ('**', '**') if self.home is None else (h, a)
             home = f"{h}{self.fixture.home} {self.fixture.score_home}{h}"
             away = f"{a}{self.fixture.score_away} {self.fixture.away}{a}"
             e.description = f"**{m}** | [{home} - {away}]({self.fixture.url})\n"
@@ -247,52 +248,45 @@ class TickerEvent:
 
         for r in self.channels:
             channel = self.bot.get_channel(r['channel_id'])
+            if channel is None:
+                continue
 
-            if r[db_mode] is None:  # Default Off Options.
-                if self.mode in ("kick_off", "half_time", "second_half_begin", "delayed"):
+            # TODO: This is redundant once we do the SELECT check beforehand.
+            if self.mode == "ht_et_begin":  # Special Check - Must pass both
+                if r["half_time"] is None or r["extra_time"] is None:
                     continue
-
-            elif self.mode == "ht_et_begin":  # Special Check - Must pass both
-                if r["half_time"] == "off" or r["half_time"] is None:
-                    continue
-
             elif self.mode == "ht_et_end":  # Special Check - Must pass both
-                if r["second_half_begin"] == "off" or r["second_half_begin"] is None:
+                if r["half_time"] is None or r["second_half_begin"] is None:
                     continue
 
-            elif r[db_mode] == "off":
-                continue  # If output is disabled for this channel skip output entirely.
-
-            _ = await self.full_embed if r[db_mode] == "extended" else await self.embed
+            # True means Use Extended, False means use normal.
+            _ = await self.full_embed if r[db_mode] else await self.embed
 
             try:
                 self.messages.append(await channel.send(embed=_))
             except discord.HTTPException as err:
-                print(err)
+                print("Ticker.py send:", channel.id, err)
                 continue
 
     async def bulk_edit(self):
         """Edit existing messages"""
         db_mode = check_mode(self.mode)
         for message in self.messages:
-            r = next((i for i in self.channels if i['channel_id'] == 'message.channel.id'), None)
-
+            r = next((i for i in self.channels if i['channel_id'] == message.channel.id), None)
             if r is None:
                 continue
 
-            if r[db_mode] in [None, "off"]:  # Default Off Options.
-                if self.mode in ("kick_off", "half_time", "second_half_begin", "delayed"):
-                    continue
-
-            elif self.mode == "ht_et_begin":  # Special Check - Must pass both
-                if r["half_time"] == "off" or r["half_time"] is None:
+            # TODO: This is redundant once we do the SELECT check beforehand.
+            if self.mode == "ht_et_begin":  # Special Check - Must pass both
+                if r["extra_time"] is None or r["half_time"] is None:
                     continue
 
             elif self.mode == "ht_et_end":  # Special Check - Must pass both
-                if r["second_half_begin"] == "off" or r["second_half_begin"] is None:
+                if r["second_half_begin"] is None or r["extra_time"] is None:
                     continue
 
-            embed = await self.full_embed if r[db_mode] == "extended" else await self.embed
+            # False means short embed, True means Extended Embed
+            embed = await self.full_embed if r[db_mode] else await self.embed
 
             try:
                 await message.edit(embed=embed)
@@ -324,30 +318,38 @@ class TickerEvent:
             self.retry += 1
 
             # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
-            if self.event_index is None:
-                if self.fixture.events:
-                    ve = self.valid_events
-                    if ve is not None:
-                        try:
-                            events = [i for i in self.fixture.events if isinstance(i, ve)]
-                            target_team = self.fixture.home if self.home else self.fixture.away
-                            event = [i for i in events if i.team == target_team][-1]
-                            self.event_index = self.fixture.events.index(event)
-                            self.event = event
-                            if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
-                                self.needs_refresh = False
-                        except IndexError:
-                            self.event = None
-                            self.event_index = None
-
-            else:
+            if self.event_index is not None:
                 try:
                     self.event = self.fixture.events[self.event_index]
                     assert isinstance(self.event, self.valid_events)
-                    if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
-                        self.needs_refresh = False
+                    if self.needs_extended:
+                        if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
+                            self.needs_refresh = False
+                    else:
+                        if self.event.player:
+                            self.needs_refresh = False
                 except (AssertionError, IndexError):
                     return await self.retract_event()
+
+            else:
+                if self.fixture.events:
+                    if self.valid_events is not None:
+                        try:
+                            events = [i for i in self.fixture.events if isinstance(i, self.valid_events)]
+                            _ = self.fixture.home if self.home else self.fixture.away
+                            event = [i for i in events if i.team == _].pop()
+                            self.event_index = self.fixture.events.index(event)
+                            self.event = event
+
+                            if self.needs_extended:
+                                if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
+                                    self.needs_refresh = False
+                            else:
+                                if event.player:
+                                    self.needs_refresh = False
+                        except IndexError:
+                            self.event = None
+                            self.event_index = None
 
             await self.bulk_edit() if self.messages else await self.send_messages()
 
@@ -359,8 +361,6 @@ class Ticker(commands.Cog):
         self.bot = bot
         self.emoji = "⚽"
         self.cache = defaultdict(set)
-        self.bot.filtered_leagues = set()
-        self.settings = defaultdict(set)
         self.bot.loop.create_task(self.update_cache())
         self.warn_once = []
         reload(football)
@@ -377,7 +377,7 @@ class Ticker(commands.Cog):
         await self.bot.db.release(connection)
 
         # Clear out our cache.
-        self.cache.clear()
+        new_cache = defaultdict(set)
 
         # Repopulate.
         for r in records:
@@ -395,37 +395,9 @@ class Ticker(commands.Cog):
             if not perms.send_messages or not perms.embed_links:
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
 
-            self.cache[(r["guild_id"], r["channel_id"])].add(r["league"])
+            new_cache[(r["guild_id"], r["channel_id"])].add(r["league"])
 
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            records = await connection.fetch("""
-            SELECT guild_id, ticker_channels.channel_id, goal, red_card,  kick_off, half_time, second_half_begin,
-            full_time, final_result_only, delayed, var, extra_time, penalties
-            FROM ticker_channels LEFT OUTER JOIN ticker_settings
-            ON ticker_channels.channel_id = ticker_settings.channel_id""")
-        await self.bot.db.release(connection)
-
-        self.settings = records
-
-    async def warn_missing_perms(self, ctx):
-        """Aggressively tell users they've fucked up their permissions for their tickers."""
-        bad_guild_channels = [self.bot.get_channel(i[1]) for i in self.warn_once if ctx.guild.id == i[0]]
-        deleted = len([i for i in bad_guild_channels if i is None])
-        not_deleted = [i for i in bad_guild_channels if i is not None]
-
-        if deleted > 0:
-            await self.bot.reply(ctx, f"{deleted} of your ticker channel(s) appear to be deleted.")
-
-        no_send_perms = [i.mention for i in not_deleted if not i.permissions_for(ctx.me).send_messages]
-        if no_send_perms:
-            await self.bot.reply(ctx, f"WARNING: I do not have send_messages permissions in {''.join(no_send_perms)}\n"
-                                      f"**Ticker Events will not be output**")
-
-        no_embed_perms = [i.mention for i in not_deleted if not i.permissions_for(ctx.me).embed_links]
-        if no_embed_perms:
-            await self.bot.reply(ctx, f"WARNING: I do not have embed_links permissions in {''.join(no_send_perms)}\n"
-                                      f"**Ticker Events will not be output**")
+        self.cache = new_cache
 
     @property
     async def base_embed(self):
@@ -439,81 +411,90 @@ class Ticker(commands.Cog):
     async def send_leagues(self, ctx, channel):
         """Sends embed detailing the tracked leagues for a channel."""
         e = await self.base_embed
-        header = f'Tracked leagues for {channel.mention}'
         # Warn if they fuck up permissions.
         if not channel.permissions_for(ctx.me).send_messages:
-            header += f"```css\n[WARNING]: I do not have send_messages permissions in {channel.mention}!"
+            v = f"```css\n[WARNING]: I do not have send_messages permissions in {channel.mention}!"
+            e.add_field(name="Cannot send Messages", value=v)
         if not channel.permissions_for(ctx.me).embed_links:
-            header += f"```css\n[WARNING]: I do not have embed_links permissions in {channel.mention}!"
-        leagues = self.cache[(ctx.guild.id, channel.id)]
+            v = f"```css\n[WARNING]: I do not have embed_links permissions in {channel.mention}!"
+            e.add_field(name="Cannot send Embeds", value=v)
 
-        if leagues == {None}:
-            e.description = header
-            e.description += "```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"
-            embeds = [e]
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            leagues = await connection.fetch("""
+            SELECT league FROM ticker_leagues WHERE channel_id = $1""", channel.id)
+        await self.bot.db.release(connection)
+
+        if not leagues:
+            leagues = ["```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"]
         else:
-            header += "```yaml\n"
-            footer = "```"
-            embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer=footer)
+            leagues = [r['league'] for r in leagues]
 
-        await embed_utils.paginate(ctx, embeds)
-        await self.warn_missing_perms(ctx)
+        embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=f'Tracked leagues for {channel.mention}')
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, "Fetching tracked leagues...", view=view)
+        await view.update()
 
     async def send_settings(self, ctx, channel):
         """Send embed detailing your ticker settings for a channel."""
         e = await self.base_embed
-        header = f"Tracked events for {channel.mention}"
         # Warn if they fuck up permissions.
         if not channel.permissions_for(ctx.me).send_messages:
-            header += f"```css\n[WARNING]: I do not have send_messages permissions in {channel.mention}!"
+            v = f"```css\n[WARNING]: I do not have send_messages permissions in {channel.mention}!"
+            e.add_field(name="Can't Send Messages", value=v)
         if not channel.permissions_for(ctx.me).embed_links:
-            header += f"```css\n[WARNING]: I do not have embed_links permissions in {channel.mention}!"
+            v = f"```css\n[WARNING]: I do not have embed_links permissions in {channel.mention}!"
+            e.add_field(name="Can't Send Embeds", value=v)
 
-        channel_settings = [i for i in self.settings if i['channel_id'] == channel.id][0]
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            cs = await connection.fetchrow("""SELECT * from ticker_settings WHERE channel_id = $1""", channel.id)
+        await self.bot.db.release(connection)
 
-        pos = "default (on)"
-        neg = "default (off)"
+        def fmt(value):
+            """Null/True/False to English."""
+            if value is None:
+                return "Off"
+            return "On" if value else "Extended"
 
-        goal = channel_settings['goal'] if channel_settings['goal'] is not None else pos
-        red_card = channel_settings['red_card'] if channel_settings['red_card'] is not None else pos
-        kick_off = channel_settings['kick_off'] if channel_settings['kick_off'] is not None else neg
-        half_time = channel_settings['half_time'] if channel_settings['half_time'] is not None else neg
-        sec = channel_settings['second_half_begin'] if channel_settings['second_half_begin'] is not None else neg
-        full_time = channel_settings['full_time'] if channel_settings['full_time'] is not None else pos
-        fro = channel_settings['final_result_only'] if channel_settings['final_result_only'] is not None else pos
-        delayed = channel_settings['delayed'] if channel_settings['delayed'] is not None else neg
-        var = channel_settings['var'] if channel_settings['var'] is not None else neg
-        extra_time = channel_settings['extra_time'] if channel_settings['extra_time'] is not None else pos
-        penalties = channel_settings['penalties'] if channel_settings['penalties'] is not None else pos
-
-        settings = f"Goal: {goal}\n"
-        settings += f"Red Card: {red_card}\n"
-        settings += f"Kick Off: {kick_off}\n"
-        settings += f"Half Time: {half_time}\n"
-        settings += f"Second Half Start: {sec}\n"
-        settings += f"Full Time: {full_time}\n"
-        settings += f"Final Result Only: {fro}\n"
-        settings += f"Delayed Games: {delayed}\n"
-        settings += f"VAR: {var}\n"
-        settings += f"Extra Time: {extra_time}\n"
-        settings += f"Penalties: {penalties}\n"
-
-        e.description = header + f"```yaml\n{settings}```"
+        header = f"Tracked events for {channel.mention}"
+        desc = "\n".join([f"{k.replace('_', ' ').title()}: {fmt(v)}" for k, v in cs.items() if k != "channel_id"])
+        print("== Ticker rewrite: Desc==\n", desc)
+        e.description = header + f"```yaml\n{desc}```"
         await self.bot.reply(ctx, embed=e)
 
     @commands.Cog.listener()
     async def on_fixture_event(self, mode, f: football.Fixture, home=True):
         """Event handler for when something occurs during a fixture."""
-        # Perform an initial Refresh of the fixture
-        channels = [i[1] for i in self.cache if f.full_league in self.cache[i]]  # List oF IDs we want settings for
 
-        if not channels:
-            return  # Don't bother fetching
+        _ = check_mode(mode)
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                r = await connection.fetch(
+                    f"""SELECT {_}, ticker_settings.channel_id 
+                    FROM ticker_settings LEFT JOIN ticker_leagues 
+                    ON ticker_settings.channel_id = ticker_leagues.channel_id
+                    WHERE ({_} IS NOT NULL) AND (league = $1::text)""", f.full_league)
+        except Exception as e:
+            raise e
+        else:
+            if r:
+                print(_, f.full_league)
+                print(f"DEBUG: Found {len(r)} matching records for query")
+                for x in r:
+                    print(x)
+        finally:
+            await self.bot.db.release(connection)
+        for _ in list(r):
+            if self.bot.get_channel(_['channel_id']) is None:
+                r.pop(_)
 
-        channels = [i for i in self.settings if i['channel_id'] in channels]  # Settings for those IDs
-        # TODO: Iterate through settings versus mode -> Return if unwanted
+        if not r:  # skip fetch if unwanted.
+            return
 
-        TickerEvent(self.bot, channels=channels, fixture=f, mode=mode, home=home)
+        # Settings for those IDs
+        TickerEvent(self.bot, channels=r, fixture=f, mode=mode, home=home)
 
     async def _pick_channels(self, ctx, channels):
         # Assure guild has goal ticker channel.
@@ -557,7 +538,6 @@ class Ticker(commands.Cog):
             return  # rip
 
         await self.send_leagues(ctx, channel)
-        await self.warn_missing_perms(ctx)
 
     @ticker.command(usage="[#channel-Name]", aliases=["create", "make"])
     @commands.has_permissions(manage_channels=True)
@@ -566,10 +546,16 @@ class Ticker(commands.Cog):
         if ch is None:
             ch = ctx.channel
 
+        gid = ch.guild.id
+        c = await self.bot.db.acquire()
         try:
-            await self.create_channel(ch)
+            async with c.transaction():
+                await c.execute("""INSERT INTO ticker_channels (guild_id, channel_id) VALUES ($1, $2)""", gid, ch.id)
+                await c.execute("""INSERT INTO ticker_settings (channel_id) VALUES ($1)""", ch.id)
         except UniqueViolationError:
-            return await self.bot.reply(ctx, text='That channel already has a ticker!')
+            return await self.bot.reply(ctx, text=f'{ch.mention} already has a ticker.')
+        finally:
+            await self.bot.db.release(c)
 
         for i in DEFAULT_LEAGUES:
             await self.add_league(ch.id, i)
@@ -586,7 +572,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.delete_channel(channel.id)
+        await self.delete_ticker(channel.id)
         await self.bot.reply(ctx, text=f"✅ Removed ticker from {channel.mention}")
         await self.update_cache()
 
@@ -641,8 +627,8 @@ class Ticker(commands.Cog):
         if not channel:
             return  # rip
 
-        target = str(target).strip("'\"")  # Remove quotes, idiot proofing.
         if target is not None:
+            target = str(target).strip("'\"")  # Remove quotes, idiot proofing.
             leagues = [i for i in self.cache[(ctx.guild.id, channel.id)] if target.lower() in i.lower()]
         else:
             leagues = self.cache[(ctx.guild.id, channel.id)]
@@ -673,7 +659,6 @@ class Ticker(commands.Cog):
             return  # rip
 
         await self.remove_all_leagues(channel.id)
-
         await self.bot.reply(ctx, text=f"✅ {channel.mention} leagues cleared")
         await self.update_cache()
         await self.send_leagues(ctx, channel)
@@ -731,32 +716,16 @@ class Ticker(commands.Cog):
             await connection.execute("""DELETE FROM ticker_leagues WHERE channel_id = $1""", channel_id)
         await self.bot.db.release(connection)
 
-    async def create_channel(self, ch: discord.TextChannel):
-        """Create a database entry for a channel to track match events"""
-        gid = ch.guild.id
-        c = await self.bot.db.acquire()
-        try:
-            async with c.transaction():
-                await c.execute("""INSERT INTO ticker_channels (guild_id, channel_id) VALUES ($1, $2)""", gid, ch.id)
-        except UniqueViolationError:
-            raise UniqueViolationError
-        finally:
-            await self.bot.db.release(c)
-
     # Purge either guild or channel from DB.
-    async def delete_channel(self, id_number: int, guild: bool = False):
+    async def delete_ticker(self, id_number: int, guild: bool = False):
         """Delete all database entries for a channel's tracked events"""
-        if guild:
-            sql = """DELETE FROM ticker_channels WHERE guild_id = $1"""
-        else:
-            sql = """DELETE FROM ticker_channels WHERE channel_id = $1"""
-
+        sql = f"""DELETE FROM ticker_channels WHERE {"guild_id" if guild else "channel_id"} = $1"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute(sql, id_number)
         await self.bot.db.release(connection)
 
-    async def settings_upsert(self, column, cid, value):
+    async def upsert(self, column, cid, value: bool or None):
         """Insert or update ticker_settings db entry"""
         c = await self.bot.db.acquire()
         try:
@@ -771,25 +740,25 @@ class Ticker(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
         """Handle deletion of channel data from database upon channel deletion."""
-        await self.delete_channel(channel.id)
+        await self.delete_ticker(channel.id)
         await self.update_cache()
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
         """Delete all data related to a guild from the database upon guild leave."""
-        await self.delete_channel(guild.id, guild=True)
+        await self.delete_ticker(guild.id, guild=True)
         await self.update_cache()
 
     @ticker.command(usage="<channel_id>", hidden=True)
     @commands.is_owner()
     async def admin(self, ctx, channel_id: int):
         """Admin force delete a goal tracker."""
-        await self.delete_channel(channel_id)
+        await self.delete_ticker(channel_id)
         await self.bot.reply(ctx, text=f"✅ **{channel_id}** was deleted from the ticker_channels table")
         await self.update_cache()
 
     # Config commands
-    @ticker.group(usage="<'off', 'on', or 'extended'>", invoke_without_command=True)
+    @ticker.group(usage="<`off`, `on`, or `extened`>", invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def goals(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle the output mode for goals in tracked leagues.
@@ -811,7 +780,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("goal", channel.id, "off")
+        await self.upsert("goal", channel.id, "off")
         await self.bot.reply(ctx, text=f"Disabled output of messages for goal events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -824,7 +793,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("goal", channel.id, "on")
+        await self.upsert("goal", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of messages for goal events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -837,13 +806,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("goal", channel.id, "extended")
+        await self.upsert("goal", channel.id, True)
         await self.bot.reply(ctx, text=f"Enabled output of extended messages for goal events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Kick off commands
-    @ticker.group(usage="<'off' or 'on'>", invoke_without_command=True)
+    @ticker.group(usage="<`off` or `on`>", invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def kickoff(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle the output mode for kickoff events in tracked leagues.
@@ -864,7 +833,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("kick_off", channel.id, "off")
+        await self.upsert("kick_off", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of messages for kick off events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -877,13 +846,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("kick_off", channel.id, "on")
+        await self.upsert("kick_off", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of messages for kick off events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Half Time commands
-    @ticker.group(usage="<'off', 'on', or 'extended'>", aliases=["ht"], invoke_without_command=True)
+    @ticker.group(usage="<`off`, `on`, or `extened`>", aliases=["ht"], invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def halftime(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle the output mode for half time events from tracked leagues.
@@ -905,7 +874,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("half_time", channel.id, "off")
+        await self.upsert("half_time", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of messages for half time events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -918,7 +887,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("half_time", channel.id, "on")
+        await self.upsert("half_time", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of messages for half time events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -931,13 +900,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("half_time", channel.id, "extended")
+        await self.upsert("half_time", channel.id, True)
         await self.bot.reply(ctx, text=f"Enabled output of extended messages for half time events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Second Half commands
-    @ticker.group(usage="<'off', 'on', or 'extended'>", invoke_without_command=True)
+    @ticker.group(usage="<`off`, `on`, or `extened`>", invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def sechalf(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle output for second half kickoff events from tracked leagues.
@@ -959,7 +928,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("second_half_begin", channel.id, "off")
+        await self.upsert("second_half_begin", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of second half kickoff messages to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -972,7 +941,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("second_half_begin", channel.id, "on")
+        await self.upsert("second_half_begin", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of second half kickoff messages to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -985,13 +954,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("second_half_begin", channel.id, "extended")
+        await self.upsert("second_half_begin", channel.id, True)
         await self.bot.reply(ctx, text=f"Enabled output of extended second half kickoff messages to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Red Card commands
-    @ticker.group(usage="<'off', 'on', or 'extended'>", invoke_without_command=True, aliases=["rc"])
+    @ticker.group(usage="<`off`, `on`, or `extened`>", invoke_without_command=True, aliases=["rc"])
     @commands.has_permissions(manage_channels=True)
     async def redcard(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle the output mode for red card events from tracked leagues.
@@ -1013,7 +982,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("red_card", channel.id, "off")
+        await self.upsert("red_card", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of red card messages to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1026,7 +995,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("red_card", channel.id, "on")
+        await self.upsert("red_card", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of red_card messages to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1039,13 +1008,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("red_card", channel.id, "extended")
+        await self.upsert("red_card", channel.id, True)
         await self.bot.reply(ctx, text=f"Enabled output of extended red card messages to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Result Only commands
-    @ticker.group(usage="<'off', 'on', or 'extended'>", invoke_without_command=True, aliases=['rx', 'fro'])
+    @ticker.group(usage="<`off`, `on`, or `extened`>", invoke_without_command=True, aliases=['rx', 'fro'])
     @commands.has_permissions(manage_channels=True)
     async def results(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle output for final result only matches for tracked leagues.
@@ -1069,7 +1038,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("final_result_only", channel.id, "off")
+        await self.upsert("final_result_only", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of final result only match embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1082,7 +1051,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("final_result_only", channel.id, "on")
+        await self.upsert("final_result_only", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of final result only match embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1096,13 +1065,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("final_result_only", channel.id, "extended")
+        await self.upsert("final_result_only", channel.id, True)
         await self.bot.reply(ctx, text=f"Enabled extended output for result only match embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Full Time Commands
-    @ticker.group(usage="<'off', 'on', or 'extended'>", invoke_without_command=True, aliases=['ft'])
+    @ticker.group(usage="<`off`, `on`, or `extened`>", invoke_without_command=True, aliases=['ft'])
     @commands.has_permissions(manage_channels=True)
     async def fulltime(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle output for full time results for matches in tracked leagues.
@@ -1124,7 +1093,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("full_time", channel.id, "off")
+        await self.upsert("full_time", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of full time embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1137,7 +1106,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("full_time", channel.id, "on")
+        await self.upsert("full_time", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of full time embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1150,13 +1119,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("full_time", channel.id, "extended")
+        await self.upsert("full_time", channel.id, True)
         await self.bot.reply(ctx, text=f"Enabled extended embeds for full time results to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Delayed/cancelled/postponed/resumed
-    @ticker.group(usage="<'off' or 'on'>", invoke_without_command=True, aliases=['cancelled'])
+    @ticker.group(usage="<`off` or `on`>", invoke_without_command=True, aliases=['cancelled'])
     @commands.has_permissions(manage_channels=True)
     async def delays(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle output for delays and cancellations of matches in tracked leagues.
@@ -1177,7 +1146,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("delayed", channel.id, "off")
+        await self.upsert("delayed", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of delay or cancellation embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1190,13 +1159,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("delayed", channel.id, "on")
+        await self.upsert("delayed", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of delay or cancellation embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # VAR Reviews
-    @ticker.group(usage="<'off' or 'on'>", invoke_without_command=True)
+    @ticker.group(usage="<`off` or `on`>", invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def var(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle output for VAR Reviews in tracked leagues.
@@ -1217,7 +1186,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("var", channel.id, "off")
+        await self.upsert("var", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of VAR Reviews to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1230,13 +1199,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("var", channel.id, "on")
+        await self.upsert("var", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of VAR Reviews to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Extra Time
-    @ticker.group(usage="<'off' or 'on'>", invoke_without_command=True)
+    @ticker.group(usage="<`off` or `on`>", invoke_without_command=True)
     @commands.has_permissions(manage_channels=True)
     async def et(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle output for Extra Time in tracked leagues.
@@ -1257,7 +1226,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("extra_time", channel.id, "off")
+        await self.upsert("extra_time", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of extra time embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1270,13 +1239,13 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("extra_time", channel.id, "on")
+        await self.upsert("extra_time", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of extra time embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
 
     # Penalties
-    @ticker.group(usage="<'off' or 'on'>", invoke_without_command=True, aliases=["pens"])
+    @ticker.group(usage="<`off` or `on`>", invoke_without_command=True, aliases=["pens"])
     @commands.has_permissions(manage_channels=True)
     async def penalties(self, ctx, channels: commands.Greedy[discord.TextChannel]):
         """Toggle output for penalties in tracked leagues.
@@ -1297,7 +1266,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("penalties", channel.id, "off")
+        await self.upsert("penalties", channel.id, None)
         await self.bot.reply(ctx, text=f"Disabled output of penalty embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
@@ -1310,7 +1279,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.settings_upsert("penalties", channel.id, "on")
+        await self.upsert("penalties", channel.id, False)
         await self.bot.reply(ctx, text=f"Enabled output of  penalty embeds to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)

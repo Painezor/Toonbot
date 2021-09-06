@@ -12,7 +12,7 @@ from discord.ext import commands, tasks
 # Web Scraping
 from lxml import html
 
-from ext.utils import football, embed_utils
+from ext.utils import football, embed_utils, view_utils, timed_events
 
 # Constants.
 NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
@@ -121,7 +121,9 @@ class Scores(commands.Cog, name="LiveScores"):
             footer = "```"
             embeds = embed_utils.rows_to_embeds(e, sorted(records), header=header, footer=footer)
 
-        await embed_utils.paginate(ctx, embeds)
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, "Fetching tracked leagues...")
+        await view.update()
     
     async def update_cache(self):
         """Grab the most recent data for all channelc configurations"""
@@ -196,7 +198,7 @@ class Scores(commands.Cog, name="LiveScores"):
         channel_leagues_required = self.game_cache.keys() & whitelist
 
         chunks = []
-        this_chunk = f"Live scores at <t:{str(datetime.datetime.now().timestamp()).split('.')[0]}:F>\n"
+        this_chunk = f"Live scores at {timed_events.Timestamp().day_time}\n"
         if channel_leagues_required:
             # Build messages.
             for league in channel_leagues_required:
@@ -305,7 +307,6 @@ class Scores(commands.Cog, name="LiveScores"):
             tree = html.fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
         elements = tree.xpath('.//div[@id="score-data"]/* | .//div[@id="score-data"]/text()')
 
-        date = datetime.datetime.today().date()
         country = None
         league = None
         home_cards = 0

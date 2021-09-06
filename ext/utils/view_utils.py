@@ -45,7 +45,7 @@ class PageButton(discord.ui.Button):
             else:
                 sliced = self.view.pages[self.view.index - 12:self.view.index + 12]
         options = [discord.SelectOption(label=f"Page {n}", value=str(n)) for n, e in enumerate(sliced, start=1)]
-        self.view.add_item(PageSelect(placeholder="Select A Page", options=options))
+        self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row + 1))
         await self.view.message.edit(view=self.view)
 
 
@@ -84,9 +84,9 @@ class StopButton(discord.ui.Button):
 class PageSelect(discord.ui.Select):
     """Page Selector Dropdown"""
 
-    def __init__(self, placeholder=None, options=None):
+    def __init__(self, placeholder=None, options=None, row=4):
         super().__init__(placeholder=placeholder, options=options)
-        self.row = 1
+        self.row = row
 
     async def callback(self, interaction):
         """Set View Index """
@@ -134,6 +134,7 @@ class ObjectSelectView(discord.ui.View):
 
     async def update(self):
         """Send new version of view to user"""
+
         self.prev.disabled = True if self.index == 0 else False
         self.next.disabled = True if self.index == len(self.pages) - 1 else False
 
@@ -154,9 +155,9 @@ class ObjectSelectView(discord.ui.View):
         except discord.NotFound:
             pass
 
+
 class MultipleSelect(discord.ui.Select):
     """Select multiple matching items."""
-
     def __init__(self, placeholder, options: Iterable[Tuple[str, str, str]], attribute):
         self.attribute = attribute
 
@@ -183,7 +184,7 @@ class ItemSelect(discord.ui.Select):
     async def callback(self, interaction):
         """Response object for view"""
         await interaction.response.defer()
-        self.view.value = int(self.values[0])
+        self.view.value = self.view.index * 25 + int(self.values[0])
         self.view.stop()
         await self.view.message.delete()
 
@@ -258,5 +259,72 @@ class Paginator(discord.ui.View):
         _ = NextButton()
         _.disabled = True if self.index == len(self.pages) - 1 else False
         self.add_item(_)
-
         self.add_item(StopButton(row=0))
+
+
+class ChannelPicker(discord.ui.View):
+    """Container View for Channel Select Dropdown"""
+
+    def __init__(self, owner: discord.User, channels):
+        super().__init__()
+        self.owner = owner
+        self.value = None
+        self.add_item(ChannelSelect(channels))
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        """Verify only invoker of command can use the buttons."""
+        return interaction.user.id == self.owner.id
+
+
+class ChannelSelect(discord.ui.Select):
+    """Dropdown"""
+
+    def __init__(self, channels):
+        super().__init__(placeholder="Select a Channel...")
+        for num, _ in enumerate(channels):
+            self.add_option(label=_.name, emoji='#️⃣', description=_.topic, value=str(num))
+
+    async def callback(self, interaction):
+        """Upon Item Selection do this"""
+        await interaction.response.defer()
+        self.view.value = self.values[0]
+        self.view.stop()
+
+
+class Confirmation(discord.ui.View):
+    """Ask the user if they wish to create a new ticker"""
+
+    def __init__(self, owner: discord.User, positive_label: str = "Yes", negative_label: str = "No"):
+        super().__init__()
+        self.owner = owner
+        self.add_item(PositiveResponse(label=positive_label))
+        self.add_item(PositiveResponse(label=negative_label))
+        self.value = None
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        """Verify only invoker of command can use the buttons."""
+        return interaction.user.id == self.owner.id
+
+
+class PositiveResponse(discord.ui.Button):
+    """Yes Button"""
+
+    def __init__(self, label):
+        super().__init__(label=label, style=discord.ButtonStyle.green())
+
+    async def callback(self, interaction):
+        """On Click Event"""
+        self.view.value = True
+        self.view.stop()
+
+
+class NegativeResponse(discord.ui.Button):
+    """No Button"""
+
+    def __init__(self, label):
+        super().__init__(label=label, style=discord.ButtonStyle.red())
+
+    async def callback(self, interaction):
+        """On Click Event"""
+        self.view.value = False
+        self.view.stop()

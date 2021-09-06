@@ -7,8 +7,7 @@ from importlib import reload
 import discord
 from discord.ext import commands
 
-from ext.utils import timed_events
-from ext.utils.embed_utils import get_colour
+from ext.utils import timed_events, embed_utils
 
 
 # TODO: Select / Button Pass.
@@ -137,9 +136,6 @@ class Info(commands.Cog):
 
         e.set_author(name=str(member), icon_url=member.display_avatar.url)
 
-        if member.bot:
-            e.description += "\n**🤖 This user is a bot**"
-
         try:
             if member.is_on_mobile():
                 e.description += "\n📱 Using mobile app."
@@ -150,8 +146,8 @@ class Info(commands.Cog):
             e.set_thumbnail(url=member.display_avatar.url)
 
         if isinstance(member, discord.Member):
-            e.description += f'\nJoined Server: {timed_events.timestamp(mode="countdown", time=member.joined_at)}'
-        e.description += f'\nCreated Account: {timed_events.timestamp(mode="countdown", time=member.created_at)}'
+            e.description += f'\nJoined Server: {timed_events.Timestamp(member.joined_at).countdown}'
+        e.description += f'\nCreated Account: {timed_events.Timestamp(member.createrd_at).countdown}'
 
         try:
             voice = member.voice
@@ -204,7 +200,7 @@ class Info(commands.Cog):
 
         if guild.icon:
             e.set_thumbnail(url=guild.icon_url)
-            e.colour = await get_colour(str(guild.icon_url))
+            e.colour = await embed_utils.get_colour(str(guild.icon_url))
 
         emojis = ""
         for emoji in guild.emojis:
@@ -218,7 +214,7 @@ class Info(commands.Cog):
 
         roles = [role.mention for role in guild.roles]
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
-        e.add_field(name="Creation Date", value=timed_events.timestamp(mode="daterel", time=guild.created_at))
+        e.add_field(name="Creation Date", value=timed_events.Timestamp(guild.created_at).date_relative)
         e.set_footer(text=f"\nRegion: {str(guild.region).title()}")
         await self.bot.reply(ctx, embed=e)
     

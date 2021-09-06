@@ -229,7 +229,7 @@ class Fixture:
         e.set_author(name=f"{self.country}: {self.league}")
         if isinstance(self.time, datetime.datetime):
             if self.time > datetime.datetime.now():
-                e.description = f"Kickoff: {timed_events.timestamp(mode='time_relative', time=self.time)}"
+                e.description = f"Kickoff: {timed_events.Timestamp(self.time).time_relative}"
         elif self.time == "Postponed":
             e.description = "This match has been postponed."
         else:
@@ -260,15 +260,15 @@ class Fixture:
         if not isinstance(self.time, datetime.datetime):
             try:
                 time = datetime.datetime.strptime(self.time, "%d.%m.%Y")
-                return timed_events.timestamp(mode="date", time=time)
+                return timed_events.Timestamp(time).date
             except ValueError:
                 print(f"Could not make relative timestamp for {type(self.time)}: {self.time}")
                 return self.time
 
         if self.time - datetime.timedelta(days=1) < datetime.datetime.now():
-            return timed_events.timestamp(mode="date", time=self.time)
+            return timed_events.Timestamp(self.time).date
         else:
-            return timed_events.timestamp(mode="datetime", time=self.time)
+            return timed_events.Timestamp(self.time).datetime
 
     @property
     def score(self) -> str:

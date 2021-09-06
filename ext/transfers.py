@@ -267,8 +267,7 @@ class Transfers(commands.Cog):
     async def add(self, ctx, channels: commands.Greedy[discord.TextChannel], *, query: commands.clean_content = None):
         """Add a league or team to your transfer ticker channel(s)"""
         if query is None:
-            err = '🚫 You need to specify a league name to search for'
-            return await self.bot.reply(ctx, text=err, ping=True)
+            return await self.bot.reply(ctx, '🚫 You need to specify a league name to search for', ping=True)
 
         channel = await self._pick_channels(ctx, channels)
         if not channel:

@@ -1,6 +1,6 @@
 """Moderation Commands"""
 import asyncio
-import datetime
+# import datetime
 import typing
 from collections import defaultdict
 
@@ -8,7 +8,9 @@ import discord
 from discord.ext import commands
 
 from ext.utils import embed_utils, view_utils
-from ext.utils.timed_events import parse_time, spool_reminder
+
+
+# from ext.utils.timed_events import parse_time
 
 
 # TODO: Find a way to use a custom converter for temp mute/ban and merge into main command.
@@ -187,7 +189,7 @@ class Mod(commands.Cog):
     async def say(self, ctx, destination: typing.Optional[discord.TextChannel] = None, *, msg):
         """Say something as the bot in specified channel"""
         if destination is None:
-            destination = ctx.channel
+            destination = ctx
         try:
             await ctx.message.delete()
         except discord.HTTPException:
@@ -597,132 +599,132 @@ class Mod(commands.Cog):
         view.message = await self.bot.reply(ctx, "Fetching disabled commands...", view=view)
         await view.update()
 
-    @commands.command(usage="tempban <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
-    @commands.has_permissions(ban_members=True)
-    @commands.bot_has_permissions(ban_members=True)
-    async def tempban(self, ctx, members: commands.Greedy[discord.Member], time, *,
-                      reason: commands.clean_content = None):
-        """Temporarily ban member(s)"""
-        try:
-            delta = await parse_time(time.lower())
-        except ValueError:
-            return await self.bot.reply(ctx, text='Invalid time format, please use `1d1h30m10s`', ping=True)
-        remind_at = datetime.datetime.now() + delta
-        human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
-    
-        for i in members:
-            try:
-                await ctx.guild.ban(i, reason=reason)
-            except discord.Forbidden:
-                await self.bot.reply(ctx, text=f"🚫 I can't ban {i.mention}.", ping=True)
-                continue
-        
-            connection = await self.bot.db.acquire()
-            record = await connection.fetchrow("""INSERT INTO reminders (message_id, channel_id, guild_id,
-            reminder_content,
-            created_time, target_time. user_id, mod_action, mod_target) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *""", ctx.message.id, ctx.channel.id, ctx.guild.id, reason, datetime.datetime.now(), remind_at,
-                                              ctx.author.id, "unban", i.id)
-            await self.bot.db.release(connection)
-            self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(ctx.bot, record)))
-    
-        e = discord.Embed()
-        e.title = "⏰ User banned"
-        e.description = f"{[i.mention for i in members]} will be unbanned for \n{reason}\nat\n {human_time}"
-        e.colour = 0x00ffff
-        e.timestamp = remind_at
-        await self.bot.reply(ctx, embed=e)
+    # @commands.command(usage="tempban <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
+    # @commands.has_permissions(ban_members=True)
+    # @commands.bot_has_permissions(ban_members=True)
+    # async def tempban(self, ctx, members: commands.Greedy[discord.Member], time, *,
+    #                   reason: commands.clean_content = None):
+    #     """Temporarily ban member(s)"""
+    #     try:
+    #         delta = await parse_time(time.lower())
+    #     except ValueError:
+    #         return await self.bot.reply(ctx, text='Invalid time format, please use `1d1h30m10s`', ping=True)
+    #     remind_at = datetime.datetime.now() + delta
+    #     human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
+    #
+    #     for i in members:
+    #         try:
+    #             await ctx.guild.ban(i, reason=reason)
+    #         except discord.Forbidden:
+    #             await self.bot.reply(ctx, text=f"🚫 I can't ban {i.mention}.", ping=True)
+    #             continue
+    #
+    #         connection = await self.bot.db.acquire()
+    #         record = await connection.fetchrow("""INSERT INTO reminders (message_id, channel_id, guild_id,
+    #         reminder_content,
+    #         created_time, target_time. user_id, mod_action, mod_target) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    #         RETURNING *""", ctx.message.id, ctx.channel.id, ctx.guild.id, reason, datetime.datetime.now(), remind_at,
+    #                                           ctx.author.id, "unban", i.id)
+    #         await self.bot.db.release(connection)
+    #         self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(ctx.bot, record)))
+    #
+    #     e = discord.Embed()
+    #     e.title = "⏰ User banned"
+    #     e.description = f"{[i.mention for i in members]} will be unbanned for \n{reason}\nat\n {human_time}"
+    #     e.colour = 0x00ffff
+    #     e.timestamp = remind_at
+    #     await self.bot.reply(ctx, embed=e)
 
-    @commands.command(usage="tempmute <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
-    @commands.has_permissions(kick_members=True)
-    @commands.bot_has_permissions(kick_members=True)
-    async def tempmute(self, ctx, members: commands.Greedy[discord.Member], time, *,
-                       reason: commands.clean_content = None):
-        """Temporarily mute member(s)"""
-        try:
-            delta = await parse_time(time.lower())
-        except ValueError:
-            return await self.bot.reply(ctx, text='Invalid time format, use `1d1h30m10s`', ping=True)
-        remind_at = datetime.datetime.now() + delta
-        human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
-    
-        # Role.
-        muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
-        if not muted_role:
-            muted_role = await ctx.guild.create_role(name="Muted")  # Read Messages / Read mesasge history.
-            await muted_role.edit(position=ctx.me.top_role.position - 1)
-            m_overwrite = discord.PermissionOverwrite(add_reactions=False, send_messages=False)
-        
-            for i in ctx.guild.text_channels:
-                await i.set_permissions(muted_role, overwrite=m_overwrite)
+    # @commands.command(usage="tempmute <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
+    # @commands.has_permissions(kick_members=True)
+    # @commands.bot_has_permissions(kick_members=True)
+    # async def tempmute(self, ctx, members: commands.Greedy[discord.Member], time, *,
+    #                    reason: commands.clean_content = None):
+    #     """Temporarily mute member(s)"""
+    #     try:
+    #         delta = await parse_time(time.lower())
+    #     except ValueError:
+    #         return await self.bot.reply(ctx, text='Invalid time format, use `1d1h30m10s`', ping=True)
+    #     remind_at = datetime.datetime.now() + delta
+    #     human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
+    #
+    #     # Role.
+    #     muted_role = discord.utils.get(ctx.guild.roles, name='Muted')
+    #     if not muted_role:
+    #         muted_role = await ctx.guild.create_role(name="Muted")  # Read Messages / Read mesasge history.
+    #         await muted_role.edit(position=ctx.me.top_role.position - 1)
+    #         m_overwrite = discord.PermissionOverwrite(add_reactions=False, send_messages=False)
+    #
+    #         for i in ctx.guild.text_channels:
+    #             await i.set_permissions(muted_role, overwrite=m_overwrite)
+    #
+    #     # Mute
+    #     for i in members:
+    #         await i.add_roles(muted_role, reason=f"{ctx.author}: {reason}")
+    #         connection = await self.bot.db.acquire()
+    #
+    #         async with connection.transaction():
+    #             record = await connection.fetchrow("""INSERT INTO reminders (message_id, channel_id, guild_id,
+    #             reminder_content, created_time, target_time, user_id, mod_action, mod_target)
+    #             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *""",
+    #             ctx.message.id, ctx.channel.id, ctx.guild.id, reason, ctx.message.created_at, remind_at, ctx.author.id,
+    #                                                "unmute", i.id)
+    #         await self.bot.db.release(connection)
+    #         self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(ctx.bot, record)))
+    #
+    #     e = discord.Embed()
+    #     e.title = "⏰ User muted"
+    #     e.description = f"{', '.join([i.mention for i in members])} temporarily muted:"
+    #     e.add_field(name="Until", value=human_time)
+    #     if reason is not None:
+    #         e.add_field(name="Reason", value=str(reason))
+    #     e.colour = 0x00ffff
+    #     e.timestamp = remind_at
+    #     await self.bot.reply(ctx, embed=e)
 
-        # Mute
-        for i in members:
-            await i.add_roles(muted_role, reason=f"{ctx.author}: {reason}")
-            connection = await self.bot.db.acquire()
-            
-            async with connection.transaction():
-                record = await connection.fetchrow("""INSERT INTO reminders (message_id, channel_id, guild_id,
-                reminder_content, created_time, target_time, user_id, mod_action, mod_target)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *""",
-                ctx.message.id, ctx.channel.id, ctx.guild.id, reason, ctx.message.created_at, remind_at, ctx.author.id,
-                                                   "unmute", i.id)
-            await self.bot.db.release(connection)
-            self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(ctx.bot, record)))
-    
-        e = discord.Embed()
-        e.title = "⏰ User muted"
-        e.description = f"{', '.join([i.mention for i in members])} temporarily muted:"
-        e.add_field(name="Until", value=human_time)
-        if reason is not None:
-            e.add_field(name="Reason", value=str(reason))
-        e.colour = 0x00ffff
-        e.timestamp = remind_at
-        await self.bot.reply(ctx, embed=e)
+    # @commands.command(usage="tempblock <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
+    # @commands.has_permissions(kick_members=True)
+    # @commands.bot_has_permissions(kick_members=True)
+    # async def tempblock(self, ctx, channel: typing.Optional[discord.TextChannel],
+    #                     members: commands.Greedy[discord.Member], time, *, reason: commands.clean_content = None):
+    #     """Temporarily block member(s) from a channel"""
+    #     if channel is None:
+    #         channel = ctx.channel
+    #
+    #     try:
+    #         delta = await parse_time(time.lower())
+    #     except ValueError:
+    #         return await self.bot.reply(ctx, text='Invalid time format, use `1d1h30m10s`', ping=True)
+    #     remind_at = datetime.datetime.now() + delta
+    #     human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
+    #
+    #     ow = discord.PermissionOverwrite(read_messages=False, send_messages=False)
+    #
+    #     # Mute, send to notification channel if exists.
+    #     for i in members:
+    #         await channel.set_permissions(i, overwrite=ow)
+    #
+    #         connection = await self.bot.db.acquire()
+    #         record = await connection.fetchval("""INSERT INTO reminders (message_id, channel_id, guild_id,
+    #         reminder_content,
+    #         created_time, target_time. user_id, mod_action, mod_target) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    #         RETURNING *""", ctx.message.id, channel.id, ctx.guild.id, reason, datetime.datetime.now(), remind_at,
+    #                                           ctx.author.id, "unblock", i.id)
+    #         await self.bot.db.release(connection)
+    #         self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(ctx.bot, record)))
+    #
+    #     e = discord.Embed()
+    #     e.title = "⏰ User blocked"
+    #     e.description = f"{', '.join([i.mention for i in members])} will be blocked from {channel.mention} " \
+    #                     f"\n{reason}\nuntil\n {human_time}"
+    #     e.colour = 0x00ffff
+    #     e.timestamp = remind_at
+    #     await self.bot.reply(ctx, embed=e)
 
-    @commands.command(usage="tempblock <members: @member1 @member2> <time (e.g. 1d1h1m1s)> <(Optional: reason)>")
-    @commands.has_permissions(kick_members=True)
-    @commands.bot_has_permissions(kick_members=True)
-    async def tempblock(self, ctx, channel: typing.Optional[discord.TextChannel],
-                        members: commands.Greedy[discord.Member], time, *, reason: commands.clean_content = None):
-        """Temporarily block member(s) from a channel"""
-        if channel is None:
-            channel = ctx.channel
-    
-        try:
-            delta = await parse_time(time.lower())
-        except ValueError:
-            return await self.bot.reply(ctx, text='Invalid time format, use `1d1h30m10s`', ping=True)
-        remind_at = datetime.datetime.now() + delta
-        human_time = datetime.datetime.strftime(remind_at, "%H:%M:%S on %a %d %b")
-    
-        ow = discord.PermissionOverwrite(read_messages=False, send_messages=False)
-    
-        # Mute, send to notification channel if exists.
-        for i in members:
-            await channel.set_permissions(i, overwrite=ow)
-        
-            connection = await self.bot.db.acquire()
-            record = await connection.fetchval("""INSERT INTO reminders (message_id, channel_id, guild_id,
-            reminder_content,
-            created_time, target_time. user_id, mod_action, mod_target) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING *""", ctx.message.id, channel.id, ctx.guild.id, reason, datetime.datetime.now(), remind_at,
-                                              ctx.author.id, "unblock", i.id)
-            await self.bot.db.release(connection)
-            self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(ctx.bot, record)))
-    
-        e = discord.Embed()
-        e.title = "⏰ User blocked"
-        e.description = f"{', '.join([i.mention for i in members])} will be blocked from {channel.mention} " \
-                        f"\n{reason}\nuntil\n {human_time}"
-        e.colour = 0x00ffff
-        e.timestamp = remind_at
-        await self.bot.reply(ctx, embed=e)
-        
     @commands.command()
     @commands.has_permissions(manage_roles=True)
     @commands.bot_has_permissions(manage_roles=True)
-    async def lockdown(self, ctx, top_role:typing.Optional[discord.Role]):
+    async def lockdown(self, ctx, top_role: typing.Optional[discord.Role]):
         """Anti-raid command: Stop un-roled people sending messages in the discord.
         Mention a role to stop people below that role from sending messages as the cutoff."""
         if not top_role:

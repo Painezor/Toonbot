@@ -96,10 +96,13 @@ class Notifications(commands.Cog):
         if member.bot:
             e.description += '\n\n🤖 **This is a bot account**'
 
-        timestamp = timed_events.timestamp(mode="daterel", time=member.created_at)
+        timestamp = timed_events.Timestamp(member.created_at).date_relative
 
         e.add_field(name="Account Created", value=timestamp, inline=False)
-        e.set_thumbnail(url=member.display_avatar.url)
+        try:
+            e.set_thumbnail(url=member.display_avatar.url)
+        except AttributeError:
+            pass
 
         try:
             await ch.send(embed=e)
@@ -176,7 +179,9 @@ class Notifications(commands.Cog):
         a = message.author
 
         e = discord.Embed()
-        e.set_author(name=f"{a} (ID: {a.id})", icon_url=a.display_avatar.url)
+        av = a.display_avatar.url
+        av = discord.Embed.Empty() if av is None else av
+        e.set_author(name=f"{a} (ID: {a.id})", icon_url=av)
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.set_footer(text=f"🗑️ Deleted message from {message.channel.name}")
         e.description = message.clean_content

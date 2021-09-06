@@ -83,7 +83,7 @@ def get_flag(country, unicode=False) -> str:
     if not country:
         return country
 
-    # Check if pycountry has country
+    # Check if py country has country
     if country.lower() in ["england", "scotland", "wales"]:
         if unicode:
             country = country.lower()
@@ -160,8 +160,27 @@ class Player(TransferResult):
         return f"{self.flag} [{self.name}]({self.link}) {self.age}, {self.position} [{self.team}]({self.team_link})"
 
 
+def parse_players(rows) -> typing.List[Player]:
+    """Parse a transfer page to get a list of players"""
+    players = []
+    for i in rows:
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
+        picture = "".join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src'))
+        link = "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/@href'))
+        link = "https://www.transfermarkt.co.uk" + link if "transfermarkt" not in link else link
+        team = "".join(i.xpath('.//td[3]/a/img/@alt'))
+        team_link = "".join(i.xpath('.//td[3]/a/img/@href'))
+        team_link = "https://www.transfermarkt.co.uk" + team_link if "transfermarkt" not in team_link else team_link
+        age = "".join(i.xpath('.//td[4]/text()'))
+        p = "".join(i.xpath('.//td[2]/text()'))
+        c = "".join(i.xpath('.//td/img[1]/@title'))
+        players.append(Player(name, link, team, age, p, team_link, c, picture))
+    return players
+
+
 class Staff(TransferResult):
     """An object representing a Trainer or Manager from a Transfermarkt search"""
+
     def __init__(self, name, link, country, team, team_link, age, job):
         super().__init__(name, link)
         self.team = team
@@ -379,7 +398,7 @@ class Team(TransferResult):
             flag = " ".join([get_flag(f) for f in i.xpath('.//td[3]/img/@title')])
             date = "".join(i.xpath('.//td[4]//text()')).strip()
             _ = datetime.datetime.strptime(date, "%b %d, %Y")
-            expiry = timed_events.timestamp(time=_, mode="countdown")
+            expiry = timed_events.Timestamp(_).countdown
 
             option = "".join(i.xpath('.//td[5]//text()')).strip()
             option = f"\n∟ {option.title()}" if option != "-" else ""
@@ -432,6 +451,20 @@ class Team(TransferResult):
         view = view_utils.Paginator(ctx.author, embed_utils.rows_to_embeds(e, rows))
         view.message = await ctx.bot.reply(ctx, f"Fetching rumours for {self.name}", view=view)
         await view.update()
+
+
+def parse_teams(rows):
+    """Fetch a list of teams from a transfermarkt page"""
+    results = []
+    for i in rows:
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
+        link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
+        link = "https://www.transfermarkt.co.uk" + link if "transfermarkt" not in link else link
+        league = "".join(i.xpath('.//tr[2]/td/a/text()')).strip()
+        league_link = "".join(i.xpath('.//tr[2]/td/a/@href')).strip()
+        country = "".join(i.xpath('.//td/img[1]/@title')[-1]).strip()
+        results.append(Team(name=name, link=link, country=country, league=league, league_link=league_link))
+    return results
 
 
 class Referee(TransferResult):
@@ -721,34 +754,14 @@ class TransferSearch:
 
         results = []
 
-        tf_link = "https://www.transfermarkt.co.uk"
-
         if self.category == "Players":
-            for i in rows:
-                name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-                picture = "".join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src'))
-                link = "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/@href'))
-                link = tf_link + link if "transfermarkt" not in link else link
-                team = "".join(i.xpath('.//td[3]/a/img/@alt'))
-                team_link = "".join(i.xpath('.//td[3]/a/img/@href'))
-                team_link = tf_link + team_link if "transfermarkt" not in team_link else team_link
-                age = "".join(i.xpath('.//td[4]/text()'))
-                p = "".join(i.xpath('.//td[2]/text()'))
-                c = "".join(i.xpath('.//td/img[1]/@title'))
-                results.append(Player(name, link, team, age, p, team_link, c, picture))
+            results = parse_players(rows)
         elif self.category == "Clubs":
-            for i in rows:
-                name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
-                link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
-                link = tf_link + link if "transfermarkt" not in link else link
-                league = "".join(i.xpath('.//tr[2]/td/a/text()')).strip()
-                league_link = "".join(i.xpath('.//tr[2]/td/a/@href')).strip()
-                country = "".join(i.xpath('.//td/img[1]/@title')[-1]).strip()
-                results.append(Team(name=name, link=link, country=country, league=league, league_link=league_link))
+            results = parse_teams(rows)
         elif self.category == "Referees":
             for i in rows:
                 name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
-                link = tf_link + "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
+                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
                 age = "".join(i.xpath('.//td[@class="zentriert"]/text()')).strip()
                 country = "".join(i.xpath('.//td/img[1]/@title')).strip()
                 results.append(Referee(name=name, link=link, age=age, country=country))
@@ -769,19 +782,19 @@ class TransferSearch:
         elif self.category == "Domestic Competitions":
             for i in rows:
                 name = "".join(i.xpath('.//td[2]/a/text()')).strip()
-                link = tf_link + "".join(i.xpath('.//td[2]/a/@href')).strip()
+                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href')).strip()
                 country = "".join(i.xpath('.//td[3]/img/@title')).strip()
                 results.append(Competition(name=name, link=link, country=country))
         elif self.category == "International Competitions":
             for i in rows:
                 name = "".join(i.xpath('.//td[2]/a/text()'))
-                link = tf_link + "".join(i.xpath('.//td[2]/a/@href'))
+                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
                 country = ""
                 results.append(Competition(name=name, link=link, country=country))
         elif self.category == "Agents":
             for i in rows:
                 name = "".join(i.xpath('.//td[2]/a/text()'))
-                link = tf_link + "".join(i.xpath('.//td[2]/a/@href'))
+                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
                 results.append(Agent(name=name, link=link))
         else:
             print(f"Transfer Tools WARNING! NO VALID PARSER FOUND FOR CATEGORY: {self.category}")

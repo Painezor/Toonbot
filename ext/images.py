@@ -1,3 +1,4 @@
+"""Various image manipulation commands."""
 import json
 import random
 import textwrap
@@ -264,12 +265,19 @@ class Images(commands.Cog):
                 return await self.bot.reply(ctx, text="Nobody swiped right on you.")
 
             av = await ctx.author.display_avatar.with_format("png").read()
-            match = random.choice(ctx.guild.members)
+
+            while True:
+                match = random.choice(ctx.guild.members)
+                name = match.display_name
+                try:
+                    target = await match.display_avatar.with_format("png").read()
+                except AttributeError:
+                    continue
+                else:
+                    break
+
             # TODO: Get presence intents.
             # match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
-            name = match.display_name
-
-            target = await match.display_avatar.with_format("png").read()
             output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
             if match == ctx.author:
                 caption = f"{ctx.author.mention} matched with themself, How pathetic."
@@ -281,8 +289,7 @@ class Images(commands.Cog):
             base_embed = discord.Embed()
             base_embed.description = caption
             base_embed.colour = 0xFD297B
-            base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
-            base_embed.description = caption
+            base_embed.set_author(name=ctx.invoked_with.title(), icon_url=icon)
             await embed_utils.embed_image(ctx, base_embed, output, filename="Tinder.png")
 
     @commands.command(aliases=["bob", "ross"], usage='<@user, link to image, or upload a file>')
@@ -416,8 +423,11 @@ class Images(commands.Cog):
         await self.bot.reply(ctx, image='Images/goala.gif')
 
     @commands.command(usage="<an emoji>", aliases=['emoji'])
-    async def emote(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji]):
+    async def emote(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji] = None):
         """View a bigger version of an Emoji"""
+        if emoji is None:
+            return await self.bot.reply(ctx, "You need to specify an emote to get the bigger version of.")
+
         e = discord.Embed()
         e.title = emoji.name
         if emoji.animated:

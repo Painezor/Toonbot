@@ -4,7 +4,7 @@ from importlib import reload
 import discord
 from discord.ext import commands
 
-from ext.utils import embed_utils
+from ext.utils import embed_utils, view_utils
 
 INV = f"[Invite me to your discord](https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
       f"&permissions=67488768&scope=bot)\n[Join the Toonbot Help & Testing Discord](http://www.discord.gg/a5NHvPx)" \
@@ -56,21 +56,6 @@ class NextButton(discord.ui.Button):
         await interaction.response.defer()
         self.view.index += 1 if self.view.index + 1 < len(self.view.cogs) else self.view.index
         await self.view.update()
-
-
-class StopButton(discord.ui.Button):
-    """The Button for hiding the View"""
-
-    def __init__(self):
-        super().__init__()
-        self.emoji = '🚫'
-        self.label = "Hide"
-        self.style = discord.ButtonStyle.secondary
-
-    async def callback(self, interaction: discord.Interaction):
-        """End the paginator and hide it's message."""
-        await self.view.message.delete()
-        self.view.stop()
 
 
 class PageButton(discord.ui.Button):
@@ -148,7 +133,7 @@ class HelpView(discord.ui.View):
             _ = NextButton()
             self.add_item(_)
 
-        self.add_item(StopButton())
+        self.add_item(view_utils.StopButton())
 
     async def on_timeout(self):
         """Clean up"""

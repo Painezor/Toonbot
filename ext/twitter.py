@@ -8,7 +8,7 @@ import tweepy
 import tweepy.asynchronous
 from discord.ext import commands
 
-from ext.utils import embed_utils
+from ext.utils import embed_utils, view_utils
 
 TWITTER_ICON = "https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
 
@@ -160,7 +160,10 @@ class Twitter(commands.Cog):
         tracked_items = [f"{i['name']} -> {self.bot.get_channel(i['channel_id']).mention}" for i in
                          self.records if i['guild_id'] == ctx.guild.id]
         embeds = embed_utils.rows_to_embeds(e, tracked_items)
-        await embed_utils.paginate(ctx, embeds)
+
+        view = view_utils.Paginator(ctx.author, embeds)
+        view.message = await self.bot.reply(ctx, "Fetching tracked twitter users...", embeds)
+        await view.update()
 
     # TODO: Add / remove per channel etc etc.
     @commands.group(invoke_without_command=True)
