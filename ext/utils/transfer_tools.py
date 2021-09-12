@@ -46,6 +46,7 @@ country_dict = {
     "Northern Ireland": "gb",
     "Osttimor": "tl",
     "Palästina": "ps",
+    "Palestine": "pa",
     "Russia": "ru",
     "Sao Tome and Principe": "st",
     "Sint Maarten": "sx",
