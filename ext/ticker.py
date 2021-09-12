@@ -5,7 +5,7 @@ from collections import defaultdict
 from importlib import reload
 
 import discord
-from asyncpg import UniqueViolationError, Record
+from asyncpg import UniqueViolationError
 from discord.ext import commands
 
 from ext.utils import football, embed_utils, view_utils
@@ -96,37 +96,54 @@ def get_event_type(mode):
 
 def check_mode(mode):
     """Get appropriate DB Setting for ticker event"""
-    if mode in ["var_red_card", "var_goal", "red_card_overturned", "goal_overturned"]:
-        return "var"
-    elif mode in ["resumed", "interrupted", "postponed", "abandoned", "cancelled"]:
-        return "delayed"
-    elif mode in ["extra_time_begins", "end_of_normal_time", "ht_et_begin", "ht_et_end", "end_of_extra_time"]:
-        return "extra_time"
-    elif mode in ["score_after_extra_time", "full_time"]:
-        return "full_time"
+    if mode == "ht_et_begin":  # Special Check - Must pass both
+        return ["half_time", "extra_time"]
+    elif mode == "ht_et_end":  # Special Check - Must pass both
+        return ["second_half_begin", "extra_time"]
+
+    elif mode == "resumed":
+        return ["kick_off"]
+
+    elif mode in ["var_red_card", "var_goal", "red_card_overturned", "goal_overturned"]:
+        return ["var"]
+
+    elif mode in ["interrupted", "postponed", "cancelled"]:
+        return ["delayed"]
+
+    elif mode in ["extra_time_begins", "end_of_normal_time", "end_of_extra_time"]:
+        return ["extra_time"]
+
+    elif mode in ["score_after_extra_time", "abandoned", "full_time"]:
+        return ["full_time"]
+
     elif mode in ["penalties_begin", "penalty_results"]:
-        return "penalties"
+        return ["penalties"]
+
     elif "start_of_period" in mode:
-        return "Half_time"
+        return ["second_half_begin"]
+
+    elif "end_of_period" in mode:
+        return ["half_time"]
+
     else:
-        return mode
+        return [mode]
 
 
 class TickerEvent:
     """Handles dispatching and editing messages for a fixture event."""
 
-    def __init__(self, bot, fixture, mode, channels: typing.List[Record], home=False):
+    def __init__(self, bot, fixture, mode, channels: typing.List[typing.Tuple[int, bool]], home=False):
         self.bot = bot
         self.fixture = fixture
         self.mode = mode
         self.channels = channels
         self.home = home
-        self.needs_extended = True if any([i[check_mode(mode)] for i in channels]) else False
 
         # dynamic properties
         self.retry = 0
         self.messages = []
         self.needs_refresh = True
+        self.needs_extended = True if any([i[1] for i in channels]) else False
 
         # For exact event.
         self.event = None
@@ -244,23 +261,17 @@ class TickerEvent:
 
     async def send_messages(self):
         """Dispatch latest event embed to all applicable channels"""
-        db_mode = check_mode(self.mode)
-
-        for r in self.channels:
-            channel = self.bot.get_channel(r['channel_id'])
+        for channel_id, extended in self.channels:
+            channel = self.bot.get_channel(channel_id)
             if channel is None:
                 continue
 
-            # TODO: This is redundant once we do the SELECT check beforehand.
-            if self.mode == "ht_et_begin":  # Special Check - Must pass both
-                if r["half_time"] is None or r["extra_time"] is None:
-                    continue
-            elif self.mode == "ht_et_end":  # Special Check - Must pass both
-                if r["half_time"] is None or r["second_half_begin"] is None:
-                    continue
-
             # True means Use Extended, False means use normal.
-            _ = await self.full_embed if r[db_mode] else await self.embed
+            try:
+                _ = await self.full_embed if extended else await self.embed
+            except KeyError as e:
+                print('ticker - send_messages: Key Error', extended, self.mode, e)
+                continue
 
             try:
                 self.messages.append(await channel.send(embed=_))
@@ -270,23 +281,17 @@ class TickerEvent:
 
     async def bulk_edit(self):
         """Edit existing messages"""
-        db_mode = check_mode(self.mode)
         for message in self.messages:
-            r = next((i for i in self.channels if i['channel_id'] == message.channel.id), None)
+            r = next((i for i in self.channels if i[0] == message.channel.id), None)
             if r is None:
                 continue
 
-            # TODO: This is redundant once we do the SELECT check beforehand.
-            if self.mode == "ht_et_begin":  # Special Check - Must pass both
-                if r["extra_time"] is None or r["half_time"] is None:
-                    continue
-
-            elif self.mode == "ht_et_end":  # Special Check - Must pass both
-                if r["second_half_begin"] is None or r["extra_time"] is None:
-                    continue
-
             # False means short embed, True means Extended Embed
-            embed = await self.full_embed if r[db_mode] else await self.embed
+            try:
+                embed = await self.full_embed if r[1] else await self.embed
+            except KeyError as e:
+                print("Ticker, bulk edit, key error", e, self.mode, r)
+                continue
 
             try:
                 await message.edit(embed=embed)
@@ -304,6 +309,7 @@ class TickerEvent:
             # Fallback, Wait 2 minutes extra pre refresh
             _ = 120 * self.retry if self.retry in range(5) else False
             if _ is False:
+                await self.bulk_edit()
                 return
             else:
                 await asyncio.sleep(_)
@@ -322,14 +328,16 @@ class TickerEvent:
                 try:
                     self.event = self.fixture.events[self.event_index]
                     assert isinstance(self.event, self.valid_events)
-                    if self.needs_extended:
-                        if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
-                            self.needs_refresh = False
-                    else:
-                        if self.event.player:
-                            self.needs_refresh = False
-                except (AssertionError, IndexError):
+                    # Event deleted or replaced.
+                except (IndexError, AssertionError):
                     return await self.retract_event()
+
+                if self.needs_extended:
+                    if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
+                        self.needs_refresh = False
+                else:
+                    if self.event.player:
+                        self.needs_refresh = False
 
             else:
                 if self.fixture.events:
@@ -351,7 +359,12 @@ class TickerEvent:
                             self.event = None
                             self.event_index = None
 
-            await self.bulk_edit() if self.messages else await self.send_messages()
+            if self.messages:
+                if not self.needs_refresh:
+                    await self.bulk_edit()
+                    return
+            else:
+                await self.send_messages()
 
 
 class Ticker(commands.Cog):
@@ -446,10 +459,12 @@ class Ticker(commands.Cog):
             v = f"```css\n[WARNING]: I do not have embed_links permissions in {channel.mention}!"
             e.add_field(name="Can't Send Embeds", value=v)
 
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            cs = await connection.fetchrow("""SELECT * from ticker_settings WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+        c = await self.bot.db.acquire()
+        async with c.transaction():
+            cs = await c.fetchrow("""SELECT * from ticker_settings WHERE channel_id = $1""", channel.id)
+            if cs is None:
+                await c.fetchrow("""INSERT INTO ticker_settings (channel_id) VALUES ($1) RETURNING *""", channel.id)
+        await self.bot.db.release(c)
 
         def fmt(value):
             """Null/True/False to English."""
@@ -459,7 +474,6 @@ class Ticker(commands.Cog):
 
         header = f"Tracked events for {channel.mention}"
         desc = "\n".join([f"{k.replace('_', ' ').title()}: {fmt(v)}" for k, v in cs.items() if k != "channel_id"])
-        print("== Ticker rewrite: Desc==\n", desc)
         e.description = header + f"```yaml\n{desc}```"
         await self.bot.reply(ctx, embed=e)
 
@@ -469,32 +483,37 @@ class Ticker(commands.Cog):
 
         _ = check_mode(mode)
         connection = await self.bot.db.acquire()
+
+        columns = ", ".join(_)
+        not_nulls = " AND ".join([f'({x} IS NOT NULL)' for x in _])
+        sql = f"""SELECT {columns}, ticker_settings.channel_id FROM ticker_settings LEFT JOIN ticker_leagues 
+                ON ticker_settings.channel_id = ticker_leagues.channel_id WHERE {not_nulls} AND (league = $1::text)"""
+
         try:
             async with connection.transaction():
-                r = await connection.fetch(
-                    f"""SELECT {_}, ticker_settings.channel_id 
-                    FROM ticker_settings LEFT JOIN ticker_leagues 
-                    ON ticker_settings.channel_id = ticker_leagues.channel_id
-                    WHERE ({_} IS NOT NULL) AND (league = $1::text)""", f.full_league)
+                records = await connection.fetch(sql, f.full_league)
         except Exception as e:
+            print(sql)
             raise e
-        else:
-            if r:
-                print(_, f.full_league)
-                print(f"DEBUG: Found {len(r)} matching records for query")
-                for x in r:
-                    print(x)
         finally:
             await self.bot.db.release(connection)
-        for _ in list(r):
-            if self.bot.get_channel(_['channel_id']) is None:
-                r.pop(_)
 
-        if not r:  # skip fetch if unwanted.
+        for _ in list(records):
+            try:
+                channel = self.bot.get_channel(_['channel_id'])
+                assert channel is not None
+                assert channel.permissions_for(channel.guild.me).send_messages
+                assert channel.permissions_for(channel.guild.me).embed_links
+            except AssertionError:
+                records.remove(_)
+
+        channels = [(int(r.pop(-1)), all(r)) for r in [list(x) for x in records]]
+
+        if not channels:  # skip fetch if unwanted.
             return
 
         # Settings for those IDs
-        TickerEvent(self.bot, channels=r, fixture=f, mode=mode, home=home)
+        TickerEvent(self.bot, channels=channels, fixture=f, mode=mode, home=home)
 
     async def _pick_channels(self, ctx, channels):
         # Assure guild has goal ticker channel.
@@ -780,7 +799,7 @@ class Ticker(commands.Cog):
         if channel is None:
             return
 
-        await self.upsert("goal", channel.id, "off")
+        await self.upsert("goal", channel.id, False)
         await self.bot.reply(ctx, text=f"Disabled output of messages for goal events to {channel.mention}")
         await self.update_cache()
         await self.send_settings(ctx, channel)
