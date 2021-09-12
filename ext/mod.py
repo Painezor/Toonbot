@@ -79,8 +79,8 @@ class Mod(commands.Cog):
                 await connection.execute("""
                 with gid as (INSERT INTO guild_settings (guild_id) VALUES ($1) RETURNING guild_id)
                 INSERT INTO prefixes (prefix, guild_id)
-                VALUES ( $2, (SELECT guild_id FROM gid));
-                """, guild_id,  '.tb ')
+                VALUES ($2, (SELECT guild_id FROM gid));
+                """, guild_id, '.tb ')
         finally:
             await self.bot.db.release(connection)
             
@@ -129,12 +129,10 @@ class Mod(commands.Cog):
                 if pref_list[i].endswith(' '):
                     pref_list = [pref_list[i]] + pref_list[:i] + pref_list[i + 1:]
             self.bot.prefix_cache[guild] = pref_list
-            
+
         for g in self.bot.guilds:
             if g.id not in self.bot.prefix_cache:
-                print(f'Mod: WARNING: guild_id {g.id} not found in DB!')
                 await self.create_guild(g.id)
-                print(f'Mod: Guild {g.id} was added to db via update_prefixes.')
             
     async def update_cache(self):
         """Refresh local cache of disabled commands"""
