@@ -83,20 +83,23 @@ class Info(commands.Cog):
         await self.bot.reply(ctx, text=f"```py\n{permissions}```")
     
     @commands.command(aliases=["lastmsg", "lastonline", "lastseen"], usage="seen @user")
-    async def seen(self, ctx, target: discord.Member):
+    async def seen(self, ctx, target: discord.Member = None):
         """Find the last message from a user in this channel"""
-        await self.bot.reply(ctx, text="Searching...", delete_after=5)
+        if target is None:
+            return await self.bot.reply(ctx, 'You need to specify a user to search for.')
+
+        m = await self.bot.reply(ctx, text="Searching...")
         with ctx.typing():
             if ctx.author == target:
-                return await self.bot.reply(ctx, text="Last seen right now, being an idiot.", ping=True)
-            
-            async for msg in ctx.channel.history(limit=1000):
+                return await m.edit(content="Last seen right now, being an idiot.", ping=True)
+
+            async for msg in ctx.channel.history(limit=5000):
                 if msg.author.id == target.id:
                     c = f"Last message in {ctx.channel.mention} from {target.mention}: {msg.jump_url}"
                     break
                 else:
                     c = "Couldn't find a recent message from that user."
-            await self.bot.reply(ctx, text=c)
+            await m.edit(content=c)
     
     @commands.group(invoke_without_command=True)
     @commands.guild_only()
