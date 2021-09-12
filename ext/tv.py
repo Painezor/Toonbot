@@ -80,15 +80,14 @@ class Tv(commands.Cog):
 
 				try:
 					timestamp = i.xpath('.//@dv')[0]
-					print(timestamp)
 					timestamp = int(timestamp)
 					_ = datetime.datetime.fromtimestamp(timestamp / 1000)
-					print(_)
 					ts = timed_events.Timestamp(_).datetime
 				except (ValueError, IndexError):
 					date = "".join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
 					time = "".join(i.xpath('.//td[@class="timecell"]//span/text()')).strip()
-					print(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
+					if time not in ["Postp.", "TBA"]:
+						print(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
 					ts = time
 
 				rows.append(f'{ts}: [{match}]({link})')
