@@ -38,7 +38,7 @@ class Lookups(commands.Cog):
 
     # Base lookup - No Sub-command invoked.
     @commands.group(invoke_without_command=True, usage="<Who you want to search for>")
-    async def lookup(self, ctx, *, query: commands.clean_content):
+    async def lookup(self, ctx, *, query: commands.clean_content = None):
         """Perform a database lookup on transfermarkt"""
         if query is None:
             return await self.bot.reply(ctx, '🚫 You need to specify something to search for.', ping=True)
