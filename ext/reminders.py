@@ -111,7 +111,7 @@ class Reminders(commands.Cog):
     @commands.group(aliases=['reminder', 'remind', 'remindme'],
                     usage="<Amount of time> <Reminder message>",
                     invoke_without_command=True)
-    async def timer(self, ctx, time, *, message: commands.clean_content):
+    async def timer(self, ctx, time, *, message: commands.clean_content = "Reminder"):
         """Remind you of something at a specified time.
             Format is remind 1d2h3m4s <note>, e.g. remind 1d3h Kickoff."""
         try:
