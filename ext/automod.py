@@ -88,7 +88,7 @@ class AutoMod(commands.Cog):
         async with connection.transaction():
             await connection.execute(
                 """INSERT INTO mention_spam (guild_id,mention_threshold, mention_action) VALUES ($1, $2, $3) ON CONFLICT 
-                (guild_id) DO UPDATE SET (mention_threshold, mention_action) = ($2,$3)WHERE EXCLUDED.guild_id = $1""",
+                (guild_id) DO UPDATE SET (mention_threshold, mention_action) = ($2,$3) WHERE EXCLUDED.guild_id = $1""",
                 ctx.guild.id, threshold, action)
         await self.bot.db.release(connection)
         await self.update_cache()
