@@ -686,6 +686,9 @@ class Fixtures(commands.Cog):
             await self.bot.reply(ctx, f'🚫 {ctx.command.name.title()}: No results found for {qry}', ping=True)
             return None
 
+        if len(markers) == 1:
+            return items[0]
+
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
         view.message = await self.bot.reply(ctx, '⏬ Multiple results found, choose from the dropdown.', view=view)
         await view.wait()
