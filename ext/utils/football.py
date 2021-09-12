@@ -258,11 +258,15 @@ class Fixture:
     def relative_time(self):
         """Discord Native TimeStamping"""
         if not isinstance(self.time, datetime.datetime):
+            if self.time.endswith("'"):
+                return self.time
+
             try:
-                time = datetime.datetime.strptime(self.time, "%d.%m.%Y")
-                return timed_events.Timestamp(time).date
+                return timed_events.Timestamp(datetime.datetime.strptime(self.time, "%d.%m.%Y")).date
             except ValueError:
-                print(f"Could not make relative timestamp for {type(self.time)}: {self.time}")
+                if self.time.endswith("'"):
+                    print(f'-------------\nfootball.py\nCould not make relative timestamp for '
+                          f'{type(self.time)}: {self.time} {self.url}\n-------------')
                 return self.time
 
         if self.time - datetime.timedelta(days=1) < datetime.datetime.now():
@@ -557,7 +561,7 @@ class Fixture:
             e_n = i.xpath('./div[starts-with(@class, "incident_")]')[0]  # event_node
 
             icon = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg/@class')).strip()
-            event_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]/div/@title')).strip()
+            event_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//@title')).strip()
             icon_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg//text()')).strip()
 
             # Data not always present.
@@ -602,7 +606,7 @@ class Fixture:
                 if icon_desc:
                     event.note = icon_desc
                 else:
-                    maybe_note = "".join(e_n.xpath('./div/div/text()')).strip()
+                    maybe_note = "".join(e_n.xpath('./div//text()')).strip()
                     if maybe_note:
                         event.note = maybe_note
 
@@ -910,8 +914,12 @@ class Competition(FlashScoreSearchResult):
             try:
                 rank, name, tm, goals, assists = items
             except ValueError:
-                print(f"Unable to fetch scorer info for row on get_scorers for {uri}")
-                continue
+                try:
+                    rank, name, tm, goals, assists = items + [0]
+                except ValueError:
+                    print(items)
+                    print(f"Unable to fetch scorer info for row on get_scorers for {uri}")
+                    continue
 
             country = "".join(i.xpath('.//span[contains(@class,"flag")]/@title')).strip()
             flag = transfer_tools.get_flag(country)
