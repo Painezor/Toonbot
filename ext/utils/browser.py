@@ -73,7 +73,10 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
     for x in deletes:
         elements = await page.xpath(x)
         for element in elements:
-            await page.evaluate("""(element) => element.parentNode.removeChild(element)""", element)
+            try:
+                await page.evaluate("""(element) => element.parentNode.removeChild(element)""", element)
+            except pyppeteer.errors.ElementHandleError:  # If no exist.
+                continue
 
     for x in clicks:
         try:
