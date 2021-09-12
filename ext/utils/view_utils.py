@@ -27,7 +27,7 @@ class PageButton(discord.ui.Button):
 
     def __init__(self, row=0):
         super().__init__()
-        self.label = "Populating..."
+        self.label = f"Populating..."
         self.emoji = "⏬"
         self.row = row
         self.style = discord.ButtonStyle.primary
@@ -277,7 +277,7 @@ class ChannelPicker(discord.ui.View):
 
 
 class ChannelSelect(discord.ui.Select):
-    """Dropdown"""
+    """Dropdown to pick a channel."""
 
     def __init__(self, channels):
         super().__init__(placeholder="Select a Channel...")
@@ -288,43 +288,53 @@ class ChannelSelect(discord.ui.Select):
         """Upon Item Selection do this"""
         await interaction.response.defer()
         self.view.value = self.values[0]
+        await self.view.message.delete()
         self.view.stop()
 
 
 class Confirmation(discord.ui.View):
     """Ask the user if they wish to create a new ticker"""
 
-    def __init__(self, owner: discord.User, positive_label: str = "Yes", negative_label: str = "No"):
+    def __init__(self, owner: discord.User,
+                 label_a: str = "Yes",
+                 label_b: str = "No",
+                 colour_a: discord.ButtonStyle = None,
+                 colour_b: discord.ButtonStyle = None):
         super().__init__()
+        self.message = None
         self.owner = owner
-        self.add_item(PositiveResponse(label=positive_label))
-        self.add_item(PositiveResponse(label=negative_label))
+        self.add_item(BoolButton(label=label_a, colour=colour_a, value=True))
+        self.add_item(BoolButton(label=label_b, colour=colour_b))
         self.value = None
 
     async def interaction_check(self, interaction: discord.Interaction):
         """Verify only invoker of command can use the buttons."""
         return interaction.user.id == self.owner.id
 
+    async def on_timeout(self) -> None:
+        """Return nothing on timeout."""
+        self.value = None
+        try:
+            self.message.delete()
+        except discord.HTTPException:
+            pass
+        self.stop()
 
-class PositiveResponse(discord.ui.Button):
-    """Yes Button"""
 
-    def __init__(self, label):
-        super().__init__(label=label, style=discord.ButtonStyle.green())
+class BoolButton(discord.ui.Button):
+    """Set View value"""
+
+    def __init__(self, label="Yes", colour: discord.ButtonStyle = None, value: bool = False):
+        if colour is None:
+            colour = discord.ButtonStyle.secondary
+        super().__init__(label=label, style=colour)
+        self.value = value
 
     async def callback(self, interaction):
         """On Click Event"""
-        self.view.value = True
-        self.view.stop()
-
-
-class NegativeResponse(discord.ui.Button):
-    """No Button"""
-
-    def __init__(self, label):
-        super().__init__(label=label, style=discord.ButtonStyle.red())
-
-    async def callback(self, interaction):
-        """On Click Event"""
-        self.view.value = False
+        self.view.value = self.value
+        try:
+            await self.view.message.delete()
+        except discord.HTTPException:
+            pass
         self.view.stop()
