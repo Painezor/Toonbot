@@ -106,27 +106,9 @@ class ObjectSelectView(discord.ui.View):
         self.message = None
         self.dropdown = None
 
-        self.prev = None
-        self.page_button = None
-        self.next = None
-
         self.objects = objects
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(timeout=timeout)
-        self.dropdown = ItemSelect(placeholder="Select an Item...", options=self.pages[0])
-        self.dropdown.label = f"Page {self.index + 1} of {len(self.pages)}"
-        self.dropdown.row = 0
-
-        if len(self.pages) > 1:
-            self.prev = PreviousButton(row=1)
-            self.add_item(self.prev)
-            self.page_button = PageButton(row=1)
-            self.page_button.label = f"Page {self.index + 1} of {len(self.pages)}"
-            self.add_item(self.page_button)
-            self.next = NextButton(row=1)
-            self.add_item(self.next)
-        self.add_item(self.dropdown)
-        self.add_item(StopButton(row=1))
 
     async def interaction_check(self, interaction):
         """Assure only the command's invoker can select a result"""
@@ -134,26 +116,35 @@ class ObjectSelectView(discord.ui.View):
 
     async def update(self):
         """Send new version of view to user"""
+        self.clear_items()
 
-        self.prev.disabled = True if self.index == 0 else False
-        self.next.disabled = True if self.index == len(self.pages) - 1 else False
+        _ = PreviousButton(row=1)
+        _.disabled = True if self.index == 0 else False
+        self.add_item(_)
 
-        if self.dropdown is not None:
-            self.remove_item(self.dropdown)  # Discard Old Dropdown & Generate new one
+        _ = PageButton(row=1)
+        _.label = f"Page {self.index + 1} of {len(self.pages)}"
+        self.add_item(_)
 
-        self.dropdown = ItemSelect(placeholder="Select Matching Item...", options=self.pages[self.index])
-        self.page_button.label = f"Page {self.index + 1} of {len(self.pages)}"
-        self.add_item(self.dropdown)
+        _ = NextButton(row=1)
+        _.disabled = True if self.index == len(self.pages) - 1 else False
+        self.add_item(_)
+
+        _ = ItemSelect(placeholder="Select Matching Item...", options=self.pages[0])
+        _.label = f"Page {self.index + 1} of {len(self.pages)}"
+        _.row = 0
+        self.add_item(_)
+
+        self.add_item(StopButton(row=1))
         await self.message.edit(view=self)
 
     async def on_timeout(self):
         """Cleanup"""
-        self.clear_items()
-        self.stop()
         try:
             await self.message.delete()
         except discord.NotFound:
             pass
+        self.stop()
 
 
 class MultipleSelect(discord.ui.Select):

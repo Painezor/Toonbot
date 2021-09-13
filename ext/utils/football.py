@@ -13,7 +13,7 @@ import aiohttp
 import discord
 from lxml import html
 
-from ext.utils import embed_utils, timed_events
+from ext.utils import embed_utils, timed_events, view_utils
 from ext.utils import transfer_tools, image_utils, browser
 
 reload(transfer_tools)
@@ -910,7 +910,11 @@ class Competition(FlashScoreSearchResult):
             items = i.xpath('.//text()')
             items = [i.strip() for i in items if i.strip()]
             links = i.xpath(".//a/@href")
-            player_link, team_link = ["http://www.flashscore.com" + i for i in links]
+            try:
+                player_link, team_link = ["http://www.flashscore.com" + i for i in links]
+            except ValueError:
+                print(f'get_players - Only one link found instead of 2 on {self.url}')
+                player_link, team_link = None, None
             try:
                 rank, name, tm, goals, assists = items
             except ValueError:
@@ -1178,18 +1182,10 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
 async def fs_search(ctx, query) -> FlashScoreSearchResult or None:
     """Search using the aiohttp to fetch a single object matching the user's query"""
     search_results = await get_fs_results(query)
-    search_results = [i for i in search_results if i.participant_type_id == 0]  # Filter out non-leagues
-    item_list = [i.title for i in search_results]
-    index = await embed_utils.page_selector(ctx, item_list)
+    search_results = [i for i in search_results if isinstance(i, Competition)]  # Filter out non-leagues
+    view = view_utils.ObjectSelectView(ctx.author, [('🏆', i.title, i.url) for i in search_results])
+    view.message = await ctx.bot.reply(ctx, f"Fetching matches for {query}...", view=view)
+    await view.update()
+    await view.wait()
 
-    if index == -1:
-        await ctx.bot.reply(ctx, text=f"🚫 Lookup Cancelled. If you didn't see the league you want, "
-                                      f"try using the league's link from the flashscore website")
-        return None
-    elif index is None:
-        await ctx.bot.reply(ctx, text=f"🚫 Timed out waiting for you to reply, channel not modified.")
-        return None  # Timeout or abort.
-    elif index == "cancelled":
-        return None
-
-    return search_results[index]
+    return None if view.value is None else search_results[view.value]

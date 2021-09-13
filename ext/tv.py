@@ -42,6 +42,7 @@ class Tv(commands.Cog):
 
 			view = view_utils.ObjectSelectView(owner=ctx.author, objects=_, timeout=30)
 			view.message = await self.bot.reply(ctx, '⏬ Multiple results found, choose from the dropdown.', view=view)
+			await view.update()
 			await view.wait()
 
 			if view.value is None:

@@ -689,8 +689,10 @@ class Fixtures(commands.Cog):
         if len(markers) == 1:
             return items[0]
 
+        print(markers)
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
         view.message = await self.bot.reply(ctx, '⏬ Multiple results found, choose from the dropdown.', view=view)
+        await view.update()
         await view.wait()
 
         if view.value is None:
@@ -725,6 +727,7 @@ class Fixtures(commands.Cog):
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=_, timeout=30)
         _ = "an upcoming" if upcoming else "a recent"
         view.message = await self.bot.reply(ctx, f'⏬ Please choose {_} game.', view=view)
+        await view.update()
         await view.wait()
 
         if view.value is None:
@@ -955,6 +958,7 @@ class Fixtures(commands.Cog):
         markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.league})") for i in stadiums]
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
         view.message = await self.bot.reply(ctx, '⏬ Choose a Stadium.', view=view)
+        await view.update()
         await view.wait()
 
         if view.value is None:
