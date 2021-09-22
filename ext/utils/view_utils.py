@@ -46,6 +46,7 @@ class PageButton(discord.ui.Button):
                 sliced = self.view.pages[self.view.index - 12:self.view.index + 12]
         options = [discord.SelectOption(label=f"Page {n}", value=str(n)) for n, e in enumerate(sliced, start=1)]
         self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row + 1))
+        self.disabled = True
         await self.view.message.edit(view=self.view)
 
 
@@ -105,7 +106,6 @@ class ObjectSelectView(discord.ui.View):
         self.index = 0
         self.message = None
         self.dropdown = None
-
         self.objects = objects
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(timeout=timeout)
@@ -306,7 +306,7 @@ class Confirmation(discord.ui.View):
         """Return nothing on timeout."""
         self.value = None
         try:
-            self.message.delete()
+            await self.message.delete()
         except discord.HTTPException:
             pass
         self.stop()
