@@ -81,7 +81,7 @@ class HelpDropDown(discord.ui.Select):
     """The dropdown for our Cogs"""
 
     def __init__(self, placeholder, cogs: list):
-        self.cogs = cogs
+        self.cogs = sorted(cogs, key=lambda x: x.qualified_name)
         super().__init__()
         self.placeholder = placeholder
         for index, cog in enumerate(self.cogs):
@@ -129,11 +129,11 @@ class HelpView(discord.ui.View):
         self.add_item(_)
 
         if len(self.embeds) > 1:
-            _.disabled = True if self.index == len(self.embeds) - 1 else False
             _ = NextButton()
+            _.disabled = True if self.index == len(self.embeds) - 1 else False
             self.add_item(_)
 
-        self.add_item(view_utils.StopButton())
+        self.add_item(view_utils.StopButton(row=0))
 
     async def on_timeout(self):
         """Clean up"""
@@ -146,8 +146,11 @@ class HelpView(discord.ui.View):
         """Update the view"""
         self.clear_items()
         self.populate_buttons()
-        await self.message.edit(content=None, view=self, embed=self.embeds[self.index],
-                                allowed_mentions=discord.AllowedMentions().none())
+        try:
+            await self.message.edit(content=None, view=self, embed=self.embeds[self.index],
+                                    allowed_mentions=discord.AllowedMentions().none())
+        except IndexError:
+            print("Help", self.current_category, "index_error", self.index)
 
     @property
     def base_embed(self):
@@ -194,7 +197,7 @@ class HelpView(discord.ui.View):
         rows = sorted([await self.descriptor(command) for command in runnable])
 
         if not rows:
-            return []
+            rows = ['You do not have permissions to use any commands in this cog.']
 
         e.add_field(value=f'Use `{self.ctx.prefix}help command` to view extended help of that command.\n'
                           f'Subcommands are ran by using `{self.ctx.prefix}command subcommand`',
