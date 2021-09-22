@@ -120,8 +120,7 @@ class SettingsSelect(discord.ui.Select):
 
     def __init__(self, settings):
         self.settings = settings
-        self.row = 0
-        super().__init__(placeholder="Turn events on or off")
+        super().__init__(placeholder="Turn events on or off", row=3)
 
         for k, v in sorted(self.settings.items()):
             if k == "channel_id":
@@ -215,12 +214,7 @@ class RemoveLeague(discord.ui.Select):
     """Button to bring up the settings dropdown."""
 
     def __init__(self, leagues):
-        super().__init__(placeholder="Remove tracked league(s)")
-        self.row = 2
-        if len(leagues) > 25:
-            leagues = leagues[self.view.index * 25:]
-            if len(leagues) > 25:
-                leagues = leagues[:25]
+        super().__init__(placeholder="Remove tracked league(s)", row=4)
         self.max_values = len(leagues)
 
         for league in sorted(leagues):
@@ -374,8 +368,13 @@ class ConfigView(discord.ui.View):
             except discord.HTTPException:
                 pass
             self.stop()
+            return
 
-        await self.message.delete()
+        try:
+            await self.message.delete()
+        except discord.HTTPException:
+            pass
+
         self.message = await self.ctx.bot.reply(self.ctx, ".", view=self)
         await self.update()
 
@@ -408,6 +407,12 @@ class ConfigView(discord.ui.View):
             embed = self.pages[self.index]
 
             self.add_item(SettingsSelect(self.settings))
+
+            if len(leagues) > 25:
+                leagues = leagues[self.index * 25:]
+                if len(leagues) > 25:
+                    leagues = leagues[:25]
+
             self.add_item(RemoveLeague(leagues))
             cont = ""
         else:
@@ -416,7 +421,12 @@ class ConfigView(discord.ui.View):
             embed = None
             cont = f"You have no tracked leagues for {self.channel.mention}, would you like to reset or delete it?"
 
-        await self.message.edit(content=cont, embed=embed, view=self, allowed_mentions=discord.AllowedMentions.none())
+        am = discord.AllowedMentions.none()
+        try:
+            await self.message.edit(content=cont, embed=embed, view=self, allowed_mentions=am)
+        except discord.NotFound:
+            self.stop()
+            return
 
     async def generate_embeds(self, leagues):
         """Formatted Ticker Embed"""
@@ -796,7 +806,6 @@ class Ticker(commands.Cog):
         view = ConfigView(ctx, channel)
         view.message = await self.bot.reply(ctx, f"Fetching config for {channel.mention}...", view=view)
         await view.update()
-        await self.get_channel_settings(ctx, channel)
 
     @commands.group(invoke_without_command=True, usage="<channel to modify>", aliases=['ticker'])
     @commands.has_permissions(manage_channels=True)
@@ -805,11 +814,16 @@ class Ticker(commands.Cog):
         channel = ctx.channel if channel is None else channel
         await self.get_channel_settings(ctx, channel)
 
-    @tkr.command(usage="<channel to modify> <name of league to search for>")
-    @commands.is_owner()
-    async def add(self, ctx, channel: discord.TextChannel = None, query: commands.clean_content = None):
+    @tkr.command(usage="<name of league to search for>")
+    async def add(self, ctx, query: commands.clean_content = None):
         """Add a league to your Match Event Ticker"""
-        channel = ctx.channel if channel is None else channel
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            row = await connection.fetchrow("""SELECT * FROM ticker_channels WHERE channel_id = $1""", ctx.channel.id)
+        await self.bot.db.release(connection)
+
+        if not row:
+            return await self.get_channel_settings(ctx, ctx.channel)
 
         if query is None:
             err = '🚫 You need to specify a search query or a flashscore league link'
@@ -818,7 +832,7 @@ class Ticker(commands.Cog):
         if "http" not in query:
             res = await football.fs_search(ctx, query)
             if res is None:
-                return
+                return await self.bot.reply(ctx, f"No matching competitions found for {query}")
         else:
             if "flashscore" not in query:
                 return await self.bot.reply(ctx, text='🚫 Invalid link provided', ping=True)
@@ -839,17 +853,26 @@ class Ticker(commands.Cog):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-            await connection.execute(q, channel.id, res)
+            await connection.execute(q, ctx.channel.id, res)
         await self.bot.db.release(connection)
 
-        await self.bot.reply(ctx, text=f"Added to tracked leagues for {channel.mention}```yaml\n{res}```")
-        await self.get_channel_settings(ctx, channel)
+        await self.bot.reply(ctx, text=f"Added to tracked leagues for {ctx.channel.mention}```yaml\n{res}```")
+        await self.get_channel_settings(ctx, ctx.channel)
 
-    @tkr.command(usage="<channel to modify>", hidden=True)
+    @tkr.command(usage="<channel to modify>")
     @commands.has_permissions(manage_channels=True)
     async def addwc(self, ctx, channel: discord.TextChannel = None):
         """ Temporary command: Add the qualifying tournaments for the World Cup to a channel's ticker"""
         channel = ctx.channel if channel is None else channel
+
+        # Validate.
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            row = await connection.fetchrow("""SELECT * FROM ticker_channels WHERE channel_id = $1""", ctx.channel.id)
+        await self.bot.db.release(connection)
+
+        if not row:
+            return await self.get_channel_settings(ctx, ctx.channel)
 
         connection = await self.bot.db.acquire()
         async with connection.transaction():
