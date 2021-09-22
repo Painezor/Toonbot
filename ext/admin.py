@@ -84,12 +84,12 @@ class Admin(commands.Cog):
     async def clear_console(self, ctx):
         """Clear the command window."""
         system('cls')
-        print(f'{self.bot.user}: {self.bot.initialised_at}\n-----------------------------------------')
+        _ = f'{self.bot.user}: {self.bot.initialised_at}'
+        print(f'{_}\n{"-" * len(_)}\nConsole cleared at: {datetime.datetime.utcnow().replace(microsecond=0)}')
         e = self.base_embed
         e.title = "Bot Console"
         e.description = "```Console Log Cleared.```"
         await self.bot.reply(ctx, embed=e)
-        print(f"Console cleared at: {datetime.datetime.utcnow()}")
 
     @commands.command(aliases=["releoad", "relaod"])  # I can't fucking type.
     @commands.is_owner()
@@ -153,7 +153,7 @@ class Admin(commands.Cog):
             e.description = codeblocks.error_to_codeblock(err)
         else:
             ping = False
-            e.description = ':gear: Unloaded {module}'
+            e.description = f':gear: Unloaded {module}'
 
         await self.bot.reply(ctx, embed=e, ping=ping)
 
