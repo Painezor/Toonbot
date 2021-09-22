@@ -8,7 +8,9 @@ import datetime
 class Timestamp:
 	"""A Utility class for quick timezone conversion"""
 
-	def __init__(self, time: datetime.datetime = datetime.datetime.now()):
+	def __init__(self, time: datetime.datetime = None):
+		if time is None:
+			time = datetime.datetime.now()
 		self.time = str(time.timestamp()).split('.')[0]
 
 	def __str__(self):
