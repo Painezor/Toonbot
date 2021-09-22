@@ -15,12 +15,13 @@ from ext.utils import football
 NUFC_DISCORD_LINK = "\n\n[](https://discord.gg/TuuJgrA)"  # NUFC.
 
 
-def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10240):
+def rows_to_md_table(header, strings, per=20, max_length=10240):
     """Create sidebar popout tables"""
     rows = []
     for num, obj in enumerate(strings):
         # Every row we buffer the length of the new result.
         max_length -= len(obj)
+
         # Every 20 rows we buffer the length of  another header.
         if num % 20 == 0:
             max_length -= len(header)
@@ -28,19 +29,16 @@ def rows_to_md_table(header, strings, per=20, reverse=True, max_length=10240):
             break
         else:
             rows.append(obj)
-    
+
     if not rows:
         return ""
-    
-    columns = (len(rows) // per) + 1
-    height = math.ceil(len(rows) / columns)
-    
+
+    height = math.ceil(len(rows) / (len(rows) // per) + 1)
     chunks = [''.join(rows[i:i + height]) for i in range(0, len(rows), height)]
-    
-    if reverse:
-        chunks.reverse()
-    
-    return header + header.join(chunks)
+    chunks.reverse()
+    markdown = header + header.join(chunks)
+
+    return markdown
 
 
 class NUFCSidebar(commands.Cog):
@@ -61,7 +59,7 @@ class NUFCSidebar(commands.Cog):
         """Assure commands can only be used on the r/NUFC discord."""
         if not ctx.guild:
             return False
-        return 859175736263180340 in [i.id for i in ctx.author.roles]
+        return 859175736263180340 in [i.id for i in ctx.author.roles] or ctx.author.id == self.bot.owner_id
     
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
@@ -83,6 +81,7 @@ class NUFCSidebar(commands.Cog):
         s = self.bot.reddit.subreddit("NUFC")
         s.stylesheet.upload(name, image_file_path)
         s.stylesheet.update(s.stylesheet().stylesheet, reason=reason)
+        print("Uploaded new image to sidebar!")
     
     async def edit_caption(self, new_caption, subreddit="NUFC"):
         """Edit sidebar wiki page to include a caption displayed in the sidebar."""
@@ -103,7 +102,8 @@ class NUFCSidebar(commands.Cog):
     
     def post_sidebar(self, markdown, subreddit):
         """Update the sidebar"""
-        self.bot.reddit.subreddit(subreddit).mod.update(description=markdown)
+        sidebar = self.bot.reddit.subreddit(subreddit).wiki["config/sidebar"]
+        sidebar.edit(content=markdown)
     
     def get_match_threads(self, last_opponent, subreddit="NUFC"):
         """Search the subreddit for all recent match threads for pattern matching"""
@@ -268,6 +268,7 @@ class NUFCSidebar(commands.Cog):
         # Check if message has an attachment, for the new sidebar image.
         if caption is not None:
             await self.edit_caption(caption)
+            await self.bot.reply(ctx, f"Set caption to: {caption}")
     
         if ctx.message.attachments:
             await ctx.message.attachments[0].save("sidebar.png")
