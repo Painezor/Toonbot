@@ -44,7 +44,6 @@ class Mod(commands.Cog):
         self.bot.prefix_cache = defaultdict(list)
         self.bot.loop.create_task(self.update_prefixes())
         self.bot.command_prefix = get_prefix
-        self.bot.loop.create_task(self.verify_guilds())
         if not hasattr(self.bot, "lockdown_cache"):
             self.bot.lockdown_cache = {}
 
@@ -92,20 +91,6 @@ class Mod(commands.Cog):
                 await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild_id)
         finally:
             await self.bot.db.release(connection)
-    
-    async def verify_guilds(self):
-        """Assure that the guild still exists"""
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            records = await connection.fetch("""SELECT * FROM guild_settings""")
-        await self.bot.db.release(connection)
-        
-        for r in records:
-            guild_id = r['guild_id']
-            if self.bot.get_guild(guild_id) is None:
-                print(f'Mod: DB entry exists for guild_settings // guild_id: {guild_id} but guild not found!')
-                await self.delete_guild(guild_id)
-                print('Purged successfully!')
     
     async def update_prefixes(self):
         """Set new prefixes for guild"""
@@ -354,20 +339,19 @@ class Mod(commands.Cog):
     @commands.bot_has_permissions(view_audit_log=True)
     async def banlist(self, ctx):
         """Show the banlist for the server"""
-        ban_lines = [f"\💀 {x.user.name}#{x.user.discriminator}: {x.reason}\n" for x in await ctx.guild.bans()]
+        ban_lines = [f"\💀 {x.user.name}#{x.user.discriminator}: {x.reason}" for x in await ctx.guild.bans()]
         if not ban_lines:
             ban_lines = ["☠ No bans found!"]
 
         e = discord.Embed(color=0x111)
         n = f"≡ {ctx.guild.name} discord ban list"
-        e.set_author(name=n, icon_url=ctx.guild.icon_url)
+        e.set_author(name=n, icon_url=ctx.guild.icon.url)
         e.set_thumbnail(url="https://i.ytimg.com/vi/eoTDquDWrRI/hqdefault.jpg")
         e.title = "User (Reason)"
 
-        embeds = embed_utils.rows_to_embeds(e, ban_lines)
-
+        embeds = embed_utils.rows_to_embeds(e, ban_lines, rows_per=25)
         view = view_utils.Paginator(ctx.author, embeds)
-        view.message = self.bot.reply(ctx, "Fetching banlist...", view=view)
+        view.message = await self.bot.reply(ctx, "Fetching banlist...", view=view)
         await view.update()
     
     ### Mutes & Blocks
