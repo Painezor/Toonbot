@@ -115,7 +115,8 @@ class Info(commands.Cog):
 
         try:
             roles = [role.mention for role in reversed(member.roles) if not role.position == 0]
-            e.add_field(name='Roles', value=' '.join(roles))
+            if roles:
+                e.add_field(name='Roles', value=' '.join(roles))
             status = str(member.status).title()
 
             if status == "Online":
@@ -150,7 +151,7 @@ class Info(commands.Cog):
 
         if isinstance(member, discord.Member):
             e.description += f'\nJoined Server: {timed_events.Timestamp(member.joined_at).countdown}'
-        e.description += f'\nCreated Account: {timed_events.Timestamp(member.createrd_at).countdown}'
+        e.description += f'\nCreated Account: {timed_events.Timestamp(member.created_at).countdown}'
 
         try:
             voice = member.voice
