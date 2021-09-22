@@ -29,7 +29,7 @@ class Notifications(commands.Cog):
     @commands.Cog.listener()
     async def on_guild_join(self, guild):
         """Reload the cog's database info after joining a new guild"""
-        await asyncio.sleep(10)  # Time for other cogs to do their shit.
+        await asyncio.sleep(5)  # Time for other cogs to do their shit.
         await self.update_cache()
 
     async def update_cache(self):
@@ -49,7 +49,7 @@ class Notifications(commands.Cog):
         e.description = ""
         e.set_author(name=ctx.guild.name)
         e.title = f"Notification message settings"
-        
+
         try:
             r = [r for r in self.records if r["guild_id"] == ctx.guild.id][0]
         except IndexError:
@@ -67,8 +67,8 @@ class Notifications(commands.Cog):
                     value = "Deleted channel."
     
                 e.description += f"{key}: {value} \n"
-        
-        e.set_thumbnail(url=ctx.guild.icon_url)
+
+        e.set_thumbnail(url=ctx.guild.icon.url)
         await ctx.bot.reply(ctx, embed=e)
     
     # Join messages
@@ -150,48 +150,41 @@ class Notifications(commands.Cog):
     @commands.Cog.listener()
     async def on_message_delete(self, message):
         """Event handler for reposting deleted messages from users/"""
-        # Ignore DMs & messages from bots
-        if message.guild is None or message.author.bot:
-            return
+        if message.guild is None:
+            return  # Ignore DMs
+
+        if message.author.bot:
+            return  # Do not log message deletions from bots.
 
         # ignore commands.
         for i in self.bot.prefix_cache[message.guild.id]:
             if message.content.startswith(i):
-                return
+                return  # If this message appears to be a command, ignore.
 
-        # Filter out deleted numbers - Toonbot.
+        ch = next(filter(lambda r: r["guild_id"] == message.guild.id, self.records), None)
+        try:
+            ch = self.bot.get_channel(ch['deletes_channel_id'])
+            assert ch is not None
+            assert ch.permissions_for(ch.guild.me).send_messages
+            assert ch.permissions_for(ch.guild.me).embed_links
+        except (AttributeError, AssertionError, TypeError):
+            return
+
         # Todo: Code "If message was not deleted by bot or user return "
-        try:
-            int(message.content)
-        except ValueError:
-            pass
-        else:
-            return
+        e = discord.Embed(title="🗑️ Deleted Message")
+        t = timed_events.Timestamp(datetime.datetime.now()).datetime
+        e.description = f"[{t}]{message.author.mention} in {message.channel.mention}\n\n{message.content}"
+        e.set_thumbnail(url=message.author.display_avatar.url)
+        e.set_footer(text=f"UserID: {message.author.id}")
 
-        try:
-            deletes = [r['deletes_channel_id'] for r in self.records if r["guild_id"] == message.guild.id][0]
-            ch = self.bot.get_channel(deletes)
-            if ch is None:
-                return
-        except IndexError:
-            return
-
-        a = message.author
-
-        e = discord.Embed()
-        av = a.display_avatar.url
-        av = discord.Embed.Empty() if av is None else av
-        e.set_author(name=f"{a} (ID: {a.id})", icon_url=av)
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        e.set_footer(text=f"🗑️ Deleted message from {message.channel.name}")
-        e.description = message.clean_content
-
-        if message.attachments:
-            att = message.attachments[0]
-            if hasattr(att, "height"):
-                v = f"📎 *Attachment info*: {att.filename} ({att.size} bytes, {att.height}x{att.width})," \
-                    f"attachment url: {att.proxy_url}"
+        for x in message.attachments:
+            if hasattr(x, "height"):
+                v = f"📎 *Attachment info*: {x.filename} ({x.size} bytes, {x.height}x{x.width})," \
+                    f"attachment url: {x.proxy_url}"
                 e.add_field(name="Attachment info", value=v)
+            else:
+                print("Deletion log - unspecified attachment info [No HEIGHT found]")
+                print(x.__dict__)
 
         try:
             await ch.send(embed=e)
@@ -405,12 +398,12 @@ class Notifications(commands.Cog):
             ch = self.bot.get_channel(ch)
         except (AttributeError, TypeError, IndexError):
             return
-        
+
         if ch is None:
             return
-        
-        output = f"⬅ {member.mention} left the server."
-        
+
+        output = f"⬅ {member.mention} ({member}) left the server."
+
         # Check if in mod action log and override to specific channels.
         try:
             async for x in member.guild.audit_logs(limit=5):

@@ -25,8 +25,8 @@ class Bot(commands.Bot):
     """The core functionality of the bot."""
 
     def __init__(self, **kwargs):
-        intents = discord.Intents.default()
-        intents.members = True
+        intents = discord.Intents(bans=True, guilds=True, members=True, messages=True, reactions=True,
+                                  voice_stases=True)
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=".tb ",
