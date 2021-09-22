@@ -787,7 +787,7 @@ class FlashScoreSearchResult:
             home, away = i.xpath('.//div[contains(@class,"event__participant")]/text()')
 
             try:
-                score_home, score_away = i.xpath('.//div[contains(@class,"event__scores")]/span/text()')
+                score_home, score_away = i.xpath('.//div[contains(@class,"event__score")]//text()')
                 score_home = int(score_home.strip())
                 score_away = int(score_away.strip())
             except ValueError:
@@ -913,17 +913,19 @@ class Competition(FlashScoreSearchResult):
             try:
                 player_link, team_link = ["http://www.flashscore.com" + i for i in links]
             except ValueError:
-                print(f'get_players - Only one link found instead of 2 on {self.url}')
-                player_link, team_link = None, None
+                player_link, team_link = ("http://www.flashscore.com" + links[0], "") if links else ("", "")
+
             try:
                 rank, name, tm, goals, assists = items
             except ValueError:
                 try:
                     rank, name, tm, goals, assists = items + [0]
                 except ValueError:
-                    print(items)
-                    print(f"Unable to fetch scorer info for row on get_scorers for {uri}")
-                    continue
+                    try:
+                        rank, name, goals, tm, assists = items + ["", 0]
+                    except ValueError:
+                        print(f"Unable to fetch scorer info for row on get_scorers for {uri}")
+                        continue
 
             country = "".join(i.xpath('.//span[contains(@class,"flag")]/@title')).strip()
             flag = transfer_tools.get_flag(country)
@@ -1183,6 +1185,10 @@ async def fs_search(ctx, query) -> FlashScoreSearchResult or None:
     """Search using the aiohttp to fetch a single object matching the user's query"""
     search_results = await get_fs_results(query)
     search_results = [i for i in search_results if isinstance(i, Competition)]  # Filter out non-leagues
+
+    if not search_results:
+        return None
+
     view = view_utils.ObjectSelectView(ctx.author, [('🏆', i.title, i.url) for i in search_results])
     view.message = await ctx.bot.reply(ctx, f"Fetching matches for {query}...", view=view)
     await view.update()
