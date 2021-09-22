@@ -97,7 +97,7 @@ class CompetitionView(discord.ui.View):
         """Add our View's Buttons"""
         self.clear_items()
 
-        if len(self.pages) > 0:
+        if self.pages:
             _ = view_utils.PreviousButton()
             _.disabled = True if self.index == 0 else False
             self.add_item(_)
@@ -111,19 +111,12 @@ class CompetitionView(discord.ui.View):
             _.disabled = True if self.index == len(self.pages) - 1 else False
             self.add_item(_)
 
-        items = [view_utils.Button(label="Table", func=self.push_table, row=3),
-                 view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=3),
-                 view_utils.Button(label="Fixtures", func=self.push_fixtures, emoji='📆', row=3),
-                 view_utils.Button(label="Results", func=self.push_results, emoji='⚽', row=3),
-                 view_utils.StopButton()
-                 ]
-
         if self.filter_mode is not None:
             all_players = [('👕', str(i.team), str(i.team_url)) for i in self.players]
             teams = set(all_players)
             teams = sorted(teams, key=lambda x: x[1])  # Sort by second Value.
 
-            if len(teams) < 26:
+            if teams and len(teams) < 26:
                 _ = view_utils.MultipleSelect(placeholder="Filter by Team...", options=teams, attribute='team_filter')
                 if self.team_filter is not None:
                     _.placeholder = f"Teams: {', '.join(self.team_filter)}"
@@ -132,12 +125,19 @@ class CompetitionView(discord.ui.View):
             flags = set([(transfer_tools.get_flag(i.country, unicode=True), i.country, "") for i in self.players])
             flags = sorted(flags, key=lambda x: x[1])  # Sort by second Value.
 
-            if len(flags) < 26:
+            if flags and len(flags) < 26:
                 ph = "Filter by Nationality..."
                 _ = view_utils.MultipleSelect(placeholder=ph, options=flags, attribute='nationality_filter')
                 if self.nationality_filter is not None:
                     _.placeholder = f"Countries:{', '.join(self.nationality_filter)}"
                 self.add_item(_)
+
+        items = [view_utils.Button(label="Table", func=self.push_table, row=3),
+                 view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=3),
+                 view_utils.Button(label="Fixtures", func=self.push_fixtures, emoji='📆', row=3),
+                 view_utils.Button(label="Results", func=self.push_results, emoji='⚽', row=3),
+                 view_utils.StopButton()
+                 ]
 
         for _ in items:
             self.add_item(_)
@@ -163,6 +163,9 @@ class CompetitionView(discord.ui.View):
             rows = [i.assist_row for i in srt]
         else:
             rows = []
+
+        if not rows:
+            rows = [f'```yaml\nNo Top Scorer Data Available```']
 
         embeds = embed_utils.rows_to_embeds(embed, rows, rows_per=None)
         self.pages = embeds
@@ -235,6 +238,7 @@ class CompetitionView(discord.ui.View):
         """Push results fixtures to View"""
         rows = await self.competition.get_fixtures(page=self.page, subpage='/results')
         rows = [str(i) for i in rows] if rows else ["No Results Found :("]
+
         embed = await self.get_embed()
         embed.title = f"≡ Results for {self.competition.title}"
         embed.timestamp = discord.Embed.Empty
@@ -340,7 +344,7 @@ class TeamView(discord.ui.View):
             self.add_item(_)
 
     async def push_squad(self):
-        """PUsh the Squad Embed to View"""
+        """Push the Squad Embed to the team View"""
         players = await self.get_players()
         srt = sorted(players, key=lambda x: x.number)
         p = [i.squad_row for i in srt]
@@ -355,7 +359,7 @@ class TeamView(discord.ui.View):
         await self.update()
 
     async def push_injuries(self):
-        """PUsh the Injuries Embed to View"""
+        """Push the Injuries Embed to the team View"""
         embed = await self.get_embed()
         players = await self.get_players()
         players = [i.injury_row for i in players if i.injury]
@@ -369,7 +373,7 @@ class TeamView(discord.ui.View):
         await self.update()
 
     async def push_scorers(self):
-        """PUsh the Scorers Embed to View"""
+        """Push the Scorers Embed to the team View"""
         embed = await self.get_embed()
         players = await self.get_players()
         srt = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
@@ -377,11 +381,9 @@ class TeamView(discord.ui.View):
 
         rows = [i.scorer_row for i in srt]
 
-        embed_utils.rows_to_embeds(embed, rows, rows_per=None)
-
         embed.url = self.page.url
         self.index = 0
-        self.pages = [embed]
+        self.pages = embed_utils.rows_to_embeds(embed, rows, rows_per=None)
         self._current_mode = "Scorers"
         await self.update()
 
@@ -689,7 +691,6 @@ class Fixtures(commands.Cog):
         if len(markers) == 1:
             return items[0]
 
-        print(markers)
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
         view.message = await self.bot.reply(ctx, '⏬ Multiple results found, choose from the dropdown.', view=view)
         await view.update()
@@ -724,6 +725,11 @@ class Fixtures(commands.Cog):
         items = await fsr.get_fixtures(page, subpage)
 
         _ = [("⚽", f"{i.home} {i.score} {i.away}", f"{i.country.upper()}: {i.league}") for i in items]
+
+        if not _:
+            await self.bot.reply(ctx, "No recent games found.")
+            return None
+
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=_, timeout=30)
         _ = "an upcoming" if upcoming else "a recent"
         view.message = await self.bot.reply(ctx, f'⏬ Please choose {_} game.', view=view)
@@ -956,6 +962,7 @@ class Fixtures(commands.Cog):
             return await self.bot.reply(ctx, f"🚫 No stadiums found matching search: {query}")
 
         markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.league})") for i in stadiums]
+
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
         view.message = await self.bot.reply(ctx, '⏬ Choose a Stadium.', view=view)
         await view.update()
@@ -991,6 +998,7 @@ class Fixtures(commands.Cog):
         await self.bot.reply(ctx, embed=e)
 
     @commands.group(invoke_without_command=True)
+    @commands.guild_only()
     async def default(self, ctx):
         """Check the default team and league for your server's Fixture commands"""
         return await self.send_defaults(ctx)
@@ -1074,8 +1082,6 @@ class Fixtures(commands.Cog):
     @commands.command(usage="<league to search for>")
     async def scores(self, ctx, *, search_query: commands.clean_content = ""):
         """Fetch current scores for a specified league"""
-
-        embeds = []
         e = discord.Embed()
         e.colour = discord.Colour.og_blurple()
         if search_query:
