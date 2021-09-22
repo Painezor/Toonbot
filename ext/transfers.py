@@ -60,7 +60,6 @@ class Transfers(commands.Cog):
             ch = self.bot.get_channel(r['channel_id'])
 
             if ch is None:
-                print("Transfers: Deleted Channel Detected:", r["channel_id"])
                 self.warn_once.append((r["guild_id"], r["channel_id"]))
                 continue
 

@@ -75,6 +75,26 @@ unidict = {
 }
 
 
+def settings(category):
+    if category == "Players":
+        return "Spieler_page", 'for players', parse_players
+    elif category == "Clubs":
+        return "Verein_page", 'results: Clubs', parse_teams
+    elif category == "Referees":
+        return "Schiedsrichter_page", 'for referees', parse_referees
+    elif category == "Staff":
+        return "Trainer_page", 'managers & officials', parse_staff
+    elif category == "Agents":
+        return "page", 'for agents', parse_agents
+    elif category == "Domestic Competitions":
+        return "Wettbewerb_page", 'to competitions', parse_competitions
+    elif category == "International Competitions":
+        return "Wettbewerb_page", 'for international competitions', parse_competitions
+    else:
+        print(f'WARNING NO QUERY STRING FOUND FOR {category}')
+        return "page"
+
+
 def get_flag(country, unicode=False) -> str:
     """Get a flag emoji from a string representing a country"""
     try:
@@ -197,8 +217,28 @@ class Staff(TransferResult):
         return f"{self.flag} [{self.name}]({self.link}) {self.age}, {self.job} [{self.team}]({self.link})"
 
 
+def parse_staff(rows) -> typing.List[Staff]:
+    """Parse a list of staff"""
+    results = []
+    for i in rows:
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
+        link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
+        link = "https://www.transfermarkt.co.uk" + link if "transfermarkt" not in link else link
+
+        team = "".join(i.xpath('.//td[2]/a/img/@alt'))
+        tl = "".join(i.xpath('.//td[2]/a/img/@href'))
+        tl = "https://www.transfermarkt.co.uk" + tl if "transfermarkt" not in tl else tl
+        age = "".join(i.xpath('.//td[3]/text()'))
+        job = "".join(i.xpath('.//td[5]/text()'))
+        country = "".join(i.xpath('.//td/img[1]/@title'))
+
+        results.append(Staff(name=name, link=link, team=team, team_link=tl, age=age, job=job, country=country))
+    return results
+
+
 class Transfer(TransferResult):
     """An Object representing a transfer from transfermarkt"""
+
     def __init__(self, player: Player, old_team, new_team, fee, fee_link):
         self.fee = fee
         self.fee_link = fee_link
@@ -480,8 +520,21 @@ class Referee(TransferResult):
         return f"{self.flag} [{self.name}]({self.link}) {self.age}"
 
 
+def parse_referees(rows) -> typing.List[Referee]:
+    """Parse a transfer page to get a list of referees"""
+    results = []
+    for i in rows:
+        name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
+        link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
+        age = "".join(i.xpath('.//td[@class="zentriert"]/text()')).strip()
+        country = "".join(i.xpath('.//td/img[1]/@title')).strip()
+        results.append(Referee(name=name, link=link, age=age, country=country))
+    return results
+
+
 class Competition(TransferResult):
     """An Object representing a competition from transfermarkt"""
+
     def __init__(self, name, link, country):
         self.country = country
         super().__init__(name, link)
@@ -490,13 +543,35 @@ class Competition(TransferResult):
         return f"{self.flag} [{self.name}]({self.link})"
 
 
+def parse_competitions(rows) -> typing.List[Competition]:
+    """Parse a transfermarkt page into a list of Competition Objects"""
+    results = []
+    for i in rows:
+        name = "".join(i.xpath('.//td[2]/a/text()')).strip()
+        link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href')).strip()
+        country = "".join(i.xpath('.//td[3]/img/@title')).strip()
+        results.append(Competition(name=name, link=link, country=country))
+    return results
+
+
 class Agent(TransferResult):
     """An object representing an Agent from transfermarkt"""
+
     def __init__(self, name, link):
         super().__init__(name, link)
 
     def __str__(self):
         return f"[{self.name}]({self.link})"
+
+
+def parse_agents(rows) -> typing.List[Agent]:
+    """Parse a transfermarkt page into a list of Agent Objects"""
+    results = []
+    for i in rows:
+        name = "".join(i.xpath('.//td[2]/a/text()'))
+        link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
+        results.append(Agent(name=name, link=link))
+    return results
 
 
 class TransferSearch:
@@ -760,38 +835,11 @@ class TransferSearch:
         elif self.category == "Clubs":
             results = parse_teams(rows)
         elif self.category == "Referees":
-            for i in rows:
-                name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip()
-                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
-                age = "".join(i.xpath('.//td[@class="zentriert"]/text()')).strip()
-                country = "".join(i.xpath('.//td/img[1]/@title')).strip()
-                results.append(Referee(name=name, link=link, age=age, country=country))
+            results = parse_referees(rows)
         elif self.category == "Staff":
-            for i in rows:
-                name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
-                link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
-                link = "https://www.transfermarkt.co.uk" + link if "transfermarkt" not in link else link
-
-                team = "".join(i.xpath('.//td[2]/a/img/@alt'))
-                tl = "".join(i.xpath('.//td[2]/a/img/@href'))
-                tl = "https://www.transfermarkt.co.uk" + tl if "transfermarkt" not in tl else tl
-                age = "".join(i.xpath('.//td[3]/text()'))
-                job = "".join(i.xpath('.//td[5]/text()'))
-                country = "".join(i.xpath('.//td/img[1]/@title'))
-
-                results.append(Staff(name=name, link=link, team=team, team_link=tl, age=age, job=job, country=country))
-        elif self.category == "Domestic Competitions":
-            for i in rows:
-                name = "".join(i.xpath('.//td[2]/a/text()')).strip()
-                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href')).strip()
-                country = "".join(i.xpath('.//td[3]/img/@title')).strip()
-                results.append(Competition(name=name, link=link, country=country))
-        elif self.category == "International Competitions":
-            for i in rows:
-                name = "".join(i.xpath('.//td[2]/a/text()'))
-                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
-                country = ""
-                results.append(Competition(name=name, link=link, country=country))
+            results = parse_staff(rows)
+        elif "Competitions" in self.category:
+            results = parse_competitions(rows)
         elif self.category == "Agents":
             for i in rows:
                 name = "".join(i.xpath('.//td[2]/a/text()'))
@@ -801,3 +849,54 @@ class TransferSearch:
             print(f"Transfer Tools WARNING! NO VALID PARSER FOUND FOR CATEGORY: {self.category}")
 
         self.results = results
+
+
+class SearchView(discord.ui.View):
+    """A TransferMarkt Search in View Form"""
+
+    def __init__(self, ctx, query, category, select=False):
+        super().__init__()
+        self.index = 0
+        self.value = None
+        self.total_pages = None
+
+        self.query = query
+        self.category = category
+        self.select = select
+        self.ctx = ctx
+        self.message = None
+
+        self.url = None
+
+    async def update(self):
+        """Populate Initial Results"""
+        if self.category is None:
+            pass
+
+        qs, ms, parser = settings(self.category)
+        p = {"query": self.query, qs: self.index}
+        url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
+        async with self.ctx.bot.session.post(url, params=p) as resp:
+            assert resp.status == 200, "Error Connecting to Transfermarkt"
+            self.url = str(resp.url)
+            tree = html.fromstring(await resp.text())
+
+        # Get trs of table after matching header / {categ} name.
+        trs = f".//div[@class='box']/div[@class='table-header'][contains(text(),'{ms}')]/following::div[1]//tbody/tr"
+        matches = "".join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{ms}')]/text()"))
+        matches = "".join([i for i in matches if i.isdecimal()])
+
+        if not matches:
+            await self.message.edit(content=f'🚫 No results found for {self.query} in category "{self.category}"')
+            self.stop()
+
+        header = f"{self.category.title()}: {matches} results for '{self.query.title()}' found"
+
+        try:
+            self.total_pages = int(matches) // 10 + 1
+        except ValueError:
+            self.total_pages = 0
+
+        rows = tree.xpath(trs)
+
+        results = parser(rows)
