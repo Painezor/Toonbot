@@ -129,6 +129,12 @@ class Lookups(commands.Cog):
             e.colour = discord.Colour.red()
             embeds += embed_utils.rows_to_embeds(e, [str(i) for i in outbound])
 
+        if not embeds:
+            e = deepcopy(base_embed)
+            e.title = f"No transfers found {e.title}"
+            e.colour = discord.Colour.orange()
+            return await self.bot.reply(ctx, embed=e)
+
         view = view_utils.Paginator(ctx.author, embeds)
         view.message = await self.bot.reply(ctx, f"Fetching transfers for {base_embed.title}", view=view)
         await view.update()
