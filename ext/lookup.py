@@ -56,7 +56,7 @@ class Lookups(commands.Cog):
         """Lookup a team on transfermarkt"""
         if query is None:
             return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', ping=True)
-        await transfer_tools.TransferSearch.search(ctx, query, category="Players")
+        await transfer_tools.TransferSearch.search(ctx, query, category="Clubs")
 
     @lookup.command(name="staff", aliases=["manager", "trainer", "trainers", "managers"])
     async def _staff(self, ctx, *, query: commands.clean_content = None):

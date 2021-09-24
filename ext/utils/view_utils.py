@@ -39,9 +39,9 @@ class PageButton(discord.ui.Button):
             sliced = self.view.pages
         else:
             if self.view.index < 13:
-                sliced = self.view.pages[24:]
-            elif self.view.index > len(self.view.pages) - 13:
                 sliced = self.view.pages[:24]
+            elif self.view.index > len(self.view.pages) - 13:
+                sliced = self.view.pages[24:]
             else:
                 sliced = self.view.pages[self.view.index - 12:self.view.index + 12]
         options = [discord.SelectOption(label=f"Page {n}", value=str(n)) for n, e in enumerate(sliced, start=1)]
@@ -78,6 +78,8 @@ class StopButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         """Do this when button is pressed"""
         await self.view.message.delete()
+        if hasattr(self.view, "page"):
+            await self.view.page.close()
         self.view.stop()
 
 

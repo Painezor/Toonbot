@@ -66,7 +66,7 @@ country_dict = {
     "Venezuela": "ve",
     "Vietnam": "vn"}
 
-unidict = {
+UNI_DICT = {
     "a": "🇦", "b": "🇧", "c": "🇨", "d": "🇩", "e": "🇪",
     "f": "🇫", "g": "🇬", "h": "🇭", "i": "🇮", "j": "🇯",
     "k": "🇰", "l": "🇱", "m": "🇲", "n": "🇳", "o": "🇴",
@@ -74,8 +74,11 @@ unidict = {
     "u": "🇺", "v": "🇻", "w": "🇼", "x": "🇽", "y": "🇾", "z": "🇿"
 }
 
+FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/Transfermarkt_favicon.png"
+
 
 def settings(category):
+    """Parser Settings"""
     if category == "Players":
         return "Spieler_page", 'for players', parse_players
     elif category == "Clubs":
@@ -128,7 +131,7 @@ def get_flag(country, unicode=False) -> str:
             print(f'No flag found for country: {country}')
 
     country = country.lower()
-    for key, value in unidict.items():
+    for key, value in UNI_DICT.items():
         country = country.replace(key, value)
     return country
 
@@ -841,41 +844,144 @@ class TransferSearch:
         elif "Competitions" in self.category:
             results = parse_competitions(rows)
         elif self.category == "Agents":
-            for i in rows:
-                name = "".join(i.xpath('.//td[2]/a/text()'))
-                link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[2]/a/@href'))
-                results.append(Agent(name=name, link=link))
+            results = parse_agents(rows)
         else:
             print(f"Transfer Tools WARNING! NO VALID PARSER FOUND FOR CATEGORY: {self.category}")
 
         self.results = results
 
 
+# Transfer View.
+class CategorySelect(discord.ui.Select):
+    """Dropdown to specify what user is searching for."""
+
+    def __init__(self):
+        super().__init__(placeholder="What are you trying to search for...?")
+
+    async def callback(self, interaction: discord.Interaction):
+        """Edit view on select."""
+        print("Callback triggered")
+        self.view.category = self.values[0]
+        self.view.remove_item(self)
+        await self.view.update()
+
+
+class PageButton(discord.ui.Button):
+    """Button to spawn a dropdown to select pages."""
+
+    def __init__(self, row=0):
+        super().__init__()
+        self.label = f"Populating..."
+        self.emoji = "⏬"
+        self.row = row
+        self.style = discord.ButtonStyle.primary
+
+    async def callback(self, interaction: discord.Interaction):
+        """The pages button."""
+        await interaction.response.defer()
+        if len(self.view.pages) < 25:
+            sliced = self.view.pages
+        else:
+            if self.view.index < 13:
+                print("Case 1")
+                sliced = list(range(1, 25))
+            elif self.view.index > len(self.view.pages) - 13:
+                print("Case 2")
+                sliced = list(range(self.view.index - 24, self.view.index))
+            else:
+                print("Case 3")
+                sliced = list(range(self.view.index - 12, self.view.index + 12))
+        options = [discord.SelectOption(label=f"Page {n}", value=str(n)) for n in sliced]
+        self.view.add_item(view_utils.PageSelect(placeholder="Select A Page", options=options, row=self.row + 1))
+        self.disabled = True
+        await self.view.message.edit(view=self.view)
+
+
 class SearchView(discord.ui.View):
     """A TransferMarkt Search in View Form"""
 
-    def __init__(self, ctx, query, category, select=False):
+    def __init__(self, ctx, query, category=None, fetch=False):
         super().__init__()
-        self.index = 0
+        self.index = 1
         self.value = None
-        self.total_pages = None
+        self.pages = []
 
         self.query = query
         self.category = category
-        self.select = select
+        self.fetch = fetch
         self.ctx = ctx
         self.message = None
 
         self.url = None
 
+    async def on_timeout(self):
+        """Cleanup."""
+        self.clear_items()
+        await self.message.edit(content="", view=self)
+
     async def update(self):
         """Populate Initial Results"""
+        self.clear_items()
+        url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
+
+        # Header names, scrape then compare (because they don't follow a pattern.)
         if self.category is None:
-            pass
+            p = {"query": self.query}
+
+            async with self.ctx.bot.session.post(url, params=p) as resp:
+                assert resp.status == 200, "Error Connecting to Transfermarkt"
+                self.url = str(resp.url)
+                tree = html.fromstring(await resp.text())
+
+            categories = [i.lower().strip() for i in tree.xpath(".//div[@class='table-header']/text()")]
+
+            select = CategorySelect()
+            ce = discord.Embed(title="Multiple results found", description="")
+            ce.set_footer(text="Use the dropdown to select a category")
+            for i in categories:
+                # Just give number of matches (digit characters).
+                length = int("".join([n for n in i if n.isdecimal()]))
+                s = "" if length == 1 else "s"
+                if 'for players' in i:
+                    select.add_option(emoji='🏃', label="Players", description=f"{length} Results", value="Players")
+                    ce.description += f"Players: {length} Result{s}\n"
+                elif 'results: clubs' in i:
+                    select.add_option(emoji='👕', label="Clubs", description=f"{length} Results", value="Clubs")
+                    ce.description += f"Clubs: {length} Result{s}\n"
+                elif 'for agents' in i:
+                    select.add_option(emoji='🏛️', label="Agents", description=f"{length} Results", value="Agents")
+                    ce.description += f"Agents: {length} Result{s}\n"
+                elif 'for referees' in i:
+                    select.add_option(emoji='🤡', label="Referees", description=f"{length} Results", value="Referees")
+                    ce.description += f"Referees: {length} Result{s}\n"
+                elif 'managers & officials' in i:
+                    select.add_option(emoji='🏢', label="Staff", description=f"{length} Results", value="Staff")
+                    ce.description += f"Managers: {length} Result{s}\n"
+                elif 'to competitions' in i:
+                    _ = "Domestic Competitions"
+                    select.add_option(emoji='🏆', label=_, description=f"{length} Results", value=_)
+                    ce.description += f"Domestic Competitions: {length} Result{s}\n"
+                elif 'for international competitions' in i:
+                    _ = "International Competitions"
+                    select.add_option(emoji='🌍', label=_, description=f"{length} Results", value=_)
+                    ce.description += f"International Competitions: {length} Result{s}\n"
+
+            if not select.options:
+                return await self.message.edit(content=f'No results found for query {self.query}')
+
+            elif len(select.options) == 1:
+                self.category = select.options[0].label
+
+            else:
+                self.clear_items()
+                self.add_item(select)
+                am = discord.AllowedMentions.none()
+                await self.message.edit("", view=self, embed=ce, allowed_mentions=am)
+                return await self.wait()
 
         qs, ms, parser = settings(self.category)
         p = {"query": self.query, qs: self.index}
-        url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
+
         async with self.ctx.bot.session.post(url, params=p) as resp:
             assert resp.status == 200, "Error Connecting to Transfermarkt"
             self.url = str(resp.url)
@@ -886,17 +992,35 @@ class SearchView(discord.ui.View):
         matches = "".join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{ms}')]/text()"))
         matches = "".join([i for i in matches if i.isdecimal()])
 
+        try:
+            self.pages = [None] * (int(matches) // 10 + 1)
+        except ValueError:
+            self.pages = []
+
+        e = discord.Embed(title=f"{matches} {self.category.lower()} results for {self.query}")
+        e.set_author(name="TransferMarkt Search", url=self.url, icon_url=FAVICON)
+        _ = parser(tree.xpath(trs))
+        e = embed_utils.rows_to_embeds(e, [str(i) for i in _])[0]
+
         if not matches:
             await self.message.edit(content=f'🚫 No results found for {self.query} in category "{self.category}"')
+            e.description = f"🚫 No results found for {self.query} under {self.category}"
             self.stop()
+            return
 
-        header = f"{self.category.title()}: {matches} results for '{self.query.title()}' found"
+        if len(self.pages) > 1:
+            _ = view_utils.PreviousButton()
+            _.disabled = True if self.index == 1 else False
+            self.add_item(_)
 
-        try:
-            self.total_pages = int(matches) // 10 + 1
-        except ValueError:
-            self.total_pages = 0
+            _ = PageButton()
+            _.label = f"Page {self.index} of {len(self.pages)}"
+            self.add_item(_)
 
-        rows = tree.xpath(trs)
+            _ = view_utils.NextButton()
+            _.disabled = True if self.index == len(self.pages) else False
+            self.add_item(_)
 
-        results = parser(rows)
+            self.add_item(view_utils.StopButton(row=0))
+
+        await self.message.edit(content="", embed=e, view=self, allowed_mentions=discord.AllowedMentions.none())
