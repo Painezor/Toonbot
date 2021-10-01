@@ -68,7 +68,6 @@ class Mod(commands.Cog):
     async def on_guild_remove(self, guild):
         """Delete guild's info upon leaving one."""
         await self.delete_guild(guild.id)
-        await self.update_prefixes()
     
     async def create_guild(self, guild_id):
         """Insert the database entry for a new guild"""
@@ -93,21 +92,17 @@ class Mod(commands.Cog):
             await self.bot.db.release(connection)
     
     async def update_prefixes(self):
-        """Set new prefixes for guild"""
+        """Reload prefix cache guild"""
+        await self.bot.wait_until_ready()
         self.bot.prefix_cache.clear()
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             records = await connection.fetch("""SELECT * FROM prefixes""")
         await self.bot.db.release(connection)
-        
+
         for r in records:
-            guild_id = r["guild_id"]
-            if self.bot.get_guild(guild_id) is None:
-                continue
-            
-            prefix = r["prefix"]
-            self.bot.prefix_cache[guild_id].append(prefix)
-        
+            self.bot.prefix_cache[r["guild_id"]].append(r["prefix"])
+
         # Items ending in space must come first.
         for guild, pref_list in self.bot.prefix_cache.items():
             for i in range(len(pref_list)):
@@ -469,39 +464,39 @@ class Mod(commands.Cog):
     @commands.guild_only()
     async def prefix(self, ctx):
         """Add, remove, or List bot prefixes for this server to use them instead of the default .tb"""
+        connection = await self.bot.db.acquire()
         try:
-            prefixes = self.bot.prefix_cache[ctx.guild.id]
-        except KeyError:
-            prefixes = ['.tb ']
-            connection = await self.bot.db.acquire()
-            await connection.execute("""INSERT INTO prefixes (guild_id,prefix) VALUES ($1,$2)""", ctx.guild.id, '.tb ')
+            async with connection.transaction():
+                _ = await connection.fetch("""SELECT prefix FROM prefixes WHERE guild_id = $1""", ctx.guild.id)
+            prefixes = [r['prefix'] for r in _]
+        finally:
             await self.bot.db.release(connection)
-            await self.update_prefixes()
-        
-        prefixes = ', '.join([f"'{i}'" for i in prefixes])
-        await self.bot.reply(ctx, text=f"Messages starting with the following treated as commands: ```{prefixes}```")
+
+        prefixes = ', '.join([f"`{i}`" for i in prefixes])
+        await self.bot.reply(ctx, text=f"Messages starting with the following treated as commands: {prefixes}")
     
     @prefix.command(name="add", aliases=["set"])
     @commands.has_permissions(manage_guild=True)
     async def pref_add(self, ctx, prefix):
         """Add a prefix to your server's list of bot prefixes"""
+        connection = await self.bot.db.acquire()
         try:
-            prefixes = self.bot.prefix_cache[ctx.guild.id]
-        except KeyError:
-            prefixes = ['.tb ']
-        
-        if prefix not in prefixes:
-            connection = await self.bot.db.acquire()
-            await connection.execute("""INSERT INTO prefixes (guild_id,prefix) VALUES ($1,$2)""", ctx.guild.id,
-                                     prefix)
+            async with connection.transaction():
+                _ = await connection.fetch("""SELECT prefix FROM prefixes WHERE guild_id = $1""", ctx.guild.id)
+            prefixes = [r['prefix'] for r in _]
+
+            if prefix not in prefixes:
+                await connection.execute("""INSERT INTO prefixes (guild_id,prefix) 
+                VALUES ($1,$2)""", ctx.guild.id, prefix)
+                await self.bot.reply(ctx, text=f"Added '{prefix}' to {ctx.guild.name}'s prefixes list.")
+                await self.update_prefixes()
+            else:
+                await self.bot.reply(ctx, text=f"'{prefix}' was already in {ctx.guild.name}'s prefix list")
+        finally:
             await self.bot.db.release(connection)
-            await self.bot.reply(ctx, text=f"Added '{prefix}' to {ctx.guild.name}'s prefixes list.")
-            await self.update_prefixes()
-        else:
-            await self.bot.reply(ctx, text=f"'{prefix}' was already in {ctx.guild.name}'s prefix list")
-        
-        prefixes = ', '.join([f"'{i}'" for i in self.bot.prefix_cache[ctx.guild.id]])
-        await self.bot.reply(ctx, text=f"Messages starting with the following treated as commands: ```{prefixes}```")
+
+        prefixes = ', '.join([f"`{i}`" for i in self.bot.prefix_cache[ctx.guild.id]])
+        await self.bot.reply(ctx, text=f"Messages starting with the following treated as commands: {prefixes}")
     
     @prefix.command(name="remove", aliases=["delete"])
     @commands.has_permissions(manage_guild=True)
@@ -522,7 +517,7 @@ class Mod(commands.Cog):
             await self.bot.reply(ctx, text=f"'{prefix}' was not in {ctx.guild.name}'s prefix list")
         
         prefixes = ', '.join([f"'{i}'" for i in self.bot.prefix_cache[ctx.guild.id]])
-        await self.bot.reply(ctx, text=f"Messages starting with the following treated as commands: ```{prefixes}```")
+        await self.bot.reply(ctx, text=f"Messages starting with the following treated as commands: ```\n{prefixes}```")
     
     @commands.command(usage="<command name to enable>")
     async def enable(self, ctx, command: str):

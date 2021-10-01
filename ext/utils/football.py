@@ -302,52 +302,27 @@ class Fixture:
             time = "AET"
         else:
             try:
-                e_t = str(self.time.timestamp()).split('.')[0]
-                time = f"<t:{e_t}:t>"
+                time = timed_events.Timestamp(self.time)
             except AttributeError:
                 time = self.time
 
-        h_c = f"`{self.home_cards * '🟥'}` " if self.home_cards else ""
-        a_c = f" `{self.away_cards * '🟥'}`" if self.away_cards else ""
+        _ = '\🟥'
+        h_c = f"{self.home_cards * _} " if self.home_cards else ""
+        a_c = f" {self.away_cards * _}" if self.away_cards else ""
 
         if self.state in ['after pens', "penalties"]:
             actual_score = min([self.score_home, self.score_away])
             time = "After Pens" if self.state == "after pens" else "PSO"
 
-            return f"`{self.colour[0]}` {time} {self.home} {self.penalties_home} - {self.penalties_away} {self.away} " \
+            return f"\\{self.colour[0]} {time} {self.home} {self.penalties_home} - {self.penalties_away} {self.away} " \
                    f"(FT: {actual_score} - {actual_score})"
 
-        return f"`{self.colour[0]}` {time} {h_c}{self.bold_score}{a_c}"
+        return f"\\{self.colour[0]} {time} {h_c}{self.bold_score}{a_c}"
 
     @property
     def scores_row(self):
         """Row for the .scores command"""
-        if self.state == "ht":
-            time = "HT"
-        elif self.state == "fin":
-            time = "FT"
-        elif self.state == "postponed":
-            time = "PP"
-        elif self.state == "after extra time":
-            time = "AET"
-        else:
-            try:
-                e_t = str(self.time.timestamp()).split('.')[0]
-                time = f"<t:{e_t}:t>"
-            except AttributeError:
-                time = self.time
-
-        h_c = f"`{self.home_cards * '🟥'}` " if self.home_cards else ""
-        a_c = f" `{self.away_cards * '🟥'}`" if self.away_cards else ""
-
-        if self.state in ['after pens', "penalties"]:
-            actual_score = min([self.score_home, self.score_away])
-            time = "After Pens" if self.state == "after pens" else "PSO"
-
-            return f"`{self.colour[0]}` {time} {self.penalties_home} {self.home} - {self.away} {self.penalties_away}" \
-                   f"(FT: {actual_score} - {actual_score})"
-
-        return f"`{self.colour[0]}` {time} [{h_c}{self.bold_score}{a_c}]({self.url})"
+        return f"[{self.live_score_text}]({self.url})"
 
     # For discord.
     @property
@@ -358,12 +333,8 @@ class Fixture:
     @property
     def colour(self) -> typing.Tuple:
         """Return a tuple of (Emoji, 0xFFFFFF Colour code) based on the Meta-State of the Game"""
-        if isinstance(self.time, datetime.datetime):
+        if isinstance(self.time, datetime.datetime) or self.state == "sched":
             return "⚫", 0x010101  # Upcoming Games = Black
-
-        if not self.state:
-            print(f'Missing state for game {self.home} vs {self.away} | {self.url} @ {self.time}')
-            return "⚫", 0x010101  # Red
 
         if self.state == "live":
             if "+" in self.time:
@@ -372,7 +343,7 @@ class Fixture:
                 return "🟢", 0x0F9D58  # Green
 
         elif self.state in ["fin", "after extra time", "after pens"]:
-            return "🔵", 0x4285F4  # Blue
+            return "⚪", 0xffffff  # White
 
         elif self.state in ["postponed", 'cancelled', 'abandoned']:
             return "🔴", 0xFF0000  # Red
@@ -380,8 +351,8 @@ class Fixture:
         elif self.state in ["delayed", "interrupted"]:
             return "🟠", 0xff6700  # Orange
 
-        elif self.state == "sched":
-            return "⚫", 0x010101  # Black
+        elif self.state == "break time":
+            return "🟤", 0xA52A2A  # Brown
 
         elif self.state == "ht":
             return "🟡", 0xFFFF00  # Yellow
@@ -390,17 +361,17 @@ class Fixture:
             return "🟣", 0x9932CC  # Purple
 
         elif self.state == "break time":
-            return "⚪", 0xFFFFFF  # White
+            return "🔵", 0x4285F4  # Blue
 
         elif self.state == "awaiting":
             return "⚪", 0xFFFFFF  # White
 
         elif self.state == "penalties":
-            return "⚪", 0xFFFFFF  # White
+            return "🔵", 0x4285F4  # Blue
 
         else:
             print("Football.py: Unhandled state:", self.state, self.home, self.away, self.url)
-            return "⚫", 0x010101  # Black
+            return "🔴", 0xFF0000  # Red
 
     async def get_badge(self, page, team) -> BytesIO or None:
         """Fetch an image of a Team's Logo or Badge as a BytesIO object"""
@@ -1152,20 +1123,19 @@ async def get_stadiums(query) -> typing.List[Stadium]:
     return stadiums
 
 
-async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
+async def get_fs_results(bot, query) -> typing.List[FlashScoreSearchResult]:
     """Fetch a list of items from flashscore matching the user's query"""
     qry_debug = query
-    
+
     for r in ["'", "[", "]", "#", '<', '>']:  # Fucking morons.
         query = query.replace(r, "")
-    
+
     query = urllib.parse.quote(query)
-    async with aiohttp.ClientSession() as cs:
-        # One day we could probably expand upon this if we figure out what the other variables are.
-        async with cs.get(f"https://s.flashscore.com/search/?q={query}&l=1&s=1&f=1%3B1&pid=2&sid=1") as resp:
-            res = await resp.text(encoding="utf-8")
-            assert resp.status == 200, f"Server returned a {resp.status} error, please try again later."
-    
+    # One day we could probably expand upon this if we figure out what the other variables are.
+    async with bot.session.get(f"https://s.flashscore.com/search/?q={query}&l=1&s=1&f=1%3B1&pid=2&sid=1") as resp:
+        res = await resp.text(encoding="utf-8")
+        assert resp.status == 200, f"Server returned a {resp.status} error, please try again later."
+
     # Un-fuck FS JSON reply.
     res = res.lstrip('cjs.search.jsonpCallback(').rstrip(");")
     try:
@@ -1173,7 +1143,7 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
     except JSONDecodeError:
         print(f"Json error attempting to decode query: {query}\n", res, f"\nString that broke it: {qry_debug}")
         raise AssertionError('Something you typed broke the search query. Please only specify a team or league name.')
-    
+
     try:
         filtered = [i for i in res['results'] if i['participant_type_id'] in (0, 1)]
     except KeyError:
@@ -1183,7 +1153,7 @@ async def get_fs_results(query) -> typing.List[FlashScoreSearchResult]:
 
 async def fs_search(ctx, query) -> FlashScoreSearchResult or None:
     """Search using the aiohttp to fetch a single object matching the user's query"""
-    search_results = await get_fs_results(query)
+    search_results = await get_fs_results(ctx.bot, query)
     search_results = [i for i in search_results if isinstance(i, Competition)]  # Filter out non-leagues
 
     if not search_results:

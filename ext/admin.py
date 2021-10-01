@@ -58,7 +58,7 @@ class Admin(commands.Cog):
         """Print something to console."""
         print(to_print)
         e = self.base_embed
-        e.description = f"```{to_print}```"
+        e.description = f"```\n{to_print}```"
         await self.bot.reply(ctx, embed=e)
 
     @commands.command()
@@ -88,7 +88,7 @@ class Admin(commands.Cog):
         print(f'{_}\n{"-" * len(_)}\nConsole cleared at: {datetime.datetime.utcnow().replace(microsecond=0)}')
         e = self.base_embed
         e.title = "Bot Console"
-        e.description = "```Console Log Cleared.```"
+        e.description = "```\nConsole Log Cleared.```"
         await self.bot.reply(ctx, embed=e)
 
     @commands.command(aliases=["releoad", "relaod"])  # I can't fucking type.

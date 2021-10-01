@@ -272,9 +272,17 @@ class Transfers(commands.Cog):
         if not channel:
             return
 
-        result = await transfer_tools.TransferSearch.search(ctx, query, category="Domestic Competitions",
-                                                            returns_object=True)
+        view = transfer_tools.SearchView(ctx, query, category="Competitions", fetch=True)
+        view.message = await self.bot.reply(ctx, f"Fetching Leagues matching {query}", view=view)
+        await view.update()
+
+        result = view.value
+
         if result is None:
+            try:
+                await view.message.delete()
+            except discord.HTTPException:
+                pass
             return
 
         alias = f"{result.flag} {result.name}"
@@ -285,7 +293,7 @@ class Transfers(commands.Cog):
                                         VALUES ($1, $2, $3)
                                         ON CONFLICT DO NOTHING""", channel.id, result.link, alias)
         await self.bot.db.release(connection)
-        await self.bot.reply(ctx, text=f"✅ {alias} added to {channel.mention} tracker")
+        await view.message.edit(content=f"✅ {alias} added to {channel.mention} tracker")
         await self.update_cache()
         await self.send_leagues(ctx, channel)
 

@@ -55,10 +55,13 @@ class Warships(commands.Cog):
 
     @commands.command()
     @commands.is_owner()
-    async def codes(self, ctx, *, input_string):
+    async def codes(self, ctx, *, codes):
         """Strip codes for world of warships"""
-        out = input_string.replace(';', '').replace('|', ',').strip(' ;,')
-        await self.bot.reply(ctx, f"```{out}```")
+        codes = codes.replace(';', '')
+        codes = codes.split('|')
+        codes = "\n".join([i.strip() for i in codes if i])
+
+        await self.bot.reply(ctx, f"```\n{codes}```")
 
     async def on_presence_update(self, before, after):
         """Apply hoisted role to streamers when they go live."""

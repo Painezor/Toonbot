@@ -163,13 +163,13 @@ class ConfigView(discord.ui.View):
         header = f'Tracked leagues for {self.channel.mention}```yaml\n'
         # Warn if they fuck up permissions.
         if not self.channel.permissions_for(self.ctx.me).send_messages:
-            v = f"```css\n[WARNING]: I do not have send_messages permissions in {self.channel.mention}!"
+            v = f"```css\n[WARNING]: I do not have send_messages permissions in {self.channel.mention}!```"
             e.add_field(name="Cannot Send Messages", value=v)
         if not self.channel.permissions_for(self.ctx.me).embed_links:
-            v = f"```css\n[WARNING]: I do not have embed_links permissions in {self.channel.mention}!"
+            v = f"```css\n[WARNING]: I do not have embed_links permissions in {self.channel.mention}!```"
             e.add_field(name="Cannot send Embeds", value=v)
         if not self.channel.permissions_for(self.ctx.me).manage_messages:
-            v = f"```css\n[WARNING]: I do not have manage_messages permissions in {self.channel.mention}!"
+            v = f"```css\n[WARNING]: I do not have manage_messages permissions in {self.channel.mention}!```"
             e.add_field(name="Cannot Clear Old Messages", value=v)
 
         if not leagues:
@@ -266,30 +266,23 @@ class Scores(commands.Cog, name="LiveScores"):
 
         # Clear out our cache.
         self.cache.clear()
-        warn_once = []
 
         # Repopulate.
         for r in records:
-            if r['channel_id'] in warn_once:
-                continue
-
             if self.bot.get_channel(r['channel_id']) is None:
-                warn_once.append(r['channel_id'])
                 continue
-
             self.cache[r["channel_id"]].add(r["league"])
 
     async def update_channel(self, channel_id):
         """Edit a live-score channel to have the latest scores"""
-        whitelist = self.cache[channel_id]
         # Does league exist in both whitelist and found games.
-        channel_leagues_required = self.game_cache.keys() & whitelist
+        _ = self.game_cache.keys() & self.cache[channel_id]
 
         chunks = []
         this_chunk = f"Live scores at {timed_events.Timestamp(datetime.datetime.now()).day_time}\n"
-        if channel_leagues_required:
+        if _:
             # Build messages.
-            for league in channel_leagues_required:
+            for league in _:
                 # Chunk-ify to max message length
                 hdr = f"\n**{league}**"
                 if len(this_chunk + hdr) > 1999:
@@ -668,7 +661,11 @@ class Scores(commands.Cog, name="LiveScores"):
                 ctx.me: discord.PermissionOverwrite(send_messages=True, manage_messages=True,
                                                     read_message_history=True),
                 ctx.guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False)}
-            channel = await channel.edit(overwrites=ow)
+
+            try:
+                channel = await channel.edit(overwrites=ow)
+            except discord.Forbidden:
+                channel = channel
 
         connection = await self.bot.db.acquire()
         try:
@@ -719,8 +716,6 @@ class Scores(commands.Cog, name="LiveScores"):
             page = await self.bot.browser.newPage()
             try:
                 res = await football.Competition.by_link(qry, page)
-            except AssertionError:
-                return
             finally:
                 await page.close()
 
@@ -733,24 +728,25 @@ class Scores(commands.Cog, name="LiveScores"):
         try:
             async with connection.transaction():
                 q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-                await connection.execute(q, ctx.channel.id, res)
+                await connection.execute(q, channel.id, res)
         finally:
             await self.bot.db.release(connection)
 
-        await self.bot.reply(ctx, text=f"Added to tracked leagues for {ctx.channel.mention}```yaml\n{res}```")
+        await self.bot.reply(ctx, text=f"Added to tracked leagues for {channel.mention}```yaml\n{res}```")
         await self.update_cache()
-        await self.update_channel(ctx.channel.id)
-        await self.get_channel_settings(ctx, ctx.channel)
+        await self.update_channel(channel.id)
+        await self.get_channel_settings(ctx, channel)
 
     @ls.command()
     @commands.has_permissions(manage_channels=True)
-    async def addwc(self, ctx):
+    async def addwc(self, ctx, channel: typing.Optional[discord.TextChannel]):
         """ Temporary command: Add the qualifying tournaments for the World Cup to a live score channel"""
+        channel = ctx.channel if ctx.channel else channel
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
-                row = await connection.fetchrow(q, ctx.channel.id)
+                row = await connection.fetchrow(q, channel.id)
         finally:
             await self.bot.db.release(connection)
 
@@ -762,16 +758,15 @@ class Scores(commands.Cog, name="LiveScores"):
             async with connection.transaction():
                 q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
                 for x in WORLD_CUP_LEAGUES:
-                    await connection.execute(q, ctx.channel.id, x)
+                    await connection.execute(q, channel.id, x)
         finally:
             await self.bot.db.release(connection)
 
         res = "\n".join(WORLD_CUP_LEAGUES)
-
-        await self.bot.reply(ctx, text=f"Added to tracked leagues for {ctx.channel.mention}```yaml\n{res}```")
+        await self.bot.reply(ctx, text=f"Added to tracked leagues for {channel.mention}```yaml\n{res}```")
         await self.update_cache()
-        await self.update_channel(ctx.channel.id)
-        await self.get_channel_settings(ctx, ctx.channel)
+        await self.update_channel(channel.id)
+        await self.get_channel_settings(ctx, channel)
 
     @ls.command()
     @commands.is_owner()
@@ -785,20 +780,18 @@ class Scores(commands.Cog, name="LiveScores"):
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
         """Remove all of a channel's stored data upon deletion"""
-        q = """DELETE FROM scores_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(q, channel.id)
+            await connection.execute("""DELETE FROM scores_channels WHERE channel_id = $1""", channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
     
     @commands.Cog.listener()
     async def on_guild_remove(self, guild):
         """Remove all data for tracked channels for a guild upon guild leave"""
-        q = """DELETE FROM scores_channels WHERE guild_id = $1"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            await connection.execute(q, guild.id)
+            await connection.execute("""DELETE FROM scores_channels WHERE guild_id = $1""", guild.id)
         await self.bot.db.release(connection)
         await self.update_cache()
 

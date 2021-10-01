@@ -10,7 +10,6 @@ from discord.ext import commands
 
 # Custom Utils
 from ext.utils import browser, timed_events, transfer_tools, football, embed_utils, image_utils, view_utils
-from ext.utils.football import Team, Competition, Fixture
 
 # How many minutes a user has to wait between refreshes of the table within a command.
 IMAGE_UPDATE_RATE_LIMIT = 1
@@ -39,7 +38,7 @@ class LeagueTableSelect(discord.ui.Select):
 class CompetitionView(discord.ui.View):
     """The view sent to a user about a Competition"""
 
-    def __init__(self, ctx, competition: Competition, page):
+    def __init__(self, ctx, competition: football.Competition, page):
         super().__init__()
         self.page = page
         self.ctx = ctx
@@ -85,21 +84,9 @@ class CompetitionView(discord.ui.View):
         if self.filter_mode is not None:
             await self.filter_players()
 
-        await self.generate_buttons()
-        embed = self.pages[self.index]
-        try:
-            await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions.none())
-        except discord.NotFound:
-            self.stop()
-            return
-        self.clear_items()
-        await self.wait()
-
-    async def generate_buttons(self):
-        """Add our View's Buttons"""
         self.clear_items()
 
-        if self.pages:
+        if self.pages and len(self.pages) > 1:
             _ = view_utils.PreviousButton()
             _.disabled = True if self.index == 0 else False
             self.add_item(_)
@@ -134,7 +121,7 @@ class CompetitionView(discord.ui.View):
                     _.placeholder = f"Countries:{', '.join(self.nationality_filter)}"
                 self.add_item(_)
 
-        items = [view_utils.Button(label="Table", func=self.push_table, row=3),
+        items = [view_utils.Button(label="Table", func=self.push_table, emoji="🥇", row=3),
                  view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=3),
                  view_utils.Button(label="Fixtures", func=self.push_fixtures, emoji='📆', row=3),
                  view_utils.Button(label="Results", func=self.push_results, emoji='⚽', row=3),
@@ -144,6 +131,16 @@ class CompetitionView(discord.ui.View):
         for _ in items:
             self.add_item(_)
             _.disabled = True if self._current_mode == _.label else False
+
+        embed = self.pages[self.index]
+        try:
+            await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions.none())
+        except discord.NotFound:
+            await self.page.close()
+            self.stop()
+            return
+        self.clear_items()
+        await self.wait()
 
     async def filter_players(self):
         """Filter player list according to dropdowns."""
@@ -255,7 +252,7 @@ class CompetitionView(discord.ui.View):
 class TeamView(discord.ui.View):
     """The View sent to a user about a Team"""
 
-    def __init__(self, ctx, team: Team, page):
+    def __init__(self, ctx, team: football.Team, page):
         super().__init__()
         self.page = page  # Browser Page
         self.team = team
@@ -308,7 +305,13 @@ class TeamView(discord.ui.View):
         """Update the view for the user"""
         self.generate_buttons()
         embed = self.pages[self.index] if self.pages else None
-        await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions().none())
+        try:
+            am = discord.AllowedMentions().none()
+            await self.message.edit(content="", view=self, embed=embed, allowed_mentions=am)
+        except discord.HTTPException:
+            self.stop()
+            await self.page.close()
+            return
         await self.wait()
 
     def generate_buttons(self):
@@ -454,7 +457,7 @@ class TeamView(discord.ui.View):
 class FixtureView(discord.ui.View):
     """The View sent to users about a fixture."""
 
-    def __init__(self, ctx, fixture: Fixture, page):
+    def __init__(self, ctx, fixture: football.Fixture, page):
         self.fixture = fixture
         self.ctx = ctx
         self.message = None
@@ -489,7 +492,13 @@ class FixtureView(discord.ui.View):
         """Update the view for the user"""
         embed = self.pages[self.index]
         self.generate_buttons()
-        await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions().none())
+        try:
+            am = discord.AllowedMentions().none()
+            await self.message.edit(content="", view=self, embed=embed, allowed_mentions=am)
+        except discord.HTTPException:
+            await self.page.close()
+            self.stop()
+            return
         await self.wait()
 
     def generate_buttons(self):
@@ -639,7 +648,7 @@ class Fixtures(commands.Cog):
 
     # Selection View/Filter/Pickers.
     async def search(self, ctx, qry, mode=None, include_live=False, include_fs=False) \
-            -> Union[Team, Competition, Fixture] or None:
+            -> Union[football.Team, football.Competition, football.Fixture] or None:
         """Get Matches from Live Games & FlashScore Search Results"""
         # Handle Server Defaults
         if qry is None:
@@ -650,9 +659,9 @@ class Fixtures(commands.Cog):
                     try:
                         if mode == "team":
                             team_id = default.split('/')[-1]
-                            fsr = await Team.by_id(team_id, page)
+                            fsr = await football.Team.by_id(team_id, page)
                         else:
-                            fsr = await Competition.by_link(default, page)
+                            fsr = await football.Competition.by_link(default, page)
                     except Exception as e:
                         raise e  # Re raise, this is specifically to assure page closure.
                     finally:
@@ -674,7 +683,7 @@ class Fixtures(commands.Cog):
 
         # Gather Other Search Results
         if include_fs:
-            search_results = await football.get_fs_results(qry)
+            search_results = await football.get_fs_results(self.bot, qry)
             pt = 0 if mode == "league" else 1 if mode == "team" else None  # Mode is a hard override.
             if pt is not None:
                 search_results = [i for i in search_results if i.participant_type_id == pt]  # Check for specifics.
@@ -724,7 +733,7 @@ class Fixtures(commands.Cog):
                 return team if team else league
             return league if league else team
 
-    async def pick_recent_game(self, ctx, fsr: Team, page, upcoming=False):
+    async def pick_recent_game(self, ctx, fsr: football.Team, page, upcoming=False):
         """Choose from recent games from team"""
         subpage = "/fixtures" if upcoming else "/results"
         items = await fsr.get_fixtures(page, subpage)
@@ -754,10 +763,10 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (Competition, Team)), f'Expected type Competition or Team, got {type(fsr)}'
+        assert isinstance(fsr, (football.Team, football.Competition))
 
         page = await self.bot.browser.newPage()
-        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, Competition) else TeamView(ctx, fsr, page)
+        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, football.Competition) else TeamView(ctx, fsr, page)
         view.message = await self.bot.reply(ctx, text=f"Fetching fixtures data for {fsr.title}...", view=view)
 
         await view.push_fixtures()
@@ -769,10 +778,10 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (Competition, Team)), f'Expected type Competition or Team, got {type(fsr)}'
+        assert isinstance(fsr, (football.Team, football.Competition))
 
         page = await self.bot.browser.newPage()
-        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, Competition) else TeamView(ctx, fsr, page)
+        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, football.Competition) else TeamView(ctx, fsr, page)
         view.message = await self.bot.reply(ctx, text=f"Fetching results data for {fsr.title}...", view=view)
 
         await view.push_results()
@@ -784,12 +793,13 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (Competition, Team)), f'Expected type Competition or Team, got {type(fsr)}'
+        assert isinstance(fsr, (football.Team, football.Competition))
+
         page = await self.bot.browser.newPage()
-        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, Competition) else TeamView(ctx, fsr, page)
+        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, football.Competition) else TeamView(ctx, fsr, page)
         view.message = await self.bot.reply(ctx, text=f"Fetching Table for {fsr.title}...", view=view)
 
-        await view.select_table() if isinstance(fsr, Team) else await view.push_table()
+        await view.select_table() if isinstance(fsr, football.Team) else await view.push_table()
 
     @commands.command(aliases=['st'], usage="<team to search for>")
     async def stats(self, ctx, *, qry: commands.clean_content = None):
@@ -798,10 +808,10 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return  # Rip
 
-        assert isinstance(fsr, (Team, Fixture)), f'Expected type Fixture or Team, got {type(fsr)}'
+        assert isinstance(fsr, (football.Team, football.Fixture))
 
         page = await self.bot.browser.newPage()
-        if isinstance(fsr, Team):
+        if isinstance(fsr, football.Team):
             fsr = await self.pick_recent_game(ctx, fsr, page)
             if fsr is None:
                 return await page.close()
@@ -817,10 +827,10 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return  # Rip
 
-        assert isinstance(fsr, (Team, Fixture)), f'Expected type Fixture or Team, got {type(fsr)}'
+        assert isinstance(fsr, (football.Team, football.Fixture))
 
         page = await self.bot.browser.newPage()
-        if isinstance(fsr, Team):
+        if isinstance(fsr, football.Team):
             fsr = await self.pick_recent_game(ctx, fsr, page)
             if fsr is None:
                 return await page.close()
@@ -836,10 +846,10 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (Fixture, Team)), f'Expected type Fixture or Team, got {type(fsr)}'
+        assert isinstance(fsr, (football.Team, football.Fixture))
 
         page = await self.bot.browser.newPage()
-        if isinstance(fsr, Team):
+        if isinstance(fsr, football.Team):
             fsr = await self.pick_recent_game(ctx, fsr, page)
             if fsr is None:
                 return await page.close()
@@ -855,8 +865,10 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return  # Rip
 
+        assert isinstance(fsr, (football.Team, football.Fixture))
+
         page = await self.bot.browser.newPage()
-        if isinstance(fsr, Team):
+        if isinstance(fsr, football.Team):
             fsr = await self.pick_recent_game(ctx, fsr, page)
             if fsr is None:
                 return await page.close()
@@ -873,7 +885,7 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, Team), f"Expected Type Team, got {type(fsr)}"
+        assert isinstance(fsr, football.Team)
 
         page = await self.bot.browser.newPage()
         view = TeamView(ctx=ctx, page=page, team=fsr)
@@ -887,7 +899,7 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, Team), f"Expected Type Team, got {type(fsr)}"
+        assert isinstance(fsr, football.Team)
 
         page = await self.bot.browser.newPage()
         view = TeamView(ctx=ctx, page=page, team=fsr)
@@ -901,10 +913,10 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (Competition, Team)), f'Expected type Competition or Team, got {type(fsr)}'
+        assert isinstance(fsr, (football.Team, football.Competition))
 
         page = await self.bot.browser.newPage()
-        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, Competition) else TeamView(ctx, fsr, page)
+        view = CompetitionView(ctx, fsr, page) if isinstance(fsr, football.Competition) else TeamView(ctx, fsr, page)
         view.message = await self.bot.reply(ctx, f"Fetching Top Scorer Data for {fsr.title}...", view=view)
         await view.push_scorers()
 
@@ -972,8 +984,6 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, Team), f"Expected Team, got {type(fsr)}"
-
         url = fsr.url
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -1009,8 +1019,6 @@ class Fixtures(commands.Cog):
 
         if fsr is None:
             return
-
-        assert isinstance(fsr, Competition), f"Expected Competition, got {type(fsr)}"
 
         url = fsr.url
         connection = await self.bot.db.acquire()
