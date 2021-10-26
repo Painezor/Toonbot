@@ -505,6 +505,18 @@ class Fun(commands.Cog):
         """STOP STOP HE'S ALREADY DEAD"""
         await self.bot.reply(ctx, text="https://www.youtube.com/watch?v=mAUY1J8KizU")
 
+    @commands.command(usage="<message id> or text string.")
+    async def mock(self, ctx, *, target):
+        """AlTeRnAtInG cApS"""
+        try:
+            target = await ctx.channel.fetch_message(int(target))
+            content = target.content
+        except (AttributeError, ValueError):
+            content = target
+
+        content = "".join(c.lower() if i & 1 else c.upper() for i, c in enumerate(content))
+        await self.bot.reply(ctx, content)
+
 
 def setup(bot):
     """Loadthe Fun cog into the bot"""
