@@ -45,9 +45,14 @@ class PageButton(discord.ui.Button):
             else:
                 sliced = self.view.pages[self.view.index - 12:self.view.index + 12]
         options = [discord.SelectOption(label=f"Page {n}", value=str(n)) for n, e in enumerate(sliced, start=1)]
+
         self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row + 1))
         self.disabled = True
-        await self.view.message.edit(view=self.view)
+
+        try:
+            await self.view.message.edit(view=self.view)
+        except discord.HTTPException:
+            pass
 
 
 class NextButton(discord.ui.Button):
@@ -151,10 +156,11 @@ class ObjectSelectView(discord.ui.View):
 
 class MultipleSelect(discord.ui.Select):
     """Select multiple matching items."""
-    def __init__(self, placeholder, options: Iterable[Tuple[str, str, str]], attribute):
+
+    def __init__(self, placeholder, options: Iterable[Tuple[str, str, str]], attribute, row=0):
         self.attribute = attribute
 
-        super().__init__(placeholder=placeholder, max_values=len(list(options)))
+        super().__init__(placeholder=placeholder, max_values=len(list(options)), row=row)
         for emoji, label, description in options:
             self.add_option(label=label, emoji=emoji, description=description, value=label)
 
@@ -179,7 +185,11 @@ class ItemSelect(discord.ui.Select):
         await interaction.response.defer()
         self.view.value = self.view.index * 25 + int(self.values[0])
         self.view.stop()
-        await self.view.message.delete()
+
+        try:
+            await self.view.message.delete()
+        except discord.HTTPException:
+            pass
 
 
 class Button(discord.ui.Button):
