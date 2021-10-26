@@ -19,6 +19,20 @@ LG = [(":england: Premier League", "https://www.transfermarkt.co.uk/premier-leag
       ("🇫🇷 Ligue 1", "https://www.transfermarkt.co.uk/ligue-1/startseite/wettbewerb/FR1"),
       ("🇺🇸 Major League Soccer", "https://www.transfermarkt.co.uk/major-league-soccer/startseite/wettbewerb/MLS1")]
 
+TF = "https://www.transfermarkt.co.uk"
+
+
+class ConfigView(discord.ui.View):
+    """View for configuring Transfer Tickers"""
+
+    def __init__(self, ctx):
+        super().__init__()
+        self.ctx = ctx
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Verify ineractor is person who ran command."""
+        return self.ctx.author.id == interaction.user.id
+
 
 class Transfers(commands.Cog):
     """Create and configure Transfer Ticker channels"""
@@ -54,18 +68,11 @@ class Transfers(commands.Cog):
     
         # Repopulate.
         for r in records:
-            if (r["guild_id"], r["channel_id"]) in self.warn_once:
-                continue
-
+            g = self.bot.get_guild(r['guild_id'])
             ch = self.bot.get_channel(r['channel_id'])
 
-            if ch is None:
-                self.warn_once.append((r["guild_id"], r["channel_id"]))
+            if ch is None or g is None:
                 continue
-
-            perms = ch.permissions_for(ch.guild.me)
-            if not perms.send_messages or not perms.embed_links:
-                self.warn_once.append((r["guild_id"], r["channel_id"]))
 
             self.cache[(r["guild_id"], r["channel_id"])].add((r["item"], r["alias"]))
 
@@ -109,16 +116,17 @@ class Transfers(commands.Cog):
         name = "".join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/text()')).strip()
         link = "".join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/@href'))
 
-        link = "https://www.transfermarkt.co.uk" + link if link else ""
+        link = TF + link if link else ""
         return name, link
 
     @tasks.loop(seconds=60)
     async def transfer_ticker(self):
         """Core transfer ticker loop - refresh every x seconds and get all new transfers from transfermarkt"""
-        url = 'https://www.transfermarkt.co.uk/transfers/neuestetransfers/statistik?minMarktwert=200.000'
-        async with self.bot.session.get(url) as resp:
+        min_value = "200.000"
+        _ = f'https://www.transfermarkt.co.uk/transfers/neuestetransfers/statistik?minMarktwert={min_value}'
+        async with self.bot.session.get(_) as resp:
             if resp.status != 200:
-                print(f'Transfers: recieved bad status: {resp.status}')
+                print(f'Transfers: received bad status: {resp.status}')
                 return
             tree = html.fromstring(await resp.text())
 
@@ -139,7 +147,7 @@ class Transfers(commands.Cog):
                 continue
 
             # Player Info
-            link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
+            link = TF + "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
             age = "".join(i.xpath('./td[2]//text()')).strip()
             position = "".join(i.xpath('./td[1]//tr[2]/td/text()'))
             country = i.xpath('.//td[3]/img/@title')
