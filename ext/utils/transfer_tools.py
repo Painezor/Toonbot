@@ -558,6 +558,14 @@ class SearchView(discord.ui.View):
             print(f'WARNING NO QUERY STRING FOUND FOR {self.category}')
             return "page"
 
+    async def on_error(self, error, item, interaction):
+        """Error handling & logging."""
+        print("Error in transfer_tools.SearchView")
+        print(self.ctx.message.content)
+        print(item)
+        print(interaction)
+        raise error
+
     async def on_timeout(self):
         """Cleanup."""
         self.clear_items()
