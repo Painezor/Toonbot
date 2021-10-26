@@ -135,7 +135,7 @@ class QuoteDB(commands.Cog):
     @quote.command(invoke_without_command=True, usage="quote add [message id or message link "
                                                       "or @member to grab their last message]")
     @commands.guild_only()
-    async def add(self, ctx, target: typing.Union[discord.Member, discord.Message]):
+    async def add(self, ctx, target: typing.Union[discord.Message, discord.User]):
         """Add a quote, either by message ID or grabs the last message a user sent"""
         if isinstance(target, discord.Member):
             messages = await ctx.history(limit=50).flatten()
@@ -143,7 +143,7 @@ class QuoteDB(commands.Cog):
             if not m:
                 return await self.bot.reply(ctx, text="No messages from that user found in last 50 messages, "
                                                       "please use message's id or link")
-                
+
         elif isinstance(target, discord.Message):
             m = target
         else:
@@ -157,15 +157,21 @@ class QuoteDB(commands.Cog):
         
         await self.bot.reply(ctx, text="Attempting to add quote to db...", delete_after=5)
         connection = await self.bot.db.acquire()
-        
+
         try:
+            ch = m.channel.id
+            gu = m.guild.id
+            ms = m.id
+            au = m.author.id
+            qu = ctx.author.id
+            st = m.clean_content
+            dt = m.created_at
+
             async with connection.transaction():
                 r = await connection.fetchrow(
                     """INSERT INTO quotes
                     (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7)
-                    RETURNING *""",
-                    m.channel.id, m.guild.id, m.id, m.author.id, ctx.author.id, m.clean_content, m.created_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""", ch, gu, ms, au, qu, st, dt)
             e = await self.embed_quotes([r])
             await self.bot.reply(ctx, text=":white_check_mark: Successfully added quote to database", embed=e[0])
         except UniqueViolationError:
