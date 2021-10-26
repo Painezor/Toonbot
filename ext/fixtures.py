@@ -1,5 +1,8 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
+import asyncio
 import datetime
+import sys
+import traceback
 from copy import deepcopy
 from importlib import reload
 from typing import Union
@@ -45,6 +48,7 @@ class CompetitionView(discord.ui.View):
         self.competition = competition
         self.message = None
         self.players = []
+        self.semaphore = asyncio.Semaphore()
 
         # Embed and internal index.
         self.base_embed = None
@@ -76,70 +80,81 @@ class CompetitionView(discord.ui.View):
         except discord.HTTPException:
             pass
 
-        await self.page.close()
         self.stop()
+        await self.page.close()
 
     async def update(self):
         """Update the view for the Competition"""
-        if self.filter_mode is not None:
-            await self.filter_players()
-
-        self.clear_items()
-
-        if self.pages and len(self.pages) > 1:
-            _ = view_utils.PreviousButton()
-            _.disabled = True if self.index == 0 else False
-            self.add_item(_)
-
-            _ = view_utils.PageButton()
-            _.label = f"Page {self.index + 1} of {len(self.pages)}"
-            _.disabled = True if len(self.pages) == 1 else False
-            self.add_item(_)
-
-            _ = view_utils.NextButton()
-            _.disabled = True if self.index == len(self.pages) - 1 else False
-            self.add_item(_)
-
-        if self.filter_mode is not None:
-            all_players = [('👕', str(i.team), str(i.team_url)) for i in self.players]
-            teams = set(all_players)
-            teams = sorted(teams, key=lambda x: x[1])  # Sort by second Value.
-
-            if teams and len(teams) < 26:
-                _ = view_utils.MultipleSelect(placeholder="Filter by Team...", options=teams, attribute='team_filter')
-                if self.team_filter is not None:
-                    _.placeholder = f"Teams: {', '.join(self.team_filter)}"
-                self.add_item(_)
-
-            flags = set([(transfer_tools.get_flag(i.country, unicode=True), i.country, "") for i in self.players])
-            flags = sorted(flags, key=lambda x: x[1])  # Sort by second Value.
-
-            if flags and len(flags) < 26:
-                ph = "Filter by Nationality..."
-                _ = view_utils.MultipleSelect(placeholder=ph, options=flags, attribute='nationality_filter')
-                if self.nationality_filter is not None:
-                    _.placeholder = f"Countries:{', '.join(self.nationality_filter)}"
-                self.add_item(_)
-
-        items = [view_utils.Button(label="Table", func=self.push_table, emoji="🥇", row=3),
-                 view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=3),
-                 view_utils.Button(label="Fixtures", func=self.push_fixtures, emoji='📆', row=3),
-                 view_utils.Button(label="Results", func=self.push_results, emoji='⚽', row=3),
-                 view_utils.StopButton()
-                 ]
-
-        for _ in items:
-            self.add_item(_)
-            _.disabled = True if self._current_mode == _.label else False
-
-        embed = self.pages[self.index]
-        try:
-            await self.message.edit(content="", view=self, embed=embed, allowed_mentions=discord.AllowedMentions.none())
-        except discord.NotFound:
-            await self.page.close()
+        if self.message is None:
             self.stop()
             return
-        self.clear_items()
+
+        async with self.semaphore:
+            self.clear_items()
+            if self.filter_mode is not None:
+                await self.filter_players()
+
+            if self.pages and len(self.pages) > 1:
+                _ = view_utils.PreviousButton()
+                _.disabled = True if self.index == 0 else False
+                self.add_item(_)
+
+                _ = view_utils.PageButton()
+                _.label = f"Page {self.index + 1} of {len(self.pages)}"
+                _.disabled = True if len(self.pages) == 1 else False
+                self.add_item(_)
+
+                _ = view_utils.NextButton()
+                _.disabled = True if self.index == len(self.pages) - 1 else False
+                self.add_item(_)
+
+            if self.filter_mode is not None:
+                all_players = [('👕', str(i.team), str(i.team_url)) for i in self.players]
+                teams = set(all_players)
+                teams = sorted(teams, key=lambda x: x[1])  # Sort by second Value.
+
+                if teams and len(teams) < 26:
+                    _ = "Filter by Team..."
+                    _ = view_utils.MultipleSelect(placeholder=_, options=teams, attribute='team_filter', row=2)
+                    _.row = 2
+                    if self.team_filter is not None:
+                        _.placeholder = f"Teams: {', '.join(self.team_filter)}"
+                    self.add_item(_)
+
+                flags = set([(transfer_tools.get_flag(i.country, unicode=True), i.country, "") for i in self.players])
+                flags = sorted(flags, key=lambda x: x[1])  # Sort by second Value.
+
+                if flags and len(flags) < 26:
+                    ph = "Filter by Nationality..."
+                    _ = view_utils.MultipleSelect(placeholder=ph, options=flags, attribute='nationality_filter', row=3)
+                    if self.nationality_filter is not None:
+                        _.placeholder = f"Countries:{', '.join(self.nationality_filter)}"
+                    self.add_item(_)
+
+            items = [view_utils.Button(label="Table", func=self.push_table, emoji="🥇", row=4),
+                     view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=4),
+                     view_utils.Button(label="Fixtures", func=self.push_fixtures, emoji='📆', row=4),
+                     view_utils.Button(label="Results", func=self.push_results, emoji='⚽', row=4),
+                     view_utils.StopButton(row=4)
+                     ]
+
+            for _ in items:
+                _.disabled = True if self._current_mode == _.label else False
+                try:
+                    self.add_item(_)
+                except ValueError:
+                    print(f'fixtures - CompetitionView: unable to add item {_.label} (row {_.row} Max Length Exceeded)')
+            try:
+                embed = self.pages[self.index]
+            except IndexError:
+                embed = None if self.index == 0 else self.pages[0]
+
+            try:
+                _ = discord.AllowedMentions.none()
+                await self.message.edit(content="", view=self, embed=embed, allowed_mentions=_)
+            except discord.NotFound:
+                self.stop()
+                return await self.page.close()
         await self.wait()
 
     async def filter_players(self):
@@ -217,6 +232,8 @@ class CompetitionView(discord.ui.View):
         self.index = 0
         self.filter_mode = "assists"
         self._current_mode = "Assists"
+        self.nationality_filter = None
+        self.team_filter = None
         await self.update()
 
     async def push_fixtures(self):
@@ -286,6 +303,12 @@ class TeamView(discord.ui.View):
             pass
         await self.page.close()
         self.stop()
+
+    async def on_error(self, error, item, interaction):
+        """Extended Error Logging."""
+        print(self.ctx.message.content)
+        print(f'Ignoring exception in view {self} for item {item}:', file=sys.stderr)
+        traceback.print_exception(error.__class__, error, error.__traceback__, file=sys.stderr)
 
     async def interaction_check(self, interaction):
         """Assure only the command's invoker can select a result"""
@@ -417,7 +440,7 @@ class TeamView(discord.ui.View):
                 self.table_timestamp = datetime.datetime.now()
 
         embed.title = f"≡ Table for {res.full_league}"
-        if self.table_image is not None:
+        if self.table_image is not None and self.table_image:
             embed.set_image(url=self.table_image)
             embed.description = timed_events.Timestamp().long
         else:
@@ -481,8 +504,8 @@ class FixtureView(discord.ui.View):
         except discord.HTTPException:
             pass
 
-        await self.page.close()
         self.stop()
+        await self.page.close()
 
     async def interaction_check(self, interaction):
         """Assure only the command's invoker can select a result"""
@@ -496,8 +519,8 @@ class FixtureView(discord.ui.View):
             am = discord.AllowedMentions().none()
             await self.message.edit(content="", view=self, embed=embed, allowed_mentions=am)
         except discord.HTTPException:
-            await self.page.close()
             self.stop()
+            await self.page.close()
             return
         await self.wait()
 
@@ -620,8 +643,8 @@ class FixtureView(discord.ui.View):
         """Push Head to Head to View"""
         self._current_mode = "Head To Head"
         self.index = 0
-
         fixtures = await self.fixture.head_to_head(page=self.page)
+
         embed = await self.get_embed()
         embed.title = f"≡ Head to Head for {self.fixture.home} {self.fixture.score} {self.fixture.away}"
         if self.page.url.startswith("http"):
@@ -707,6 +730,11 @@ class Fixtures(commands.Cog):
 
         view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
         view.message = await self.bot.reply(ctx, '⏬ Multiple results found, choose from the dropdown.', view=view)
+
+        if view.message is None:
+            view.stop()
+            return None
+
         await view.update()
         await view.wait()
 
