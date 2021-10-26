@@ -171,10 +171,9 @@ class Notifications(commands.Cog):
             return
 
         # Todo: Code "If message was not deleted by bot or user return "
-        e = discord.Embed(title="🗑️ Deleted Message")
+        e = discord.Embed()
         t = timed_events.Timestamp(datetime.datetime.now()).datetime
-        e.description = f"[{t}]{message.author.mention} in {message.channel.mention}\n\n{message.content}"
-        e.set_thumbnail(url=message.author.display_avatar.url)
+        e.description = f"\🗑️ {message.channel.mention} {t} {message.author.mention}: {message.content}"
         e.set_footer(text=f"UserID: {message.author.id}")
 
         for x in message.attachments:
