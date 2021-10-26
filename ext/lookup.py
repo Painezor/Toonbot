@@ -14,6 +14,62 @@ TF = "https://www.transfermarkt.co.uk"
 FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/Transfermarkt_favicon.png"
 
 
+class CompetitionView(discord.ui.View):
+    """A View representing a competition on TransferMarkt"""
+
+    def __init__(self, ctx, comp: transfer_tools.Competition):
+        super().__init__()
+        self.comp = comp
+        self.message = None
+        self.ctx = ctx
+        self.index = 0
+        self.pages = []
+
+    async def on_timeout(self):
+        """Clean up"""
+        self.clear_items()
+        await self.message.edit(view=self)
+        self.stop()
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        """Verify user of view is correct user."""
+        return interaction.user.id == self.ctx.author.id
+
+    async def update(self):
+        """Send latest version of view"""
+        self.clear_items()
+
+        if len(self.pages) > 1:
+            _ = view_utils.PreviousButton()
+            _.disabled = True if self.index == 0 else False
+            self.add_item(_)
+
+            if len(self.pages) > 2:
+                _ = view_utils.PageButton()
+                _.label = f"Page {self.index + 1} of {len(self.pages)}"
+                self.add_item(_)
+
+            _ = view_utils.NextButton()
+            _.disabled = True if self.index + 1 == len(self.pages) else False
+            self.add_item(_)
+
+        buttons = [view_utils.Button(label="Attendances", func=self.push_attendance, emoji='🏟️'),
+                   view_utils.StopButton(row=0)
+                   ]
+
+        for _ in buttons:
+            self.add_item(_)
+
+        _ = discord.AllowedMentions.none()
+        await self.message.edit(content="", embed=self.pages[self.index], view=self, allowed_mentions=_)
+
+    async def push_attendance(self):
+        """Fetch attendances for league's stadiums."""
+        # TODO: League Attendance
+        # https://www.transfermarkt.co.uk/premier-league/besucherzahlen/wettbewerb/GB1/plus/?saison_id=2020
+        pass
+
+
 class TeamView(discord.ui.View):
     """A View representing a Team on TransferMarkt"""
 
@@ -31,6 +87,10 @@ class TeamView(discord.ui.View):
         self.clear_items()
         await self.message.edit(view=self)
         self.stop()
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        """Verify user of view is correct user."""
+        return interaction.user.id == self.ctx.author.id
 
     async def update(self):
         """Send latest version of view"""
@@ -268,10 +328,12 @@ class Lookups(commands.Cog):
     async def team_view(self, ctx, query):
         """Shared function for following commands."""
         if query is None:
-            return await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', ping=True)
+            await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', ping=True)
+            return None
 
         elif str(query).startswith("set ") and ctx.message.channel_mentions:
-            return await self.bot.reply(ctx, "🚫 You probably meant to use .tf, not .transfers.", ping=True)
+            await self.bot.reply(ctx, "🚫 You probably meant to use .tf, not .transfers.", ping=True)
+            return None
 
         view = transfer_tools.SearchView(ctx, query, category="Clubs", fetch=True)
         view.message = await self.bot.reply(ctx, f"Fetching Clubs matching {query}", view=view)
@@ -284,9 +346,36 @@ class Lookups(commands.Cog):
 
         am = discord.AllowedMentions.none()
         _ = TeamView(ctx, team)
-        _.message = await view.message.edit(content=f"Fetching transfers for {team.name}", view=_, allowed_mentions=am)
+        __ = ctx.command.name
+        _.message = await view.message.edit(content=f"Fetching {__} for {team.name}", view=_, allowed_mentions=am)
 
         return None if team is None else _
+
+    async def comp_view(self, ctx, query):
+        """Shared function for following commands."""
+        if query is None:
+            await self.bot.reply(ctx, '🚫 You need to specify a team name to search for.', ping=True)
+            return None
+
+        elif str(query).startswith("set ") and ctx.message.channel_mentions:
+            await self.bot.reply(ctx, "🚫 You probably meant to use .tf, not .transfers.", ping=True)
+            return None
+
+        view = transfer_tools.SearchView(ctx, query, category="Competitions", fetch=True)
+        view.message = await self.bot.reply(ctx, f"Fetching Competitions matching {query}", view=view)
+        await view.update()
+
+        comp = view.value
+
+        if comp is None:
+            return
+
+        am = discord.AllowedMentions.none()
+        _ = CompetitionView(ctx, comp)
+        __ = ctx.command.name
+        _.message = await view.message.edit(content=f"Fetching {__} for {comp.name}", view=_, allowed_mentions=am)
+
+        return None if comp is None else _
 
     # Base lookup - No Sub-command invoked.
     @commands.group(invoke_without_command=True, usage="<Who you want to search for>")
@@ -387,6 +476,13 @@ class Lookups(commands.Cog):
         if _ is not None:
             await _.push_trophies()
 
+    @commands.command(usage="<competition to search for>")
+    @commands.is_owner()
+    async def attendance(self, ctx, *, query: commands.clean_content = None):
+        """Get a list of a league's average attendances."""
+        _ = await self.comp_view(ctx, query)
+        if _ is not None:
+            await _.push_attendance()
 
 def setup(bot):
     """Load the lookup cog into the bot"""
