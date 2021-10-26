@@ -164,8 +164,11 @@ class Mod(commands.Cog):
 
     @commands.command(usage="[Channel] <what you want the bot to say>")
     @commands.check(me_or_mod)
-    async def say(self, ctx, destination: typing.Optional[discord.TextChannel] = None, *, msg):
+    async def say(self, ctx, destination: typing.Optional[discord.TextChannel] = None, *, msg=None):
         """Say something as the bot in specified channel"""
+        if msg is None:
+            return await self.bot.reply(ctx, "You need to specify a message to send.", ping=True)
+
         if destination is None:
             destination = ctx
         try:
@@ -340,7 +343,8 @@ class Mod(commands.Cog):
 
         e = discord.Embed(color=0x111)
         n = f"≡ {ctx.guild.name} discord ban list"
-        e.set_author(name=n, icon_url=ctx.guild.icon.url)
+        _ = ctx.guild.icon.url if ctx.guild.icon is not None else None
+        e.set_author(name=n, icon_url=_)
         e.set_thumbnail(url="https://i.ytimg.com/vi/eoTDquDWrRI/hqdefault.jpg")
         e.title = "User (Reason)"
 
