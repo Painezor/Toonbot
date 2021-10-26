@@ -8,6 +8,7 @@ from importlib import reload
 
 # discord
 import discord
+from asyncpg import UniqueViolationError
 from discord.ext import commands, tasks
 # Web Scraping
 from lxml import html
@@ -63,7 +64,7 @@ class ResetLeagues(discord.ui.Button):
 
 
 class RemoveLeague(discord.ui.Select):
-    """Button to bring up the settings dropdown."""
+    """Button to bring up the remove leagues dropdown."""
 
     def __init__(self, leagues):
         super().__init__(placeholder="Remove tracked league(s)", row=4)
@@ -96,6 +97,10 @@ class ConfigView(discord.ui.View):
         except discord.HTTPException:
             pass
         self.stop()
+
+    async def interaction_check(self, interaction: discord.Interaction):
+        """Verify user of view is correct user."""
+        return interaction.user.id == self.ctx.author.id
 
     @property
     def base_embed(self):
@@ -151,7 +156,12 @@ class ConfigView(discord.ui.View):
             self.add_item(ResetLeagues())
             embed = None
             cont = f"You have no tracked leagues for {self.channel.mention}, would you like to reset it?"
-        await self.message.edit(content=cont, embed=embed, view=self, allowed_mentions=discord.AllowedMentions.none())
+        try:
+            _ = discord.AllowedMentions.none()
+            await self.message.edit(content=cont, embed=embed, view=self, allowed_mentions=_)
+        except discord.HTTPException:
+            self.stop()
+            return
 
     async def generate_embeds(self, leagues):
         """Formatted Live SCores Embed"""
@@ -427,10 +437,12 @@ class Scores(commands.Cog, name="LiveScores"):
                 try:
                     # The time of the games we fetch is in
                     time = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
-                    hour, minute = datetime.datetime.strftime(time, "%H:%M").split(':')
                     now = datetime.datetime.now()
-                    date = now.replace(hour=int(hour), minute=int(minute))
-                    time = date
+                    time = now.replace(hour=time.hour, minute=time.minute)
+
+                    if now.timestamp() > time.timestamp():
+                        time = time.replace(day=time.day + 1)
+
                 except ValueError:
                     if "'" not in time:
                         state = time.lower()
@@ -523,7 +535,7 @@ class Scores(commands.Cog, name="LiveScores"):
                     elif state == "fin":
                         if fx.state in ["sched", "ht"]:
                             self.bot.dispatch("fixture_event", "final_result_only", fx)
-                        elif fx.state == "live":
+                        elif fx.state in ["live", "fin"]:
                             self.bot.dispatch("fixture_event", "full_time", fx)
                         elif fx.state == "extra_time":
                             self.bot.dispatch("fixture_event", "score_after_extra_time", fx)
@@ -544,7 +556,7 @@ class Scores(commands.Cog, name="LiveScores"):
                     elif state == "break time":
                         fx.breaks += 1
                         if fx.state == "live":
-                            if fx.periods == 2:  # A Standard Game.
+                            if not hasattr(fx, "periods"):  # A Standard Game.
                                 if fx.breaks == 1:
                                     self.bot.dispatch("fixture_event", "end_of_normal_time", fx)
                                 elif fx.breaks == 2:
@@ -554,7 +566,7 @@ class Scores(commands.Cog, name="LiveScores"):
                             else:
                                 self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}", fx)
                         elif fx.state == "extra time":
-                            if fx.breaks == 2 and fx.periods == 2:
+                            if fx.breaks == 2 and not hasattr(fx, 'periods'):
                                 self.bot.dispatch("fixture_event", "end_of_extra_time", fx)
                             else:
                                 self.bot.dispatch("fixture_event", f"end_of_period_{fx.breaks}", fx)
@@ -563,9 +575,9 @@ class Scores(commands.Cog, name="LiveScores"):
 
                     elif state == "extra time":
                         if fx.state == "break time":
-                            if fx.breaks == 1 and fx.periods == 2:
+                            if fx.breaks == 1 and not hasattr(fx, "periods"):
                                 self.bot.dispatch("fixture_event", "extra_time_begins", fx)
-                            elif fx.breaks == 2 and fx.periods == 2:
+                            elif fx.breaks == 2 and not hasattr(fx, "periods"):
                                 self.bot.dispatch("fixture_event", "ht_et_end", fx)
                             else:
                                 self.bot.dispatch("fixture_event", f"start_of_period_{fx.breaks + 1}", fx)
@@ -759,6 +771,8 @@ class Scores(commands.Cog, name="LiveScores"):
                 q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
                 for x in WORLD_CUP_LEAGUES:
                     await connection.execute(q, channel.id, x)
+        except UniqueViolationError:
+            pass
         finally:
             await self.bot.db.release(connection)
 
