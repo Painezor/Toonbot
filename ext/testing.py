@@ -20,6 +20,20 @@ class Test(commands.Cog):
         """Assure all commands in this cog can only be ran on the r/NUFC discord"""
         return ctx.guild.id == 250252535699341312 if ctx.guild is not None else False
 
+    @commands.command()
+    @commands.is_owner()
+    async def prematch(self, ctx):
+        """Debug for pre-match thread testing."""
+        await ctx.send('Running...')
+        page = await self.bot.browser.newPage()
+        try:
+            fix = await football.Fixture.by_id('6kBfKmCH', page)
+            await fix.refresh(page, for_reddit=True)
+        finally:
+            await page.close()
+
+        print(fix.__dict__)
+
 
 def setup(bot):
     """Add the testing cog to the bot"""
