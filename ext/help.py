@@ -71,9 +71,16 @@ class PageButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         """The pages button."""
         await interaction.response.defer()
+
+        self.view.clear_items()
+        self.view.populate_buttons()
         dropdown = HelpDropDown(placeholder="Select A Category", cogs=self.view.cogs)
         self.view.add_item(dropdown)
-        await self.view.message.edit(view=self.view)
+        try:
+            await self.view.message.edit(view=self.view)
+        except discord.HTTPException:
+            print("Error with Help command edit message:")
+            print(self.view.__dict__)
         await self.view.wait()
 
 

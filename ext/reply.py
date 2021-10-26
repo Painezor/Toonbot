@@ -62,13 +62,7 @@ class ReplyHandler(commands.Cog):
         try:
             await ctx.message.add_reaction('🤐')
         except discord.HTTPException:
-            return  # Fuck you then.
-
-        try:  # Ok, Why did this fail?
-            await ctx.reply(text, embed=embed, view=view, file=image, delete_after=delete_after, mention_author=ping)
-        except Exception as e:
-            print(f"{ctx.message.content} raised an Exception:")
-            print(e)
+            pass
 
 
 def setup(bot):

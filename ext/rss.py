@@ -35,54 +35,53 @@ class RSS(commands.Cog):
             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
 
         articles = tree.xpath('.//item')
-
         for i in articles:
-            title = "".join(i.xpath('.//title/text()'))
             link = "".join(i.xpath('.//guid/text()'))
-            date = "".join(i.xpath('.//pubdate/text()'))
-            date = datetime.datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %Z")
-
             if link in self.cache:
                 continue
 
             self.cache.append(link)
-
             if not self.news_cached:
                 continue  # Skip on population
 
-            e = discord.Embed()
-
-            news_title = "EU News: " "".join(i.xpath('.//category//text()'))
-
-            e.set_author(name=news_title, url="".join(i.xpath('.//category/@domain')))
-            e.colour = 0x064273
-            e.title = title
-            e.url = link
-            e.description = " ".join("".join(i.xpath('.//description/text()')).split()).replace(' ]]>', '')
-            e.timestamp = date
-            e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
-            e.set_footer(text="World of Warships EU Portal News")
-
-            # Fetch Image from JS Heavy news page because it looks pretty.
-            page = await self.bot.browser.newPage()
-            try:
-                await browser.fetch(page, link, xpath=".//div[@class='header__background']")
-                tree = html.fromstring(await page.content())
-            finally:
-                await page.close()
-
-            try:
-                background_image = "".join(tree.xpath('.//div[@class="header__background"]/@style')).split('"')[1]
-            except IndexError:
-                pass
-            else:
-                e.set_image(url=background_image)
-
-            ch = self.bot.get_channel(EU_NEWS_CHANNEL)
-
-            await ch.send(embed=e)
-
+            date = "".join(i.xpath('.//pubdate/text()'))
+            category = "EU News: " + "".join(i.xpath('.//category//text()'))
+            desc = " ".join("".join(i.xpath('.//description/text()')).split()).replace(' ]]>', '')
+            title = "".join(i.xpath('.//title/text()'))
+            await self.dispatch_eu_news(link, date=date, title=title, desc=desc, category=category)
         self.news_cached = True
+
+    async def dispatch_eu_news(self, link, date=None, title=None, category=None, desc=None):
+        """Handle dispatching of news article."""
+        # Fetch Image from JS Heavy news page because it looks pretty.
+        page = await self.bot.browser.newPage()
+        try:
+            src = await browser.fetch(page, link, xpath=".//div[@class='header__background']")
+            tree = html.fromstring(src)
+        finally:
+            await page.close()
+
+        e = discord.Embed(url=link, colour=0x064273)
+        e.title = tree.xpath('.//div[@class="title"]/text()')[0] if title is None else title
+        category = "EU News: " + tree.xpath('.//nav/div/a/span/text()')[-1] if category is None else category
+        date = datetime.datetime.now() if date is None else datetime.datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %Z")
+        e.timestamp = date
+
+        e.set_author(name=category, url=link)
+        e.description = desc
+        e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
+        e.set_footer(text="World of Warships EU Portal News")
+
+        try:
+            background_image = "".join(tree.xpath('.//div[@class="header__background"]/@style')).split('"')[1]
+        except IndexError:
+            pass
+        else:
+            e.set_image(url=background_image)
+
+        ch = self.bot.get_channel(EU_NEWS_CHANNEL)
+
+        await ch.send(embed=e)
 
     @tasks.loop(seconds=60)
     async def dev_blog(self):
@@ -129,43 +128,9 @@ class RSS(commands.Cog):
         main_image = None
 
         desc = ""
-
         for node in article_html.iterdescendants():
-            if node.tag == "p":
-                if node.text is None:
-                    continue
 
-                section = node.text.strip() + "\n\n"
-            elif node.tag == "div":
-                continue
-            elif node.tag == "em":
-                section = "*" + node.text + "*"
-            elif node.tag == "strong":
-                if node.text is None:
-                    continue
-                elif node.text.strip() == ":":
-                    section = "**:**\n"
-                elif node.getparent().text is None:
-                    section = f"**{node.text}**\n"
-                else:
-                    section = f"**{node.text}** "
-            elif node.tag == "span":
-                if "ship" in node.attrib['class']:
-                    section = "**" + node.text + "** "
-                else:
-                    section = ""
-            elif node.tag == "ul":
-                if not node.text:
-                    continue
-                section = node.text.strip()
-
-            elif node.tag == "li":
-                if node.text is None:
-                    continue
-                bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
-                section = f"{bullet_type} {node.text.strip()}\n"
-
-            elif node.tag == "img":
+            if node.tag == "img":
                 if main_image is None:
                     src = str(node.attrib['src'])
 
@@ -176,14 +141,27 @@ class RSS(commands.Cog):
                     e.set_image(url=main_image)
                 section = ""
             else:
-                if node.text:
-                    print("No tag found:", node.text)
-                else:
-                    print(node.__dict__)
-                section = ""
+                if node.text is None or not node.text:
+                    continue
 
-            if "Announced adjustments and features" in section:
-                continue
+                text = node.text.strip()
+
+                if node.tag == "p":
+                    section = f"{text}\n"
+                elif node.tag == "em":
+                    section = f"*{text}*"
+                elif node.tag == "strong":
+                    section = f"**{text}**\n" if node.getparent().text is None else f"**{text}** "
+                elif node.tag == "span":
+                    section = f"**{text}** " if "ship" in node.attrib['class'] else text
+                elif node.tag == "ul":
+                    section = f"\n{text}"
+                elif node.tag == "li":
+                    bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
+                    section = f"\n{bullet_type} {text}"
+                else:
+                    print(f"No tag found: {text}" if not text else node.__dict__)
+                    section = text
 
             # Append
             if len(desc) + len(section) < 2048:
@@ -193,27 +171,35 @@ class RSS(commands.Cog):
                 desc = desc.ljust(2048)[:2000 - len(trunc)] + trunc
                 break
 
-        print(len(desc))
-
         e.description = desc
         return e
 
     @commands.command()
     @commands.is_owner()
-    async def rss(self, ctx):
+    async def rss(self, ctx, link=None):
         """Test dev blog output"""
-        async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
-            tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
+        if link is None:
+            async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
+                tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
 
-        articles = tree.xpath('.//item')
-        link = ""
-        for i in articles:
-            link = "".join(i.xpath('.//guid/text()'))
-            if link:
-                break
+            articles = tree.xpath('.//item')
+            link = ""
+            for i in articles:
+                link = "".join(i.xpath('.//guid/text()'))
+                if link:
+                    break
+        elif link.isdigit():
+            link = f"https://blog.worldofwarships.com/blog/{link}"
 
         e = await self.parse(link)
         await self.bot.reply(ctx, embed=e)
+
+    @commands.command()
+    @commands.is_owner()
+    async def news(self, ctx, link):
+        """Manual refresh of missed news articles."""
+        await self.dispatch_eu_news(link)
+        await self.bot.reply(ctx, "Sent.", delete_after=1)
 
 
 def setup(bot):

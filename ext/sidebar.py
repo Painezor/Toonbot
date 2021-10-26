@@ -4,8 +4,8 @@ import math
 import re
 from importlib import reload
 
+import asyncpraw
 import discord
-import praw
 from PIL import Image
 from discord.ext import commands, tasks
 from lxml import html
@@ -46,7 +46,7 @@ class NUFCSidebar(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.emoji = "🤖"
-        self.bot.reddit = praw.Reddit(**bot.credentials["Reddit"])
+        self.bot.reddit = asyncpraw.Reddit(**bot.credentials["Reddit"])
         self.bot.teams = None
         self.bot.sidebar = self.sidebar_loop.start()
         reload(football)
@@ -54,18 +54,28 @@ class NUFCSidebar(commands.Cog):
     def cog_unload(self):
         """Cancel the sidebar task when Cog is unloaded."""
         self.bot.sidebar.cancel()
-    
+
     async def cog_check(self, ctx):
         """Assure commands can only be used on the r/NUFC discord."""
         if not ctx.guild:
             return False
         return 859175736263180340 in [i.id for i in ctx.author.roles] or ctx.author.id == self.bot.owner_id
-    
+
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
         """Background task, repeat every 6 hours to update the sidebar"""
         markdown = await self.make_sidebar()
-        await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown, "NUFC")
+        _ = await self.bot.reddit.subreddit('NUFC')
+        _ = await _.wiki.get_page("config/sidebar")
+        await _.edit(content=markdown)
+
+        notif = self.bot.get_channel(744184024079007895)
+        e = discord.Embed(color=0xff4500)
+        th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
+        e.set_author(icon_url=th, name="Sidebar updater")
+        e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        await notif.send(embed=e)
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self):
@@ -74,47 +84,18 @@ class NUFCSidebar(commands.Cog):
         async with connection.transaction():
             self.bot.teams = await connection.fetch("""SELECT * FROM team_data""")
         await self.bot.db.release(connection)
-    
-    # Reddit interactions
-    def upload_image(self, image_file_path, name, reason):
-        """Uploads an image to the r/NUFC Subreddit's stylesheet"""
-        s = self.bot.reddit.subreddit("NUFC")
-        s.stylesheet.upload(name, image_file_path)
-        s.stylesheet.update(s.stylesheet().stylesheet, reason=reason)
-        print("Uploaded new image to sidebar!")
-    
-    async def edit_caption(self, new_caption, subreddit="NUFC"):
-        """Edit sidebar wiki page to include a caption displayed in the sidebar."""
-        # The 'sidebar' wiki page has two blocks of --- surrounding the "caption"
-        # We get the old caption, then replace it with the new one, then re-upload the data.
-        
-        old = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
-        markdown = re.sub(r'---.*?---', f"---\n\n> {new_caption}\n\n---", old, flags=re.DOTALL)
-        await self.bot.loop.run_in_executor(None, self.update_wiki, markdown, subreddit)
-    
-    def get_wiki(self, subreddit):
-        """Fetch the current sidebar information from the wiki page"""
-        return self.bot.reddit.subreddit(subreddit).wiki['sidebar'].content_md
-    
-    def update_wiki(self, markdown, subreddit):  # Updates the manually editable sidebar page containing the caption.
-        """Update the caption on the sidebar wiki page"""
-        self.bot.reddit.subreddit(subreddit).wiki['sidebar'].edit(markdown)
-    
-    def post_sidebar(self, markdown, subreddit):
-        """Update the sidebar"""
-        sidebar = self.bot.reddit.subreddit(subreddit).wiki["config/sidebar"]
-        sidebar.edit(content=markdown)
-    
-    def get_match_threads(self, last_opponent, subreddit="NUFC"):
+
+    async def get_match_threads(self, last_opponent, subreddit="NUFC"):
         """Search the subreddit for all recent match threads for pattern matching"""
         last_opponent = last_opponent.split(" ")[0]
-        for i in self.bot.reddit.subreddit(subreddit).search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
+        subreddit = await self.bot.reddit.subreddit(subreddit)
+        async for i in subreddit.search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
             if last_opponent in i.title:
                 pre = f"[Pre]({i.url.split('?ref=')[0]})"
                 break
         else:
             pre = "Pre"
-        for i in self.bot.reddit.subreddit(subreddit).search('flair:"Match thread"', sort="new", syntax="lucene"):
+        async for i in subreddit.search('flair:"Match thread"', sort="new", syntax="lucene"):
             if not i.title.startswith("Match"):
                 continue
             if last_opponent in i.title:
@@ -122,8 +103,8 @@ class NUFCSidebar(commands.Cog):
                 break
         else:
             match = "Match"
-        
-        for i in self.bot.reddit.subreddit(subreddit).search('flair:"Post-match thread"', sort="new", syntax="lucene"):
+
+        async for i in subreddit.search('flair:"Post-match thread"', sort="new", syntax="lucene"):
             if last_opponent in i.title:
                 post = f"[Post]({i.url.split('?ref=')[0]})"
                 break
@@ -138,10 +119,8 @@ class NUFCSidebar(commands.Cog):
             if resp.status != 200:
                 return "Retry"
             tree = html.fromstring(await resp.text())
-        
-        table_data = ("\n\n* Table"
-                      "\n\n Pos.|Team|P|W|D|L|GD|Pts"
-                      "\n--:|:--|:--:|:--:|:--:|:--:|:--:|:--:\n")
+
+        table_data = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{'|:--:' * 6}\n"
         for i in tree.xpath('.//table[contains(@class,"gs-o-table")]//tbody/tr')[:20]:
             p = i.xpath('.//td//text()')
             rank = p[0].strip()  # Ranking
@@ -178,8 +157,10 @@ class NUFCSidebar(commands.Cog):
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
         """Build the sidebar markdown"""
         # Fetch all data
+        _ = await self.bot.reddit.subreddit(subreddit)
+        _ = await _.wiki.get_page('sidebar')
+        top = _.content_md
 
-        top = await self.bot.loop.run_in_executor(None, self.get_wiki, "NUFC")
         page = await self.bot.browser.newPage()
         try:
             fsr = await football.Team.by_id(team_id, page)
@@ -191,7 +172,7 @@ class NUFCSidebar(commands.Cog):
         table = await self.table(qry)
 
         # Get match threads
-        match_threads = await self.bot.loop.run_in_executor(None, self.get_match_threads, subreddit, qry)
+        match_threads = await self.get_match_threads(subreddit, qry)
 
         # Insert team badges
         for x in fixtures + results:
@@ -230,7 +211,10 @@ class NUFCSidebar(commands.Cog):
             if badge is not None:
                 im = Image.open(badge)
                 im.save("TEMP_BADGE.png", "PNG")
-                await self.bot.loop.run_in_executor(None, self.upload_image, "TEMP_BADGE.png", "temp", "Upload a badge")
+                s = await self.bot.reddit.subreddit("NUFC")
+                await s.stylesheet.upload("TEMP_BADGE.png", "temp")
+                await s.stylesheet.update(s.stylesheet().stylesheet, reason="Upload a badge")
+                print("Uploaded new image to sidebar!")
             
         top_bar = f"> [{lm.home}]({lm.home_subreddit}) [{lm.score}]({lm.url}) [{lm.away}]({lm.away_subreddit})"
         if fixtures:
@@ -267,19 +251,25 @@ class NUFCSidebar(commands.Cog):
         """Force a sidebar update, or use sidebar manual"""
         # Check if message has an attachment, for the new sidebar image.
         if caption is not None:
-            await self.edit_caption(caption)
+            old = await self.bot.reddit.subreddit('NUFC').wiki['sidebar'].content_md
+            markdown = re.sub(r'---.*?---', f"---\n\n> {caption}\n\n---", old, flags=re.DOTALL)
+            await self.bot.reddit.subreddit('NUFC').wiki['sidebar'].edit(markdown)
             await self.bot.reply(ctx, f"Set caption to: {caption}")
-    
+
         if ctx.message.attachments:
             await ctx.message.attachments[0].save("sidebar.png")
-            await self.bot.loop.run_in_executor(None, self.upload_image, "sidebar.png", "sidebar",
-                                                f"Sidebar image updated by {ctx.author} via discord")
+
+            s = await self.bot.reddit.subreddit("NUFC")
+            await s.stylesheet.upload("sidebar.png", "sidebar")
+            await s.stylesheet.update(s.stylesheet().stylesheet, reason=f"Sidebar image by {ctx.author} via discord")
+            print("Uploaded new image to sidebar!")
+
         # Build
         markdown = await self.make_sidebar()
 
         # Post
-        await self.bot.loop.run_in_executor(None, self.post_sidebar, markdown, 'NUFC')
-        
+        await self.bot.reddit.subreddit('NUFC').wiki["config/sidebar"].edit(content=markdown)
+
         # Embed.
         e = discord.Embed(color=0xff4500)
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"

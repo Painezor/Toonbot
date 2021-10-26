@@ -1,5 +1,9 @@
+from importlib import reload
+
 import aiohttp
 from discord.ext import commands
+
+from ext.utils import browser
 
 
 class Browser(commands.Cog):
@@ -8,6 +12,7 @@ class Browser(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.loop.create_task(self.spawn_session())
+        reload(browser)
 
     async def spawn_session(self):
         """Create a ClientSession object and attach to the bot."""

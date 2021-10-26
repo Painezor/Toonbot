@@ -304,7 +304,7 @@ class ConfigView(discord.ui.View):
             if _ is None:
                 emoji = '🔴'
             else:
-                emoji = '🟢' if _ else '🔵'
+                emoji = '🔵' if _ else '🟢'
 
             await self.ctx.bot.reply(self.ctx, f"{emoji} Turned {answer} notifications for {description}")
             await view.message.delete()
@@ -467,7 +467,10 @@ class ConfigView(discord.ui.View):
             await self.ctx.bot.db.release(connection)
             await self.ctx.bot.reply(self.ctx, f"Removed from {self.channel.mention} tracked leagues: {lg_text} ")
 
-            await self.message.delete()
+            try:
+                await self.message.delete()
+            except discord.HTTPException:
+                pass
             self.message = await self.ctx.bot.reply(self.ctx, ".", view=self)
 
         await self.update()
@@ -551,9 +554,8 @@ class TickerEvent:
                 h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
                 home = f"{h}{self.fixture.home} {self.fixture.penalties_home}{h}"
                 away = f"{a}{self.fixture.penalties_away} {self.fixture.away}{a}"
-
                 e.description = f"**Penalty Shootout Results** | [{home} - {away}]({self.fixture.url})"
-            except TypeError:  # If penalties_home / penalties_away are NoneType
+            except (TypeError, AttributeError):  # If penalties_home / penalties_away are NoneType or not found.
                 e.description = f"**Penalty Shootout Results** | [{self.fixture.bold_score}]({self.fixture.url})\n"
 
             events = [i for i in self.fixture.events if isinstance(i, football.Penalty) and i.shootout is True]
@@ -586,8 +588,10 @@ class TickerEvent:
                 e.description += f"\n\n{self.event.full_description}"
 
         # Append extra info
-        if self.fixture.infobox is not None:
+        try:
             e.description += f"```yaml\n{self.fixture.infobox}```"
+        except AttributeError:
+            pass  # If No Infobox.
 
         e.set_footer(text=self.fixture.event_footer)
         return e
@@ -815,6 +819,7 @@ class Ticker(commands.Cog):
         await self.get_channel_settings(ctx, channel)
 
     @tkr.command(usage="<name of league to search for>")
+    @commands.has_permissions(manage_channels=True)
     async def add(self, ctx, query: commands.clean_content = None):
         """Add a league to your Match Event Ticker"""
         connection = await self.bot.db.acquire()
