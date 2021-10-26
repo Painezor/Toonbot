@@ -50,25 +50,25 @@ async def make_browser(bot):
     bot.browser = await pyppeteer.launch(options=options)
 
 
-async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, debug=False) -> Union[str, BytesIO, None]:
+async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, max_retry=3) -> Union[str, BytesIO, None]:
     """Fetch a webpage's soruce code or an image"""
     deletes = [] if delete is None else delete
     clicks = [] if clicks is None else clicks
 
     assert url.startswith("http"), f"BROWSER - FETCH: {url} does not appear to be a valid url."
 
-    try:
-        await page.goto(url)
-    except _TimeoutError:
-        print(f"Fetch Page timed out trying to access {url}")
-        return None
+    for _ in range(max_retry):
+        try:
+            await page.goto(url)
+        except _TimeoutError:
+            print(f"Fetch Page timed out trying to access {url}")
+        else:
+            break
 
     try:
         await page.waitForXPath(xpath, {"timeout": 5000})
     except _TimeoutError:
         pass
-
-    src = await page.content()
 
     for x in deletes:
         elements = await page.xpath(x)
@@ -86,16 +86,7 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
         element = await page.querySelector(x)
         if element is not None:
             await element.click()
-    
-    # Debug
-    if debug:
-        im = Image.open(BytesIO(await page.screenshot()))
-        output = BytesIO()
-        im.save(output, 'PNG')
-        im.close()
-        output.seek(0)
-        return output
-    
+
     if screenshot:
         await page.setViewport({"width": 1900, "height": 1100})
         elements = await page.xpath(xpath)
@@ -112,4 +103,4 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, de
         output.seek(0)
         return output
     else:
-        return src
+        return await page.content()
