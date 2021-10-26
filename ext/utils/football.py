@@ -1,11 +1,11 @@
 """A Utility tool for fetching and structuring data from the Flashscore Website"""
 import asyncio
 import datetime
+import itertools
 import json
 import typing
 import urllib.parse
 from importlib import reload
-from inspect import getframeinfo, currentframe
 from io import BytesIO
 from json import JSONDecodeError
 
@@ -26,6 +26,8 @@ ADS = ['.//div[@class="seoAdWrapper"]', './/div[@class="banner--sticky"]', './/d
        './/div[contains(@id,"box-over-content")]', './/div[contains(@class, "adsenvelope")]',
        './/div[contains(@class, "extraContent")]', './/div[contains(@class, "selfPromo")]',
        './/div[contains(@class, "otPlaceholder")]']
+
+FSURL = 'http://www.flashscore.com'
 
 
 class MatchEvent:
@@ -56,7 +58,11 @@ class Substitution(MatchEvent):
         self.player_off = None
 
     def __str__(self):
-        return f"`🔄 {self.time}`: 🔻 {self.player_off} 🔺 {self.player} ({self.team})"
+        _ = self.player_off if self.player_off is not None else "?"
+        return f"`🔄 {self.time}`: 🔻 {_} 🔺 {self.player} ({self.team})"
+
+    def __repr__(self):
+        return f"Substitution({self.__dict__})"
 
 
 class Goal(MatchEvent):
@@ -64,12 +70,14 @@ class Goal(MatchEvent):
 
     def __init__(self):
         super().__init__()
-        self.assist = None
 
     def __str__(self):
-        ass = "" if self.assist is None else " " + self.assist
-        note = "" if self.note is None else " " + self.note
+        ass = " " + self.assist if hasattr(self, 'assist') else ""
+        note = " " + self.note if hasattr(self, 'note') else ""
         return f"`⚽ {self.time}`: {self.player}{ass}{note}"
+
+    def __repr__(self):
+        return f"Goal({self.__str__})"
 
 
 class OwnGoal(Goal):
@@ -79,8 +87,11 @@ class OwnGoal(Goal):
         super().__init__()
 
     def __str__(self):
-        note = "" if self.note is None else " " + self.note
+        note = " " + self.note if hasattr(self, 'note') else ""
         return f"`⚽ {self.time}`: {self.player} (Own Goal) {note}"
+
+    def __repr__(self):
+        return f"OwnGoal({self.__dict__})"
 
 
 class Penalty(Goal):
@@ -96,6 +107,9 @@ class Penalty(Goal):
         time = "" if self.shootout is True else " " + self.time
         return f"`{icon}{time}`: {self.player}"
 
+    def __repr__(self):
+        return f"Penalty({self.__dict__})"
+
 
 class RedCard(MatchEvent):
     """An object representing the event of a dismissal of a player"""
@@ -106,9 +120,11 @@ class RedCard(MatchEvent):
 
     def __str__(self):
         ico = "🟨🟥" if self.second_yellow else "🟥"
-        note = " " + self.note if self.note else ""
-        note = "" if "Yellow card / Red card" in note else note
+        note = " " + self.note if hasattr(self, "note") and "Yellow card / Red card" not in self.note else ""
         return f"`{ico} {self.time}`: {self.player}{note}"
+
+    def __repr__(self):
+        return f"RedCard({self.__dict__})"
 
 
 class Booking(MatchEvent):
@@ -118,9 +134,11 @@ class Booking(MatchEvent):
         super().__init__()
 
     def __str__(self):
-        note = " " + self.note if self.note else ""
-        note = "" if "Yellow Card" in note else note
+        note = " " + self.note if hasattr(self, "note") and "Yellow Card" not in self.note else ""
         return f"`🟨 {self.time}`: {self.player}{note}"
+
+    def __repr__(self):
+        return f"Booking({self.__dict__})"
 
 
 class VAR(MatchEvent):
@@ -130,8 +148,11 @@ class VAR(MatchEvent):
         super().__init__()
 
     def __str__(self):
-        note = " " + self.note if self.note is not None else ""
+        note = " " + self.note if hasattr(self, "note") else ""
         return f"`📹 {self.time}`: VAR Review: {self.player}{note}"
+
+    def __repr__(self):
+        return f"VAR({self.__dict__})"
 
 
 class Fixture:
@@ -141,7 +162,6 @@ class Fixture:
         # Meta Data
         self.state = None
         self.url = None
-        self.is_televised = None
         self.emoji = '⚽'
 
         # Match Data
@@ -150,19 +170,14 @@ class Fixture:
         self.away = away
         self.country = None
         self.league = None
-        self.infobox = None
 
-        # Fixes for really weird shit.
+        # Half Tracking
         self.breaks = 0
-        self.periods = 2
-        self.period_length = 45
 
         # Initialise some vars...
         self.score_home = None
         self.score_away = None
         self.events = None
-        self.penalties_home = None
-        self.penalties_away = None
         self.home_cards = None
         self.away_cards = None
 
@@ -178,46 +193,31 @@ class Fixture:
 
         # Match Thread Bot specific vars
         self.kickoff = None
-        self.referee = None
-        self.stadium = None
         self.attendance = None
         self.comp_link = None
         self.images = None
-        self.table = None
         self.__dict__.update(kwargs)
     
     def __repr__(self):
         return f"Fixture({self.__dict__})"
     
     def __str__(self):
-        return f"{self.relative_time}: [{self.bold_score}{self.tv}]({self.url})"
+        return f"{self.relative_time}: [{self.bold_score}]({self.url})"
     
     @classmethod
     async def by_id(cls, match_id, page):
         """Create a fixture object from the flashscore match ID"""
         url = "http://www.flashscore.com/match/" + match_id
-        await browser.fetch(page, url, xpath=".//div[@class='team spoiler-content']")
-        tree = html.fromstring(await page.content())
-        
-        home = "".join(tree.xpath('.//div[contains(@class, "tname-home")]//a/text()')).strip()
-        away = "".join(tree.xpath('.//div[contains(@class, "tname-away")]//a/text()')).strip()
-        ko = "".join(tree.xpath(".//div[@id='utime']/text()")).strip()
-        ko = datetime.datetime.strptime(ko, "%d.%m.%Y %H:%M")
-        
-        country_league = "".join(tree.xpath('.//span[@class="description__country"]//text()'))
-        comp_link_raw = "".join(tree.xpath('.//span[@class="description__country"]//a/@onclick'))
-        country, competition = country_league.split(':')
-        country = country.strip()
-        competition = competition.strip()
-        comp_link = "http://www.flashscore.com" + comp_link_raw.split("'")[1]
-        
-        return cls(url=url, home=home, away=away, time=ko, kickoff=ko, league=competition, comp_link=comp_link,
-                   country=country)
+        src = await browser.fetch(page, url, xpath=".//div[@class='team spoiler-content']")
+        tree = html.fromstring(src)
 
-    @property
-    def tv(self):
-        """Return an emoji if the fixture is televised"""
-        return '📺' if self.is_televised else ""
+        ko = "".join(tree.xpath(".//div[contains(@class, 'startTime')]/div/text()"))
+        ko = datetime.datetime.strptime(ko, "%d.%m.%Y %H:%M")
+
+        home = "".join(tree.xpath('.//div[contains(@class, "Participant__home")]//a/text()')).strip()
+        away = "".join(tree.xpath('.//div[contains(@class, "Participant__away")]//a/text()')).strip()
+        fix = cls(url=url, home=home, away=away, time=ko)
+        return fix
     
     @property
     async def base_embed(self) -> discord.Embed:
@@ -243,7 +243,7 @@ class Fixture:
     @property
     def event_footer(self):
         """A string containing Country: League and time"""
-        return f"{self.country}: {self.league} | {self.time}"
+        return f"{self.country}: {self.league}"
 
     @property
     def reddit_time(self):
@@ -306,18 +306,21 @@ class Fixture:
             except AttributeError:
                 time = self.time
 
-        _ = '\🟥'
-        h_c = f"{self.home_cards * _} " if self.home_cards else ""
-        a_c = f" {self.away_cards * _}" if self.away_cards else ""
+        _ = '🟥'
+        h_c = f"`{self.home_cards * _}` " if self.home_cards else ""
+        a_c = f" `{self.away_cards * _}`" if self.away_cards else ""
 
         if self.state in ['after pens', "penalties"]:
             actual_score = min([self.score_home, self.score_away])
             time = "After Pens" if self.state == "after pens" else "PSO"
+            _ = self.colour[0]
+            try:
+                ph, pa = self.penalties_home, self.penalties_away
+                return f"`{_}` {time} {self.home} {ph} - {pa} {self.away} (FT: {actual_score} - {actual_score})"
+            except AttributeError:
+                return f"`{_}` {time} {self.home} {self.score_home} - {self.score_away} {self.away}"
 
-            return f"\\{self.colour[0]} {time} {self.home} {self.penalties_home} - {self.penalties_away} {self.away} " \
-                   f"(FT: {actual_score} - {actual_score})"
-
-        return f"\\{self.colour[0]} {time} {h_c}{self.bold_score}{a_c}"
+        return f"`{self.colour[0]}` {time} {h_c}{self.bold_score}{a_c}"
 
     @property
     def scores_row(self):
@@ -385,15 +388,15 @@ class Fixture:
 
     async def get_stats(self, page) -> BytesIO or None:
         """Get an image of a list of statistics pertaining to the fixture as a BytesIO object"""
-        xp = ".//div[starts-with(@class, 'statRow')]"
+        xp = ".//div[contains(@class, 'statRow')]"
         link = self.url + "/#match-summary/match-statistics/0"
         return await browser.fetch(page, link, xp, delete=ADS, screenshot=True)
 
     async def get_formation(self, page) -> BytesIO or None:
         """Get the formations used by both teams in the fixture"""
-        xp = './/div[starts-with(@class, "fieldWrap")]'
+        xp = './/div[contains(@class, "fieldWrap")]'
         formation = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, delete=ADS, screenshot=True)
-        xp = './/div[starts-with(@class, "lineUp")]'
+        xp = './/div[contains(@class, "lineUp")]'
         lineup = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, delete=ADS, screenshot=True)
 
         if formation is None and lineup is None:
@@ -406,36 +409,36 @@ class Fixture:
 
     async def get_summary(self, page) -> BytesIO or None:
         """Fetch the summary of a Fixture"""
-        xp = ".//div[starts-with(@class, 'verticalSections')]"
+        xp = ".//div[contains(@class, 'verticalSections')]"
         summary = await browser.fetch(page, self.url + "#match-summary", xp, delete=ADS, screenshot=True)
         return summary
     
     async def head_to_head(self, page) -> typing.Dict:
         """Get results of recent games related to the two teams in the fixture"""
-        xp = ".//div[@id='tab-h2h-overall']"
-        await browser.fetch(page, self.url + "/#h2h/overall", xp, delete=ADS)
-        tree = html.fromstring(await page.content())
+        xp = ".//div[@class='h2h']"
+        src = await browser.fetch(page, self.url + "/#h2h/overall", xp, delete=ADS)
+        tree = html.fromstring(src)
         games = {}
-        for i in tree.xpath('.//div[starts-with(@class, "h2h")]//div[starts-with(@class, "section")]'):
-            header = "".join(i.xpath('.//div[starts-with(@class, "title")]//text()')).strip().title()
-            
-            fixtures = i.xpath('.//div[starts-with(@class, "row_")]')
+        _ = tree.xpath('.//div[contains(@class, "section")]')
+        for i in _:
+            header = "".join(i.xpath('.//div[contains(@class, "title")]//text()')).strip().title()
+            if not header:
+                continue
+
+            fixtures = i.xpath('.//div[contains(@class, "_row")]')
             fx_list = []
-            
             for game in fixtures[:5]:  # Last 5 only.
-                url = None  # TODO: Figure this out...
-                home = "".join(game.xpath('.//span[starts-with(@class, "homeParticipant")]/text()')).strip().title()
-                away = "".join(game.xpath('.//span[starts-with(@class, "awayParticipant")]/text()')).strip().title()
-                time = game.xpath('.//span[starts-with(@class, "date")]/text()')[0]
+                url = game.xpath(".//@onclick")  # TODO: Figure this out...
+                home = "".join(game.xpath('.//span[contains(@class, "homeParticipant")]//text()')).strip().title()
+                away = "".join(game.xpath('.//span[contains(@class, "awayParticipant")]//text()')).strip().title()
+                time = game.xpath('.//span[contains(@class, "date")]/text()')[0].strip()
+
                 try:
                     time = datetime.datetime.strptime(time, "%d.%m.%y")
                 except ValueError:
-                    f = getframeinfo(currentframe())
-                    print(f.filename, f.lineno)
-                    print(time, "format is not %d.%m.%y")
+                    print("football.py: head_to_head", time, "format is not %d.%m.%y")
 
-                score_home, score_away = game.xpath('.//span[starts-with(@class, "regularTime")]//text()')[0].split(':')
-
+                score_home, score_away = game.xpath('.//span[contains(@class, "regularTime")]//text()')[0].split(':')
                 score_home, score_away = int(score_home.strip()), int(score_away.strip())
 
                 fx = Fixture(home=home, away=away, time=time, score_home=score_home, score_away=score_away, url=url)
@@ -444,69 +447,148 @@ class Fixture:
 
         return games
 
+    async def get_preview(self, page):
+        """Fetch information about upcoming match from Flashscore"""
+        xp = './/div[contains(@class, "previewOpenBlock")]/div//text()'
+
+        clicks = ['div[class$="showMore"]']
+
+        src = await browser.fetch(page, self.url, xp, clicks=clicks)
+        tree = html.fromstring(src)
+
+        preview_lines = tree.xpath('.//div[@class="previewLine"]')
+
+        preview = ""
+
+        r = f"**🙈 Referee**: {self.referee}" if hasattr(self, 'referee') else ""
+        s = f"**🥅 Venue**: {self.stadium}" if hasattr(self, 'stadium') else ""
+        if any([r, s]):
+            preview += "####" + " | ".join([i for i in [r, s] if i]) + "\n\n"
+
+        if preview_lines:
+            preview += "# Match Preview\n\n"
+        for block in preview_lines:
+            this_block = "* " + "".join(block.xpath('.//text()')) + "\n"
+            preview += this_block
+
+        _ = tree.xpath('.//div[contains(text(), "Will not play")]/following-sibling::div//div[@class="lf__side"]')
+        if _:
+            nph, npa = _
+            preview += "\n\n\n## Absent Players\n"
+
+            home = []
+            for _ in nph:
+                ij = "".join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
+                player = f"[{''.join(_.xpath('.//a//text()'))}]({FSURL + ''.join(_.xpath('.//a/@href'))}) {ij}"
+                home.append(player)
+
+            away = []
+            for _ in npa:
+                ij = "".join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
+                player = f"[{''.join(_.xpath('.//a//text()'))}]({FSURL + ''.join(_.xpath('.//a/@href'))}) {ij}"
+                away.append(player)
+
+            rows = list(itertools.zip_longest(home, away))
+            preview += f"{self.home}|{self.away}\n--:|:--\n"
+            for a, b in rows:
+                preview += f"{a} | {b}\n"
+
+        _ = tree.xpath('.//div[contains(text(), "Questionable")]/following-sibling::div//div[@class="lf__side"]')
+        if _:
+            nph, npa = _
+            preview += "\n\n\n## Potentially Absent Players\n"
+
+            home = []
+            for _ in nph:
+                ij = "".join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
+                player = f"[{''.join(_.xpath('.//a//text()'))}]({FSURL + ''.join(_.xpath('.//a/@href'))}) {ij}"
+                home.append(player)
+
+            away = []
+            for _ in npa:
+                ij = "".join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
+                player = f"[{''.join(_.xpath('.//a//text()'))}]({FSURL + ''.join(_.xpath('.//a/@href'))}) {ij}"
+                away.append(player)
+
+            rows = list(itertools.zip_longest(home, away))
+            preview += f"{self.home}|{self.away}\n--:|:--\n"
+            for a, b in rows:
+                preview += f"{'*-*' if a is None else a} | {'*-*' if b is None else b}\n"
+
+        h2h = await self.head_to_head(page)
+        if h2h:
+            preview += "\n## Head to Head"
+            for cat, games in h2h.items():
+                preview += f"\n#### {cat}\n"
+                for game in games:
+                    preview += f"* {game.bold_score}\n"
+
+        if self.table_image:
+            preview += f"\n## Current Standings\n[Table]({self.table_image})"
+
+        tv = tree.xpath('.//div[contains(@class, "broadcast")]/div/a')
+        if tv:
+            preview += "\n## Television Coverage\n\n"
+            tv_list = ["[" + "".join(_.xpath('.//text()')) + "](" + "".join(_.xpath('.//@href')) + ")" for _ in tv]
+            preview += ", ".join(tv_list)
+
+        return preview
+
     async def refresh(self, page, for_reddit=False):
         """Perform an intensive full lookup for a fixture"""
         xp = ".//div[@id='utime']"
 
         for i in range(3):
             try:
-                await browser.fetch(page, self.url, xp)
+                src = await browser.fetch(page, self.url, xp)
+                tree = html.fromstring(src)
+                break
             except Exception as err:
                 print(f'Retry ({i}) Error refreshing fixture {self.home} v {self.away}: {type(err)}')
+        else:
+            return
 
-        tree = html.fromstring(await page.content())
-        
         # Some of these will only need updating once per match
         if self.kickoff is None:
             try:
-                ko = "".join(tree.xpath(".//div[@id='utime']/text()"))
+                ko = "".join(tree.xpath(".//div[contains(@class, 'startTime')]/div/text()"))
                 ko = datetime.datetime.strptime(ko, "%d.%m.%Y %H:%M")
             except ValueError:
                 ko = ""
-            self.kickoff = ko
-        
-        if self.referee is None:
-            text = tree.xpath('.//div[@class="content"]//text()')
+            self.kickoff = ko.strftime('%H:%M on %a %d %b %Y')
+
+        if not hasattr(self, 'referee'):
+            text = tree.xpath('.//div[@class="mi__data"]/span/text()')
             ref = "".join([i for i in text if "referee" in i.lower()]).strip().replace('Referee:', '')
             venue = "".join([i for i in text if "venue" in i.lower()]).strip().replace('Venue:', '')
-            
-            self.referee = ref
-            self.stadium = venue
-        
+            if ref:
+                self.referee = ref
+            if venue:
+                self.stadium = venue
+
         if self.country is None or self.league is None:
-            country_league = "".join(tree.xpath('.//span[@class="description__country"]//text()'))
-            comp_link_raw = "".join(tree.xpath('.//span[@class="description__country"]//a/@onclick'))
-            country, competition = country_league.split(':')
-            country = country.strip()
-            competition = competition.strip()
-            comp_link = "http://www.flashscore.com" + comp_link_raw.split("'")[1]
-            self.country = country
-            self.league = competition
-            self.comp_link = comp_link
+            self.country = "".join(tree.xpath('.//span[contains(@class, "__country")]/text()')).strip()
+            self.league = "".join(tree.xpath('.//span[contains(@class, "__country")]/a/text()')).strip()
+            _ = "".join(tree.xpath('.//span[contains(@class, "__country")]//a/@href'))
+            self.comp_link = "http://www.flashscore.com" + _
 
         if for_reddit:
-            scores = tree.xpath('.//div[start-with(@class, "score")]//span//text()')
-            self.score_home = int(scores[0])
-            self.score_away = int(scores[1])
             self.formation_image = await self.get_formation(page)
             self.table_image = await self.get_table(page)
+            self.preview = await self.get_preview(page)
 
         # Grab infobox
-        ib = tree.xpath('.//div[contains(@class, "infoBoxModule")]/div[starts-with(@class, "info__")]/text()')
+        ib = tree.xpath('.//div[contains(@class, "infoBoxModule")]/div[contains(@class, "info__")]/text()')
         if ib:
             self.infobox = "".join(ib)
             if self.infobox.startswith('Format:'):
                 fmt = self.infobox.split(': ')[-1]
-                periods, length = fmt.split('x')
+                periods = fmt.split('x')[0]
                 self.periods = int(periods)
-                length = length.split(' mins')[0].split(' minutes')[0].strip()
-                self.period_length = int(length)
-        else:
-            self.infobox = None
 
-        event_rows = tree.xpath('.//div[starts-with(@class, "verticalSections")]/div')
+        event_rows = tree.xpath('.//div[contains(@class, "verticalSections")]/div')
         events = []
-        after_pen_header = False
+        penalty_note = False
 
         for i in event_rows:
             event_class = i.attrib['class']
@@ -514,9 +596,8 @@ class Fixture:
             if "Header" in event_class:
                 parts = [x.strip() for x in i.xpath('.//text()')]
                 if "Penalties" in parts:
-                    self.penalties_home = parts[1]
-                    self.penalties_away = parts[3]
-                    after_pen_header = True
+                    _, self.penalties_home, _, self.penalties_away = parts
+                    penalty_note = True
                 continue
             
             # Detection of Teams
@@ -527,89 +608,79 @@ class Fixture:
             elif "empty" in event_class:
                 continue  # No events in half signifier.
             else:
+                print(f"No team found for event_class {event_class}")
                 team = None
 
-            e_n = i.xpath('./div[starts-with(@class, "incident_")]')[0]  # event_node
+            node = i.xpath('./div[contains(@class, "incident")]')[0]  # event_node
+            icon = "".join(node.xpath('.//div[contains(@class, "incidentIcon")]//svg/@class')).strip()
+            _ = "".join(node.xpath('.//div[contains(@class, "incidentIcon")]//@title')).strip()
+            event_desc = _.replace('<br />', ' ')
+            icon_desc = "".join(node.xpath('.//div[contains(@class, "incidentIcon")]//svg//text()')).strip()
 
-            icon = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg/@class')).strip()
-            event_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//@title')).strip()
-            icon_desc = "".join(e_n.xpath('.//div[starts-with(@class, "incidentIcon")]//svg//text()')).strip()
-
-            # Data not always present.
-            player = "".join(e_n.xpath('.//a[starts-with(@class, "playerName")]//text()')).strip()
+            p = f"icon: {icon}\nevent_desc: {event_desc}\n============================="
 
             if "goal" in icon.lower():
-                if "own" in icon.lower():
+                if "Own" in icon:
                     event = OwnGoal()
+                    if icon_desc and "Own" not in icon_desc:
+                        print(f"Own Goal | icon_desc: {icon_desc}\n{p}")
                 else:
-                    if after_pen_header:
-                        event = Penalty(shootout=True)
-                    elif "Penalty" in icon_desc:
-                        event = Penalty()
-                    else:
-                        event = Goal()
+                    _ = True if penalty_note else False
+                    event = Penalty(shootout=_) if "Penalty" in icon_desc else Goal()
 
-            elif icon.startswith("penaltyMissed"):
-                event = Penalty(shootout=True, missed=True) if after_pen_header else Penalty(missed=True)
+                    if icon_desc:
+                        if "Goal" not in icon_desc and "Penalty" not in icon_desc:
+                            print(f"Goal | icon_desc: {icon_desc}\n{p}")
 
+            elif "penaltyMissed" in icon:
+                event = Penalty(shootout=True, missed=True) if penalty_note else Penalty(missed=True)
+                if icon_desc and icon_desc != "Penalty missed":
+                    event.note = icon_desc
+                    print(f"Penalty Miss | icon_desc: {icon_desc}\n{p}")
             elif "arrowUp" in icon:
                 event = Substitution()
-                event.player_on = "".join(e_n.xpath('.//div/a[starts-with(@class, "playerName")]//text()')).strip()
-                event.player_off = "".join(e_n.xpath('.//div[starts-with(@class, "incidentSubOut")]/a/text()')).strip()
-
-            elif icon.startswith("redYellow"):
-                event = RedCard(second_yellow=True)
-                if icon_desc:
+                event.player_off = "".join(node.xpath('.//div[contains(@class, "incidentSubOut")]/a/text()')).strip()
+                if "Substitution" not in icon_desc:
                     event.note = icon_desc
-
-            elif icon.startswith("redCard") or icon.startswith("card"):
-                event = RedCard()
-                if icon_desc:
-                    event.note = icon_desc
-
-            elif icon.startswith("yellowCard"):
+                    print(f"Substitution | icon_desc: {icon_desc}\n{p}")
+            elif "yellowCard" in icon:
                 event = Booking()
-                if icon_desc:
+                if icon_desc and "Yellow Card" not in icon_desc:
                     event.note = icon_desc
-            
-            elif icon.startswith("var"):
+            elif "redYellow" in icon:
+                event = RedCard(second_yellow=True)
+                if "card / Red" not in icon_desc:
+                    event.note = icon_desc
+            elif "redCard" in icon or icon.startswith("card"):
+                event = RedCard()
+                if icon_desc != "Red Card":
+                    event.note = icon_desc
+            elif "var" in icon:
                 event = VAR()
+                icon_desc = icon_desc if icon_desc else "".join(node.xpath('./div//text()')).strip()
                 if icon_desc:
                     event.note = icon_desc
-                else:
-                    maybe_note = "".join(e_n.xpath('./div//text()')).strip()
-                    if maybe_note:
-                        event.note = maybe_note
-
             else:
                 event = MatchEvent()
-                print(self.url)
-                print('Undeclared event type for', icon)
+                print(self.url, 'Undeclared event type for', icon)
 
-            assist = "".join(e_n.xpath('.//div[starts-with(@class, "assist")]//text()'))
-            if assist:
-                event.assist = assist
-
-            try:
-                description = e_n.attrib['title']
-                event.description = description.replace('<br />', ' ')
-            except KeyError:
-                pass
+            # Data not always present.
+            event.player = "".join(node.xpath('.//a[contains(@class, "playerName")]//text()')).strip()
+            _ = "".join(node.xpath('.//div[contains(@class, "assist")]//text()'))
+            if _:
+                event.assist = _
 
             event.team = team
-            event.player = player
-            event.time = "".join(e_n.xpath('.//div[starts-with(@class, "timeBox")]//text()')).strip()
+            event.time = "".join(node.xpath('.//div[contains(@class, "timeBox")]//text()')).strip()
             if event_desc:
-                event_desc = event_desc.replace('<br />', ' ')
                 event.full_description = event_desc
 
             events.append(event)
 
         self.events = events
-
-        # TODO: Fetching images
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
-        # TODO: fetching statistics
+        # TODO: Images
+        # TODO: Statistics
 
 
 class Player:
@@ -694,20 +765,6 @@ class FlashScoreSearchResult:
         self.__dict__.update(**kwargs)
         self.emoji = None
 
-    async def get_logo(self, page):
-        """Fetch any logo representing the target object"""
-        if self.logo_url is not None and "http" in self.logo_url:
-            return  # Only need to fetch once.
-
-        try:
-            logo = await page.xpath('.//div[contains(@class,"logo")]')
-            logo = logo[0]
-        except IndexError:
-            return
-
-        logo_raw = await page.evaluate("el => window.getComputedStyle(el).backgroundImage", logo)
-        self.logo_url = logo_raw.strip("url(").strip(")").strip('"')
-    
     @property
     async def base_embed(self) -> discord.Embed:
         """A discord Embed representing the flashscore search result"""
@@ -734,9 +791,17 @@ class FlashScoreSearchResult:
 
     async def get_fixtures(self, page, subpage=""):
         """Get all upcoming fixtures related to the Flashscore search result"""
-        await browser.fetch(page, self.url + subpage, './/div[@class="sportName soccer"]')
-        tree = html.fromstring(await page.content())
-        await self.get_logo(page)
+        src = await browser.fetch(page, self.url + subpage, './/div[@class="sportName soccer"]')
+        tree = html.fromstring(src)
+
+        _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
+        try:
+            self.logo_url = _[0].split("(")[1].strip(')')
+        except IndexError:
+            if ".png" in _:
+                self.logo_url = _
+            else:
+                print(f"Failed to extract logo Url from: {_}")
 
         # Iterate through to generate data.
         league, country = None, None
@@ -800,10 +865,8 @@ class FlashScoreSearchResult:
                         # Fixtures: Year Correction - if in Past, increase by one year.
                         if time < datetime.datetime.now():
                             time = time.replace(year=time.year + 1)
-    
-            is_televised = True if i.xpath(".//div[contains(@class,'tv')]") else False
+
             fixture = Fixture(time, home.strip(), away.strip(), score_home=score_home, score_away=score_away,
-                              is_televised=is_televised,
                               country=country.strip(), league=league.strip(), url=url)
             fixtures.append(fixture)
         return fixtures
@@ -826,14 +889,19 @@ class Competition(FlashScoreSearchResult):
     async def by_id(cls, comp_id, page):
         """Create a Competition object based on the Flashscore ID of the competition"""
         url = "http://flashscore.com/?r=2:" + comp_id
-        await browser.fetch(page, url, ".//div[@class='team spoiler-content']")
-        tree = html.fromstring(await page.content())
+        src = await browser.fetch(page, url, ".//div[@class='team spoiler-content']")
+        tree = html.fromstring(src)
 
         country = tree.xpath('.//h2[@class="tournament"]/a[2]//text()')[0].strip()
         league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
         title = f"{country.upper()}: {league}"
-        obj = cls(url=url, title=title)
-        await obj.get_logo(page)
+        obj = cls(url=url, title=title, country=country, league=league)
+        _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
+        try:
+            obj.logo_url = _[0].split("(")[1].strip(')')
+        except IndexError:
+            if _:
+                print(f"Invalid logo_url: {_}")
         return obj
 
     @classmethod
@@ -842,8 +910,8 @@ class Competition(FlashScoreSearchResult):
         assert "flashscore" in link[:25].lower(), "Invalid URL provided. Please make sure this is a flashscore link."
         assert link.count('/') > 3, "Invalid URL provided. Please make sure this is a flashscore link to a competition."
 
-        await browser.fetch(page, link, xpath=".//div[@class='team spoiler-content']")
-        tree = html.fromstring(await page.content())
+        src = await browser.fetch(page, link, xpath=".//div[@class='team spoiler-content']")
+        tree = html.fromstring(src)
 
         try:
             country = tree.xpath('.//h2[@class="breadcrumb"]//a/text()')[-1].strip()
@@ -854,26 +922,57 @@ class Competition(FlashScoreSearchResult):
             title = "Unidentified League"
 
         comp = cls(url=link, title=title)
-        await comp.get_logo(page)
+        _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
+
+        try:
+            comp.logo_url = _[0].split("(")[1].strip(')')
+        except IndexError:
+            if ".png" in _:
+                comp.logo_url = _
+            else:
+                print(f"Failed to extract logo Url from: {_}")
+
         return comp
 
     async def get_table(self, page) -> BytesIO:
         """Fetch the table from a flashscore page and return it as a BytesIO object"""
-        await self.get_logo(page)
         xp = './/div[contains(@class, "tableWrapper")]/parent::div'
         table_image = await browser.fetch(page, self.url + "/standings/", xp, delete=ADS, screenshot=True)
+        tree = html.fromstring(await page.content())
+
+        _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
+        try:
+            self.logo_url = _[0].split("(")[1].strip(')')
+        except IndexError:
+            if ".png" in _:
+                self.logo_url = _
+            else:
+                print(f"Failed to extract logo Url from: {_}")
+
         return table_image
 
     async def get_scorers(self, page) -> typing.List[Player]:
         """Fetch a list of scorers from a Flashscore Competition page returned as a list of Player Objects"""
         xp = ".//div[@class='tabs__group']"
         clicks = ['a[href$="top_scorers"]', 'div[class^="showMore"]']
-        await self.get_logo(page)
-
         uri = self.url + "/standings"
-        await browser.fetch(page, uri, xp, clicks=clicks, delete=ADS, debug=True)
+        src = await browser.fetch(page, uri, xp, clicks=clicks, delete=ADS)
 
-        tree = html.fromstring(await page.content())
+        try:
+            tree = html.fromstring(src)
+        except Exception as e:
+            print(f'GET_SCORERS ERROR LOG: Tried to access get_scorers of competition {uri}')
+            raise e
+
+        _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
+        try:
+            self.logo_url = _[0].split("(")[1].strip(')')
+        except IndexError:
+            if ".png" in _:
+                self.logo_url = _
+            else:
+                print(f"Failed to extract logo Url from: {_}")
+
         rows = tree.xpath('.//div[contains(@class,"table__body")]/div')
 
         players = []
@@ -895,7 +994,7 @@ class Competition(FlashScoreSearchResult):
                     try:
                         rank, name, goals, tm, assists = items + ["", 0]
                     except ValueError:
-                        print(f"Unable to fetch scorer info for row on get_scorers for {uri}")
+                        print(f"Unable to fetch scorer info for row on get_scorers for {uri} | {items}")
                         continue
 
             country = "".join(i.xpath('.//span[contains(@class,"flag")]/@title')).strip()
@@ -930,8 +1029,8 @@ class Team(FlashScoreSearchResult):
     async def get_players(self, page) -> typing.List[Player]:
         """Get a list of players for a Team"""
         xp = './/div[contains(@class,"playerTable")]'
-        await browser.fetch(page, self.url + "/squad", xp)
-        tree = html.fromstring(await page.content())
+        src = await browser.fetch(page, self.url + "/squad", xp)
+        tree = html.fromstring(src)
         # tab += 1  # tab is Indexed at 0 but xpath indexes from [1]
         rows = tree.xpath(f'.//div[contains(@class, "squad-table")][contains(@id, "overall-all-table")]'
                           f'//div[contains(@class,"profileTable__row")]')
