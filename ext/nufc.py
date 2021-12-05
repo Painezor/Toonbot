@@ -322,21 +322,21 @@ class NUFC(commands.Cog):
         """Sends a link to the NUFC radio channel"""
         await self.bot.reply(ctx, text="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
 
-    @commands.command(hidden=True)
+    @commands.command(hidden=True, aliiases=["uphowe"])
     @commands.has_permissions(add_reactions=True)
     async def uprafa(self, ctx):
         """Adds an upvote reaction to the last 10 messages"""
         async for message in ctx.channel.history(limit=10):
             await message.add_reaction(":upvote:332196220460072970")
 
-    @commands.command(hidden=True)
+    @commands.command(hidden=True, aliases=["uphowe"])
     @commands.has_permissions(add_reactions=True)
     async def downrafa(self, ctx):
         """Adds a downvote reaction to the last 10 messages"""
         async for message in ctx.channel.history(limit=10):
             await message.add_reaction(":downvote:332196251959427073")
 
-    @commands.command(hidden=True)
+    @commands.command(hidden=True, aliases=["nohowe"])
     @commands.has_permissions(manage_messages=True)
     async def norafa(self, ctx, *, msgs=30):
         """Remove reactions from last x messages"""

@@ -12,7 +12,7 @@ from lxml import html
 
 from ext.utils import football
 
-NUFC_DISCORD_LINK = "\n\n[](https://discord.gg/TuuJgrA)"  # NUFC.
+NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
 
 def rows_to_md_table(header, strings, per=20, max_length=10240):
@@ -59,7 +59,7 @@ class NUFCSidebar(commands.Cog):
         """Assure commands can only be used on the r/NUFC discord."""
         if not ctx.guild:
             return False
-        return 859175736263180340 in [i.id for i in ctx.author.roles] or ctx.author.id == self.bot.owner_id
+        return 332161994738368523 in [i.id for i in ctx.author.roles] or ctx.author.id == self.bot.owner_id
 
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
@@ -72,8 +72,8 @@ class NUFCSidebar(commands.Cog):
         notif = self.bot.get_channel(744184024079007895)
         e = discord.Embed(color=0xff4500)
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
-        e.set_author(icon_url=th, name="Sidebar updater")
-        e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
+        e.set_author(icon_url=th, name="r/NUFC Sidebar updated")
+        e.url = "http://www.reddit.com/r/NUFC "
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         await notif.send(embed=e)
 
@@ -204,7 +204,7 @@ class NUFCSidebar(commands.Cog):
             which_team = "home" if not lm.home_icon else "away"
             page = await self.bot.browser.newPage()
             try:
-                badge = await lm.get_badge(page, which_team)
+                badge, page = await lm.get_badge(page, which_team)
             finally:
                 await page.close()
 
@@ -231,7 +231,7 @@ class NUFCSidebar(commands.Cog):
         footer = timestamp + top_bar + match_threads
         
         if subreddit == "NUFC":
-            footer += NUFC_DISCORD_LINK
+            footer += "\n\n[](https://discord.gg/" + NUFC_DISCORD_LINK + ")"
         
         markdown = top + table + fx_markdown
         if results:
@@ -250,31 +250,35 @@ class NUFCSidebar(commands.Cog):
     async def sidebar(self, ctx, *, caption=None):
         """Force a sidebar update, or use sidebar manual"""
         # Check if message has an attachment, for the new sidebar image.
-        if caption is not None:
-            old = await self.bot.reddit.subreddit('NUFC').wiki['sidebar'].content_md
+        if caption is not None and caption != "image":
+            _ = await self.bot.reddit.subreddit('NUFC')
+            _ = await _.wiki.get_page('sidebar')
+            old = _.content_md
             markdown = re.sub(r'---.*?---', f"---\n\n> {caption}\n\n---", old, flags=re.DOTALL)
-            await self.bot.reddit.subreddit('NUFC').wiki['sidebar'].edit(markdown)
+            await _.edit(content=markdown)
             await self.bot.reply(ctx, f"Set caption to: {caption}")
 
         if ctx.message.attachments:
             await ctx.message.attachments[0].save("sidebar.png")
-
             s = await self.bot.reddit.subreddit("NUFC")
-            await s.stylesheet.upload("sidebar.png", "sidebar")
-            await s.stylesheet.update(s.stylesheet().stylesheet, reason=f"Sidebar image by {ctx.author} via discord")
-            print("Uploaded new image to sidebar!")
+            await s.stylesheet.upload("sidebar", "sidebar.png")
+            style = await s.stylesheet()
+
+            await s.stylesheet.update(style.stylesheet, reason=f"Sidebar image by {ctx.author} via discord")
 
         # Build
         markdown = await self.make_sidebar()
 
         # Post
-        await self.bot.reddit.subreddit('NUFC').wiki["config/sidebar"].edit(content=markdown)
+        subreddit = await self.bot.reddit.subreddit('NUFC')
+        wiki = await subreddit.wiki.get_page("config/sidebar")
+        await wiki.edit(content=markdown)
 
         # Embed.
         e = discord.Embed(color=0xff4500)
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
-        e.set_author(icon_url=th, name="Sidebar updater")
-        e.description = f"Sidebar for http://www.reddit.com/r/NUFC updated."
+        e.set_author(icon_url=th, name="r/NUFC Sidebar updated")
+        e.url = "http://www.reddit.com/r/NUFC"
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         await self.bot.reply(ctx, embed=e)
 

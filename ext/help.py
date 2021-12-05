@@ -18,7 +18,8 @@ class HelpButton(discord.ui.Button):
     def __init__(self):
         super().__init__()
         self.label = "Help"
-        self.emoji = "❓"
+        self.emoji = '❓'
+        self.row = 0
 
     async def callback(self, interaction):
         """Button: Show Generic Help Embed"""
@@ -67,6 +68,7 @@ class PageButton(discord.ui.Button):
         self.style = discord.ButtonStyle.primary
         self.disabled = False
         self.emoji = "⏬"
+        self.row = 0
 
     async def callback(self, interaction: discord.Interaction):
         """The pages button."""
@@ -78,9 +80,11 @@ class PageButton(discord.ui.Button):
         self.view.add_item(dropdown)
         try:
             await self.view.message.edit(view=self.view)
-        except discord.HTTPException:
-            print("Error with Help command edit message:")
-            print(self.view.__dict__)
+        except discord.HTTPException as e:
+            print(f"{e} | Error with Help command edit message:")
+            print(self.view.message)
+            print(self.view.current_category)
+            raise e
         await self.view.wait()
 
 
@@ -101,7 +105,7 @@ class HelpDropDown(discord.ui.Select):
         match = self.cogs[int(self.values[0])]
         self.view.index = 0
         self.view.value = match
-        self.view.current_category = match.qualified_name
+        self.view.current_category = match.qualified_name if match.qualified_name is not None else match
         await interaction.response.defer()
         await self.view.push_cog_embed(match)
 

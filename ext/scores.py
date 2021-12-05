@@ -441,7 +441,7 @@ class Scores(commands.Cog, name="LiveScores"):
                     time = now.replace(hour=time.hour, minute=time.minute)
 
                     if now.timestamp() > time.timestamp():
-                        time = time.replace(day=time.day + 1)
+                        time += datetime.timedelta(days=1)
 
                 except ValueError:
                     if "'" not in time:

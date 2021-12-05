@@ -1,5 +1,6 @@
 """Cog for outputting various RSS based information"""
 import datetime
+import re
 
 import discord
 from discord.ext import commands, tasks
@@ -116,68 +117,119 @@ class RSS(commands.Cog):
 
         article_html = tree.xpath('.//div[@class="article__content"]')[0]
 
-        title = "".join(tree.xpath('.//h2[@class="article__title"]/text()'))
-
         e = discord.Embed()
         e.colour = 0x00FFFF
         e.set_author(name="World of Warships Development Blog", url="https://blog.worldofwarships.com/")
-        e.title = title
+        e.title = "".join(tree.xpath('.//h2[@class="article__title"]/text()'))
         e.url = url
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
+        e.description = ""
         main_image = None
+        output = ""
 
-        desc = ""
-        for node in article_html.iterdescendants():
+        def fmt(node):
+            """Format the passed node"""
+            if n.tag == "img" and main_image is None:
+                e.set_image(url=n.attrib['src'])
 
-            if node.tag == "img":
-                if main_image is None:
-                    src = str(node.attrib['src'])
+            try:
+                txt = node.text if node.text.strip() else ""
+                txt = re.sub(r'\s{2,}', ' ', txt)
+            except AttributeError:
+                txt = ""
 
-                    if not src.startswith(('http:', 'https:')):
-                        main_image = "http:" + node.attrib['src']
-                    else:
-                        main_image = node.attrib['src']
-                    e.set_image(url=main_image)
-                section = ""
+            try:
+                tl = node.tail if node.tail.strip() else ""
+                tl = re.sub(r'\s{2,}', ' ', tl)
+            except AttributeError:
+                tl = ""
+
+            if not txt:
+                out = ""
+            elif node.tag in ["p" or "div"]:
+                out = f"{txt}"
+            elif node.tag == "em":
+                out = f"*{txt}*"
+            elif node.tag == "strong":
+                out = f" **{txt}**"
+            elif node.tag == "span":
+                out = f"`{txt}`" if "ship" in node.attrib['class'] else txt
+            elif node.tag == "ul":
+                out = f"{txt}"
+            elif node.tag == "li":
+                bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
+                out = f"{bullet_type} {txt}"
+            elif node.tag in ["h3", "h4"]:
+                out = f"**{txt}**"
+            elif node.tag == "a":
+                out = f"[{txt}]({node.attrib['href']})"
             else:
-                if node.text is None or not node.text:
-                    continue
+                print(f"Unhandled node tag found: {node.tag} | {txt} | {tail}")
+                out = txt
 
-                text = node.text.strip()
+            if tl:
+                out += tl
 
-                if node.tag == "p":
-                    section = f"{text}\n"
-                elif node.tag == "em":
-                    section = f"*{text}*"
-                elif node.tag == "strong":
-                    section = f"**{text}**\n" if node.getparent().text is None else f"**{text}** "
-                elif node.tag == "span":
-                    section = f"**{text}** " if "ship" in node.attrib['class'] else text
-                elif node.tag == "ul":
-                    section = f"\n{text}"
-                elif node.tag == "li":
-                    bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
-                    section = f"\n{bullet_type} {text}"
-                else:
-                    print(f"No tag found: {text}" if not text else node.__dict__)
-                    section = text
+            return out
 
-            # Append
-            if len(desc) + len(section) < 2048:
-                desc += section
-            else:
-                trunc = f"...\n[Read Full Article]({url})"
-                desc = desc.ljust(2048)[:2000 - len(trunc)] + trunc
-                break
+        for n in article_html.iterchildren():  # Top Level Children Only.
+            try:
+                text = n.text if n.text.strip() else ""
+                text = re.sub(r'\s{2,}', ' ', text)
+            except AttributeError:
+                text = ""
 
-        e.description = desc
+            try:
+                tail = n.tail if n.tail.strip() else ""
+                tail = re.sub(r'\s{2,}', ' ', tail)
+            except AttributeError:
+                tail = ""
+
+            if text or tail:
+                output += f"{fmt(n)}"
+
+            for child in n.iterdescendants():
+                # Force Linebreak on new section.
+                try:
+                    child_text = child.text if child.text.strip() else ""
+                    child_text = re.sub(r'\s{2,}', ' ', child_text)
+                except AttributeError:
+                    child_text = ""
+
+                try:
+                    child_tail = child.tail if child.tail.strip() else ""
+                    child_tail = re.sub(r'\s{2,}', ' ', child_tail)
+                except AttributeError:
+                    child_tail = ""
+
+                if child_text or tail:
+                    if child.tag == "li":
+                        output += "\n"
+
+                    output += f"{fmt(child)}"
+
+                    if child.tag == "li" and child.getnext() is None and not child.getchildren():
+                        # Extra line after lists.
+                        output += "\n\n"
+
+                    if child.tag == "p":
+                        output += "\n\n"
+
+            if text or tail:
+                if n.tag == "p":
+                    if n.itertext():
+                        output += "\n\n"
+                elif n.tag == "li":
+                    output += "\n"
+
+        trunc = f"...\n[Read Full Article]({url})"
+        e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
         return e
 
     @commands.command()
-    @commands.is_owner()
-    async def rss(self, ctx, link=None):
-        """Test dev blog output"""
+    async def devblog(self, ctx, link=None):
+        """Fetch a World of Warships devblog, either provide ID number or leave blank to get latest."""
         if link is None:
             async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
                 tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))

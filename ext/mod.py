@@ -177,6 +177,7 @@ class Mod(commands.Cog):
             pass
 
         assert destination.guild.id == ctx.guild.id, "You cannot send messages to other servers."
+        assert len(msg) < 2000, "Message too long. Keep it under 2000."
         await destination.send(msg)
     
     @commands.command(usage="topic <New Channel Topic>")

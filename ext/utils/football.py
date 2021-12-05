@@ -208,6 +208,7 @@ class Fixture:
     async def by_id(cls, match_id, page):
         """Create a fixture object from the flashscore match ID"""
         url = "http://www.flashscore.com/match/" + match_id
+
         src = await browser.fetch(page, url, xpath=".//div[@class='team spoiler-content']")
         tree = html.fromstring(src)
 
@@ -555,7 +556,10 @@ class Fixture:
                 ko = datetime.datetime.strptime(ko, "%d.%m.%Y %H:%M")
             except ValueError:
                 ko = ""
-            self.kickoff = ko.strftime('%H:%M on %a %d %b %Y')
+            try:
+                self.kickoff = ko.strftime('%H:%M on %a %d %b %Y')
+            except AttributeError:
+                print(f"Could not convert string {self.kickoff} to stftime string.")
 
         if not hasattr(self, 'referee'):
             text = tree.xpath('.//div[@class="mi__data"]/span/text()')
@@ -596,7 +600,14 @@ class Fixture:
             if "Header" in event_class:
                 parts = [x.strip() for x in i.xpath('.//text()')]
                 if "Penalties" in parts:
-                    _, self.penalties_home, _, self.penalties_away = parts
+                    try:
+                        _, self.penalties_home, _, self.penalties_away = parts
+                    except ValueError:
+                        _, pen_string = parts
+                        try:
+                            self.penalties_home, self.penalties_away = pen_string.split(' - ')
+                        except ValueError:
+                            print(f"Too many parts for Penalties Parts split, found: {parts}, split: {pen_string}")
                     penalty_note = True
                 continue
             
@@ -792,6 +803,10 @@ class FlashScoreSearchResult:
     async def get_fixtures(self, page, subpage=""):
         """Get all upcoming fixtures related to the Flashscore search result"""
         src = await browser.fetch(page, self.url + subpage, './/div[@class="sportName soccer"]')
+
+        if src is None:
+            return None
+
         tree = html.fromstring(src)
 
         _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
@@ -973,6 +988,10 @@ class Competition(FlashScoreSearchResult):
             else:
                 print(f"Failed to extract logo Url from: {_}")
 
+        hdr = tree.xpath('.//div[contains(@class,"table__headerCell")]/div/@title')
+        if "Team" in hdr:
+            return []
+
         rows = tree.xpath('.//div[contains(@class,"table__body")]/div')
 
         players = []
@@ -994,7 +1013,6 @@ class Competition(FlashScoreSearchResult):
                     try:
                         rank, name, goals, tm, assists = items + ["", 0]
                     except ValueError:
-                        print(f"Unable to fetch scorer info for row on get_scorers for {uri} | {items}")
                         continue
 
             country = "".join(i.xpath('.//span[contains(@class,"flag")]/@title')).strip()
@@ -1030,6 +1048,10 @@ class Team(FlashScoreSearchResult):
         """Get a list of players for a Team"""
         xp = './/div[contains(@class,"playerTable")]'
         src = await browser.fetch(page, self.url + "/squad", xp)
+
+        if src is None:
+            return []
+
         tree = html.fromstring(src)
         # tab += 1  # tab is Indexed at 0 but xpath indexes from [1]
         rows = tree.xpath(f'.//div[contains(@class, "squad-table")][contains(@id, "overall-all-table")]'

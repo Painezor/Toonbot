@@ -57,7 +57,7 @@ class MatchThread:
             _ = datetime.timedelta(days=3) if os is None else datetime.timedelta(days=os)
 
             target_time = self.fixture.time - _
-            print(f"{self.fixture} | {self.settings['subreddit']} Sleeping until {target_time}")
+            print(f"{self.fixture} | {self.settings['subreddit']}\nSleeping until {target_time}")
 
             await discord.utils.sleep_until(target_time)
             print(f'{self.fixture} | {self.settings["subreddit"]} Pre-match-sleep ended.')
@@ -298,10 +298,21 @@ class MatchThread:
             markdown += "####" + " | ".join([i for i in [r, s, a] if i]) + "\n\n"
 
         # Match Threads Bar.
-        archive = f"[Match Thread Archive]({self.archive_link}" if hasattr(self, "archive_link") else ""
-        pre = f"[Pre-Match Thread]({self.record['pre_match_url']})"
-        match = f"[Match Thread]({self.record['match_url']})"
-        post = f"[Post-Match Thread]({self.record['post_match_url']})"
+        archive = f"[Archive]({self.archive_link}" if hasattr(self, "archive_link") else ""
+        try:
+            pre = f"[Pre]({self.record['pre_match_url']})"
+        except (AttributeError, TypeError):
+            pre = "*Pre*"
+
+        try:
+            match = f"[Match]({self.record['match_thread_url']})"
+        except (AttributeError, TypeError):
+            match = "*Match*"
+
+        try:
+            post = f"[Post]({self.record['post_match_url']})"
+        except (AttributeError, TypeError):
+            post = "*Post*"
 
         threads = [i for i in [pre, match, post, archive] if i]
         if threads:
@@ -316,8 +327,11 @@ class MatchThread:
 
             if not self.tv:
                 tv = await self.fetch_tv()
-                self.tv = f"📺🇬🇧 **TV** (UK): {tv['uk_tv']}\n\n" if tv["uk_tv"] else ""
-                self.tv += f"📺🌍 **TV** (Intl): [International TV Coverage]({tv['link']})\n\n"
+                if tv is not None:
+                    self.tv = f"📺🇬🇧 **TV** (UK): {tv['uk_tv']}\n\n" if tv["uk_tv"] else ""
+                    self.tv += f"📺🌍 **TV** (Intl): [International TV Coverage]({tv['link']})\n\n"
+                else:
+                    self.tv = ""
 
             print("MTB DEBUG TV:", self.tv)
             markdown += self.tv
@@ -421,7 +435,6 @@ class MatchThreadCommands(commands.Cog):
         self.active_threads.append(_)
         print("Starting thread...")
         await _.start()
-        print("Started!")
 
 
 def setup(bot):

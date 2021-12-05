@@ -23,7 +23,7 @@ class Bot(commands.Bot):
 
     def __init__(self, **kwargs):
         intents = discord.Intents(bans=True, guilds=True, members=True, messages=True, reactions=True,
-                                  voice_states=True)
+                                  voice_states=True, emojis=True)
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=".tb ",

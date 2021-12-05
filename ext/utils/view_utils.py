@@ -182,7 +182,11 @@ class ItemSelect(discord.ui.Select):
 
     async def callback(self, interaction):
         """Response object for view"""
-        await interaction.response.defer()
+        try:
+            await interaction.response.defer()
+        except discord.NotFound:
+            pass
+
         self.view.value = self.view.index * 25 + int(self.values[0])
         self.view.stop()
 

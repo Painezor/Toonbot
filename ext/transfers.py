@@ -26,12 +26,24 @@ class ConfigView(discord.ui.View):
     """View for configuring Transfer Tickers"""
 
     def __init__(self, ctx):
-        super().__init__()
+        self.index = 0
         self.ctx = ctx
+        self.message = None
+        self.pages = None
+        self.settings = None
+        super().__init__()
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Verify ineractor is person who ran command."""
         return self.ctx.author.id == interaction.user.id
+
+    async def on_timeout(self):
+        """Hide menu on timeout."""
+        try:
+            await self.message.delete()
+        except discord.HTTPException:
+            pass
+        self.stop()
 
 
 class Transfers(commands.Cog):
@@ -136,43 +148,49 @@ class Transfers(commands.Cog):
 
         for i in tree.xpath('.//div[@class="responsive-table"]/div/table/tbody/tr'):
             name = "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/text()')).strip()
+            link = TF + "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
 
             if not name or name in self.parsed:
                 continue  # skip when duplicate / void.
             else:
                 self.parsed.append(name)
+                player = transfer_tools.Player(name, link)
 
             # We don't need to output when populating after a restart.
             if skip_output:
                 continue
 
             # Player Info
-            link = TF + "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
-            age = "".join(i.xpath('./td[2]//text()')).strip()
-            position = "".join(i.xpath('./td[1]//tr[2]/td/text()'))
-            country = i.xpath('.//td[3]/img/@title')
-            picture = "".join(i.xpath('.//td[1]//tr[1]/td[1]/img/@src'))
+            player.age = "".join(i.xpath('./td[2]//text()')).strip()
+            player.position = "".join(i.xpath('./td[1]//tr[2]/td/text()'))
+            player.country = i.xpath('.//td[3]/img/@title')
+            player.picture = "".join(i.xpath('.//td[1]//tr[1]/td[1]/img/@src'))
 
             # Leagues & Fee
             new_team = "".join(i.xpath('.//td[5]//td[2]/a/text()')).strip()
             new_team_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
 
+            new_team = transfer_tools.Team(new_team, new_team_link)
+            new_team.country = "".join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
+            new_team.league, new_team.league_link = await self._get_team_league(new_team_link)
+
+            player.team = new_team
+            player.team_link = new_team_link
+
             old_team = "".join(i.xpath('.//td[4]//td[2]/a/text()')).strip()
             old_team_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[4]//td[2]/a/@href')).strip()
-
-            new_league, new_league_link = await self._get_team_league(new_team_link)
-            old_league, old_league_link = await self._get_team_league(old_team_link)
-
-            new_league_country = "".join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
-            old_league_country = "".join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
+            old_team = transfer_tools.Team(old_team, old_team_link)
+            old_team.country = "".join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
+            old_team.league, old_team.league_link = await self._get_team_league(old_team_link)
 
             fee = "".join(i.xpath('.//td[6]//a/text()'))
             fee_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[6]//a/@href'))
 
-            player = transfer_tools.Player(name, link, new_team, age, position, new_team_link, country, picture)
-            new_team = transfer_tools.Team(new_team, new_team_link, new_league_country, new_league, new_league_link)
-            old_team = transfer_tools.Team(old_team, old_team_link, old_league_country, old_league, old_league_link)
-            transfer = transfer_tools.Transfer(player, old_team, new_team, fee, fee_link)
+            transfer = transfer_tools.Transfer(player)
+            transfer.old_team = old_team
+            transfer.new_team = new_team
+            transfer.fee = fee
+            transfer.fee_link = fee_link
 
             e = transfer.embed
 
@@ -186,7 +204,7 @@ class Transfers(commands.Cog):
                     if link is None:
                         continue
 
-                    if link in new_league_link or link in old_league_link:
+                    if link in (new_team.league_link, old_team.league_link):
                         try:
                             await ch.send(embed=e)
                         except discord.HTTPException:  # This is your problem, not mine.

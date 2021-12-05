@@ -34,6 +34,52 @@ class Test(commands.Cog):
 
         print(fix.__dict__)
 
+    @commands.command()
+    async def ships(self):
+        """
+        Florida 
+        Poltava
+        Mutsu
+        Boise
+        Munchen
+        Gorizia
+        Nueve de Julio
+        De Grasse
+        Duca d'Aosta
+        Perth
+        Mysore
+        Yudachi
+
+        list 2:
+        Saipan
+        Indomitable
+        Alabama
+        Vanguard
+        Champagne
+        Roma
+        Kii
+        Wichita
+        Cheshire
+        Belfast '43
+        Prinz Eugen
+        Mainz
+        Ochakov
+        Irian
+        Z-44
+        Kidd
+        Z-35
+        Fen Yang
+
+        List 3:
+        Enterprise
+        Musashi
+        Kronshtadt
+        Mikhail Kutuzov
+        Flint
+        Benham
+        Neustrashimy
+        """.replace('\n', ', ')
+
 
 def setup(bot):
     """Add the testing cog to the bot"""

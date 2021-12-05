@@ -85,8 +85,11 @@ class TeamView(discord.ui.View):
     async def on_timeout(self):
         """Clean up"""
         self.clear_items()
-        await self.message.edit(view=self)
         self.stop()
+        try:
+            await self.message.edit(view=self)
+        except discord.HTTPException:
+            pass
 
     async def interaction_check(self, interaction: discord.Interaction):
         """Verify user of view is correct user."""
@@ -143,35 +146,43 @@ class TeamView(discord.ui.View):
             """Read through the transfers page and extract relevant data, returning a list of transfers"""
             transfers = []
             for i in table:
-                name = "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/text()')).strip()
-                link = TF + "".join(i.xpath('.//a[@class="spielprofil_tooltip"]/@href')).strip()
-                age = "".join(i.xpath('.//td[3]/text()')).strip()
-                position = "".join(i.xpath('.//td[2]//tr[2]/td/text()')).strip()
-                picture = "".join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src'))
-                country = [_.strip() for _ in i.xpath('.//td[5]//img/@title') if _.strip()]
+                name = "".join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@title')).strip()
+                link = "".join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@href')).strip()
+
+                if not name:
+                    name = "".join(i.xpath('.//td[@class="hauptlink"]/a/@title'))
+                if not link:
+                    link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
+
+                if TF not in link:
+                    link = TF + link
+                player = transfer_tools.Player(name, link)
+                player.age = "".join(i.xpath('.//td[3]/text()')).strip()
+
+                player.position = "".join(i.xpath('.//td[2]//tr[2]/td/text()')).strip()
+                player.picture = "".join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src'))
+                player.country = [_.strip() for _ in i.xpath('.//td[5]//img/@title') if _.strip()]
+                player.team = self.team
+
+                transfer = transfer_tools.Transfer(player=player)
 
                 team = "".join(i.xpath('.//td[6]//td[@class="hauptlink"]/a/text()')).strip()
-                _ = "".join(i.xpath('.//td[6]//td[@class="hauptlink"]/a/@href')).strip()
-                team_link = TF + _
-                league = "".join(i.xpath(".//td[6]//tr[2]//a/text()")).strip()
+                team_link = "".join(i.xpath('.//td[6]//td[@class="hauptlink"]/a/@href')).strip()
+                player.team_link = TF + team_link
 
+                old = transfer_tools.Team(name=team, link=team_link)
+                old.league = "".join(i.xpath(".//td[6]//tr[2]//a/text()")).strip()
                 _ = "".join(i.xpath(".//td[6]//tr[2]//a/@href")).strip()
-                league_link = TF + _ if _ else ""
-                team_country = [_.strip() for _ in i.xpath(".//td[6]//img/@title") if _.strip()]
+                old.league_link = TF + _ if _ else ""
+                old.country = [_.strip() for _ in i.xpath(".//td[6]//img/@title") if _.strip()]
 
-                _ = self.team
+                transfer.old_team = self.team if out else old
+                transfer.new_team = old if out else self.team
 
-                player = transfer_tools.Player(name, link, _.name, age, position, _.link, country, picture)
-                old = transfer_tools.Team(team, team_link, team_country, league, league_link)
-                new = transfer_tools.Team(_.name, _.link, _.country, _.league, _.league_link)
-                fee = "".join(i.xpath('.//td[7]//text()')).strip()
-                fee_link = TF + "".join(i.xpath('.//td[7]//@href')).strip()
-                date = "".join(i.xpath('.//i/text()'))
+                transfer.fee = "".join(i.xpath('.//td[7]//text()')).strip()
+                transfer.fee_link = TF + "".join(i.xpath('.//td[7]//@href')).strip()
+                transfer.date = "".join(i.xpath('.//i/text()'))
 
-                team_from = new if out else old
-                team_to = old if out else new
-
-                transfer = transfer_tools.Transfer(player, team_from, team_to, fee, fee_link, date=date)
                 transfers.append(transfer)
             return transfers
 
@@ -225,12 +236,17 @@ class TeamView(discord.ui.View):
 
         rows = []
         for i in tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0].xpath('.//tbody/tr'):
-            name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-            if not name:
-                continue
+            name = "".join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@title')).strip()
+            link = "".join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@href')).strip()
 
-            _ = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href')).strip()
-            link = TF + _
+            if not name:
+                name = "".join(i.xpath('.//td[@class="hauptlink"]/a/@title'))
+            if not link:
+                link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
+
+            if link and TF not in link:
+                link = TF + link
+
             pos = "".join(i.xpath('.//td[2]//tr[2]/td/text()'))
             flag = transfer_tools.get_flag(i.xpath('.//td[3]/img/@title')[0])
             age = "".join(i.xpath('./td[4]/text()')).strip()
@@ -292,17 +308,25 @@ class TeamView(discord.ui.View):
         rows = []
 
         for i in tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0].xpath('.//tbody/tr'):
-            name = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/text()'))
-            if not name:
-                continue
+            name = "".join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@title')).strip()
+            link = "".join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@href')).strip()
 
-            _ = "".join(i.xpath('.//td[@class="hauptlink"]/a[@class="spielprofil_tooltip"]/@href'))
-            link = TF + _ if _ else ""
+            if not name:
+                name = "".join(i.xpath('.//td[@class="hauptlink"]/a/@title'))
+            if not link:
+                link = "".join(i.xpath('.//td[@class="hauptlink"]/a/@href'))
+
+            if link and TF not in link:
+                link = TF + link
+
+            if not name and not link:
+                continue
 
             pos = "".join(i.xpath('.//td[1]//tr[2]/td/text()'))
             age = "".join(i.xpath('./td[2]/text()')).split('(')[-1].replace(')', '').strip()
             flag = " ".join([transfer_tools.get_flag(f) for f in i.xpath('.//td[3]/img/@title')])
             date = "".join(i.xpath('.//td[4]//text()')).strip()
+
             _ = datetime.datetime.strptime(date, "%b %d, %Y")
             expiry = timed_events.Timestamp(_).countdown
 

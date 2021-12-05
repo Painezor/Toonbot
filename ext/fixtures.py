@@ -77,7 +77,7 @@ class CompetitionView(discord.ui.View):
         self.clear_items()
         try:
             await self.message.edit(view=self)
-        except discord.HTTPException:
+        except (discord.HTTPException, AttributeError):
             pass
 
         self.stop()
@@ -86,8 +86,7 @@ class CompetitionView(discord.ui.View):
     async def update(self):
         """Update the view for the Competition"""
         if self.message is None:
-            self.stop()
-            return
+            return await self.on_timeout()
 
         async with self.semaphore:
             self.clear_items()
@@ -153,8 +152,7 @@ class CompetitionView(discord.ui.View):
                 _ = discord.AllowedMentions.none()
                 await self.message.edit(content="", view=self, embed=embed, allowed_mentions=_)
             except discord.NotFound:
-                self.stop()
-                return await self.page.close()
+                return await self.on_timeout()
         await self.wait()
 
     async def filter_players(self):
@@ -277,6 +275,7 @@ class TeamView(discord.ui.View):
         self.message = None
 
         # Pagination
+        self.semaphore = asyncio.Semaphore()
         self.pages = []
         self.index = 0
         self.value = None
@@ -301,8 +300,9 @@ class TeamView(discord.ui.View):
             await self.message.edit(view=self)
         except discord.NotFound:
             pass
-        await self.page.close()
+
         self.stop()
+        await self.page.close()
 
     async def on_error(self, error, item, interaction):
         """Extended Error Logging."""
@@ -326,51 +326,50 @@ class TeamView(discord.ui.View):
 
     async def update(self):
         """Update the view for the user"""
-        self.generate_buttons()
-        embed = self.pages[self.index] if self.pages else None
-        try:
-            am = discord.AllowedMentions().none()
-            await self.message.edit(content="", view=self, embed=embed, allowed_mentions=am)
-        except discord.HTTPException:
-            self.stop()
-            await self.page.close()
-            return
+        async with self.semaphore:
+            self.generate_buttons()
+            embed = self.pages[self.index] if self.pages else None
+            try:
+                am = discord.AllowedMentions().none()
+                await self.message.edit(content="", view=self, embed=embed, allowed_mentions=am)
+            except discord.HTTPException:
+                return await self.on_timeout()
         await self.wait()
 
     def generate_buttons(self):
         """Add buttons to the Team embed."""
         self.clear_items()
 
-        if len(self.pages) > 0:
-            _ = view_utils.PreviousButton()
-            _.disabled = True if self.index == 0 else False
-            self.add_item(_)
-
-            _ = view_utils.PageButton()
-            _.label = f"Page {self.index + 1} of {len(self.pages)}"
-            _.disabled = True if len(self.pages) == 1 else False
-            self.add_item(_)
-
-            _ = view_utils.NextButton()
-            _.disabled = True if self.index == len(self.pages) - 1 else False
-            self.add_item(_)
-
         if self._currently_selecting:
             self.add_item(LeagueTableSelect(objects=self._currently_selecting))
             self._currently_selecting = []
+        else:
+            if len(self.pages) > 0:
+                _ = view_utils.PreviousButton()
+                _.disabled = True if self.index == 0 else False
+                self.add_item(_)
 
-        buttons = [view_utils.Button(label="Squad", func=self.push_squad),
-                   view_utils.Button(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI),
-                   view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽'),
-                   view_utils.Button(label="Table", func=self.select_table, row=3),
-                   view_utils.Button(label="Fixtures", func=self.push_fixtures, row=3),
-                   view_utils.Button(label="Results", func=self.push_results, row=3),
-                   view_utils.StopButton(row=0)
-                   ]
+                _ = view_utils.PageButton()
+                _.label = f"Page {self.index + 1} of {len(self.pages)}"
+                _.disabled = True if len(self.pages) == 1 else False
+                self.add_item(_)
 
-        for _ in buttons:
-            _.disabled = True if self._current_mode == _.label else False
-            self.add_item(_)
+                _ = view_utils.NextButton()
+                _.disabled = True if self.index == len(self.pages) - 1 else False
+                self.add_item(_)
+
+            buttons = [view_utils.Button(label="Squad", func=self.push_squad),
+                       view_utils.Button(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI),
+                       view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽'),
+                       view_utils.Button(label="Table", func=self.select_table, row=3),
+                       view_utils.Button(label="Fixtures", func=self.push_fixtures, row=3),
+                       view_utils.Button(label="Results", func=self.push_results, row=3),
+                       view_utils.StopButton(row=0)
+                       ]
+
+            for _ in buttons:
+                _.disabled = True if self._current_mode == _.label else False
+                self.add_item(_)
 
     async def push_squad(self):
         """Push the Squad Embed to the team View"""
@@ -420,13 +419,16 @@ class TeamView(discord.ui.View):
         """Select Which Table to push from"""
         self.pages, self.index = [await self.get_embed()], 0
         all_fixtures = await self.team.get_fixtures(self.page)
-        unique_comps = []
-        [unique_comps.append(x) for x in all_fixtures if x.full_league not in [y.full_league for y in unique_comps]]
+        _ = []
+        [_.append(x) for x in all_fixtures if x.full_league not in [y.full_league for y in _]]
 
-        if len(unique_comps) == 1:
-            return await self.push_table(unique_comps[0])
+        if len(_) == 1:
+            return await self.push_table(_[0])
 
-        self._currently_selecting = unique_comps
+        self._currently_selecting = _
+
+        leagues = [f"• [{x.full_league}]({x.url})" for x in _]
+        self.pages[0].description = "**Use the dropdown to select a table**:\n\n " + "\n".join(leagues)
         await self.update()
 
     async def push_table(self, res):
@@ -492,6 +494,7 @@ class FixtureView(discord.ui.View):
         self.pages = []
         self.index = 0
         self.base_embed = None
+        self.semaphore = asyncio.Semaphore()
 
         # Button Disabling
         self._current_mode = None
@@ -514,14 +517,13 @@ class FixtureView(discord.ui.View):
     async def update(self):
         """Update the view for the user"""
         embed = self.pages[self.index]
-        self.generate_buttons()
-        try:
-            am = discord.AllowedMentions().none()
-            await self.message.edit(content="", view=self, embed=embed, allowed_mentions=am)
-        except discord.HTTPException:
-            self.stop()
-            await self.page.close()
-            return
+        async with self.semaphore:
+            self.generate_buttons()
+            try:
+                am = discord.AllowedMentions().none()
+                await self.message.edit(content="", view=self, embed=embed, allowed_mentions=am)
+            except discord.HTTPException:
+                return await self.on_timeout()
         await self.wait()
 
     def generate_buttons(self):
@@ -791,8 +793,6 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (football.Team, football.Competition))
-
         page = await self.bot.browser.newPage()
         view = CompetitionView(ctx, fsr, page) if isinstance(fsr, football.Competition) else TeamView(ctx, fsr, page)
         view.message = await self.bot.reply(ctx, text=f"Fetching fixtures data for {fsr.title}...", view=view)
@@ -805,8 +805,6 @@ class Fixtures(commands.Cog):
         fsr = await self.search(ctx, qry, include_fs=True)
         if fsr is None:
             return
-
-        assert isinstance(fsr, (football.Team, football.Competition))
 
         page = await self.bot.browser.newPage()
         view = CompetitionView(ctx, fsr, page) if isinstance(fsr, football.Competition) else TeamView(ctx, fsr, page)
@@ -821,8 +819,6 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (football.Team, football.Competition))
-
         page = await self.bot.browser.newPage()
         view = CompetitionView(ctx, fsr, page) if isinstance(fsr, football.Competition) else TeamView(ctx, fsr, page)
         view.message = await self.bot.reply(ctx, text=f"Fetching Table for {fsr.title}...", view=view)
@@ -835,8 +831,6 @@ class Fixtures(commands.Cog):
         fsr = await self.search(ctx, qry, include_fs=True, include_live=True, mode="team")
         if fsr is None:
             return  # Rip
-
-        assert isinstance(fsr, (football.Team, football.Fixture))
 
         page = await self.bot.browser.newPage()
         if isinstance(fsr, football.Team):
@@ -855,8 +849,6 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return  # Rip
 
-        assert isinstance(fsr, (football.Team, football.Fixture))
-
         page = await self.bot.browser.newPage()
         if isinstance(fsr, football.Team):
             fsr = await self.pick_recent_game(ctx, fsr, page)
@@ -874,8 +866,6 @@ class Fixtures(commands.Cog):
         if fsr is None:
             return
 
-        assert isinstance(fsr, (football.Team, football.Fixture))
-
         page = await self.bot.browser.newPage()
         if isinstance(fsr, football.Team):
             fsr = await self.pick_recent_game(ctx, fsr, page)
@@ -892,8 +882,6 @@ class Fixtures(commands.Cog):
         fsr = await self.search(ctx, qry, include_fs=True, include_live=True, mode="team")
         if fsr is None:
             return  # Rip
-
-        assert isinstance(fsr, (football.Team, football.Fixture))
 
         page = await self.bot.browser.newPage()
         if isinstance(fsr, football.Team):
@@ -1002,7 +990,7 @@ class Fixtures(commands.Cog):
 
     @default.group()
     @commands.has_permissions(manage_guild=True)
-    async def team(self, ctx, qry: commands.clean_content):
+    async def team(self, ctx, *, qry: commands.clean_content = None):
         """Set a default team for your server's Fixture commands"""
         if qry is None:
             return await self.bot.reply()
@@ -1037,7 +1025,7 @@ class Fixtures(commands.Cog):
 
     @default.group(invoke_without_commands=True)
     @commands.has_permissions(manage_guild=True)
-    async def league(self, ctx, query: commands.clean_content):
+    async def league(self, ctx, *, query: commands.clean_content = None):
         """Set a default league for your server's Fixture commands"""
         if query is None:
             return await self.bot.reply(ctx, "🚫 You need to specify something to search for.", ping=True)

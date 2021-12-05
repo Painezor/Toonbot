@@ -628,6 +628,7 @@ class TickerEvent:
             self.mode = "red_card_overturned"
             await self.bulk_edit()
         else:
+            print(f"Event Warning: {self.event}")
             print(f'[WARNING] {self.fixture} Ticker: Attempted to retract event for missing mode: {self.mode}')
 
     async def send_messages(self):
@@ -646,6 +647,8 @@ class TickerEvent:
 
             try:
                 self.messages.append(await channel.send(embed=_))
+            except discord.NotFound:
+                continue
             except discord.HTTPException as err:
                 print("Ticker.py send:", channel.id, err)
                 continue

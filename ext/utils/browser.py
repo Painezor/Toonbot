@@ -4,6 +4,7 @@ from typing import Union
 
 import pyppeteer
 from PIL import Image
+from pyppeteer import page as pg
 from pyppeteer.errors import TimeoutError as _TimeoutError
 
 
@@ -50,12 +51,18 @@ async def make_browser(bot):
     bot.browser = await pyppeteer.launch(options=options)
 
 
-async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, max_retry=3) -> Union[str, BytesIO, None]:
+async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, max_retry=3, close=False) \
+        -> (Union[str, BytesIO, None], pg.Page):
     """Fetch a webpage's soruce code or an image"""
     deletes = [] if delete is None else delete
     clicks = [] if clicks is None else clicks
 
     assert url.startswith("http"), f"BROWSER - FETCH: {url} does not appear to be a valid url."
+
+    if page.isClosed():
+        # Replace closed pages.
+        page = await page.browser.newPage()
+        close = True
 
     for _ in range(max_retry):
         try:
@@ -64,6 +71,10 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, ma
             print(f"Fetch Page timed out trying to access {url}")
         else:
             break
+    else:
+        if close:
+            await page.close()
+        return None
 
     try:
         await page.waitForXPath(xpath, {"timeout": 5000})
@@ -95,12 +106,19 @@ async def fetch(page, url, xpath, clicks=None, delete=None, screenshot=False, ma
             bbox['height'] *= len(elements)
             screenshot = Image.open(BytesIO(await page.screenshot(clip=bbox)))
         else:
+            if close:
+                await page.close()
             return None
 
         output = BytesIO()
         screenshot.save(output, 'PNG')
         screenshot.close()
         output.seek(0)
+        if close:
+            await page.close()
+
         return output
     else:
+        if close:
+            await page.close()
         return await page.content()
