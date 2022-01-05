@@ -203,14 +203,14 @@ class Reminders(commands.Cog):
         try:
             delta = await timed_events.parse_time(time.lower())
         except ValueError:
-            return await self.bot.reply(ctx, text='Invalid time specified.')
+            return await self.bot.reply(ctx, content='Invalid time specified.')
         except OverflowError:
-            return await self.bot.reply(ctx, text="You'll be dead by then'")
+            return await self.bot.reply(ctx, content="You'll be dead by then'")
 
         try:
             remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
         except OverflowError:
-            return await self.bot.reply(ctx, text="You'll be dead by then.")
+            return await self.bot.reply(ctx, content="You'll be dead by then.")
 
         connection = await self.bot.db.acquire()
         try:
@@ -253,7 +253,7 @@ class Reminders(commands.Cog):
         embeds = embed_utils.rows_to_embeds(e, _)
 
         view = view_utils.Paginator(ctx.author, embeds)
-        view.message = await self.bot.reply(ctx, "Fetching your reminders...", view=view)
+        view.message = await self.bot.reply(ctx, content="Fetching your reminders...", view=view)
         await view.update()
 
 

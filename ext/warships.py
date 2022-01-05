@@ -61,7 +61,7 @@ class Warships(commands.Cog):
         codes = codes.split('|')
         codes = "\n".join([i.strip() for i in codes if i])
 
-        await self.bot.reply(ctx, f"```\n{codes}```")
+        await self.bot.reply(ctx, content=f"```\n{codes}```")
 
     async def on_presence_update(self, before, after):
         """Apply hoisted role to streamers when they go live."""

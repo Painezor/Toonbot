@@ -8,7 +8,6 @@ from io import BytesIO
 import discord
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord.ext import commands
-from discord.ext.commands.cooldowns import BucketType
 
 from ext.utils import embed_utils
 
@@ -208,7 +207,7 @@ def ruin(image):
 async def get_faces(ctx, target):
     """Retrieve face features from Project Oxford"""
     if target is None:
-        await ctx.bot.reply(ctx, text="No target specified.")
+        await ctx.bot.reply(ctx, content="No target specified.")
         return None, None, None
 
     if isinstance(target, discord.Member):
@@ -216,7 +215,7 @@ async def get_faces(ctx, target):
     elif isinstance(target, discord.Attachment):
         target = target.url
     elif "://" not in target:
-        await ctx.bot.reply(ctx, text=f"{target} doesn't look like a valid url.")
+        await ctx.bot.reply(ctx, content=f"{target} doesn't look like a valid url.")
         return None, None, None
 
     # Prepare POST
@@ -228,17 +227,17 @@ async def get_faces(ctx, target):
     # Get Project Oxford reply
     async with ctx.bot.session.post(url, params=p, headers=h, data=d) as resp:
         if resp.status == 400:
-            await ctx.bot.reply(ctx, text=await resp.json())
+            await ctx.bot.reply(ctx, content=await resp.json())
             return False, False, False
         elif resp.status != 200:
-            await ctx.bot.reply(ctx, text=f"HTTP Error {resp.status} accessing facial recognition API.")
+            await ctx.bot.reply(ctx, content=f"HTTP Error {resp.status} accessing facial recognition API.")
             return None, None, None
         response = await resp.json()
     
     # Get target image as file
     async with ctx.bot.session.get(target) as resp:
         if resp.status != 200:
-            await ctx.bot.reply(ctx, text=f"{resp.status} code accessing project oxford.")
+            await ctx.bot.reply(ctx, content=f"{resp.status} code accessing project oxford.")
         image = await resp.content.read()
     return image, response, target
 
@@ -253,44 +252,42 @@ class Images(commands.Cog):
         self.bot = bot
         self.emoji = "🖼️"
 
-    @commands.command(hidden=True)
-    @commands.cooldown(2, 90, BucketType.user)
+    @commands.slash_command()
     async def tinder(self, ctx):
         """Try to Find your next date."""
-        with ctx.typing():
-            if ctx.author.id == 272722118192529409:
-                return await self.bot.reply(ctx, text="Nobody will ever swipe right on you, Kegs.", ping=True)
-            match = random.choice([True, False, False])
-            if not match:
-                return await self.bot.reply(ctx, text="Nobody swiped right on you.")
+        if ctx.author.id == 272722118192529409:
+            return await self.bot.reply(ctx, content="Nobody will ever swipe right on you, Kegs.")
+        match = random.choice([True, False, False])
+        if not match:
+            return await self.bot.reply(ctx, content="Nobody swiped right on you.")
 
-            av = await ctx.author.display_avatar.with_format("png").read()
+        av = await ctx.author.display_avatar.with_format("png").read()
 
-            while True:
-                match = random.choice(ctx.guild.members)
-                name = match.display_name
-                try:
-                    target = await match.display_avatar.with_format("png").read()
-                except AttributeError:
-                    continue
-                else:
-                    break
-
-            # TODO: Get presence intents.
-            # match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
-            output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
-            if match == ctx.author:
-                caption = f"{ctx.author.mention} matched with themself, How pathetic."
-            elif match == ctx.me:
-                caption = f"{ctx.author.mention} Fancy a shag?"
+        while True:
+            match = random.choice(ctx.guild.members)
+            name = match.display_name
+            try:
+                target = await match.display_avatar.with_format("png").read()
+            except AttributeError:
+                continue
             else:
-                caption = f"{ctx.author.mention} matched with {match.mention}"
-            icon = "https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/512/tinder-512.png"
-            base_embed = discord.Embed()
-            base_embed.description = caption
-            base_embed.colour = 0xFD297B
-            base_embed.set_author(name=ctx.invoked_with.title(), icon_url=icon)
-            await embed_utils.embed_image(ctx, base_embed, output, filename="Tinder.png")
+                break
+
+        # TODO: Get presence intents.
+        # match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
+        output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
+        if match == ctx.author:
+            caption = f"{ctx.author.mention} matched with themself, How pathetic."
+        elif match == ctx.me:
+            caption = f"{ctx.author.mention} Fancy a shag?"
+        else:
+            caption = f"{ctx.author.mention} matched with {match.mention}"
+        icon = "https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/512/tinder-512.png"
+        base_embed = discord.Embed()
+        base_embed.description = caption
+        base_embed.colour = 0xFD297B
+        base_embed.set_author(name=ctx.invoked_with.title(), icon_url=icon)
+        await embed_utils.embed_image(ctx, base_embed, output, filename="Tinder.png")
 
     @commands.command(aliases=["bob", "ross"], usage='<@user, link to image, or upload a file>')
     async def bobross(self, ctx, *, target: typing.Union[discord.Member, str] = None):
@@ -299,12 +296,12 @@ class Images(commands.Cog):
             try:
                 target = ctx.message.attachments[0]
             except IndexError:
-                return await self.bot.reply(ctx, '🚫 Provide an image, link, or user.')
+                return await self.bot.reply(ctx, content='🚫 Provide an image, link, or user.')
         
         image, response, target = await get_faces(ctx, target)
         
         if response is None or response is False:
-            return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", ping=True)
+            return await self.bot.reply(ctx, content="🚫 No faces were detected in your image.")
 
         image = await self.bot.loop.run_in_executor(None, draw_bob, image, response)
         icon = "https://cdn4.vectorstock.com/i/thumb-large/79/33/painting-icon-image-vector-14647933.jpg"
@@ -323,7 +320,7 @@ class Images(commands.Cog):
     #     image, response, target = await get_faces(ctx, target)
     #
     #     if response is None or response is False:
-    #         return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", ping=True)
+    #         return await self.bot.reply(ctx, content="🚫 No faces were detected in your image.")
     #
     #     image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
     #
@@ -340,7 +337,7 @@ class Images(commands.Cog):
         image, response, target = await get_faces(ctx, target)
 
         if response is None:
-            return await self.bot.reply(ctx, text="🚫 No faces were detected in your image.", ping=True)
+            return await self.bot.reply(ctx, content="🚫 No faces were detected in your image.")
         elif response is False:
             return
         
@@ -368,14 +365,13 @@ class Images(commands.Cog):
         base_embed.set_author(name=ctx.invoked_with)
         base_embed.description = ctx.author.mention
         await embed_utils.embed_image(ctx, base_embed, image, filename="tard.png")
-        await self.bot.reply(ctx, "no u")
             
     @tard.error
     async def tard_error(self, ctx, exc):
         """Handle errors for the tard command"""
         if isinstance(exc, commands.BadArgument):
-            return await self.bot.reply(ctx, text="🚫 Bad argument provided: Pinging a user or use their ID",
-                                        ping=True)
+            return await self.bot.reply(ctx, content="🚫 Bad argument provided: Pinging a user or use their ID",
+                                        )
 
     @commands.command(aliases=["localman", "local", "ruin"], usage="[@member or leave blank to use yourself.]")
     async def ruins(self, ctx, *, target: discord.Member = None):
@@ -395,38 +391,38 @@ class Images(commands.Cog):
     @commands.command(hidden=True)
     async def butter(self, ctx):
         """What is my purpose?"""
-        await self.bot.reply(ctx, image="Images/butter.png")
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/butter.png"))
     
     @commands.command(hidden=True)
     async def fixed(self, ctx):
         """Fixed!"""
-        await self.bot.reply(ctx, image="Images/fixed.png")
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/fixed.png"))
 
     @commands.command(hidden=True)
     async def ructions(self, ctx):
         """WEW. RUCTIONS."""
-        await self.bot.reply(ctx, image="Images/ructions.png")
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/ructions.png"))
 
     @commands.command(hidden=True)
     async def helmet(self, ctx):
         """Helmet"""
-        await self.bot.reply(ctx, image="Images/helmet.jpg")
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/helmet.jpg"))
 
     @commands.command(aliases=["f"], hidden=True)
     async def pressf(self, ctx):
         """Press F to pay respects"""
-        await self.bot.reply(ctx, text="https://i.imgur.com/zrNE05c.gif")
+        await self.bot.reply(ctx, content="https://i.imgur.com/zrNE05c.gif")
 
     @commands.command(hidden=True)
     async def goala(self, ctx):
         """Party on Garth"""
-        await self.bot.reply(ctx, image='Images/goala.gif')
+        await self.bot.reply(ctx, file=embed_utils.make_file(image='Images/goala.gif'))
 
     @commands.command(usage="<an emoji>", aliases=['emoji'])
     async def emote(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji] = None):
         """View a bigger version of an Emoji"""
         if emoji is None:
-            return await self.bot.reply(ctx, "You need to specify an emote to get the bigger version of.")
+            return await self.bot.reply(ctx, content="You need to specify an emote to get the bigger version of.")
 
         e = discord.Embed()
         e.title = emoji.name

@@ -27,18 +27,6 @@ class Info(commands.Cog):
         """A counter for how many commands have been used this session"""
         self.bot.commands_used[str(ctx.command)] += 1
 
-    @commands.command()
-    async def invite(self, ctx):
-        """Get my invite link"""
-        e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
-        owner = await self.bot.fetch_user(self.bot.owner_id)
-        e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
-        e.set_thumbnail(url=ctx.me.display_avatar.url)
-        e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
-        e.description = f"[Click to invite me](https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
-                        f"&permissions=67488768&scope=bot)\n"
-        await self.bot.reply(ctx, embed=e)
-
     @commands.command(aliases=['botstats', "uptime", "hello"])
     async def about(self, ctx):
         """Tells you information about the bot itself."""
@@ -51,24 +39,21 @@ class Info(commands.Cog):
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)
         members = f"{total_members} Members across {len(self.bot.guilds)} servers."
-        
+
         prefixes = f"\nYou can use `.tb help` to see my commands."
-        
+
         e.description = f"I do football lookup related things.\n I have {members}"
         e.description += prefixes
-        
+
         technical_stats = f"{datetime.datetime.now() - self.bot.initialised_at}\n"
         technical_stats += f"{sum(self.bot.commands_used.values())} commands ran this session."
         e.add_field(name="Uptime", value=technical_stats, inline=False)
-        
-        invite_and_stuff = f"[Invite me to your server]" \
-                           f"(https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
-                           f"&permissions=67488768&scope=bot)\n"
-        invite_and_stuff += f"[Join my Support Server](http://www.discord.gg/a5NHvPx)\n"
-        
-        e.add_field(name="Using me", value=invite_and_stuff, inline=False)
+
+        support = f"[Join my Support Server](http://www.discord.gg/a5NHvPx)\n"
+
+        e.add_field(name="Get Support", value=support, inline=False)
         e.add_field(name="Donate", value="If you'd like to donate, you can do so [here](https://paypal.me/Toonbot)")
-        
+
         await self.bot.reply(ctx, embed=e)
     
     @commands.command(aliases=["perms"])
@@ -80,18 +65,18 @@ class Info(commands.Cog):
             member = ctx.author
         permissions = ctx.channel.permissions_for(member)
         permissions = "\n".join([f"{i[0]} : {i[1]}" for i in permissions])
-        await self.bot.reply(ctx, text=f"```py\n{permissions}```")
-    
+        await self.bot.reply(ctx, content=f"```py\n{permissions}```")
+
     @commands.command(aliases=["lastmsg", "lastonline", "lastseen"], usage="seen @user")
-    async def seen(self, ctx, target: discord.Member = None):
+    async def seen(self, ctx, target: discord.Member):
         """Find the last message from a user in this channel"""
         if target is None:
-            return await self.bot.reply(ctx, 'You need to specify a user to search for.')
+            return await self.bot.reply(ctx, content='You need to specify a user to search for.')
 
-        m = await self.bot.reply(ctx, text="Searching...")
+        m = await self.bot.reply(ctx, content="Searching...")
         with ctx.typing():
             if ctx.author == target:
-                return await m.edit(content="Last seen right now, being an idiot.", ping=True)
+                return await m.edit(content="Last seen right now, being an idiot.")
 
             async for msg in ctx.channel.history(limit=5000):
                 if msg.author.id == target.id:
@@ -113,28 +98,9 @@ class Info(commands.Cog):
         e = discord.Embed(colour=member.colour)
         e.description = f"{'🤖 ' if member.bot else ''}{member.mention}\nUser ID: {member.id}"
 
-        try:
-            roles = [role.mention for role in reversed(member.roles) if not role.position == 0]
-            if roles:
-                e.add_field(name='Roles', value=' '.join(roles))
-            status = str(member.status).title()
-
-            if status == "Online":
-                status = "🟢 Online\n"
-            elif status == "Offline":
-                status = "🔴 Offline\n"
-            else:
-                status = f"🟡 {status}\n"
-
-            activity = member.activity
-            try:
-                activity = f"{discord.ActivityType[activity.type]} {activity.name}\n"
-            except KeyError:  # Fix on custom status update.
-                activity = ""
-        except AttributeError:
-            status = ""
-            activity = ""
-            pass
+        roles = [role.mention for role in reversed(member.roles) if not role.position == 0]
+        if roles:
+            e.add_field(name='Roles', value=' '.join(roles))
 
         shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
 

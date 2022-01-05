@@ -6,16 +6,29 @@ from datetime import datetime
 import asyncpg
 import discord
 from discord.ext import commands
-from discord.ext.commands import ExtensionAlreadyLoaded
 
 with open('credentials.json') as f:
     credentials = json.load(f)
 
 COGS = ['ext.globalchecks',  # needs to be loaded fist.
-        'ext.automod', 'ext.admin', 'ext.errors', 'ext.fixtures', 'ext.fun', 'ext.help', 'ext.images', 'ext.info',
-        'ext.mod', 'ext.mtb', 'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.reply', 'ext.rss',
-        'ext.session', 'ext.scores', 'ext.sidebar', 'ext.twitter', 'ext.lookup', 'ext.ticker', "ext.transfers",
-        'ext.tv', 'ext.warships']
+        'ext.errors',
+        'ext.session',
+        'ext.reply',
+
+        # Slash commands.
+        'ext.admin',
+        'ext.fixtures',
+        'ext.fun',
+        'ext.ticker',
+
+        # Old commands.
+        'ext.help', 'ext.images', 'ext.info', 'ext.mod',
+        'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.rss',
+        'ext.scores', 'ext.sidebar', 'ext.lookup', "ext.transfers", 'ext.tv', 'ext.warships']
+
+
+# Pending rewrite?
+# 'ext.mtb', 'ext.twitter', 'ext.automod'
 
 
 class Bot(commands.Bot):
@@ -29,6 +42,7 @@ class Bot(commands.Bot):
             command_prefix=".tb ",
             owner_id=210582977493598208,
             activity=discord.Game(name="Use .tb help"),
+            # debug_guild=250252535699341312,
             intents=intents
         )
         self.db = kwargs.pop("database")
@@ -38,8 +52,6 @@ class Bot(commands.Bot):
         for c in COGS:
             try:
                 self.load_extension(c)
-            except ExtensionAlreadyLoaded:
-                pass
             except Exception as e:
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
             else:

@@ -33,7 +33,8 @@ async def embed_image(ctx, base_embed, image, filename=None):
         filename = f"{ctx.command}.png"
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     base_embed.set_image(url=f"attachment://{filename}")
-    await ctx.bot.reply(ctx, image=image, filename=filename, embed=base_embed)
+    file = make_file(image=image, name=filename)
+    await ctx.bot.reply(ctx, file=file, embed=base_embed)
 
 
 async def get_colour(url=None):
@@ -71,6 +72,15 @@ def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typin
     base_embed.description = desc
     embeds.append(deepcopy(base_embed))
     return embeds
+
+
+def make_file(image=None, name=None):
+    """Create a discord File object for sending images"""
+    if image is None:
+        return None
+
+    file = discord.File(fp=image, filename=name) if name is not None else discord.File(image)
+    return file
 
 
 async def page_selector(ctx, item_list, base_embed=None, choice_text=None,
@@ -125,7 +135,7 @@ async def paginate(ctx, embeds, preserve_footer=False, items=None, wait_length: 
         # Warn about permisssions.
         perms = ctx.channel.permissions_for(ctx.me)
         if not perms.add_reactions and perms.send_messages:
-            await ctx.bot.reply(ctx, text="I don't have add_reaction permissions so I can only show you page 1.")
+            await ctx.bot.reply(ctx, content="I don't have add_reaction permissions so I can only show you page 1.")
             if not items:
                 return None
 

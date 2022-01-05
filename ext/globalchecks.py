@@ -7,11 +7,6 @@ class GlobalChecks(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.add_check(self.disabled_commands)
-        self.bot.add_check(self.ignored)
-    
-    def ignored(self, ctx):
-        """A global check to see if the user id is stored in the ignored user list"""
-        return ctx.author.id not in self.bot.ignored
     
     def disabled_commands(self, ctx):
         """A global check to make sure that the command being invoked is not disabled on the target server."""

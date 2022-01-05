@@ -390,7 +390,6 @@ class MatchThreadCommands(commands.Cog):
     async def schedule_threads(self):
         """Schedule tomorrow's match threads"""
         # Number of minutes before the match to post
-        await self.bot.wait_until_ready()
         connection = await self.bot.db.acquire()
         records = await connection.fetch("""SELECT * FROM mtb_schedule""")
         await self.bot.db.release(connection)

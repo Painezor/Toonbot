@@ -162,7 +162,7 @@
 #         embeds = embed_utils.rows_to_embeds(e, tracked_items)
 #
 #         view = view_utils.Paginator(ctx.author, embeds)
-#         view.message = await self.bot.reply(ctx, "Fetching tracked twitter users...", embeds)
+#         view.message = await self.bot.reply(ctx, content="Fetching tracked twitter users...", embeds)
 #         await view.update()
 #
 #     # TODO: Add / remove per channel etc etc.
@@ -193,7 +193,7 @@
 #             VALUES ($1, $2, $3)""", user.id, ctx.guild.id, channel.id)
 #         await self.bot.db.release(connection)
 #         await self.update_cache()
-#         await self.bot.reply(ctx, f"{username} added to tracked users for {ctx.channel.mention}.")
+#         await self.bot.reply(ctx, content=f"{username} added to tracked users for {ctx.channel.mention}.")
 #         await self.send_config(ctx)
 #
 #     @twitter.command(name="del", aliases=["remove"])
@@ -203,7 +203,7 @@
 #         guild_matches = [i.alias for i in self.records if i['guild_id'] == ctx.guild.id and username in i['alias']]
 #
 #         if not guild_matches:
-#             return self.bot.reply(ctx, f"No followed twitter accounts found for {ctx.guild.name}")
+#             return self.bot.reply(ctx, content=f"No followed twitter accounts found for {ctx.guild.name}")
 #
 #         index = await embed_utils.page_selector(ctx, guild_matches)
 #         if index is None:
@@ -219,7 +219,7 @@
 #         await self.bot.db.release(connection)
 #         await self.update_cache()
 #
-#         await self.bot.reply(ctx, text=f"{r['alias']} deleted from twitter tracker")
+#         await self.bot.reply(ctx, content=f"{r['alias']} deleted from twitter tracker")
 #         await self.update_cache()
 #         await self.send_config(ctx)
 #

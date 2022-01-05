@@ -19,37 +19,6 @@ class NUFC(commands.Cog):
         """Assure all commands in this cog can only be ran on the r/NUFC discord"""
         if ctx.guild:
             return ctx.guild.id in [238704683340922882, 332159889587699712]
-
-    @commands.Cog.listener()
-    async def on_message(self, m):
-        """On message reactions specific to the r/NUFC discord"""
-        c = m.content.lower()
-        if "toon toon" in c:
-            try:
-                await m.channel.send("**BLACK AND WHITE ARMY**")
-            except discord.HTTPException:
-                pass
-            return
-
-        if not m.guild or not m.guild.id == 332159889587699712:
-            return
-        
-        # ignore bot messages
-        if m.author.bot:
-            return
-
-        autokicks = ["make me a mod", "make me mod", "give me mod"]
-        for i in autokicks:
-            if i in c:
-                try:
-                    await m.author.kick(reason="Asked to be made a mod.")
-                except discord.Forbidden:
-                    return await m.channel.send(f"Done. {m.author.mention} is now a moderator.")
-                await m.channel.send(f"{m.author} was auto-kicked.")
-        if "https://www.reddit.com/r/" in c and "/comments/" in c:
-            if "nufc" not in c:
-                rm = "*Reminder: Please do not vote on submissions or comments in other subreddits.*"
-                await m.channel.send(rm)
                 
     @commands.Cog.listener()
     async def on_member_join(self, member):
@@ -68,8 +37,8 @@ class NUFC(commands.Cog):
         try:
             d_colo = discord.Colour(int(colour, 16))
         except ValueError:
-            return await self.bot.reply(ctx, 'Invalid colour. Check <http://htmlcolorcodes.com/color-picker/>',
-                                        ping=True)
+            return await self.bot.reply(ctx, content='Invalid colour. Check <http://htmlcolorcodes.com/color-picker/>',
+                                        )
         
         e = discord.Embed(color=d_colo)
         e.description = f"Your colour has been updated."
@@ -85,7 +54,7 @@ class NUFC(commands.Cog):
             try:
                 role = await ctx.guild.create_role(name=f"#{colour}", reason=f"Colour for {ctx.author}", color=d_colo)
             except discord.HTTPException:
-                return await self.bot.reply(ctx, "Invalid colour specified.")
+                return await self.bot.reply(ctx, content="Invalid colour specified.")
         else:
             role = discord.utils.get(ctx.guild.roles, name=f"#{colour}")
         
@@ -135,21 +104,21 @@ class NUFC(commands.Cog):
         """List alls for the match added by users."""
         try:
             if not self.bot.streams[f"{ctx.guild.id}"]:
-                return await self.bot.reply(ctx, text="Nobody has added any streams yet.")
+                return await self.bot.reply(ctx, content="Nobody has added any streams yet.")
         except KeyError:
             self.bot.streams[f"{ctx.guild.id}"] = []
-            return await self.bot.reply(ctx, text="Nobody has added any streams yet.")
+            return await self.bot.reply(ctx, content="Nobody has added any streams yet.")
         output = "**Streams: **\n"
         for c, v in enumerate(self.bot.streams[f"{ctx.guild.id}"], 1):
             output += f"{c}: {v}\n"
-        await self.bot.reply(ctx, text=output)
+        await self.bot.reply(ctx, content=output)
     
     @streams.command(name="add")
     async def stream_add(self, ctx, *, stream):
         """Add a stream to the stream list."""
         stream = discord.utils.escape_mentions(stream)
         if "://" not in stream:
-            return await self.bot.reply(ctx, text="That doesn't look like a valid URL.")
+            return await self.bot.reply(ctx, content="That doesn't look like a valid URL.")
         # Hide link preview.
         if "http" in stream:
             stream = f"<{stream}>"
@@ -158,12 +127,12 @@ class NUFC(commands.Cog):
         try:
             for i in self.bot.streams[f"{ctx.guild.id}"]:
                 if stream in i:
-                    return await self.bot.reply(ctx, text="Already in stream list.")
+                    return await self.bot.reply(ctx, content="Already in stream list.")
         except KeyError:
             self.bot.streams[f"{ctx.guild.id}"] = [stream]
         else:
             self.bot.streams[f"{ctx.guild.id}"].append(f"{stream} (added by {ctx.author.name})")
-        await self.bot.reply(ctx, text=f"Added {stream} to stream list.")
+        await self.bot.reply(ctx, content=f"Added {stream} to stream list.")
     
     @streams.command(name="del")
     async def stream_del(self, ctx, *, num: int):
@@ -171,21 +140,21 @@ class NUFC(commands.Cog):
         num -= 1
         if ctx.author.name not in self.bot.streams[f"{ctx.guild.id}"][num]:
             if not ctx.channel.permissions_for(ctx.author).manage_messages:
-                return await self.bot.reply(ctx, text="You didn't add that stream", delete_after=5, ping=True)
+                return await self.bot.reply(ctx, content="You didn't add that stream", delete_after=5)
         removed = self.bot.streams[f"{ctx.guild.id}"].pop(num)
-        await self.bot.reply(ctx, text=f"<{removed}> removed from streams list.")
+        await self.bot.reply(ctx, content=f"<{removed}> removed from streams list.")
     
     @streams.command(name="clear")
     @commands.has_permissions(manage_messages=True)
     async def stream_clear(self, ctx):
         """Remove all streams from guild stream list"""
         self.bot.streams[f"{ctx.guild.id}"] = []
-        await self.bot.reply(ctx, text="Streams cleared.")
+        await self.bot.reply(ctx, content="Streams cleared.")
     
     @commands.command(hidden=True)
     async def gherkin(self, ctx):
         """DON'T LET ME GOOOOOO AGAIN"""
-        await self.bot.reply(ctx, text="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
+        await self.bot.reply(ctx, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
     
     @commands.command(hidden=True)
     @commands.is_owner()
@@ -315,12 +284,12 @@ class NUFC(commands.Cog):
             "league fixture and winning 5-0"
         ]
         this = random.choice(facts)
-        await self.bot.reply(ctx, text=f"<:mbemba:332196308825931777> Mbemba {this}?")
+        await self.bot.reply(ctx, content=f"<:mbemba:332196308825931777> Mbemba {this}?")
 
     @commands.command()
     async def radio(self, ctx):
         """Sends a link to the NUFC radio channel"""
-        await self.bot.reply(ctx, text="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
+        await self.bot.reply(ctx, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
 
     @commands.command(hidden=True, aliiases=["uphowe"])
     @commands.has_permissions(add_reactions=True)
@@ -352,12 +321,12 @@ class NUFC(commands.Cog):
         outcome = random.choice(x)
         if outcome == "🔫 BANG!":
             try:
-                await self.bot.reply(ctx, text=f"🔫 BANG!", ping=True)
+                await self.bot.reply(ctx, content=f"🔫 BANG!")
                 await ctx.author.kick(reason="roulette")
             except discord.Forbidden:
-                await self.bot.reply(ctx, text=f"Your skull is too thick to penetrate with these bullets.", ping=True)
+                await self.bot.reply(ctx, content=f"Your skull is too thick to penetrate with these bullets.")
         else:
-            await self.bot.reply(ctx, text=outcome)
+            await self.bot.reply(ctx, content=outcome)
 
 
 def setup(bot):

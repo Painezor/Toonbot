@@ -39,7 +39,7 @@ class AutoMod(commands.Cog):
             self.cache.update(r)
 
     @commands.has_permissions(manage_guild=True)
-    @commands.command(usage="mentionspam <number of pings> <'kick', 'mute' or 'ban'>", aliases=["pingspam"])
+    @commands.command(usage="mentionspam <number of pings> <'kick', or 'ban'>", aliases=["pingspam"])
     async def mentionspam(self, ctx, threshold: typing.Optional[int] = None, action=None):
         """Automatically kick or ban a member for pinging more than x users in a message.
         Use '0' for threshold to turn the feature off."""
@@ -61,8 +61,8 @@ class AutoMod(commands.Cog):
             error += "Please set a limit higher than 3.\n"
 
         action = action.lower() if action is not None else action
-        if action is None or action not in ['kick', 'ban', 'mute']:
-            error += "🚫 Invalid action specified, valid modes are: `kick`, `ban`, `mute`.",
+        if action is None or action not in ['kick', 'ban']:
+            error += "🚫 Invalid action specified, valid modes are: `kick`, `ban`.",
         elif action == "kick":
             if not ctx.channel.permissions_for(ctx.me).kick_members:
                 error += "🚫 I need the 'kick_members' permission to do that.\n"
@@ -73,11 +73,6 @@ class AutoMod(commands.Cog):
                 error += "🚫 I need the 'ban_members' permission to do that.\n"
             if not ctx.channel.permissions_for(ctx.author).ban_members:
                 error += "🚫 You need the 'ban_members' permission to do that.\n"
-        elif action == "mute":
-            if not ctx.channel.permissions_for(ctx.me).manage_roles:
-                error += "🚫 I need the 'manage_roles' permission to do that.\n"
-            if not ctx.channel.permissions_for(ctx.author).manage_roles:
-                error += "🚫 You need the 'manage_roles' permission to do that.\n"
 
         if error:
             e.description = error
@@ -93,8 +88,7 @@ class AutoMod(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
 
-        action += "n" if action == "ban" else ""
-        action += "ed" if action != "mute" else "d"
+        action = "banned" if action == "ban" else "kicked"
         e.description = f"Users will be {action} if they ping {threshold} users in a message."
         return await self.bot.reply(ctx, embed=e)
 
@@ -109,7 +103,7 @@ class AutoMod(commands.Cog):
             return
 
         try:
-            assert guild_cache["mention_action"] in ['kick', 'ban', 'mute']
+            assert guild_cache["mention_action"] in ['kick', 'ban']
         except AssertionError:
             return
 
@@ -121,34 +115,13 @@ class AutoMod(commands.Cog):
             else:
                 reply = f"{message.author.mention} was kicked for mention spamming."
 
-        elif guild_cache["mention_action"] == "ban":
+        else:
             try:
                 await message.author.ban(reason=f"Mentioning {guild_cache['mention_threshold']} members in a message.")
             except discord.HTTPException:
                 return
             else:
                 reply = f"☠️{message.author.mention} was banned for mention spamming."
-
-        else:
-            muted_role = discord.utils.get(message.guild.roles, name='Muted')
-            if not muted_role:  # Create role if cannot find.
-                muted_role = await message.guild.create_role(name="Muted")
-                pos = message.guild.me.top_role.position - 1
-                await muted_role.edit(position=pos)
-            try:
-                await message.author.add_roles(*[muted_role])
-            except discord.HTTPException:
-                return
-            else:
-                reply = f"{message.author.mention} was muted for mention spam."
-
-            # Refresh overwrites.
-            ow = discord.PermissionOverwrite(add_reactions=False, send_messages=False)
-            try:
-                for i in message.guild.text_channels:
-                    await i.set_permissions(muted_role, overwrite=ow)
-            except discord.Forbidden:
-                pass
 
         try:
             return await message.reply(reply)

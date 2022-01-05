@@ -2,67 +2,49 @@ import discord
 from discord.ext import commands
 
 
-def make_file(image=None, name=None):
-    """Create a discord File object for sending images"""
-    if image is None:
-        return None
-
-    if name is not None:
-        file = discord.File(fp=image, filename=name)
-    else:
-        file = discord.File(image)
-    return file
-
-
 class ReplyHandler(commands.Cog):
     """Handle Toonbot Message Replying."""
 
     def __init__(self, bot):
         self.bot = bot
         self.bot.reply = self.reply
+        self.bot.error = self.error
 
     # Custom reply handler.
-    async def reply(self, ctx: discord.ext.commands.Context,
-                    text: str = None,
-                    view: discord.ui.View = None,
-                    embed: discord.Embed = None,
-                    image=None,
-                    filename: str = None,
-                    ping: bool = False,
-                    ephemeral: bool = False,
-                    delete_after: int = None):
+    async def reply(self, ctx, **kwargs):
         """Master reply handler for bot, with fallbacks."""
         if self.bot.is_closed():
             return
 
-        try:
-            image = make_file(image, filename)
-        except KeyError:
-            image = None
-
-        try:  # First we attempt to use direct reply functionality
-            return await ctx.reply(text, embed=embed, view=view, file=image, delete_after=delete_after,
-                                   mention_author=ping)
-        except discord.HTTPException:
+        if isinstance(ctx, discord.ApplicationContext):
+            interaction = await ctx.respond(**kwargs)
             try:
-                return await ctx.send(text, embed=embed, view=view, file=image, delete_after=delete_after,
-                                      mention_author=ping)
+                return await interaction.original_message()
+            except AttributeError:  # actually a WebhookMessage, bot already responded
+                return interaction
+        elif isinstance(ctx, commands.Context):
+            try:  # First we attempt to use direct reply functionality
+                return await ctx.reply(**kwargs, mention_author=False)
+            except discord.HTTPException:
+                try:
+                    return await ctx.send(**kwargs)
+                except discord.HTTPException:
+                    pass
+
+            # Final fallback, DM invoker.
+            try:
+                target = ctx.author
+                return await target.send(**kwargs)
             except discord.HTTPException:
                 pass
 
-        # Final fallback, DM invoker.
-        try:
-            target = ctx.author
-            return await target.send(text, embed=embed, view=view, file=image, delete_after=delete_after,
-                                     mention_author=ping)
-        except discord.HTTPException:
-            pass
-
-        # At least try to warn them.
-        try:
-            await ctx.message.add_reaction('🤐')
-        except discord.HTTPException:
-            pass
+    # Custom reply handler.
+    async def error(self, ctx, text="Generic Error."):
+        """Master reply handler for bot, with fallbacks."""
+        e = discord.Embed()
+        e.colour = discord.Colour.red()
+        e.description = text
+        await self.reply(ctx, embed=e, ephemeral=True)
 
 
 def setup(bot):

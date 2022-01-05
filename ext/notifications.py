@@ -41,7 +41,7 @@ class Notifications(commands.Cog):
         
     # Master info command.
     @commands.has_permissions(manage_guild=True)
-    @commands.command(invoke_without_command=True, usage="mod")
+    @commands.command(usage="mod")
     async def mod(self, ctx):
         """Shows the status of various mod tools."""
         # Get settings.
@@ -117,11 +117,11 @@ class Notifications(commands.Cog):
             joins = [r['joins_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(joins)
             rep = " not currently being output" if ch is None else f" currently being output to {ch.mention}"
-            return await self.bot.reply(ctx, text=f'Member information is ' + rep)
+            return await self.bot.reply(ctx, content=f'Member information is ' + rep)
 
         if not channel.permissions_for(ctx.me).send_messages:
-            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
-                                        ping=True)
+            return await self.bot.reply(ctx, content=f'🚫 I cannot send messages to {channel.mention}.',
+                                        )
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -132,7 +132,8 @@ class Notifications(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
 
-        await self.bot.reply(ctx, text=f'Information about new users will be sent to {channel.mention} when they join.')
+        await self.bot.reply(ctx,
+                             content=f'Information about new users will be sent to {channel.mention} when they join.')
 
     @commands.has_permissions(manage_channels=True)
     @joins.command(name="off", alaises=["none", "disable"], usages="joins off")
@@ -144,7 +145,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text='Information about new users will no longer be output.')
+        await self.bot.reply(ctx, content='Information about new users will no longer be output.')
 
     # Deleted messages
     @commands.Cog.listener()
@@ -198,10 +199,10 @@ class Notifications(commands.Cog):
             deletes = [r['deletes_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(deletes)
             rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
-            return await self.bot.reply(ctx, text=f'Deleted messages are ' + rep)
+            return await self.bot.reply(ctx, content=f'Deleted messages are ' + rep)
 
         if not channel.permissions_for(ctx.me).send_messages:
-            return await self.bot.reply(ctx, text=f"🚫 I can't send messages to {channel.mention}", ping=True)
+            return await self.bot.reply(ctx, content=f"🚫 I can't send messages to {channel.mention}")
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -211,7 +212,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text=f'Deleted messages will be sent to {channel.mention}.')
+        await self.bot.reply(ctx, content=f'Deleted messages will be sent to {channel.mention}.')
 
     @commands.has_permissions(manage_channels=True)
     @deletes.command(name="off", alaises=["none", "disable"], usages="deletes off")
@@ -222,7 +223,7 @@ class Notifications(commands.Cog):
                                  ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text='Deleted messages will no longer be output.')
+        await self.bot.reply(ctx, content='Deleted messages will no longer be output.')
     
     # Leave / ban / kick notifications
     @commands.has_permissions(manage_guild=True)
@@ -233,10 +234,10 @@ class Notifications(commands.Cog):
             leaves = [r['leaves_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(leaves)
             rep = "not currently being output" if ch is None else f"currently being output to {ch.mention}"
-            return await self.bot.reply(ctx, text=f'Member leave information is ' + rep)
+            return await self.bot.reply(ctx, content=f'Member leave information is ' + rep)
 
         if not channel.permissions_for(ctx.me).send_messages:
-            return await self.bot.reply(ctx, f'🚫 I cannot send messages to {channel.mention}.', ping=True)
+            return await self.bot.reply(ctx, content=f'🚫 I cannot send messages to {channel.mention}.')
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -248,7 +249,7 @@ class Notifications(commands.Cog):
         await self.bot.db.release(connection)
         await self.update_cache()
 
-        await self.bot.reply(ctx, text=f'Notifications will be sent to {channel.mention} when users leave.')
+        await self.bot.reply(ctx, content=f'Notifications will be sent to {channel.mention} when users leave.')
 
     @commands.has_permissions(manage_channels=True)
     @leaves.command(name="off", alaises=["none", "disable"], usage="leaves off")
@@ -260,7 +261,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text='Leave notifications will no longer be output.')
+        await self.bot.reply(ctx, content='Leave notifications will no longer be output.')
 
     # Unban notifier.
     @commands.Cog.listener()
@@ -289,11 +290,11 @@ class Notifications(commands.Cog):
             mutes = [r['mutes_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(mutes)
             rep = " not currently being output" if ch is None else f" currently being output to {ch.mention}"
-            return await self.bot.reply(ctx, text=f'Mute notifications are' + rep)
+            return await self.bot.reply(ctx, content=f'Mute notifications are' + rep)
 
         if not channel.permissions_for(ctx.me).send_messages:
-            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
-                                        ping=True)
+            return await self.bot.reply(ctx, content=f'🚫 I cannot send messages to {channel.mention}.',
+                                        )
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -303,7 +304,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text=f"Notifications will be output to {channel.mention} when a member is muted.")
+        await self.bot.reply(ctx, content=f"Notifications will be output to {channel.mention} when a member is muted.")
 
     @commands.has_permissions(manage_channels=True)
     @mutes.command(name="off", alaises=["none", "disable"], usage="leaves off")
@@ -315,7 +316,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text='Mute and block notifications will no longer be output.')
+        await self.bot.reply(ctx, content='Mute and block notifications will no longer be output.')
     
     # Emoji update notifications
     @commands.has_permissions(manage_channels=True)
@@ -326,11 +327,11 @@ class Notifications(commands.Cog):
             emojis = [r['emojis_channel_id'] for r in self.records if r["guild_id"] == ctx.guild.id][0]
             ch = self.bot.get_channel(emojis)
             rep = "not currently being output." if ch is None else f' currently being output to {ch.mention}'
-            return await self.bot.reply(ctx, text="Emoji change notifications are " + rep)
+            return await self.bot.reply(ctx, content="Emoji change notifications are " + rep)
 
         if not channel.permissions_for(ctx.me).send_messages:
-            return await self.bot.reply(ctx, text=f'🚫 I cannot send messages to {channel.mention}.',
-                                        ping=True)
+            return await self.bot.reply(ctx, content=f'🚫 I cannot send messages to {channel.mention}.',
+                                        )
 
         assert channel.guild.id == ctx.guild.id, "You cannot edit the settings of a channel on another server."
 
@@ -341,7 +342,7 @@ class Notifications(commands.Cog):
                """, ctx.guild.id, channel.id)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text=f"Notifications will be sent to {channel.mention} if emojis are changed.")
+        await self.bot.reply(ctx, content=f"Notifications will be sent to {channel.mention} if emojis are changed.")
 
     @emojis.command(name="off")
     @commands.has_permissions(manage_channels=True)
@@ -353,7 +354,7 @@ class Notifications(commands.Cog):
                                      ctx.guild.id, None)
         await self.bot.db.release(connection)
         await self.update_cache()
-        await self.bot.reply(ctx, text='Emoji update notifications will no longer be output.')
+        await self.bot.reply(ctx, content='Emoji update notifications will no longer be output.')
 
     # # TODO: Blocked
     # @commands.Cog.listener()

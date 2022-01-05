@@ -1,108 +1,131 @@
 """Fetch latest information on televised matches from livesoccertv.com"""
 import datetime
 import json
-from importlib import reload
 
 import discord
+from discord import Option
 from discord.ext import commands
 from lxml import html
 
 from ext.utils import embed_utils, view_utils, timed_events
 
+# aiohttp useragent.
+HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleWebKit/537.36 (KHTML, like Gecko) '
+                         'Chrome/75.0.3770.100 Safari/537.36'}
 
-# TODO:  Convert to use new timestamps.
-# TODO: Select / Button Pass.
+
+# Autocomplete
+async def tv_list(ctx):
+    """TV Autocomplete"""
+    queries = ctx.value.lower().split(' ')
+
+    matches = []
+    for x in ctx.bot.tv:
+        if all(q in x.lower() for q in queries):
+            matches.append(x)
+
+    return matches
+
+
+TV = Option(str, "Search for Television fixtures", autocomplete=tv_list, required=False)
+
 
 class Tv(commands.Cog):
-	"""Search for live TV matches"""
+    """Search for live TV matches"""
 
-	def __init__(self, bot):
-		self.bot = bot
-		self.emoji = "📺"
-		with open('tv.json') as f:
-			bot.tv = json.load(f)
-		reload(view_utils)
-	
-	@commands.command()
-	async def tv(self, ctx, *, team: commands.clean_content = None):
-		"""Lookup next televised games for a team"""
-		em = discord.Embed()
-		em.colour = 0x034f76
-		em.set_author(name="LiveSoccerTV.com")
-		em.description = ""
+    def __init__(self, bot):
+        self.bot = bot
+        with open('tv.json') as f:
+            bot.tv = json.load(f)
 
-		# Selection View if team is passed
-		if team:
-			matches = [i for i in self.bot.tv if str(team).lower() in i.lower()]
+    @commands.slash_command()
+    async def tv(self, ctx, team: TV):
+        """Lookup next televised games for a team"""
+        e = discord.Embed()
+        e.colour = 0x034f76
+        e.set_author(name="LiveSoccerTV.com")
 
-			if not matches:
-				return await self.bot.reply(ctx, text=f"Could not find a matching team/league for {team}.")
+        # Selection View if team is passed
+        if team:
+            matches = [i for i in self.bot.tv if str(team).lower() in i.lower()]
 
-			_ = [('📺', i, self.bot.tv[i]) for i in matches]
+            if not matches:
+                return await self.bot.error(ctx, content=f"Could not find a matching team/league for {team}.")
 
-			view = view_utils.ObjectSelectView(owner=ctx.author, objects=_, timeout=30)
-			view.message = await self.bot.reply(ctx, '⏬ Multiple results found, choose from the dropdown.', view=view)
-			await view.update()
-			await view.wait()
+            _ = [('📺', i, self.bot.tv[i]) for i in matches]
 
-			if view.value is None:
-				return None
+            if len(_) > 1:
+                view = view_utils.ObjectSelectView(owner=ctx.author, objects=_, timeout=30)
+                e.description = '⏬ Multiple results found, choose from the dropdown.'
+                message = await self.bot.reply(ctx, embed=e, view=view)
+                view.message = message
+                await view.update()
+                await view.wait()
 
-			team = matches[view.value]
-			em.url = self.bot.tv[team]
-			em.title = f"Televised Fixtures for {team}"
-		else:
-			em.url = "http://www.livesoccertv.com/schedules/"
-			em.title = f"Today's Televised Matches"
+                if view.value is None:
+                    return None
 
-		rows = []
-		async with self.bot.session.get(em.url) as resp:
-			if resp.status != 200:
-				return await self.bot.reply(ctx, text=f"🚫 <{em.url}> returned a HTTP {resp.status} error.")
-			tree = html.fromstring(await resp.text())
+                team = matches[view.value]
+            else:
+                team = matches[0]
+                message = await self.bot.reply(ctx, content=f"Fetching televised matches for {team}")
 
-			match_column = 3 if not team else 5
+            e.url = self.bot.tv[team]
+            e.title = f"Televised Fixtures for {team}"
+        else:
+            e.url = "http://www.livesoccertv.com/schedules/"
+            e.title = f"Today's Televised Matches"
+            message = await self.bot.reply(ctx, content=f"Fetching televised matches...")
 
-			for i in tree.xpath(".//table[@class='schedules'][1]//tr"):
-				# Discard finished games.
-				complete = "".join(i.xpath('.//td[@class="livecell"]//span/@class')).strip()
-				if complete in ["narrow ft", "narrow repeat"]:
-					continue
+        rows = []
+        async with self.bot.session.get(e.url, headers=HEADERS) as resp:
+            if resp.status != 200:
+                return await self.bot.error(ctx, content=f"{e.url} returned a HTTP {resp.status} error.")
+            tree = html.fromstring(await resp.text())
 
-				match = "".join(i.xpath(f'.//td[{match_column}]//text()')).strip()
-				if not match:
-					continue
+        match_column = 3 if not team else 5
+        for i in tree.xpath(".//table[@class='schedules'][1]//tr"):
+            # Discard finished games.
+            complete = "".join(i.xpath('.//td[@class="livecell"]//span/@class')).strip()
+            if complete in ["narrow ft", "narrow repeat"]:
+                continue
 
-				try:
-					link = i.xpath(f'.//td[{match_column + 1}]//a/@href')[-1]
-					link = f"http://www.livesoccertv.com/{link}"
-				except IndexError:
-					link = ""
+            match = "".join(i.xpath(f'.//td[{match_column}]//text()')).strip()
+            if not match:
+                continue
 
-				try:
-					timestamp = i.xpath('.//@dv')[0]
-					timestamp = int(timestamp)
-					_ = datetime.datetime.fromtimestamp(timestamp / 1000)
-					ts = timed_events.Timestamp(_).datetime
-				except (ValueError, IndexError):
-					date = "".join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
-					time = "".join(i.xpath('.//td[@class="timecell"]//span/text()')).strip()
-					if time not in ["Postp.", "TBA"]:
-						print(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
-					ts = time
+            try:
+                link = i.xpath(f'.//td[{match_column + 1}]//a/@href')[-1]
+                link = f"http://www.livesoccertv.com/{link}"
+            except IndexError:
+                link = ""
 
-				rows.append(f'{ts}: [{match}]({link})')
+            try:
+                timestamp = i.xpath('.//@dv')[0]
+                timestamp = int(timestamp)
+                _ = datetime.datetime.fromtimestamp(timestamp / 1000)
+                if match_column == 3:
+                    ts = timed_events.Timestamp(_).datetime
+                else:
+                    ts = str(timed_events.Timestamp(_))
 
-		if not rows:
-			rows = [f"No televised matches found, check online at {em.url}"]
+            except (ValueError, IndexError):
+                date = "".join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
+                time = "".join(i.xpath('.//td[@class="timecell"]//span/text()')).strip()
+                if time not in ["Postp.", "TBA"]:
+                    print(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
+                ts = time
 
-		embeds = embed_utils.rows_to_embeds(em, rows)
+            rows.append(f'{ts}: [{match}]({link})')
 
-		view = view_utils.Paginator(ctx.author, embeds)
-		view.message = await self.bot.reply(ctx, "Fetching televised matches...", view=view)
-		await view.update()
+        if not rows:
+            rows = [f"No televised matches found, check online at {e.url}"]
+
+        view = view_utils.Paginator(ctx.author, embed_utils.rows_to_embeds(e, rows))
+        view.message = message
+        await view.update()
 
 
 def setup(bot):
-	"""Load TV Lookup Module into the bot."""
-	bot.add_cog(Tv(bot))
+    """Load TV Lookup Module into the bot."""
+    bot.add_cog(Tv(bot))

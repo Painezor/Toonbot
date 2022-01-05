@@ -6,8 +6,7 @@ from discord.ext import commands
 
 from ext.utils import embed_utils, view_utils
 
-INV = f"[Invite me to your discord](https://discordapp.com/oauth2/authorize?client_id=250051254783311873" \
-      f"&permissions=67488768&scope=bot)\n[Join the Toonbot Help & Testing Discord](http://www.discord.gg/a5NHvPx)" \
+INV = f"[Join the Toonbot Help & Testing Discord](http://www.discord.gg/a5NHvPx)" \
       f"\n[Donate to the Author](https://paypal.me/Toonbot)"
 
 
@@ -148,8 +147,9 @@ class HelpView(discord.ui.View):
 
     async def on_timeout(self):
         """Clean up"""
+        self.clear_items()
         try:
-            await self.message.delete()
+            await self.message.edit(view=self)
         except discord.HTTPException:
             pass
 
@@ -175,8 +175,11 @@ class HelpView(discord.ui.View):
     async def push_home_embed(self):
         """The default Home Embed"""
         e = self.base_embed
-        e.description = f"**Running Commands**:\n Use `{self.ctx.prefix}command` to run a command\n" \
-                        f"Use `{self.ctx.prefix}help command` to get detailed help for that command."
+        e.description = "```yaml\n[WARNING]: Toonbot is migrating to use slash commands due to changes with Discord.\n" \
+                        "You should kick and re-invite the bot to your server to be able to use these. Only commands" \
+                        "that have not yet been migrated to slash commands are listed in the Help menu!```"
+        e.description += f"**Running Commands**:\n Use `{self.ctx.prefix}command` to run a command\n" \
+                         f"Use `{self.ctx.prefix}help command` to get detailed help for that command."
         e.add_field(name="Navigating Menus", value="Click on buttons to change between pages, "
                                                    "Click on dropdowns to select items on those pages.", inline=False)
         e.add_field(name="Links", value=INV, inline=False)
@@ -260,14 +263,14 @@ class Help(commands.HelpCommand):
         """Default Help Command: No Category or Command"""
         cogs = await self.get_valid_cogs()
         view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs, help_command=self)
-        view.message = await self.context.bot.reply(self.context, "Generating Help...", view=view)
+        view.message = await self.context.bot.reply(self.context, content="Generating Help...", view=view)
         await view.push_home_embed()
 
     async def send_cog_help(self, cog):
         """Sends help for a single category"""
         cogs = await self.get_valid_cogs()
         view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs, help_command=self)
-        view.message = await self.context.bot.reply(self.context, "Generating Help...", view=view)
+        view.message = await self.context.bot.reply(self.context, content="Generating Help...", view=view)
         await view.push_cog_embed(cog)
 
     async def send_group_help(self, group):

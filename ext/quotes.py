@@ -115,11 +115,11 @@ class QuoteDB(commands.Cog):
         await self.bot.db.release(connection)
 
         if not r:
-            return await self.bot.reply(ctx, text=failure)
+            return await self.bot.reply(ctx, content=failure)
 
         embeds = await self.embed_quotes(r)
         view = view_utils.Paginator(ctx.author, embeds)
-        view.message = await self.bot.reply(ctx, f"Fetching {success}", view=view)
+        view.message = await self.bot.reply(ctx, content=f"Fetching {success}", view=view)
         await view.update()
 
     @commands.group(invoke_without_command=True, aliases=["quotes"],
@@ -127,8 +127,8 @@ class QuoteDB(commands.Cog):
     async def quote(self, ctx, quote_id: typing.Optional[int], users: commands.Greedy[discord.User]):
         """Get a random quote from this server. (optionally by Quote ID# or user(s)."""
         if len(str(quote_id)) > 6:
-            return await self.bot.reply(ctx, text="Too long to be a quote ID. if you're trying to add a quote, "
-                                                  f"use `{ctx.prefix}quote add number` instead")
+            return await self.bot.reply(ctx, content="Too long to be a quote ID. if you're trying to add a quote, "
+                                                     f"use `{ctx.prefix}quote add number` instead")
         await self._get_quote(ctx, quote_id=quote_id, users=users)
 
     # Add quote
@@ -141,21 +141,21 @@ class QuoteDB(commands.Cog):
             messages = await ctx.history(limit=50).flatten()
             m = discord.utils.get(messages, channel=ctx.channel, author=target)
             if not m:
-                return await self.bot.reply(ctx, text="No messages from that user found in last 50 messages, "
-                                                      "please use message's id or link")
+                return await self.bot.reply(ctx, content="No messages from that user found in last 50 messages, "
+                                                         "please use message's id or link")
 
         elif isinstance(target, discord.Message):
             m = target
         else:
-            return await self.bot.reply(ctx, text='Invalid argument provided for target.', ping=True)
+            return await self.bot.reply(ctx, content='Invalid argument provided for target.')
 
         if m.author.id == ctx.author.id:
-            return await self.bot.reply(ctx, text="You can't quote yourself.", ping=True)
+            return await self.bot.reply(ctx, content="You can't quote yourself.")
 
         if not m.content:
-            return await self.bot.reply(ctx, text='That message has no content.', ping=True)
-        
-        await self.bot.reply(ctx, text="Attempting to add quote to db...", delete_after=5)
+            return await self.bot.reply(ctx, content='That message has no content.')
+
+        await self.bot.reply(ctx, content="Attempting to add quote to db...", delete_after=5)
         connection = await self.bot.db.acquire()
 
         try:
@@ -173,9 +173,9 @@ class QuoteDB(commands.Cog):
                     (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
                     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""", ch, gu, ms, au, qu, st, dt)
             e = await self.embed_quotes([r])
-            await self.bot.reply(ctx, text=":white_check_mark: Successfully added quote to database", embed=e[0])
+            await self.bot.reply(ctx, content=":white_check_mark: Successfully added quote to database", embed=e[0])
         except UniqueViolationError:
-            await self.bot.reply(ctx, text="That quote is already in the database!")
+            await self.bot.reply(ctx, content="That quote is already in the database!")
         finally:
             await self.bot.db.release(connection)
 
@@ -207,7 +207,6 @@ class QuoteDB(commands.Cog):
 
     # Delete quotes
     @quote.command(name="del", aliases=['remove'], usage="<quote id number to delete>")
-    @commands.has_permissions(manage_messages=True)
     @commands.guild_only()
     async def _del(self, ctx, quote_id: int):
         """Delete quote by quote ID"""
@@ -217,48 +216,53 @@ class QuoteDB(commands.Cog):
         await self.bot.db.release(connection)
         
         if r is None:
-            return await self.bot.reply(ctx, text=f"No quote found with ID #{quote_id}", ping=True)
+            return await self.bot.reply(ctx, content=f"No quote found with ID #{quote_id}")
 
         if r["guild_id"] != ctx.guild.id:
             if ctx.author.id != self.bot.owner_id:
-                return await self.bot.reply(ctx, text=f"You can't delete other servers quotes.", ping=True)
+                return await self.bot.reply(ctx, content=f"You can't delete other servers quotes.")
 
         e = await self.embed_quotes([r])
         e = e[0]  # There will only be one quote to return for this.
-        
+
         async def delete():
             """Delete a quote from the database"""
             c = await self.bot.db.acquire()
             async with c.transaction():
                 await c.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
             await self.bot.db.release(c)
-            await self.bot.reply(ctx, text=f"Quote #{quote_id} has been deleted.")
-        
-        try:
-            m = await self.bot.reply(ctx, text="Delete this quote?", embed=e, ping=True)
-            await embed_utils.bulk_react(ctx, m, ["👍", "👎"])
-        except AssertionError:  # Skip confirm if can't react.
-            return await delete()
-            
-        def check(reaction, user):
-            """Verify user reacting is the invoker of the command"""
-            if reaction.message.id == m.id and user == ctx.author:
-                emoji = str(reaction.emoji)
-                return emoji.startswith(("👍", "👎"))
+            await self.bot.reply(ctx, content=f"Quote #{quote_id} has been deleted.")
 
-        try:
-            res = await self.bot.wait_for("reaction_add", check=check, timeout=30)
-        except asyncio.TimeoutError:
+        _ = ctx.author.id in [r["author_user_id"], r["submitter_user_id"]]
+        if _ or ctx.channel.permissions_for(ctx.author).manage_messages:
+            try:
+                m = await self.bot.reply(ctx, content="Delete this quote?", embed=e)
+                await embed_utils.bulk_react(ctx, m, ["👍", "👎"])
+            except AssertionError:  # Skip confirm if can't react.
+                return await delete()
+
+            def check(reaction, user):
+                """Verify user reacting is the invoker of the command"""
+                if reaction.message.id == m.id and user == ctx.author:
+                    emoji = str(reaction.emoji)
+                    return emoji.startswith(("👍", "👎"))
+
+            try:
+                res = await self.bot.wait_for("reaction_add", check=check, timeout=30)
+            except asyncio.TimeoutError:
+                await m.clear_reactions()
+                return await self.bot.reply(ctx, content="Response timed out after 30 seconds, quote not deleted")
+            res = res[0]
+
+            if res.emoji.startswith("👎"):
+                await self.bot.reply(ctx, content=f"Quote {quote_id} was not deleted")
+
+            elif res.emoji.startswith("👍"):
+                await delete()
             await m.clear_reactions()
-            return await self.bot.reply(ctx, text="Response timed out after 30 seconds, quote not deleted")
-        res = res[0]
-
-        if res.emoji.startswith("👎"):
-            await self.bot.reply(ctx, text=f"Quote {quote_id} was not deleted")
-
-        elif res.emoji.startswith("👍"):
-            await delete()
-        await m.clear_reactions()
+        else:
+            return await self.bot.reply(ctx,
+                                        content="Only people involved with the quote or moderators can delete quotes")
         
     # Quote Stats.
     @quote.command(usage="<#channel or @user>")

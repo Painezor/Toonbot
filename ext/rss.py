@@ -154,7 +154,10 @@ class RSS(commands.Cog):
             elif node.tag == "strong":
                 out = f" **{txt}**"
             elif node.tag == "span":
-                out = f"`{txt}`" if "ship" in node.attrib['class'] else txt
+                if "ship" in node.attrib['class']:
+                    out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
+                else:
+                    out = txt
             elif node.tag == "ul":
                 out = f"{txt}"
             elif node.tag == "li":
@@ -227,31 +230,31 @@ class RSS(commands.Cog):
         e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
         return e
 
-    @commands.command()
-    async def devblog(self, ctx, link=None):
-        """Fetch a World of Warships devblog, either provide ID number or leave blank to get latest."""
-        if link is None:
-            async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
-                tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
-
-            articles = tree.xpath('.//item')
-            link = ""
-            for i in articles:
-                link = "".join(i.xpath('.//guid/text()'))
-                if link:
-                    break
-        elif link.isdigit():
-            link = f"https://blog.worldofwarships.com/blog/{link}"
-
-        e = await self.parse(link)
-        await self.bot.reply(ctx, embed=e)
-
-    @commands.command()
-    @commands.is_owner()
-    async def news(self, ctx, link):
-        """Manual refresh of missed news articles."""
-        await self.dispatch_eu_news(link)
-        await self.bot.reply(ctx, "Sent.", delete_after=1)
+    # @commands.command(hidden=True)
+    # async def devblog(self, ctx, link=None):
+    #     """Fetch a World of Warships devblog, either provide ID number or leave blank to get latest."""
+    #     if link is None:
+    #         async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
+    #             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
+    #
+    #         articles = tree.xpath('.//item')
+    #         link = ""
+    #         for i in articles:
+    #             link = "".join(i.xpath('.//guid/text()'))
+    #             if link:
+    #                 break
+    #     elif link.isdigit():
+    #         link = f"https://blog.worldofwarships.com/blog/{link}"
+    #
+    #     e = await self.parse(link)
+    #     await self.bot.reply(ctx, embed=e)
+    #
+    # @commands.command(hidden=True)
+    # @commands.is_owner()
+    # async def news(self, ctx, link):
+    #     """Manual refresh of missed news articles."""
+    #     await self.dispatch_eu_news(link)
+    #     await self.bot.reply(ctx, content="Sent.", delete_after=1)
 
 
 def setup(bot):

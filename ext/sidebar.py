@@ -256,7 +256,7 @@ class NUFCSidebar(commands.Cog):
             old = _.content_md
             markdown = re.sub(r'---.*?---', f"---\n\n> {caption}\n\n---", old, flags=re.DOTALL)
             await _.edit(content=markdown)
-            await self.bot.reply(ctx, f"Set caption to: {caption}")
+            await self.bot.reply(ctx, content=f"Set caption to: {caption}")
 
         if ctx.message.attachments:
             await ctx.message.attachments[0].save("sidebar.png")

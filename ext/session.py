@@ -20,6 +20,7 @@ class Browser(commands.Cog):
             await self.bot.session.close()
         except AttributeError:
             pass
+
         self.bot.session = aiohttp.ClientSession(loop=self.bot.loop, connector=aiohttp.TCPConnector(ssl=False))
 
 

@@ -82,7 +82,10 @@ class StopButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
         """Do this when button is pressed"""
-        await self.view.message.delete()
+        try:
+            await self.view.message.delete()
+        except discord.NotFound:
+            pass
         if hasattr(self.view, "page"):
             await self.view.page.close()
         self.view.stop()
@@ -121,21 +124,31 @@ class ObjectSelectView(discord.ui.View):
         """Assure only the command's invoker can select a result"""
         return interaction.user.id == self.owner.id
 
+    @property
+    def embed(self):
+        """Embeds look prettier, ok?"""
+        e = discord.Embed()
+        e.set_author(name="Multiple results found")
+        e.title = "Use the dropdown below to select from the following list."
+        e.description = "\n".join([i[1] for i in self.pages[self.index]])
+        return e
+
     async def update(self):
         """Send new version of view to user"""
         self.clear_items()
 
-        _ = PreviousButton(row=1)
-        _.disabled = True if self.index == 0 else False
-        self.add_item(_)
+        if len(self.pages) != 1:
+            _ = PreviousButton(row=1)
+            _.disabled = True if self.index == 0 else False
+            self.add_item(_)
 
-        _ = PageButton(row=1)
-        _.label = f"Page {self.index + 1} of {len(self.pages)}"
-        self.add_item(_)
+            _ = PageButton(row=1)
+            _.label = f"Page {self.index + 1} of {len(self.pages)}"
+            self.add_item(_)
 
-        _ = NextButton(row=1)
-        _.disabled = True if self.index == len(self.pages) - 1 else False
-        self.add_item(_)
+            _ = NextButton(row=1)
+            _.disabled = True if self.index == len(self.pages) - 1 else False
+            self.add_item(_)
 
         _ = ItemSelect(placeholder="Select Matching Item...", options=self.pages[0])
         _.label = f"Page {self.index + 1} of {len(self.pages)}"
@@ -143,12 +156,17 @@ class ObjectSelectView(discord.ui.View):
         self.add_item(_)
 
         self.add_item(StopButton(row=1))
-        await self.message.edit(view=self)
+        await self.message.edit(view=self, embed=self.embed)
 
     async def on_timeout(self):
         """Cleanup"""
+        self.clear_items()
+        e = discord.Embed()
+        e.colour = discord.Colour.red()
+        e.description = "Timed out waiting for you to select a match."
+
         try:
-            await self.message.delete()
+            await self.message.edit(content="", embed=e, view=None)
         except discord.NotFound:
             pass
         self.stop()
@@ -189,11 +207,6 @@ class ItemSelect(discord.ui.Select):
 
         self.view.value = self.view.index * 25 + int(self.values[0])
         self.view.stop()
-
-        try:
-            await self.view.message.delete()
-        except discord.HTTPException:
-            pass
 
 
 class Button(discord.ui.Button):
@@ -321,10 +334,8 @@ class Confirmation(discord.ui.View):
     async def on_timeout(self) -> None:
         """Return nothing on timeout."""
         self.value = None
-        try:
-            await self.message.delete()
-        except discord.HTTPException:
-            pass
+        self.clear_items()
+        await self.message.edit(view=self)
         self.stop()
 
 
@@ -340,8 +351,4 @@ class BoolButton(discord.ui.Button):
     async def callback(self, interaction):
         """On Click Event"""
         self.view.value = self.value
-        try:
-            await self.view.message.delete()
-        except discord.HTTPException:
-            pass
         self.view.stop()
