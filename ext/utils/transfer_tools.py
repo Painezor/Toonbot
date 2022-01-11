@@ -323,6 +323,8 @@ class Team(TransferResult):
         self.name = name
         self.link = link
         super().__init__(name, link)
+        self.league = None
+        self.country = None
 
     @property
     def markdown(self):
@@ -402,7 +404,7 @@ class Team(TransferResult):
 
         rows = ["No expiring contracts found."] if not rows else rows
 
-        view = view_utils.Paginator(ctx.author, embed_utils.rows_to_embeds(e, rows))
+        view = view_utils.Paginator(ctx, embed_utils.rows_to_embeds(e, rows))
         view.message = await ctx.bot.reply(ctx, content=f"Fetching contracts for {self.name}", view=view)
         await view.update()
 
@@ -464,8 +466,7 @@ class TeamView(discord.ui.View):
         for _ in buttons:
             self.add_item(_)
 
-        _ = discord.AllowedMentions.none()
-        await self.message.edit(content="", embed=self.pages[self.index], view=self, allowed_mentions=_)
+        await self.message.edit(content="", embed=self.pages[self.index], view=self)
 
     async def push_transfers(self):
         """Push transfers to View"""
@@ -486,12 +487,9 @@ class TeamView(discord.ui.View):
                 return None
             tree = html.fromstring(await resp.text())
 
-        print(f"DEBUG: URL is {url}")
-
         def parse(rows, out=False) -> typing.List[Transfer]:
             """Read through the transfers page and extract relevant data, returning a list of transfers"""
 
-            print(len(rows), "rows were passed.")
             transfers = []
             for i in rows:
                 # Block 1 - Discard, Position Colour Marker.
@@ -813,8 +811,7 @@ class CompetitionView(discord.ui.View):
         for _ in buttons:
             self.add_item(_)
 
-        _ = discord.AllowedMentions.none()
-        await self.message.edit(content="", embed=self.pages[self.index], view=self, allowed_mentions=_)
+        await self.message.edit(content="", embed=self.pages[self.index], view=self)
 
     async def push_attendance(self):
         """Fetch attendances for league's stadiums."""
@@ -869,34 +866,6 @@ class CategorySelect(discord.ui.Select):
         self.view.category = self.values[0]
         self.view.remove_item(self)
         await self.view.update()
-
-
-class PageButton(discord.ui.Button):
-    """Button to spawn a dropdown to select pages."""
-
-    def __init__(self, row=0):
-        super().__init__()
-        self.label = f"Populating..."
-        self.emoji = "⏬"
-        self.row = row
-        self.style = discord.ButtonStyle.primary
-
-    async def callback(self, interaction: discord.Interaction):
-        """The pages button."""
-        await interaction.response.defer()
-        if len(self.view.pages) < 25:
-            sliced = self.view.pages
-        else:
-            if self.view.index < 13:
-                sliced = list(range(1, 25))
-            elif self.view.index > len(self.view.pages) - 13:
-                sliced = list(range(self.view.index - 24, self.view.index))
-            else:
-                sliced = list(range(self.view.index - 12, self.view.index + 12))
-        options = [discord.SelectOption(label=f"Page {n}", value=str(n)) for n in sliced]
-        self.view.add_item(view_utils.PageSelect(placeholder="Select A Page", options=options, row=self.row + 1))
-        self.disabled = True
-        await self.view.message.edit(view=self.view)
 
 
 class HomeButton(discord.ui.Button):
@@ -973,6 +942,7 @@ class SearchView(discord.ui.View):
         print("Error in transfer_tools.SearchView")
         print(self.ctx.message.content)
         print(item)
+        print(item.__dict__)
         print(interaction)
         raise error
 
@@ -1003,9 +973,15 @@ class SearchView(discord.ui.View):
             select = CategorySelect()
             ce = discord.Embed(title="Multiple results found", description="")
             ce.set_footer(text="Use the dropdown to select a category")
+
             for i in categories:
                 # Just give number of matches (digit characters).
-                length = int("".join([n for n in i if n.isdecimal()]))
+                try:
+                    length = int("".join([n for n in i if n.isdecimal()]))
+                except ValueError:
+                    print("ValueError in transfer_tools", i)
+                    length = "?"
+
                 s = "" if length == 1 else "s"
                 if 'for players' in i:
                     select.add_option(emoji='🏃', label="Players", description=f"{length} Results", value="Players")
@@ -1028,7 +1004,8 @@ class SearchView(discord.ui.View):
                     ce.description += f"Competitions: {length} Result{s}\n"
 
             if not select.options:
-                return await self.message.edit(content=f'No results found for query {self.query}')
+                ce.description = f'No results found for query {self.query}'
+                return await self.message.edit(embed=ce)
 
             elif len(select.options) == 1:
                 self.category = select.options[0].label
@@ -1036,8 +1013,7 @@ class SearchView(discord.ui.View):
             else:
                 self.clear_items()
                 self.add_item(select)
-                am = discord.AllowedMentions.none()
-                await self.message.edit("", view=self, embed=ce, allowed_mentions=am)
+                await self.message.edit("", view=self, embed=ce)
                 return await self.wait()
 
         qs, ms, parser = self.settings
@@ -1051,7 +1027,13 @@ class SearchView(discord.ui.View):
         # Get trs of table after matching header / {ms} name.
         trs = f".//div[@class='box']/div[@class='table-header'][contains(text(),'{ms}')]/following::div[1]//tbody/tr"
         _ = "".join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{ms}')]//text()"))
-        matches = int("".join([i for i in _ if i.isdecimal()]))
+
+        try:
+            matches = int("".join([i for i in _ if i.isdecimal()]))
+        except ValueError:
+            matches = 0
+            if _:
+                print("ValueError in transfer_tools", _)
 
         e = discord.Embed(title=f"{matches} {self.category.title().rstrip('s')} results for {self.query}")
         e.set_author(name="TransferMarkt Search", url=self.url, icon_url=FAVICON)
@@ -1068,7 +1050,7 @@ class SearchView(discord.ui.View):
             _.disabled = True if self.index == 1 else False
             self.add_item(_)
 
-            _ = PageButton()
+            _ = view_utils.PageButton()
             _.label = f"Page {self.index} of {len(self.pages)}"
             self.add_item(_)
 
@@ -1083,8 +1065,8 @@ class SearchView(discord.ui.View):
             self.add_item(_)
 
         try:
-            await self.message.edit(content="", embed=e, view=self, allowed_mentions=discord.AllowedMentions.none())
+            await self.message.edit(content="", embed=e, view=self)
         except discord.HTTPException:
             print("Error in transfer_tools. SearchView.update")
-            print([_.__dict__ for _ in results])
+
         await self.wait()

@@ -39,12 +39,21 @@ class ReplyHandler(commands.Cog):
                 pass
 
     # Custom reply handler.
-    async def error(self, ctx, text="Generic Error."):
+    async def error(self, ctx, text, view=None, message=None):
         """Master reply handler for bot, with fallbacks."""
         e = discord.Embed()
         e.colour = discord.Colour.red()
         e.description = text
-        await self.reply(ctx, embed=e, ephemeral=True)
+        if view is not None:
+            if message is None:
+                await self.reply(ctx, embed=e, view=view, ephemeral=True)
+            else:
+                await message.edit(embed=e, view=view)
+        else:
+            if message is None:
+                await self.reply(ctx, embed=e, ephemeral=True)
+            else:
+                await message.edit(embed=e)
 
 
 def setup(bot):

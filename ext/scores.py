@@ -4,8 +4,10 @@ import datetime
 from collections import defaultdict
 
 # discord
+import asyncpg
 import discord
 from asyncpg import UniqueViolationError
+from discord import Option
 from discord.ext import commands, tasks
 # Web Scraping
 from lxml import html
@@ -46,6 +48,16 @@ WORLD_CUP_LEAGUES = [
     "NORTH & CENTRAL AMERICA: World Cup",
     "SOUTH AMERICA: World Cup"
 ]
+
+
+# Autocomplete
+async def live_leagues(ctx):
+    """Return list of live leagues"""
+    leagues = set([i.league for i in ctx.bot.games if ctx.value.lower() in i.league.lower()])
+    return sorted(list(leagues))
+
+
+LEAGUES = Option(str, "Search for a competition", autocomplete=live_leagues)
 
 
 class ResetLeagues(discord.ui.Button):
@@ -125,7 +137,18 @@ class ConfigView(discord.ui.View):
         leagues = await self.get_leagues()
 
         if leagues:
-            await self.generate_embeds(leagues)
+            """Formatted Live SCores Embed"""
+            e = discord.Embed()
+            e.colour = discord.Colour.dark_teal()
+            e.title = "Toonbot Live Scores config"
+            e.set_thumbnail(url=self.ctx.channel.guild.me.display_avatar.url)
+
+            header = f'Tracked leagues for {self.ctx.channel.mention}```yaml\n'
+
+            if not leagues:
+                leagues = ["```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"]
+            embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
+            self.pages = embeds
 
             _ = view_utils.PreviousButton()
             _.disabled = True if self.index == 0 else False
@@ -159,24 +182,10 @@ class ConfigView(discord.ui.View):
             self.stop()
             return
 
-    async def generate_embeds(self, leagues):
-        """Formatted Live SCores Embed"""
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_teal()
-        e.title = "Toonbot Live Scores config"
-        e.set_thumbnail(url=self.ctx.channel.guild.me.display_avatar.url)
-
-        header = f'Tracked leagues for {self.ctx.channel.mention}```yaml\n'
-
-        if not leagues:
-            leagues = ["```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"]
-        embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
-        self.pages = embeds
-
     async def remove_leagues(self, leagues):
         """Bulk remove leagues from a live scores channel"""
         red = discord.ButtonStyle.red
-        view = view_utils.Confirmation(owner=self.ctx.author, label_a="Remove", label_b="Cancel", colour_a=red)
+        view = view_utils.Confirmation(self.ctx, label_a="Remove", label_b="Cancel", colour_a=red)
         lg_text = "```yaml\n" + '\n'.join(sorted(leagues)) + "```"
         _ = f"Remove these leagues from {self.ctx.channel.mention}? {lg_text}"
         await self.message.edit(content=_, view=view)
@@ -606,7 +615,7 @@ class Scores(commands.Cog, name="LiveScores"):
                 capture_group = []
         return new_games
 
-    @commands.command()
+    @commands.slash_command()
     async def livescores(self, ctx):
         """View the status of your live scores channels."""
         if ctx.guild is None:
@@ -631,13 +640,16 @@ class Scores(commands.Cog, name="LiveScores"):
         await view.update()
 
     @commands.slash_command()
-    async def create_livescores_channel(self, ctx, channel_name="live-scores"):
+    async def livescores_create_channel(self, ctx, channel_name="live-scores"):
         """Create a live-scores channel for your server."""
         if ctx.guild is None:
             return await self.bot.error(ctx, "This command cannot be ran in DMs")
 
         if not ctx.channel.permissions_for(ctx.author).manage_channels:
             return await self.bot.error(ctx, "You need manage_channels permissions to create a scores channel.")
+
+        if not ctx.channel.permissions_for(ctx.me).manage_channels:
+            return await self.bot.error(ctx, "I need manage_channels permissions to create a scores channel.")
 
         reason = f'{ctx.author} (ID: {ctx.author.id}) created a Toonbot live-scores channel.'
         topic = "Live Scores from around the world"
@@ -662,7 +674,12 @@ class Scores(commands.Cog, name="LiveScores"):
         try:
             async with connection.transaction():
                 q = """INSERT INTO scores_channels (guild_id, channel_id) VALUES ($1, $2)"""
-                await connection.execute(q, channel.guild.id, channel.id)
+                try:
+                    await connection.execute(q, channel.guild.id, channel.id)
+                except asyncpg.exceptions.ForeignKeyViolationError:
+                    cog = await self.bot.get_cog("Mod")
+                    await cog.create_guild(channel.guild.id)
+                    await connection.execute(q, channel.guild.id, channel.id)
 
                 qq = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 for i in DEFAULT_LEAGUES:
@@ -677,7 +694,7 @@ class Scores(commands.Cog, name="LiveScores"):
         await self.update_channel(channel.id)
 
     @commands.slash_command()
-    async def livescores_add(self, ctx, league_name):
+    async def livescores_add(self, ctx, league_name: LEAGUES):
         """Add a league to an existing live-scores channel"""
         if ctx.guild is None:
             return await self.bot.error(ctx, "This command cannot be ran in DMs")
@@ -685,9 +702,9 @@ class Scores(commands.Cog, name="LiveScores"):
         if not ctx.channel.permissions_for(ctx.author).manage_channels:
             return await self.bot.error(ctx, "You need manage_channels permissions to create a scores channel.")
 
+        q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
         try:
-            q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
             async with connection.transaction():
                 row = await connection.fetchrow(q, ctx.channel.id)
         finally:
@@ -729,14 +746,11 @@ class Scores(commands.Cog, name="LiveScores"):
         finally:
             await self.bot.db.release(connection)
 
-        await message.edit(content=f"Added to tracked leagues for {ctx.channel.mention}```yaml\n{res}```")
         await self.update_cache()
-        await self.update_channel(ctx.channel.id)
 
         view = ConfigView(ctx)
-        await message.edit(content=f"Added tracked leagues for {ctx.channel.mention}```yaml\n{res}```", view=view)
         view.message = message
-        await view.update()
+        await view.update(text=f"Added tracked leagues for {ctx.channel.mention}```yaml\n{res}```")
 
     @commands.slash_command()
     async def livescores_add_world_cup(self, ctx):
@@ -772,7 +786,6 @@ class Scores(commands.Cog, name="LiveScores"):
         res = "\n".join(WORLD_CUP_LEAGUES)
 
         await self.update_cache()
-        await self.update_channel(ctx.channel.id)
 
         view = ConfigView(ctx)
         message = await self.bot.reply(ctx, content=f"Added to tracked leagues for {ctx.channel.mention}"

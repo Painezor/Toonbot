@@ -33,7 +33,7 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
     if not rows:
         return ""
 
-    height = math.ceil(len(rows) / (len(rows) // per) + 1)
+    height = math.ceil(len(rows) / (len(rows) // per + 1))
     chunks = [''.join(rows[i:i + height]) for i in range(0, len(rows), height)]
     chunks.reverse()
     markdown = header + header.join(chunks)
@@ -68,14 +68,6 @@ class NUFCSidebar(commands.Cog):
         _ = await self.bot.reddit.subreddit('NUFC')
         _ = await _.wiki.get_page("config/sidebar")
         await _.edit(content=markdown)
-
-        notif = self.bot.get_channel(744184024079007895)
-        e = discord.Embed(color=0xff4500)
-        th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
-        e.set_author(icon_url=th, name="r/NUFC Sidebar updated")
-        e.url = "http://www.reddit.com/r/NUFC "
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        await notif.send(embed=e)
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self):
@@ -199,12 +191,13 @@ class NUFCSidebar(commands.Cog):
         
         # Start with "last match" bar at the top.
         lm = results[0]
+
         # CHeck if we need to upload a temporary badge.
         if not lm.home_icon or not lm.away_icon:
             which_team = "home" if not lm.home_icon else "away"
             page = await self.bot.browser.newPage()
             try:
-                badge, page = await lm.get_badge(page, which_team)
+                badge = await lm.get_badge(page, which_team)
             finally:
                 await page.close()
 

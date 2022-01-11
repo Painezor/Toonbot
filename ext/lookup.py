@@ -36,22 +36,19 @@ class Lookups(commands.Cog):
         if comp is None:
             return
 
-        am = discord.AllowedMentions.none()
         _ = comp.view(ctx)
         __ = ctx.command.name
-        _.message = await view.message.edit(content=f"Fetching {__} for {comp.name}", view=_, allowed_mentions=am)
+        _.message = await view.message.edit(content=f"Fetching {__} for {comp.name}", view=_)
 
         return None if comp is None else _
 
     # Base lookup - No Sub-command invoked.
-    @commands.command(usage="<Who you want to search for>")
-    async def lookup(self, ctx, *, query: commands.clean_content = None):
-        """Perform a database lookup on transfermarkt"""
-        if query is None:
-            return await self.bot.reply(ctx, content='🚫 You need to specify something to search for.')
-
+    @commands.slash_command()
+    async def lookup(self, ctx, *, query):
+        """Look something up on transfermarkt"""
+        message = await self.searching(ctx, query)
         view = transfer_tools.SearchView(ctx, query)
-        view.message = await self.bot.reply(ctx, content=f"Fetching results for {query}", view=view)
+        view.message = message
         await view.update()
 
     @commands.slash_command()

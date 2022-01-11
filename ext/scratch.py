@@ -28,7 +28,7 @@
 #                 continue
 #             e.add_field(name=x.label, value=text)
 #
-#         await self.message.edit("", embed=e, view=self, allowed_mentions=discord.AllowedMentions.none())
+#         await self.message.edit("", embed=e, view=self)
 #         await self.wait()
 #
 #     async def interaction_check(self, interaction: discord.Interaction) -> bool:

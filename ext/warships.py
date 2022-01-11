@@ -6,15 +6,13 @@ import discord
 from PIL import Image
 from discord.ext import commands
 
-targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1"
-                                                                           "DobbyM8", "frostinator08", "GameProdigy",
-           "Jamdearest", "KidneyCowboy", "Lord_Zath", "Masterchief1567",
-           "nebelfuss", "painezor", "Pelzmorph", "pops_place", "Redberen", "SeaRaptor00", "song_mg", "spacepickshovel",
-           "StatsBloke", "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend",
-           "Xairen", "Yuzral"]
+targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1", "DobbyM8",
+           "frostinator08", "GameProdigy", "Jamdearest", "KidneyCowboy", "Lord_Zath", "Masterchief1567", "nebelfuss",
+           "painezor", "Pelzmorph", "pops_place", "Redberen", "SeaRaptor00", "song_mg", "spacepickshovel", "StatsBloke",
+           "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend", "Xairen", "Yuzral"]
 
 
-# TODO: Get appropriate perms.
+# TODO: Apply for
 
 
 def make_bauble(img):

@@ -2,11 +2,11 @@
 import json
 import random
 import textwrap
-import typing
 from io import BytesIO
 
 import discord
 from PIL import Image, ImageDraw, ImageOps, ImageFont
+from discord import Option
 from discord.ext import commands
 
 from ext.utils import embed_utils
@@ -15,7 +15,10 @@ KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_T
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
 
 
+# TODO: XKCD Command. https://xkcd.com/json.html
 # TODO: Select / Button Pass.
+
+
 def draw_tinder(image, av, name):
     """Draw Images for the tinder command"""
     # Base Image
@@ -52,20 +55,20 @@ def draw_bob(image, response):
     """Pillow Bob Rossifying"""
     im = Image.open(BytesIO(image)).convert(mode="RGBA")
     bob = Image.open("Images/rossface.png")
-    for coords in response:
-        x = int(coords["faceRectangle"]["left"])
-        y = int(coords["faceRectangle"]["top"])
-        w = int(coords["faceRectangle"]["width"])
-        h = int(coords["faceRectangle"]["height"])
-        roll = int(coords["faceAttributes"]["headPose"]["roll"]) * -1
-        vara = int(x - (w / 4))
-        varb = int(y - (h / 2))
-        varc = int(x + (w * 1.25))
-        vard = int((y + (h * 1.25)))
-        xsize = varc - vara
-        ysize = vard - varb
-        thisbob = ImageOps.fit(bob, (xsize, ysize)).rotate(roll)
-        im.paste(thisbob, box=(vara, varb, varc, vard), mask=thisbob)
+    for coordinates in response:
+        x = int(coordinates["faceRectangle"]["left"])
+        y = int(coordinates["faceRectangle"]["top"])
+        w = int(coordinates["faceRectangle"]["width"])
+        h = int(coordinates["faceRectangle"]["height"])
+        roll = int(coordinates["faceAttributes"]["headPose"]["roll"]) * -1
+        top_left = int(x - (w / 4))
+        bottom_left = int(y - (h / 2))
+        top_right = int(x + (w * 1.25))
+        bottom_right = int((y + (h * 1.25)))
+        width = top_right - top_left
+        height = bottom_right - bottom_left
+        this = ImageOps.fit(bob, (width, height)).rotate(roll)
+        im.paste(this, box=(top_left, bottom_left, top_right, bottom_right), mask=this)
     output = BytesIO()
     im.save(output, "PNG")
     output.seek(0)
@@ -215,7 +218,7 @@ async def get_faces(ctx, target):
     elif isinstance(target, discord.Attachment):
         target = target.url
     elif "://" not in target:
-        await ctx.bot.reply(ctx, content=f"{target} doesn't look like a valid url.")
+        await ctx.bot.error(ctx, f"{target} doesn't look like a valid url.")
         return None, None, None
 
     # Prepare POST
@@ -227,22 +230,23 @@ async def get_faces(ctx, target):
     # Get Project Oxford reply
     async with ctx.bot.session.post(url, params=p, headers=h, data=d) as resp:
         if resp.status == 400:
-            await ctx.bot.reply(ctx, content=await resp.json())
+            await ctx.bot.error(ctx, await resp.json())
             return False, False, False
         elif resp.status != 200:
-            await ctx.bot.reply(ctx, content=f"HTTP Error {resp.status} accessing facial recognition API.")
+            await ctx.bot.error(ctx, f"HTTP Error {resp.status} accessing facial recognition API.")
             return None, None, None
         response = await resp.json()
-    
+
     # Get target image as file
     async with ctx.bot.session.get(target) as resp:
         if resp.status != 200:
-            await ctx.bot.reply(ctx, content=f"{resp.status} code accessing project oxford.")
+            await ctx.bot.error(ctx, f"{resp.status} code accessing project oxford.")
         image = await resp.content.read()
     return image, response, target
 
 
-# TODO: XKCD Command. https://xkcd.com/json.html
+MEMBER = Option(discord.Member, description="Pick a user to use their avatar", required=False, default=None)
+LINK = Option(str, description="Provide a link to an image", required=False, default=None)
 
 
 class Images(commands.Cog):
@@ -250,31 +254,96 @@ class Images(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "🖼️"
+
+    @commands.slash_command()
+    async def emote(self, ctx, emoji: discord.Option(str, description="Please enter an emote.")):
+        """View a bigger version of an Emoji"""
+        if emoji is None:
+            return await self.bot.error(ctx, "You need to specify an emote to get the bigger version of.")
+
+        emoji = await commands.EmojiConverter().convert(ctx, emoji)
+
+        e = discord.Embed()
+        e.title = emoji.name
+        if emoji.animated:
+            e.description = "This is an animated emoji."
+
+        try:
+            e.add_field(name="From Server", value=f"{emoji.guild} (ID: {emoji.guild.id})")
+        except AttributeError:  # Partial Emoji doesn't have guild.
+            pass
+
+        e.colour = await embed_utils.get_colour(emoji.url)
+        e.set_image(url=emoji.url)
+        e.set_footer(text=emoji.url)
+        await self.bot.reply(ctx, embed=e)
+
+    @commands.slash_command()
+    async def ruins(self, ctx, *, target: MEMBER):
+        """Local man ruins everything"""
+        message = await self.bot.reply(ctx, content="Drawing...")
+
+        if target is None:
+            target = ctx.author
+        av = await target.display_avatar.with_format("png").read()
+        image = await self.bot.loop.run_in_executor(None, ruin, av)
+
+        e = discord.Embed()
+        e.colour = discord.Colour.blue()
+        e.description = ctx.author.mention
+        await embed_utils.embed_image(ctx, e, image, filename=f"{target}_ruins_everything.png", message=message)
+
+    @commands.slash_command()
+    async def butter(self, ctx):
+        """What is my purpose?"""
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/butter.png"))
+
+    @commands.slash_command()
+    async def fixed(self, ctx):
+        """Fixed!"""
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/fixed.png"))
+
+    @commands.slash_command()
+    async def ructions(self, ctx):
+        """WEW. RUCTIONS."""
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/ructions.png"))
+
+    @commands.slash_command()
+    async def helmet(self, ctx):
+        """Helmet"""
+        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/helmet.jpg"))
+
+    @commands.slash_command()
+    async def pressf(self, ctx):
+        """Press F to pay respects"""
+        await self.bot.reply(ctx, content="https://i.imgur.com/zrNE05c.gif")
+
+    @commands.slash_command()
+    async def goala(self, ctx):
+        """Party on Garth"""
+        await self.bot.reply(ctx, file=embed_utils.make_file(image='Images/goala.gif'))
 
     @commands.slash_command()
     async def tinder(self, ctx):
         """Try to Find your next date."""
-        if ctx.author.id == 272722118192529409:
-            return await self.bot.reply(ctx, content="Nobody will ever swipe right on you, Kegs.")
-        match = random.choice([True, False, False])
-        if not match:
-            return await self.bot.reply(ctx, content="Nobody swiped right on you.")
-
+        if ctx.guild is None:
+            return await self.bot.error(ctx, "This command cannot be used in DMs")
         av = await ctx.author.display_avatar.with_format("png").read()
 
-        while True:
+        attempts = 10
+        while attempts > 0:
             match = random.choice(ctx.guild.members)
             name = match.display_name
             try:
                 target = await match.display_avatar.with_format("png").read()
             except AttributeError:
+                attempts -= 1
                 continue
             else:
                 break
+        else:
+            return await self.bot.error(ctx, content="Nobody swiped right on you.")
 
-        # TODO: Get presence intents.
-        # match = random.choice([i for i in ctx.guild.members if str(i.status) != "offline"])
         output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
         if match == ctx.author:
             caption = f"{ctx.author.mention} matched with themself, How pathetic."
@@ -286,32 +355,36 @@ class Images(commands.Cog):
         base_embed = discord.Embed()
         base_embed.description = caption
         base_embed.colour = 0xFD297B
-        base_embed.set_author(name=ctx.invoked_with.title(), icon_url=icon)
+        base_embed.set_author(name="Tinder", icon_url=icon)
         await embed_utils.embed_image(ctx, base_embed, output, filename="Tinder.png")
 
-    @commands.command(aliases=["bob", "ross"], usage='<@user, link to image, or upload a file>')
-    async def bobross(self, ctx, *, target: typing.Union[discord.Member, str] = None):
-        """Bob Rossify"""
-        if target is None:
+    @commands.slash_command()
+    async def bob_ross(self, ctx, *, member: MEMBER, link: LINK):
+        """Bob Rossify | Choose a member, provide a link, or leave both blank and upload a file."""
+        message = await self.bot.reply(ctx, content="Drawing...")
+
+        if member:
+            target = member
+        elif link:
+            target = link
+        else:
             try:
                 target = ctx.message.attachments[0]
             except IndexError:
-                return await self.bot.reply(ctx, content='🚫 Provide an image, link, or user.')
-        
+                return await self.bot.error(ctx, 'Provide an image, link, or user.')
+
         image, response, target = await get_faces(ctx, target)
-        
+
         if response is None or response is False:
-            return await self.bot.reply(ctx, content="🚫 No faces were detected in your image.")
+            return await self.bot.error(ctx, "No faces were detected in your image.")
 
         image = await self.bot.loop.run_in_executor(None, draw_bob, image, response)
-        icon = "https://cdn4.vectorstock.com/i/thumb-large/79/33/painting-icon-image-vector-14647933.jpg"
 
-        base_embed = discord.Embed()
-        base_embed.colour = 0xb4b2a7  # titanium h-white
-        base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
-        base_embed.description = ctx.author.mention
-        base_embed.add_field(name="Source", value=target)
-        await embed_utils.embed_image(ctx, base_embed, image, filename="bobross.png")
+        e = discord.Embed()
+        e.colour = 0xb4b2a7  # titanium h-white
+        e.description = ctx.author.mention
+        e.add_field(name="Source", value=target)
+        await embed_utils.embed_image(ctx, e, image, filename="bobross.png", message=message)
 
     # @commands.is_nsfw()
     # @commands.command(usage='<@user, link to image, or upload a file>')
@@ -326,120 +399,56 @@ class Images(commands.Cog):
     #
     #     base_embed = discord.Embed()
     #     base_embed.colour = 0xff66cc
-    #     base_embed.set_author(name=ctx.invoked_with, icon_url=KNOB_ICON)
     #     base_embed.description = ctx.author.mention
     #     base_embed.add_field(name="Source", value=target)
     #     await embed_utils.embed_image(ctx, base_embed, image, filename="Knob.png")
 
-    @commands.command(usage='<@user, link to image, or upload a file>')
-    async def eyes(self, ctx, *, target: typing.Union[discord.Member, str] = None):
+    @commands.slash_command()
+    async def eyes(self, ctx, member: MEMBER, link: LINK):
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
+        message = await self.bot.reply(ctx, content="Drawing...")
+
+        if member:
+            target = member
+        elif link:
+            target = link
+        else:
+            try:
+                target = ctx.message.attachments[0]
+            except IndexError:
+                return await self.bot.error(ctx, 'Provide an image, link, or user.')
+
         image, response, target = await get_faces(ctx, target)
 
         if response is None:
-            return await self.bot.reply(ctx, content="🚫 No faces were detected in your image.")
+            return await self.bot.error(ctx, "No faces were detected in your image.")
         elif response is False:
             return
-        
+
         image = await self.bot.loop.run_in_executor(None, draw_eyes, image, response)
-        icon = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/thumbs/120/microsoft/209/eyes_1f440.png"
-        
-        base_embed = discord.Embed()
-        base_embed.colour = 0xFFFFFF
-        base_embed.set_author(name=ctx.invoked_with, icon_url=icon)
-        base_embed.description = ctx.author.mention
-        base_embed.add_field(name="Source", value=target)
-        await embed_utils.embed_image(ctx, base_embed, image, filename="eyes.png")
-
-    @commands.command(usage='<@user> <quote>', hidden=True)
-    async def tard(self, ctx, target: discord.Member, *, quote):
-        """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
-        if target.id == 210582977493598208:
-            target = ctx.author
-
-        image = target.display_avatar.with_format("png").read()
-        image = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
-
-        base_embed = discord.Embed()
-        base_embed.colour = discord.Colour.blue()
-        base_embed.set_author(name=ctx.invoked_with)
-        base_embed.description = ctx.author.mention
-        await embed_utils.embed_image(ctx, base_embed, image, filename="tard.png")
-            
-    @tard.error
-    async def tard_error(self, ctx, exc):
-        """Handle errors for the tard command"""
-        if isinstance(exc, commands.BadArgument):
-            return await self.bot.reply(ctx, content="🚫 Bad argument provided: Pinging a user or use their ID",
-                                        )
-
-    @commands.command(aliases=["localman", "local", "ruin"], usage="[@member or leave blank to use yourself.]")
-    async def ruins(self, ctx, *, target: discord.Member = None):
-        """Local man ruins everything"""
-        with ctx.typing():
-            if target is None:
-                target = ctx.author
-            av = await target.display_avatar.with_format("png").read()
-            image = await self.bot.loop.run_in_executor(None, ruin, av)
-
-            base_embed = discord.Embed()
-            base_embed.colour = discord.Colour.blue()
-            base_embed.set_author(name=ctx.invoked_with)
-            base_embed.description = ctx.author.mention
-            await embed_utils.embed_image(ctx, base_embed, image, filename=f"{target}_ruins_everything.png")
-
-    @commands.command(hidden=True)
-    async def butter(self, ctx):
-        """What is my purpose?"""
-        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/butter.png"))
-    
-    @commands.command(hidden=True)
-    async def fixed(self, ctx):
-        """Fixed!"""
-        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/fixed.png"))
-
-    @commands.command(hidden=True)
-    async def ructions(self, ctx):
-        """WEW. RUCTIONS."""
-        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/ructions.png"))
-
-    @commands.command(hidden=True)
-    async def helmet(self, ctx):
-        """Helmet"""
-        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/helmet.jpg"))
-
-    @commands.command(aliases=["f"], hidden=True)
-    async def pressf(self, ctx):
-        """Press F to pay respects"""
-        await self.bot.reply(ctx, content="https://i.imgur.com/zrNE05c.gif")
-
-    @commands.command(hidden=True)
-    async def goala(self, ctx):
-        """Party on Garth"""
-        await self.bot.reply(ctx, file=embed_utils.make_file(image='Images/goala.gif'))
-
-    @commands.command(usage="<an emoji>", aliases=['emoji'])
-    async def emote(self, ctx, emoji: typing.Union[discord.Emoji, discord.PartialEmoji] = None):
-        """View a bigger version of an Emoji"""
-        if emoji is None:
-            return await self.bot.reply(ctx, content="You need to specify an emote to get the bigger version of.")
 
         e = discord.Embed()
-        e.title = emoji.name
-        if emoji.animated:
-            e.description = "This is an animated emoji."
+        e.colour = 0xFFFFFF
+        e.description = ctx.author.mention
+        e.add_field(name="Source", value=target)
+        await embed_utils.embed_image(ctx, e, image, filename="eyes.png", message=message)
 
-        try:
-            e.add_field(name="Emoji Source", value=f"{emoji.guild} (ID: {emoji.guild.id})")
-        except AttributeError:  # Partial Emoji doesn't have guild.
-            pass
+    @commands.slash_command()
+    async def tard(self, ctx, quote: Option(str, description="Message for the image"), target: MEMBER):
+        """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
+        message = await self.bot.reply(ctx, content="Drawing...")
 
-        e.colour = await embed_utils.get_colour(emoji.url)
-        e.set_image(url=emoji.url)
-        e.set_footer(text=emoji.url)
-        await self.bot.reply(ctx, embed=e)
+        if target is None or target.id == 210582977493598208:
+            target = ctx.author
 
+        image = await target.display_avatar.with_format("png").read()
+        image = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
+
+        e = discord.Embed()
+        e.colour = discord.Colour.blue()
+        e.description = ctx.author.mention
+        await embed_utils.embed_image(ctx, e, image, filename="tard.png", message=message)
 
 def setup(bot):
-    """Load t he Images Cog into the bot"""
+    """Load the Images Cog into the bot"""
     bot.add_cog(Images(bot))

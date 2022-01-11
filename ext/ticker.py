@@ -177,7 +177,7 @@ class DeleteTicker(discord.ui.Button):
 
 
 class RemoveLeague(discord.ui.Select):
-    """Dropdown to remove leagues from a match event ticker.."""
+    """Dropdown to remove leagues from a match event ticker."""
 
     def __init__(self, leagues, row=2):
         super().__init__(placeholder="Remove tracked league(s)", row=row)
@@ -231,7 +231,7 @@ class ConfigView(discord.ui.View):
     async def creation_dialogue(self):
         """Send a dialogue to check if the user wishes to create a new ticker."""
         self.clear_items()
-        view = view_utils.Confirmation(owner=self.ctx.author, colour_a=discord.ButtonStyle.green,
+        view = view_utils.Confirmation(self.ctx, colour_a=discord.ButtonStyle.green,
                                        label_a=f"Create a ticker for #{self.ctx.channel.name}", label_b="Cancel")
         _ = f"{self.ctx.channel.mention} does not have a ticker, would you like to create one?"
         await self.message.edit(content=_, view=view)
@@ -410,7 +410,9 @@ class TickerEvent:
             shootout = [i for i in self.fixture.events if hasattr(i, "shootout") and i.shootout]
             # iterate through everything after penalty header
             for _ in [self.fixture.home, self.fixture.away]:
-                e.add_field(name=_, value="\n".join([str(i) for i in shootout if i.team == _]))
+                value = "\n".join([str(i) for i in shootout if i.team == _])
+                if value:
+                    e.add_field(name=_, value=value)
 
         else:
             e.description = f"**{m}** | [{self.fixture.bold_score}]({self.fixture.url})\n"
@@ -445,6 +447,10 @@ class TickerEvent:
         e = await self.embed
         if self.fixture.events:
             for i in self.fixture.events:
+                if isinstance(i, football.Substitution):
+                    continue  # skip subs, they're just spam.
+
+                # Penalties are handled later on.
                 if self.fixture.penalties_away:
                     if isinstance(i, football.Penalty) and i.shootout:
                         continue
@@ -654,20 +660,14 @@ class Ticker(commands.Cog):
         # Settings for those IDs
         TickerEvent(self.bot, channels=channels, fixture=f, mode=mode, home=home)
 
-    async def get_channel_settings(self, ctx):
-        """Get channel to be modified"""
-        view = ConfigView(ctx)
-        view.message = await self.bot.reply(ctx, content=f"Fetching config for {ctx.channel.mention}...", view=view)
-        await view.update()
-
     @commands.slash_command()
     async def ticker(self, ctx):
         """View the config of this channel's Match Event Ticker"""
         if ctx.guild is None:
-            return await self.bot.error(ctx, text="This command cannot be ran in DMs")
+            return await self.bot.error(ctx, "This command cannot be ran in DMs")
 
         if not ctx.channel.permissions_for(ctx.author).manage_messages:
-            return await self.bot.error(ctx, text="You need manage messages permissions to edit a ticker")
+            return await self.bot.error(ctx, "You need manage messages permissions to edit a ticker")
 
         view = ConfigView(ctx)
         view.message = await self.bot.reply(ctx, content=f"Fetching config for {ctx.channel.mention}...", view=view)
@@ -697,7 +697,9 @@ class Ticker(commands.Cog):
 
         if not row:
             # If we cannot add, send to creation dialogue.
-            await self.get_channel_settings(ctx)
+            view = ConfigView(ctx)
+            view.message = await self.bot.reply(ctx, content=f"Fetching config for {ctx.channel.mention}...", view=view)
+            await view.update()
             return
 
         if "http" not in query:

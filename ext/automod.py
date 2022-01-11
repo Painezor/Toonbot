@@ -6,6 +6,9 @@ import discord
 from discord.ext import commands
 
 
+# TODO: Bad Words Filter.
+
+
 class AutoMod(commands.Cog):
     """Set up automated moderation tools"""
 
@@ -82,8 +85,9 @@ class AutoMod(commands.Cog):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute(
-                """INSERT INTO mention_spam (guild_id,mention_threshold, mention_action) VALUES ($1, $2, $3) ON CONFLICT 
-                (guild_id) DO UPDATE SET (mention_threshold, mention_action) = ($2,$3) WHERE EXCLUDED.guild_id = $1""",
+                """INSERT INTO mention_spam (guild_id,mention_threshold, mention_action) 
+                VALUES ($1, $2, $3) ON CONFLICT (guild_id) 
+                DO UPDATE SET (mention_threshold, mention_action) = ($2,$3) WHERE EXCLUDED.guild_id = $1""",
                 ctx.guild.id, threshold, action)
         await self.bot.db.release(connection)
         await self.update_cache()
@@ -132,5 +136,3 @@ class AutoMod(commands.Cog):
 def setup(bot):
     """Load the Automatic Moderation Cog"""
     bot.add_cog(AutoMod(bot))
-
-# TODO: Bad words filters

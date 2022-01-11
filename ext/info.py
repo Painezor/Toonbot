@@ -9,8 +9,9 @@ from discord.ext import commands
 
 from ext.utils import timed_events, embed_utils
 
+INV = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
+      "&scope=bot%20applications.commands"
 
-# TODO: Select / Button Pass.
 
 class Info(commands.Cog):
     """Get information about users or servers."""
@@ -27,168 +28,147 @@ class Info(commands.Cog):
         """A counter for how many commands have been used this session"""
         self.bot.commands_used[str(ctx.command)] += 1
 
-    @commands.command(aliases=['botstats', "uptime", "hello"])
+    @commands.Cog.listener()
+    async def on_slash_command(self, ctx):
+        """A counter for how many slash commands have been used this session"""
+        self.bot.commands_used[f"{ctx.command} (SLASH)"] += 1
+
+    @commands.slash_command()
     async def about(self, ctx):
         """Tells you information about the bot itself."""
         e = discord.Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         owner = await self.bot.fetch_user(self.bot.owner_id)
-        e.set_footer(text=f"Toonbot is coded (badly) by {owner} and was created on ")
+        e.set_footer(text=f"Toonbot is coded by {owner} and was created on ")
         e.set_thumbnail(url=ctx.me.display_avatar.url)
-        e.title = f"{ctx.me.display_name} ({ctx.me})" if not ctx.me.display_name == "ToonBot" else "Toonbot"
+        e.title = f"Toonbot ({ctx.me.display})" if not ctx.me.display_name == "Toonbot" else "Toonbot"
 
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)
         members = f"{total_members} Members across {len(self.bot.guilds)} servers."
 
-        prefixes = f"\nYou can use `.tb help` to see my commands."
-
         e.description = f"I do football lookup related things.\n I have {members}"
-        e.description += prefixes
 
         technical_stats = f"{datetime.datetime.now() - self.bot.initialised_at}\n"
         technical_stats += f"{sum(self.bot.commands_used.values())} commands ran this session."
         e.add_field(name="Uptime", value=technical_stats, inline=False)
 
-        support = f"[Join my Support Server](http://www.discord.gg/a5NHvPx)\n"
+        view = discord.ui.View()
+        s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx")
+        i = ("Invite me to your server", INV)
+        d = ("Donate", "https://paypal.me/Toonbot")
+        for label, link in [s, i, d]:
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.url, url=link, label=label))
 
-        e.add_field(name="Get Support", value=support, inline=False)
-        e.add_field(name="Donate", value="If you'd like to donate, you can do so [here](https://paypal.me/Toonbot)")
+        await self.bot.reply(ctx, embed=e, view=view)
 
-        await self.bot.reply(ctx, embed=e)
-    
-    @commands.command(aliases=["perms"])
-    @commands.has_permissions(manage_roles=True)
-    @commands.bot_has_permissions(manage_roles=True)
+    @commands.slash_command()
+    async def invite(self, ctx):
+        """Get the bots invite link"""
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(style=discord.ButtonStyle.url, url=INV, label="Invite me to your server"))
+        await self.bot.reply(ctx, text="You can use this link to invite me.", view=view, ephemeral=True)
+
+    @commands.slash_command()
     async def permissions(self, ctx, *, member: discord.Member = None):
         """Shows a member's permissions."""
+        if not ctx.channel.permissions_for(ctx.author).manage_roles:
+            return await self.bot.error(ctx, "You need manage roles permissions to see a member's permissions.")
+
         if member is None:
             member = ctx.author
         permissions = ctx.channel.permissions_for(member)
         permissions = "\n".join([f"{i[0]} : {i[1]}" for i in permissions])
-        await self.bot.reply(ctx, content=f"```py\n{permissions}```")
+        await self.bot.reply(ctx, content=f"```yaml\n{permissions}```")
 
-    @commands.command(aliases=["lastmsg", "lastonline", "lastseen"], usage="seen @user")
-    async def seen(self, ctx, target: discord.Member):
-        """Find the last message from a user in this channel"""
-        if target is None:
-            return await self.bot.reply(ctx, content='You need to specify a user to search for.')
-
-        m = await self.bot.reply(ctx, content="Searching...")
-        with ctx.typing():
-            if ctx.author == target:
-                return await m.edit(content="Last seen right now, being an idiot.")
-
-            async for msg in ctx.channel.history(limit=5000):
-                if msg.author.id == target.id:
-                    c = f"Last message in {ctx.channel.mention} from {target.mention}: {msg.jump_url}"
-                    break
-                else:
-                    c = "Couldn't find a recent message from that user."
-            await m.edit(content=c)
-    
-    @commands.group(invoke_without_command=True)
-    @commands.guild_only()
+    @commands.slash_command()
     async def info(self, ctx, *, member: typing.Union[discord.Member, discord.User] = None):
-        """Shows info about a member.
-        This cannot be used in private messages. If you don't specify
-        a member then the info returned will be yours.
-        """
+        """Shows info about a member, or yourself."""
         member = ctx.author if member is None else member
 
         e = discord.Embed(colour=member.colour)
+        e.set_author(name=member)
+        if member.avatar:
+            e.set_thumbnail(url=member.display_avatar.url)
         e.description = f"{'🤖 ' if member.bot else ''}{member.mention}\nUser ID: {member.id}"
+        try:
+            e.description += "\n📱 Using mobile app." if member.is_on_mobile() else ""
+            voice = member.voice
+            if voice is not None:
+                voice = voice.channel
+                voice_other = len(voice.members) - 1
+                voice = f'In voice channel {voice.mention} {f"with {voice_other} others" if voice_other else "alone"}'
+                e.description += f'\n\n{voice}'
+        except AttributeError:  # User.
+            pass
 
         roles = [role.mention for role in reversed(member.roles) if not role.position == 0]
         if roles:
             e.add_field(name='Roles', value=' '.join(roles))
 
         shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
-
-        e.set_author(name=str(member), icon_url=member.display_avatar.url)
-
-        try:
-            if member.is_on_mobile():
-                e.description += "\n📱 Using mobile app."
-        except AttributeError:  # User.
-            pass
-
-        if member.avatar:
-            e.set_thumbnail(url=member.display_avatar.url)
+        if shared:
+            e.set_footer(text=f"User shares {shared} discords with Toonbot")
 
         if isinstance(member, discord.Member):
             e.description += f'\nJoined Server: {timed_events.Timestamp(member.joined_at).countdown}'
         e.description += f'\nCreated Account: {timed_events.Timestamp(member.created_at).countdown}'
 
-        try:
-            voice = member.voice
-            if voice is not None:
-                voice = voice.channel
-                voice_members = len(voice.members) - 1
-                voice = f'In {voice.mention} {f"with {voice_members} others" if voice_members else "Alone"}'
-                e.description += f'\n\n**Voice Chat**: {voice}'
-        except AttributeError:
-            pass
-
-        if member.bot:
-            e.description += "\n**🤖 This user is a bot account.**"
-
-        if shared:
-            e.set_footer(text=f"User shares {shared} discords with Toonbot")
-
         await self.bot.reply(ctx, embed=e)
-    
-    @info.command(name='guild', aliases=["server"])
-    @commands.guild_only()
+
+    @commands.slash_command()
     async def server_info(self, ctx):
         """Shows information about the server"""
-        guild = ctx.guild
-        
+        if ctx.guild is None:
+            return await self.bot.error(ctx, "This command cannot be ran in DMs.")
+
+        e = discord.Embed()
+        e.title = ctx.guild.name
+        e.description = f"Guild ID: {ctx.guild.id}"
+        try:
+            e.description += f"\nOwner: {ctx.guild.owner.mention}"
+        except AttributeError:
+            pass
+        e.description += f'\n\n{len(ctx.guild.members)} Members'
+
         # figure out what channels are 'secret'
         text_channels = 0
-        for channel in guild.channels:
+        for channel in ctx.guild.channels:
             text_channels += isinstance(channel, discord.TextChannel)
-        
-        regular_channels = len(guild.channels)
-        voice_channels = len(guild.channels) - text_channels
-        
-        e = discord.Embed()
-        e.title = guild.name
-        try:
-            e.description = f"Owner: {guild.owner.mention}\nGuild ID: {guild.id}"
-        except AttributeError:
-            e.description = f"Guild ID: {guild.id}"
-        e.description += f'\n\n{guild.member_count} Members' \
-                         f"\n{regular_channels} text channels "
-        if voice_channels:
-            e.description += f"and {voice_channels} Voice channels"
-            
-        if guild.premium_subscription_count:
-            e.description += f"\n{guild.premium_subscription_count} Nitro Boosts"
-        
-        if guild.discovery_splash:
-            e.set_image(url=guild.discovery_splash_url)
+        regular_channels = len(ctx.guild.channels)
+        voice_channels = regular_channels - text_channels
 
-        if guild.icon:
-            e.set_thumbnail(url=guild.icon_url)
-            e.colour = await embed_utils.get_colour(str(guild.icon_url))
+        e.description += f"\n{regular_channels} text channels "
+        if voice_channels:
+            e.description += f"\n{voice_channels} Voice channels"
+
+        if ctx.guild.premium_subscription_count:
+            e.description += f"\n\n{ctx.guild.premium_subscription_count} Nitro Boosts (Tier {ctx.guild.premium_tier})"
+
+        if ctx.guild.discovery_splash:
+            e.set_image(url=ctx.guild.discovery_splash_url)
+
+        if ctx.guild.icon:
+            e.set_thumbnail(url=ctx.guild.icon.url)
+            e.colour = await embed_utils.get_colour(str(ctx.guild.icon.url))
 
         emojis = ""
-        for emoji in guild.emojis:
+        for emoji in ctx.guild.emojis:
             if len(emojis) + len(str(emoji)) < 1024:
                 emojis += str(emoji)
+
         if emojis:
-            e.add_field(name="Custom Emojis", value=emojis, inline=False)
+            e.add_field(name=f"Server Emotes [{len(emojis)} / {ctx.guild.emoji_limit}]", value=emojis, inline=False)
 
-        if guild.vanity_url is not None:
-            e.add_field(name="Custom invite URL", value=guild.vanity_url)
+        if ctx.guild.vanity_url_code is not None:
+            e.add_field(name="Server invite URL", value=ctx.guild.vanity_url_code)
 
-        roles = [role.mention for role in guild.roles]
+        roles = [role.mention for role in ctx.guild.roles]
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
-        e.add_field(name="Creation Date", value=timed_events.Timestamp(guild.created_at).date_relative)
-        e.set_footer(text=f"\nRegion: {str(guild.region).title()}")
+        e.add_field(name="Creation Date", value=timed_events.Timestamp(ctx.guild.created_at).date_relative)
+        e.set_footer(text=f"Server Region: {str(ctx.guild.region).title()}")
         await self.bot.reply(ctx, embed=e)
-    
-    @commands.command()
+
+    @commands.slash_command()
     async def avatar(self, ctx, user: typing.Union[discord.User, discord.Member] = None):
         """Shows a member's avatar"""
         if user is None:
@@ -198,7 +178,7 @@ class Info(commands.Cog):
         e.set_footer(text=user.display_avatar.url)
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.description = f"{user.mention}'s avatar"
-        e.set_image(url=str(user.display_avatar.url))
+        e.set_image(url=user.display_avatar.url)
         await self.bot.reply(ctx, embed=e)
 
 

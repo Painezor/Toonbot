@@ -4,6 +4,7 @@ from importlib import reload
 
 import asyncpg
 import discord
+from discord import Option
 from discord.ext import commands
 from discord.utils import sleep_until
 
@@ -62,6 +63,29 @@ class RemindLater(discord.ui.Select):
         await self.view.reinsert(int(self.values[0]))
 
 
+def minutes_autocomplete(ctx):
+    """Return number of minutes"""
+    autos = range(0, 59)
+    return [i for i in autos if ctx.value in str(i)]
+
+
+def hours_autocomplete(ctx):
+    """Return number of hours"""
+    autos = range(0, 23)
+    return [i for i in autos if ctx.value in str(i)]
+
+
+def days_autocomplete(ctx):
+    """Return number of hours"""
+    autos = range(0, 367)
+    return [i for i in autos if ctx.value in str(i)]
+
+
+minutes = Option(int, "Number of minutes", name="minutes", autocomplete=minutes_autocomplete, required=False, default=0)
+hours = Option(int, "Number of hours", name="hours", autocomplete=hours_autocomplete, required=False, default=0)
+days = Option(int, "Number of days", name="days", autocomplete=days_autocomplete, required=False, default=0)
+
+
 class ReminderView(discord.ui.View):
     """View for user requested reminders"""
 
@@ -85,36 +109,7 @@ class ReminderView(discord.ui.View):
         e.description = timed_events.Timestamp(r['created_time']).date_relative
         e.description += f"\n\n> {r['reminder_content']}" if r['reminder_content'] is not None else ""
 
-        if r['mod_action'] == "unban":
-            try:
-                await self.bot.http.unban(r["mod_target"], channel.guild)
-                title = "User Unbanned"
-            except discord.NotFound:
-                title = "Failed to unban user"
-            e.add_field(name=title, value=f"<@{r['mod_target']}>")
-
-        elif r['mod_action'] == "unmute":
-            muted_role = discord.utils.get(channel.guild.roles, name="Muted")
-            target = channel.guild.get_member(r["mod_target"])
-            try:
-                await target.remove_roles(muted_role, reason="Unmuted")
-                title = "User unmuted"
-            except (discord.Forbidden, AttributeError):
-                title = "Failed to unmute user"
-            e.add_field(name=title, value=f"<@{r['mod_target']}>")
-
-        elif r['mod_action'] == "unblock":
-            target = channel.guild.get_member(r["mod_target"])
-            try:
-                await channel.set_permissions(target, overwrite=None)
-                title = f"User unblocked from #{channel.name}"
-            except (discord.Forbidden, AttributeError):
-                title = f"Failed to unblock user from #{channel.name}"
-            e.add_field(name=title, value=f"<@{r['mod_target']}>")
-
-        else:
-            self.add_item(SnoozeButton())
-
+        self.add_item(SnoozeButton())
         self.add_item(view_utils.StopButton(row=0))
 
         try:
@@ -196,43 +191,34 @@ class Reminders(commands.Cog):
                 self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, r)))
         await self.bot.db.release(connection)
 
-    @commands.command(aliases=['reminder', 'remind', 'remindme'], usage="<Amount of time> <Reminder message>")
-    async def timer(self, ctx, time, *, message: commands.clean_content = "Reminder"):
-        """Remind you of something at a specified time.
-            Format is remind 1d2h3m4s <note>, e.g. remind 1d3h Kickoff."""
-        try:
-            delta = await timed_events.parse_time(time.lower())
-        except ValueError:
-            return await self.bot.reply(ctx, content='Invalid time specified.')
-        except OverflowError:
-            return await self.bot.reply(ctx, content="You'll be dead by then'")
+    @commands.slash_command()
+    async def reminder(self, ctx, m: minutes, h: hours, d: days, message="Reminder"):
+        """Remind you of something at a specified time."""
+        delta = datetime.timedelta(minutes=m, hours=h, days=d)
 
-        try:
-            remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
-        except OverflowError:
-            return await self.bot.reply(ctx, content="You'll be dead by then.")
-
+        remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
         connection = await self.bot.db.acquire()
-        try:
-            gid = ctx.guild.id if ctx.guild is not None else None
-            async with connection.transaction():
-                record = await connection.fetchrow("""INSERT INTO reminders
-                (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""", ctx.message.id, ctx.channel.id, gid, message,
-                                                   ctx.message.created_at, remind_at, ctx.author.id)
-        finally:
-            await self.bot.db.release(connection)
-        self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, record)))
 
         e = discord.Embed()
         e.set_author(name="⏰ Reminder Set")
         t = timed_events.Timestamp(remind_at).time_relative
         e.description = f"**{t}**\n\n> {message}"
         e.colour = 0x00ffff
-        await self.bot.reply(ctx, embed=e)
+        reply = await self.bot.reply(ctx, embed=e)
 
-    @commands.command(aliases=["timers"])
-    async def reminders(self, ctx):
+        try:
+            gid = ctx.guild.id if ctx.guild is not None else None
+            async with connection.transaction():
+                record = await connection.fetchrow("""INSERT INTO reminders
+                (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""", reply.id, reply.channel.id, gid, message,
+                                                   reply.created_at, remind_at, ctx.author.id)
+        finally:
+            await self.bot.db.release(connection)
+        self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, record)))
+
+    @commands.slash_command()
+    async def reminder_list(self, ctx):
         """Check your active reminders"""
         connection = await self.bot.db.acquire()
         records = await connection.fetch("""SELECT * FROM reminders WHERE user_id = $1""", ctx.author.id)
@@ -243,8 +229,7 @@ class Reminders(commands.Cog):
             time = timed_events.Timestamp(r['target_time']).time_relative
             guild = "@me" if r['guild_id'] is None else r['guild_id']
             j = f"https://discord.com/channels/{guild}/{r['channel_id']}/{r['message_id']}"
-            x = f"\n*{r['mod_action']} <@{r['mod_target']}>" if r['mod_action'] is not None else ""
-            return f"**{time}**: [{r['reminder_content']}]({j}){x}"
+            return f"**{time}**: [{r['reminder_content']}]({j})"
 
         _ = [short(r) for r in records] if records else ["You have no reminders set."]
 
@@ -252,12 +237,9 @@ class Reminders(commands.Cog):
         e.set_author(name=f"⏰ {ctx.author.name}'s reminders")
         embeds = embed_utils.rows_to_embeds(e, _)
 
-        view = view_utils.Paginator(ctx.author, embeds)
+        view = view_utils.Paginator(ctx, embeds)
         view.message = await self.bot.reply(ctx, content="Fetching your reminders...", view=view)
         await view.update()
-
-
-# TODO: timed poll.
 
 
 def setup(bot):

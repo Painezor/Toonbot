@@ -61,6 +61,12 @@ class RemoveLeague(discord.ui.Select):
         super().__init__(placeholder="Remove tracked league(s)", row=row)
         self.max_values = len(leagues)
         for league, value in sorted(list(zip(leagues, items))):
+
+            if len(league) > 100:
+                trunc = league[:99]
+                print(f"TRANSFERS: Remove_league dropdown Warning: {league} > 100 characters.\nTruncated to {trunc}")
+                league = trunc
+
             self.add_option(label=league, value=value)
 
     async def callback(self, interaction: discord.Interaction):
@@ -102,8 +108,8 @@ class ConfigView(discord.ui.View):
     async def creation_dialogue(self):
         """Send a dialogue to check if the user wishes to create a new ticker."""
         self.clear_items()
-        view = view_utils.Confirmation(owner=self.ctx.author, colour_a=discord.ButtonStyle.green,
-                                       label_a=f"Create a ticker for #{self.ctx.channel.name}", label_b="Cancel")
+        view = view_utils.Confirmation(self.ctx, colour_a=discord.ButtonStyle.green,
+                                       label_a=f"Create ticker", label_b="Cancel")
         _ = f"{self.ctx.channel.mention} does not have a ticker, would you like to create one?"
         await self.message.edit(content=_, view=view)
         await view.wait()
@@ -159,7 +165,8 @@ class ConfigView(discord.ui.View):
         finally:
             await self.ctx.bot.db.release(connection)
 
-        leagues = [f"[{r['alias']}]({r['item']})" for r in records]
+        links = [f"[{r['alias']}]({r['item']})" for r in records]
+        leagues = [r['alias'] for r in records]
         items = [r['item'] for r in records]
 
         if not leagues:
@@ -173,7 +180,7 @@ class ConfigView(discord.ui.View):
             e.title = "Toonbot Transfer Ticker config"
             e.set_thumbnail(url=self.ctx.me.display_avatar.url)
             header = f'Tracked leagues for {self.ctx.channel.mention}\n'
-            embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, rows_per=25)
+            embeds = embed_utils.rows_to_embeds(e, sorted(links), header=header, rows_per=25)
             self.pages = embeds
 
             _ = view_utils.PreviousButton()
@@ -308,9 +315,8 @@ class Transfers(commands.Cog):
             try:
                 async with connection.transaction():
                     records = await connection.fetch("""
-                    SELECT guild_id, transfers_channels.channel_id, item, alias
-                    FROM transfers_channels
-                    LEFT OUTER JOIN transfers_leagues
+                    SELECT DISTINCT transfers_channels.channel_id
+                    FROM transfers_channels LEFT OUTER JOIN transfers_leagues
                     ON transfers_channels.channel_id = transfers_leagues.channel_id
                     WHERE item in ($1, $2)
                     """, old_team.league_link, new_team.league_link)
@@ -347,6 +353,14 @@ class Transfers(commands.Cog):
 
         if not ctx.channel.permissions_for(ctx.author).manage_messages:
             return await self.bot.error(ctx, "You need manage messages permissions to edit a ticker")
+
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            r = await connection.execute("""SELECT * FROM transfers_channels WHERE channel_id = $1""", ctx.channel.id)
+        await self.bot.db.release(connection)
+
+        if r is None or r['channel_id'] is None:
+            return await self.bot.error(ctx, "This channel does not have a transfer ticker set. Please make one first.")
 
         view = transfer_tools.SearchView(ctx, league_name, category="Competitions", fetch=True)
         view.message = await self.bot.reply(ctx, content=f"Fetching Leagues matching {league_name}", view=view)

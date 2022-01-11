@@ -1,4 +1,4 @@
-"""Fetch latest information on televised matches from livesoccertv.com"""
+"""Fetch the televised matches from livesoccertv.com"""
 import datetime
 import json
 
@@ -50,12 +50,12 @@ class Tv(commands.Cog):
             matches = [i for i in self.bot.tv if str(team).lower() in i.lower()]
 
             if not matches:
-                return await self.bot.error(ctx, content=f"Could not find a matching team/league for {team}.")
+                return await self.bot.error(ctx, f"Could not find a matching team/league for {team}.")
 
             _ = [('📺', i, self.bot.tv[i]) for i in matches]
 
             if len(_) > 1:
-                view = view_utils.ObjectSelectView(owner=ctx.author, objects=_, timeout=30)
+                view = view_utils.ObjectSelectView(ctx, objects=_, timeout=30)
                 e.description = '⏬ Multiple results found, choose from the dropdown.'
                 message = await self.bot.reply(ctx, embed=e, view=view)
                 view.message = message
@@ -121,7 +121,7 @@ class Tv(commands.Cog):
         if not rows:
             rows = [f"No televised matches found, check online at {e.url}"]
 
-        view = view_utils.Paginator(ctx.author, embed_utils.rows_to_embeds(e, rows))
+        view = view_utils.Paginator(ctx, embed_utils.rows_to_embeds(e, rows))
         view.message = message
         await view.update()
 

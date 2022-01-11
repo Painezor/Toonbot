@@ -1,24 +1,27 @@
 """Commands related to the Quote Database Functionality"""
-import asyncio
-import typing
-from importlib import reload
 
 import discord
 from asyncpg import UniqueViolationError
+from discord import Option
 from discord.ext import commands
 
-from ext.utils import embed_utils, view_utils
+from ext.utils import view_utils
+
+# TODO: Optout command.
 
 
-# TODO: Select / Button Pass.
+MEMBER = Option(discord.Member, "Get a quote from a specific user", required=False, default=None)
+QUOTE_ID = Option(int, "Get a quote by it's ID number", required=False, default=None)
+MESSAGE_ID = Option(int, "Add a message to the quote DB by it's ID number", required=False, default=None)
+ALL_SERVERS = Option(bool, "Include all servers?", required=False, default=False)
+MOST_RECENT = Option(bool, "Get the most recent quote only?", required=False, default=False)
+
 
 class QuoteDB(commands.Cog):
     """Quote Database module"""
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "💬"
-        reload(embed_utils)
 
     async def embed_quotes(self, records: list):
         """Create an embed for a list of quotes"""
@@ -115,47 +118,51 @@ class QuoteDB(commands.Cog):
         await self.bot.db.release(connection)
 
         if not r:
-            return await self.bot.reply(ctx, content=failure)
+            return await self.bot.error(ctx, failure)
 
         embeds = await self.embed_quotes(r)
-        view = view_utils.Paginator(ctx.author, embeds)
+        view = view_utils.Paginator(ctx, embeds)
         view.message = await self.bot.reply(ctx, content=f"Fetching {success}", view=view)
         await view.update()
 
-    @commands.group(invoke_without_command=True, aliases=["quotes"],
-                    usage="[quote id number or a @user to search quotes from them]")
-    async def quote(self, ctx, quote_id: typing.Optional[int], users: commands.Greedy[discord.User]):
-        """Get a random quote from this server. (optionally by Quote ID# or user(s)."""
-        if len(str(quote_id)) > 6:
-            return await self.bot.reply(ctx, content="Too long to be a quote ID. if you're trying to add a quote, "
-                                                     f"use `{ctx.prefix}quote add number` instead")
-        await self._get_quote(ctx, quote_id=quote_id, users=users)
+    @commands.slash_command()
+    async def quote(self, ctx, quote_id: QUOTE_ID, user: MEMBER, include_all_servers: ALL_SERVERS, recent: MOST_RECENT):
+        """Get a random quote from this server."""
+        await self._get_quote(ctx, quote_id=quote_id, users=[user], all_guilds=include_all_servers, random=recent)
 
     # Add quote
-    @quote.command(invoke_without_command=True, usage="quote add [message id or message link "
-                                                      "or @member to grab their last message]")
-    @commands.guild_only()
-    async def add(self, ctx, target: typing.Union[discord.Message, discord.User]):
+    @commands.slash_command()
+    async def quote_add(self, ctx, user: MEMBER, message_id: MESSAGE_ID):
         """Add a quote, either by message ID or grabs the last message a user sent"""
-        if isinstance(target, discord.Member):
-            messages = await ctx.history(limit=50).flatten()
-            m = discord.utils.get(messages, channel=ctx.channel, author=target)
-            if not m:
-                return await self.bot.reply(ctx, content="No messages from that user found in last 50 messages, "
-                                                         "please use message's id or link")
+        await ctx.interaction.response.defer()
 
-        elif isinstance(target, discord.Message):
-            m = target
+        if ctx.guild is None:
+            return await self.bot.error(ctx, "This command cannot be used in DMs")
+
+        if message_id is not None:
+            try:
+                m = ctx.channel.fetch_message(message_id)
+            except discord.NotFound:
+                return await self.bot.error(ctx, "Could not find that message.")
+
+        elif user is not None:
+            messages = await ctx.history(limit=50).flatten()
+            m = discord.utils.get(messages, channel=ctx.channel, author=user)
+            if not m:
+                return await self.bot.error(ctx, "No messages from that user found in last 50 channel messages.")
+
         else:
-            return await self.bot.reply(ctx, content='Invalid argument provided for target.')
+            return await self.bot.error(ctx, "You need to specify either a message ID or a user to quote.")
 
         if m.author.id == ctx.author.id:
-            return await self.bot.reply(ctx, content="You can't quote yourself.")
+            return await self.bot.errorr(ctx, "You can't quote yourself.")
+        elif m.author.bot:
+            return await self.bot.errorr(ctx, "You can't quote a bot.")
 
         if not m.content:
-            return await self.bot.reply(ctx, content='That message has no content.')
+            return await self.bot.error(ctx, 'That message has no content.')
 
-        await self.bot.reply(ctx, content="Attempting to add quote to db...", delete_after=5)
+        message = await self.bot.reply(ctx, content="Attempting to add quote to db...")
         connection = await self.bot.db.acquire()
 
         try:
@@ -173,120 +180,75 @@ class QuoteDB(commands.Cog):
                     (channel_id,guild_id,message_id,author_user_id,submitter_user_id,message_content,timestamp)
                     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *""", ch, gu, ms, au, qu, st, dt)
             e = await self.embed_quotes([r])
-            await self.bot.reply(ctx, content=":white_check_mark: Successfully added quote to database", embed=e[0])
+            await message.edit(content=":white_check_mark: Successfully added quote to database", embed=e[0])
         except UniqueViolationError:
-            await self.bot.reply(ctx, content="That quote is already in the database!")
+            await self.bot.error(ctx, "That quote is already in the database!", message=message)
         finally:
             await self.bot.db.release(connection)
 
-    # Find quote
-    @quote.command(aliases=['global'], usage="[Optional: @member]")
-    async def all(self, ctx, users: commands.Greedy[discord.User]):
-        """Get a random quote from any server, optionally from a specific user."""
-        await self._get_quote(ctx, users=users, all_guilds=True)
-
-    @quote.group(usage="<message text to search for>)", invoke_without_command=True)
-    async def search(self, ctx, *, qry: commands.clean_content):
+    @commands.slash_command()
+    async def quote_search(self, ctx, *, text):
         """Search for a quote by quote text"""
-        await self._get_quote(ctx, qry=qry)
-
-    @search.command(name="all", usage="<message text to search for>", aliases=['global'])
-    async def _all(self, ctx, *, qry: commands.clean_content):
-        """Search for a quote **from any server** by quote text"""
-        await self._get_quote(ctx, qry=qry, all_guilds=True)
-
-    @quote.group(invoke_without_command=True, usage='[@user]')
-    async def last(self, ctx, users: commands.Greedy[discord.User]):
-        """Gets the last quoted message (optionally from user)"""
-        await self._get_quote(ctx, users=users, random=False)
-
-    @last.command(name="all", aliases=['global'], usage="quote last all (Optional: @member @member2)")
-    async def last_all(self, ctx, users: commands.Greedy[discord.User]):
-        """Gets the last quoted message (optionally from users) from any server."""
-        await self._get_quote(ctx, users=users, random=False, all_guilds=True)
+        await self._get_quote(ctx, qry=text)
 
     # Delete quotes
-    @quote.command(name="del", aliases=['remove'], usage="<quote id number to delete>")
-    @commands.guild_only()
-    async def _del(self, ctx, quote_id: int):
+    @commands.slash_command()
+    async def quote_delete(self, ctx, quote_id: Option(int, "Enter quote ID number")):
         """Delete quote by quote ID"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             r = await connection.fetchrow(f"SELECT * FROM quotes WHERE quote_id = $1", quote_id)
         await self.bot.db.release(connection)
-        
+
         if r is None:
-            return await self.bot.reply(ctx, content=f"No quote found with ID #{quote_id}")
+            return await self.bot.error(ctx, f"No quote found with ID #{quote_id}")
 
         if r["guild_id"] != ctx.guild.id:
-            if ctx.author.id != self.bot.owner_id:
-                return await self.bot.reply(ctx, content=f"You can't delete other servers quotes.")
+            if ctx.author.id not in [r["author_user_id"], r["submitter_user_id"], self.bot.owner_id]:
+                return await self.bot.error(ctx, f"You can't delete other servers quotes.")
 
         e = await self.embed_quotes([r])
         e = e[0]  # There will only be one quote to return for this.
 
-        async def delete():
+        async def delete(message):
             """Delete a quote from the database"""
             c = await self.bot.db.acquire()
             async with c.transaction():
                 await c.execute("DELETE FROM quotes WHERE quote_id = $1", quote_id)
             await self.bot.db.release(c)
-            await self.bot.reply(ctx, content=f"Quote #{quote_id} has been deleted.")
+            await message.edit(content=f"Quote #{quote_id} has been deleted.", view=None, embed=None)
 
         _ = ctx.author.id in [r["author_user_id"], r["submitter_user_id"]]
         if _ or ctx.channel.permissions_for(ctx.author).manage_messages:
-            try:
-                m = await self.bot.reply(ctx, content="Delete this quote?", embed=e)
-                await embed_utils.bulk_react(ctx, m, ["👍", "👎"])
-            except AssertionError:  # Skip confirm if can't react.
-                return await delete()
 
-            def check(reaction, user):
-                """Verify user reacting is the invoker of the command"""
-                if reaction.message.id == m.id and user == ctx.author:
-                    emoji = str(reaction.emoji)
-                    return emoji.startswith(("👍", "👎"))
-
-            try:
-                res = await self.bot.wait_for("reaction_add", check=check, timeout=30)
-            except asyncio.TimeoutError:
-                await m.clear_reactions()
-                return await self.bot.reply(ctx, content="Response timed out after 30 seconds, quote not deleted")
-            res = res[0]
-
-            if res.emoji.startswith("👎"):
-                await self.bot.reply(ctx, content=f"Quote {quote_id} was not deleted")
-
-            elif res.emoji.startswith("👍"):
-                await delete()
-            await m.clear_reactions()
+            view = view_utils.Confirmation(ctx, label_a="Delete", colour_a=discord.ButtonStyle.red, label_b="Cancel")
+            m = await self.bot.reply(ctx, content="Delete this quote?", embed=e, view=view)
+            view.message = m
+            if view.value:
+                await delete(message=m)
+            else:
+                await m.edit(content="Quote not deleted", embed=None, view=None)
         else:
-            return await self.bot.reply(ctx,
-                                        content="Only people involved with the quote or moderators can delete quotes")
-        
+            return await self.bot.error(ctx, "Only people involved with the quote or moderators can delete a quote")
+
     # Quote Stats.
-    @quote.command(usage="<#channel or @user>")
-    async def stats(self, ctx, target: typing.Union[discord.Member, discord.TextChannel] = None):
-        """See quote stats for a user or channel"""
+    @commands.slash_command()
+    async def quote_stats(self, ctx, user: MEMBER):
+        """See quote stats for a user"""
+        target = ctx.author if user is None else user
         e = discord.Embed(color=discord.Color.og_blurple())
-        if target is None:
-            target = ctx.author
+
         try:
             e.description = target.mention
         except AttributeError:
             e.description = str(target)
 
-        if isinstance(target, discord.Member):
-            sql = """SELECT (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
-                            (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
-                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
-                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
-            escaped = [target.id, ctx.guild.id]
-        else:
-            sql = """SELECT (SELECT COUNT(*) FROM quotes) AS total,
-                            (SELECT COUNT(*) FROM quotes WHERE guild_id = $1) AS guild,
-                            (SELECT COUNT(*) FROM quotes WHERE channel_id = $2) AS channel"""
-            escaped = [ctx.guild.id, target.id]
+        sql = """SELECT (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
+                        (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
+                        (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
+                        (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
+        escaped = [target.id, ctx.guild.id]
+
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             r = await connection.fetchrow(sql, *escaped)
@@ -294,19 +256,10 @@ class QuoteDB(commands.Cog):
 
         e.set_author(icon_url="https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png", name="Quote Stats")
 
-        if isinstance(target, discord.Member):
-            e.set_thumbnail(url=target.display_avatar.url)
-            if ctx.guild:
-                e.add_field(name=ctx.guild.name, value=f"Quoted {r['auth_g']} times.\n Added {r['sub_g']} quotes.",
-                            inline=False)
-            e.add_field(name="Global", value=f"Quoted {r['author']} times.\n Added {r['sub']} quotes.", inline=False)
-        else:
-            e.set_thumbnail(url=target.guild.icon.url)
-            e.add_field(name="Channel quotes", value=f"{r['channel']} quotes from in this channel", inline=False)
-            e.add_field(name=f"{target.guild.name} quotes", value=f"{r['guild']} quotes found from this guild.",
-                        inline=False)
-            e.add_field(name="All Quotes", value=f"{r['total']} total quotes in database", inline=False)
-        e.set_footer(text=f"This information was requested by {ctx.author}")
+        e.set_thumbnail(url=target.display_avatar.url)
+        if ctx.guild:
+            e.add_field(name=ctx.guild.name, value=f"Quoted {r['auth_g']} times.\n Added {r['sub_g']} quotes.", )
+        e.add_field(name="Global", value=f"Quoted {r['author']} times.\n Added {r['sub']} quotes.", inline=False)
         await self.bot.reply(ctx, embed=e)
 
 

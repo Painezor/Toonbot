@@ -15,6 +15,10 @@ EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" 
 COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thumb.png"
 
 
+# TODO: Migrate poll command to it's own cog. Timers, /end poll command, database entry, persistant view...
+# TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
+
+
 class PollButton(discord.ui.Button):
     """A Voting Button"""
 
@@ -87,7 +91,7 @@ class PollView(discord.ui.View):
     async def update(self):
         """Refresh the view and send to user"""
         e = self.prepare_embed()
-        await self.message.edit(view=self, embed=e, allowed_mentions=discord.AllowedMentions.none())
+        await self.message.edit(view=self, embed=e)
         await self.wait()
 
 
@@ -199,7 +203,7 @@ class Fun(commands.Cog):
 
     @commands.slash_command()
     async def dead(self, ctx):
-        """STOP STOP HE'S ALREADY DEAD"""
+        """STOP, STOP HE'S ALREADY DEAD"""
         await self.bot.reply(ctx, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
 
     @commands.slash_command()
@@ -386,12 +390,11 @@ class Fun(commands.Cog):
         content = "".join(c.lower() if i & 1 else c.upper() for i, c in enumerate(text))
         await self.bot.reply(ctx, content=content)
 
-    # TODO: Expand this to it's own cog. Timers, .stoppoll command, databse entry, persisatant view...
     @commands.slash_command()
     async def poll(self, ctx,
                    question: Option(str, "What is your question?"),
                    answers: Option(str, "Separate, answers, with, commas")):
-        """Create a poll with multiple choice answers. Seperate your answers with commas.
+        """Create a poll with multiple choice answers. Separate your answers with commas.
         Polls end after 1 hour of no responses."""
         if answers is None:
             answers = []
@@ -414,7 +417,7 @@ class Fun(commands.Cog):
         choices = str(choices).split(", ")
         random.shuffle(choices)
         _ = choices.pop(0)
-        e.description += f"\n\n🥇 **{_}**\n"
+        e.description = f"\n\n🥇 **{_}**\n"
         try:
             _ = choices.pop(0)
             e.description += f"🥈 **{_}**\n"
@@ -427,5 +430,5 @@ class Fun(commands.Cog):
 
 
 def setup(bot):
-    """Loadthe Fun cog into the bot"""
+    """Load the Fun cog into the bot"""
     bot.add_cog(Fun(bot))

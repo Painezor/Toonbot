@@ -15,6 +15,7 @@
 #
 # # TODO: Select / Button Pass.
 # # TODO: Finish working on.
+
 #
 # class Twitter(commands.Cog):
 #     """Track twitter accounts"""
@@ -161,7 +162,7 @@
 #                          self.records if i['guild_id'] == ctx.guild.id]
 #         embeds = embed_utils.rows_to_embeds(e, tracked_items)
 #
-#         view = view_utils.Paginator(ctx.author, embeds)
+#         view = view_utils.Paginator(ctx, embeds)
 #         view.message = await self.bot.reply(ctx, content="Fetching tracked twitter users...", embeds)
 #         await view.update()
 #

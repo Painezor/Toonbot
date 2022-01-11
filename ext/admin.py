@@ -14,21 +14,11 @@ from discord.ext import commands
 from ext.utils import codeblocks, embed_utils, browser, view_utils
 
 
-def shared_check():
-    """Verify command is being ran on specific server or by Painezor"""
-
-    def predicate(ctx):
-        """THe actual check"""
-        return ctx.author.id == 210582977493598208 or ctx.guild.id == 533677885748150292
-    return commands.check(predicate)
-
-
 class Admin(commands.Cog):
     """Code debug & loading of modules"""
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "🛠️"
         self.bot.socket_stats = Counter()
         for r in [view_utils, embed_utils, codeblocks, browser]:
             reload(r)
@@ -37,7 +27,6 @@ class Admin(commands.Cog):
     def base_embed(self):
         """Base Embed for commands in this cog."""
         e = discord.Embed()
-        e.set_author(name=f"{self.emoji} {self.qualified_name}")
         e.colour = discord.Colour.og_blurple()
         return e
 
@@ -72,7 +61,7 @@ class Admin(commands.Cog):
         try:
             self.bot.reload_extension(module)
         except Exception as err:
-            return await self.bot.error(ctx, text=codeblocks.error_to_codeblock(err))
+            return await self.bot.error(ctx, codeblocks.error_to_codeblock(err))
         else:
             e.description = f':gear: Reloaded {module}'
         await self.bot.reply(ctx, embed=e)
@@ -87,7 +76,7 @@ class Admin(commands.Cog):
         try:
             self.bot.load_extension(module)
         except Exception as err:
-            return await self.bot.error(ctx, text=codeblocks.error_to_codeblock(err))
+            return await self.bot.error(ctx, codeblocks.error_to_codeblock(err))
         else:
             e.description = f':gear: Loaded {module}'
         await self.bot.reply(ctx, embed=e)
@@ -110,7 +99,7 @@ class Admin(commands.Cog):
         try:
             self.bot.unload_extension(module)
         except Exception as err:
-            return await self.bot.error(ctx, text=codeblocks.error_to_codeblock(err))
+            return await self.bot.error(ctx, codeblocks.error_to_codeblock(err))
         else:
             e.description = f':gear: Unloaded {module}'
 
@@ -175,7 +164,7 @@ class Admin(commands.Cog):
 
         embeds = embed_utils.rows_to_embeds(e, matches, 20)
 
-        view = view_utils.Paginator(ctx.author, embeds)
+        view = view_utils.Paginator(ctx, embeds)
         view.message = await self.bot.reply(ctx, content="Fetching Shared Servers...", view=view)
         await view.update()
 
@@ -224,7 +213,7 @@ class Admin(commands.Cog):
         e = self.base_embed
         e.title = f"{sum(self.bot.commands_used.values())} commands ran this session"
         embeds = embed_utils.rows_to_embeds(e, [f"{k}: {v}" for k, v in self.bot.commands_used.most_common()], 20)
-        view = view_utils.Paginator(ctx.author, embeds)
+        view = view_utils.Paginator(ctx, embeds)
         view.message = await self.bot.reply(ctx, content="Fetching Command Usage Stats...", view=view)
         await view.update()
 

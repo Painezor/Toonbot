@@ -110,19 +110,18 @@ class PageSelect(discord.ui.Select):
 class ObjectSelectView(discord.ui.View):
     """Generic Object Select and return"""
 
-    def __init__(self, owner, objects: list, timeout=180):
-        self.owner = owner
+    def __init__(self, ctx, objects: list, timeout=180):
+        self.ctx = ctx
         self.value = None  # As Yet Unset
         self.index = 0
         self.message = None
-        self.dropdown = None
         self.objects = objects
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(timeout=timeout)
 
     async def interaction_check(self, interaction):
         """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.owner.id
+        return interaction.user.id == self.ctx.author.id
 
     @property
     def embed(self):
@@ -212,20 +211,10 @@ class ItemSelect(discord.ui.Select):
 class Button(discord.ui.Button):
     """A Generic Button with a passed through function."""
 
-    def __init__(self,
-                 label: str,
-                 func: Callable,
-                 emoji: str = None,
-                 style: discord.ButtonStyle = discord.ButtonStyle.secondary,
-                 row: int = 2,
-                 disabled: bool = False):
-        super().__init__()
-        self.label = label
-        self.emoji = emoji
-        self.style = style
+    def __init__(self, label: str, func: Callable, emoji: str = None,
+                 style: discord.ButtonStyle = discord.ButtonStyle.secondary, row: int = 2, disabled: bool = False):
+        super().__init__(label=label, emoji=emoji, style=style, row=row, disabled=disabled)
         self.func = func
-        self.row = row
-        self.disabled = disabled
 
     async def callback(self, interaction: discord.Interaction):
         """A Generic Callback"""
@@ -236,11 +225,11 @@ class Button(discord.ui.Button):
 class Paginator(discord.ui.View):
     """Generic Paginator that returns nothing."""
 
-    def __init__(self, author: typing.Union[discord.Member, discord.User], embeds: typing.List[discord.Embed]):
+    def __init__(self, ctx, embeds: typing.List[discord.Embed]):
         super().__init__()
         self.index = 0
         self.pages = embeds
-        self.author = author
+        self.ctx = ctx
         self.message = None
 
     async def on_timeout(self):
@@ -254,17 +243,10 @@ class Paginator(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Verify clicker is owner of interaction"""
-        return self.author.id == interaction.user.id
+        return self.ctx.author.id == interaction.user.id
 
     async def update(self):
         """Refresh the view and send to user"""
-        self.generate_buttons()
-        await self.message.edit(content="", embed=self.pages[self.index], view=self,
-                                allowed_mentions=discord.AllowedMentions.none())
-        await self.wait()
-
-    def generate_buttons(self):
-        """Add buttons to the Team embed."""
         self.clear_items()
 
         _ = PreviousButton()
@@ -281,70 +263,32 @@ class Paginator(discord.ui.View):
         self.add_item(_)
         self.add_item(StopButton(row=0))
 
-
-class ChannelPicker(discord.ui.View):
-    """Container View for Channel Select Dropdown"""
-
-    def __init__(self, owner: discord.User, channels):
-        super().__init__()
-        self.owner = owner
-        self.value = None
-        self.add_item(ChannelSelect(channels))
-
-    async def interaction_check(self, interaction: discord.Interaction):
-        """Verify only invoker of command can use the buttons."""
-        return interaction.user.id == self.owner.id
-
-
-class ChannelSelect(discord.ui.Select):
-    """Dropdown to pick a channel."""
-
-    def __init__(self, channels):
-        super().__init__(placeholder="Select a Channel...")
-        for num, _ in enumerate(channels):
-            self.add_option(label=_.name, emoji='#️⃣', description=_.topic, value=str(num))
-
-    async def callback(self, interaction):
-        """Upon Item Selection do this"""
-        await interaction.response.defer()
-        self.view.value = self.values[0]
-        await self.view.message.delete()
-        self.view.stop()
+        await self.message.edit(content="", embed=self.pages[self.index], view=self)
+        await self.wait()
 
 
 class Confirmation(discord.ui.View):
     """Ask the user if they wish to create a new ticker"""
 
-    def __init__(self, owner: discord.User,
-                 label_a: str = "Yes",
-                 label_b: str = "No",
-                 colour_a: discord.ButtonStyle = None,
-                 colour_b: discord.ButtonStyle = None):
+    def __init__(self, ctx, label_a: str = "Yes", label_b: str = "No",
+                 colour_a: discord.ButtonStyle = None, colour_b: discord.ButtonStyle = None):
         super().__init__()
         self.message = None
-        self.owner = owner
-        self.add_item(BoolButton(label=label_a, colour=colour_a, value=True))
-        self.add_item(BoolButton(label=label_b, colour=colour_b))
+        self.ctx = ctx
+        self.add_item(BoolButton(label=label_a, colour=colour_a))
+        self.add_item(BoolButton(label=label_b, colour=colour_b, value=False))
         self.value = None
 
     async def interaction_check(self, interaction: discord.Interaction):
         """Verify only invoker of command can use the buttons."""
-        return interaction.user.id == self.owner.id
-
-    async def on_timeout(self) -> None:
-        """Return nothing on timeout."""
-        self.value = None
-        self.clear_items()
-        await self.message.edit(view=self)
-        self.stop()
+        return interaction.user.id == self.ctx.author.id
 
 
 class BoolButton(discord.ui.Button):
     """Set View value"""
 
-    def __init__(self, label="Yes", colour: discord.ButtonStyle = None, value: bool = False):
-        if colour is None:
-            colour = discord.ButtonStyle.secondary
+    def __init__(self, label="Yes", colour: discord.ButtonStyle = None, value: bool = True):
+        colour = discord.ButtonStyle.secondary if colour is None else colour
         super().__init__(label=label, style=colour)
         self.value = value
 

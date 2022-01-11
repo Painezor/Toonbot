@@ -1,4 +1,4 @@
-"""Custom Help formatting for displaying information on how to use commands within Toonbot"""
+"""Custom Help-formatting for displaying information on how to use commands within Toonbot"""
 from importlib import reload
 
 import discord
@@ -112,14 +112,13 @@ class HelpDropDown(discord.ui.Select):
 class HelpView(discord.ui.View):
     """A view for an instance of the help command."""
 
-    def __init__(self, ctx, prefixes, cogs, help_command):
+    def __init__(self, ctx, cogs, help_command):
         self.message = None
         self.embeds = []
         self.ctx = ctx
         self.index = 0
         self.current_category = None
         self.cogs = cogs
-        self.prefixes = prefixes
         self.help_command = help_command
         super().__init__()
 
@@ -158,8 +157,7 @@ class HelpView(discord.ui.View):
         self.clear_items()
         self.populate_buttons()
         try:
-            await self.message.edit(content=None, view=self, embed=self.embeds[self.index],
-                                    allowed_mentions=discord.AllowedMentions().none())
+            await self.message.edit(content=None, view=self, embed=self.embeds[self.index])
         except IndexError:
             print("Help", self.current_category, "index_error", self.index)
 
@@ -176,15 +174,13 @@ class HelpView(discord.ui.View):
         """The default Home Embed"""
         e = self.base_embed
         e.description = "```yaml\n[WARNING]: Toonbot is migrating to use slash commands due to changes with Discord.\n" \
-                        "You should kick and re-invite the bot to your server to be able to use these. Only commands" \
+                        "You should kick and re-invite the bot to your server to be able to use these. Only commands " \
                         "that have not yet been migrated to slash commands are listed in the Help menu!```"
         e.description += f"**Running Commands**:\n Use `{self.ctx.prefix}command` to run a command\n" \
                          f"Use `{self.ctx.prefix}help command` to get detailed help for that command."
         e.add_field(name="Navigating Menus", value="Click on buttons to change between pages, "
                                                    "Click on dropdowns to select items on those pages.", inline=False)
         e.add_field(name="Links", value=INV, inline=False)
-        pf = f"You can use any of these prefixes to run commands: ```yaml\n {' '.join(self.prefixes)}```"
-        e.add_field(name="Prefixes", value=pf, inline=False)
         self.current_category = None
         self.embeds = [e]
         self.index = 0
@@ -241,15 +237,6 @@ class Help(commands.HelpCommand):
         e.colour = 0x2ecc71
         return e
 
-    async def get_prefixes(self):
-        """Fetch Bot Prefixes"""
-        if self.context.guild is None:
-            pref = [".tb ", "!", "-", "`", "!", "?", ""]
-        else:
-            pref = self.context.bot.prefix_cache[self.context.guild.id]
-        pref = [".tb "] if not pref else pref
-        return pref
-
     def get_command_signature(self, command):
         """Example formatting of a command's usage."""
         return f'{self.context.prefix}{command.qualified_name} {command.signature}'
@@ -262,14 +249,14 @@ class Help(commands.HelpCommand):
     async def send_bot_help(self, mapping):
         """Default Help Command: No Category or Command"""
         cogs = await self.get_valid_cogs()
-        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs, help_command=self)
+        view = HelpView(self.context, cogs=cogs, help_command=self)
         view.message = await self.context.bot.reply(self.context, content="Generating Help...", view=view)
         await view.push_home_embed()
 
     async def send_cog_help(self, cog):
         """Sends help for a single category"""
         cogs = await self.get_valid_cogs()
-        view = HelpView(self.context, prefixes=await self.get_prefixes(), cogs=cogs, help_command=self)
+        view = HelpView(self.context, cogs=cogs, help_command=self)
         view.message = await self.context.bot.reply(self.context, content="Generating Help...", view=view)
         await view.push_cog_embed(cog)
 

@@ -111,7 +111,7 @@ class RSS(commands.Cog):
         self.dev_blog_cached = True
 
     async def parse(self, url):
-        """Get Embed from Devblog page"""
+        """Get Embed from the Dev Blog page"""
         async with self.bot.session.get(url) as resp:
             tree = html.fromstring(await resp.text())
 
@@ -206,7 +206,7 @@ class RSS(commands.Cog):
                 except AttributeError:
                     child_tail = ""
 
-                if child_text or tail:
+                if child_text or child_tail:
                     if child.tag == "li":
                         output += "\n"
 
@@ -231,8 +231,8 @@ class RSS(commands.Cog):
         return e
 
     # @commands.command(hidden=True)
-    # async def devblog(self, ctx, link=None):
-    #     """Fetch a World of Warships devblog, either provide ID number or leave blank to get latest."""
+    # async def dev_blog(self, ctx, link=None):
+    #     """Fetch a World of Warships dev blog, either provide ID number or leave blank to get latest."""
     #     if link is None:
     #         async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
     #             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))

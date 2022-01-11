@@ -10,21 +10,19 @@ from discord.ext import commands
 with open('credentials.json') as f:
     credentials = json.load(f)
 
-COGS = ['ext.globalchecks',  # needs to be loaded fist.
-        'ext.errors',
-        'ext.session',
-        'ext.reply',
+COGS = [  # Utility Cogs
+    'ext.errors', 'ext.session', 'ext.reply',
 
-        # Slash commands.
-        'ext.admin',
-        'ext.fixtures',
-        'ext.fun',
-        'ext.ticker',
+    # Slash commands.
+    'ext.admin', 'ext.fixtures', 'ext.fun', 'ext.scores', 'ext.ticker', "ext.transfers", 'ext.tv',
 
-        # Old commands.
-        'ext.help', 'ext.images', 'ext.info', 'ext.mod',
-        'ext.notifications', 'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.rss',
-        'ext.scores', 'ext.sidebar', 'ext.lookup', "ext.transfers", 'ext.tv', 'ext.warships']
+    # Slash commands - You should probably check these
+    'ext.images', 'ext.logs', 'ext.info', 'ext.lookup', 'ext.mod',
+
+    # Old commands.
+    'ext.help',
+    'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.rss',
+    'ext.sidebar', 'ext.warships']
 
 
 # Pending rewrite?
@@ -75,5 +73,5 @@ async def run():
         await bot.close()
 
 
-loop = asyncio.get_event_loop()
+loop = asyncio.new_event_loop()
 loop.run_until_complete(run())

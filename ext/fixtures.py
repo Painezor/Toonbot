@@ -217,7 +217,7 @@ class Fixtures(commands.Cog):
         if len(markers) == 1:
             return items[0]
 
-        view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
+        view = view_utils.ObjectSelectView(ctx, objects=markers, timeout=30)
         await message.edit(view=view)
         view.message = message
 
@@ -369,7 +369,7 @@ class Fixtures(commands.Cog):
         else:
             embeds.append(deepcopy(e))
 
-        view = view_utils.Paginator(ctx.author, embeds)
+        view = view_utils.Paginator(ctx, embeds)
         view.message = message
         await view.update()
 
@@ -545,7 +545,7 @@ class Fixtures(commands.Cog):
 
         markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.league})") for i in stadiums]
 
-        view = view_utils.ObjectSelectView(owner=ctx.author, objects=markers, timeout=30)
+        view = view_utils.ObjectSelectView(ctx, objects=markers, timeout=30)
         await message.edit(content="", view=view)
         view.message = message
         await view.update()
