@@ -3,7 +3,6 @@ import datetime
 import inspect
 import sys
 from collections import Counter
-from importlib import reload
 from os import system
 
 import discord
@@ -11,7 +10,7 @@ from discord.commands import Option
 from discord.commands import permissions
 from discord.ext import commands
 
-from ext.utils import codeblocks, embed_utils, browser, view_utils
+from ext.utils import codeblocks, embed_utils, view_utils
 
 
 def status_autocomplete(ctx):
@@ -28,8 +27,6 @@ class Admin(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.socket_stats = Counter()
-        for r in [view_utils, embed_utils, codeblocks, browser]:
-            reload(r)
 
     @property
     def base_embed(self):
