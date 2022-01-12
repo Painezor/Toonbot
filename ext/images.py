@@ -245,7 +245,8 @@ async def get_faces(ctx, target):
     return image, response, target
 
 
-MEMBER = Option(discord.Member, description="Pick a user to use their avatar", required=False, default=None)
+MEMBER = Option(discord.Member, name="user", description="Pick a user to use their avatar", required=False,
+                default=None)
 LINK = Option(str, description="Provide a link to an image", required=False, default=None)
 
 
@@ -292,16 +293,6 @@ class Images(commands.Cog):
         e.colour = discord.Colour.blue()
         e.description = ctx.author.mention
         await embed_utils.embed_image(ctx, e, image, filename=f"{target}_ruins_everything.png", message=message)
-
-    @commands.slash_command()
-    async def butter(self, ctx):
-        """What is my purpose?"""
-        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/butter.png"))
-
-    @commands.slash_command()
-    async def fixed(self, ctx):
-        """Fixed!"""
-        await self.bot.reply(ctx, file=embed_utils.make_file(image="Images/fixed.png"))
 
     @commands.slash_command()
     async def ructions(self, ctx):
@@ -358,8 +349,8 @@ class Images(commands.Cog):
         base_embed.set_author(name="Tinder", icon_url=icon)
         await embed_utils.embed_image(ctx, base_embed, output, filename="Tinder.png")
 
-    @commands.slash_command()
-    async def bob_ross(self, ctx, *, member: MEMBER, link: LINK):
+    @commands.slash_command(guild_ids=[250252535699341312])
+    async def bob_ross(self, ctx, member: MEMBER, link: LINK):
         """Bob Rossify | Choose a member, provide a link, or leave both blank and upload a file."""
         message = await self.bot.reply(ctx, content="Drawing...")
 
@@ -376,7 +367,7 @@ class Images(commands.Cog):
         image, response, target = await get_faces(ctx, target)
 
         if response is None or response is False:
-            return await self.bot.error(ctx, "No faces were detected in your image.")
+            return await self.bot.error(ctx, "No faces were detected in your image.", message=message)
 
         image = await self.bot.loop.run_in_executor(None, draw_bob, image, response)
 
@@ -386,24 +377,7 @@ class Images(commands.Cog):
         e.add_field(name="Source", value=target)
         await embed_utils.embed_image(ctx, e, image, filename="bobross.png", message=message)
 
-    # @commands.is_nsfw()
-    # @commands.command(usage='<@user, link to image, or upload a file>')
-    # async def knob(self, ctx, *, target: typing.Union[discord.Member, str] = None):
-    #     """Draw knobs in mouth on an image. Mention a user to use their avatar. Only works for human faces."""
-    #     image, response, target = await get_faces(ctx, target)
-    #
-    #     if response is None or response is False:
-    #         return await self.bot.reply(ctx, content="🚫 No faces were detected in your image.")
-    #
-    #     image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
-    #
-    #     base_embed = discord.Embed()
-    #     base_embed.colour = 0xff66cc
-    #     base_embed.description = ctx.author.mention
-    #     base_embed.add_field(name="Source", value=target)
-    #     await embed_utils.embed_image(ctx, base_embed, image, filename="Knob.png")
-
-    @commands.slash_command()
+    @commands.slash_command(guild_ids=[250252535699341312])
     async def eyes(self, ctx, member: MEMBER, link: LINK):
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
         message = await self.bot.reply(ctx, content="Drawing...")
@@ -433,6 +407,23 @@ class Images(commands.Cog):
         e.add_field(name="Source", value=target)
         await embed_utils.embed_image(ctx, e, image, filename="eyes.png", message=message)
 
+    # @commands.is_nsfw()
+    # @commands.command(usage='<@user, link to image, or upload a file>')
+    # async def knob(self, ctx, *, target: typing.Union[discord.Member, str] = None):
+    #     """Draw knobs in mouth on an image. Mention a user to use their avatar. Only works for human faces."""
+    #     image, response, target = await get_faces(ctx, target)
+    #
+    #     if response is None or response is False:
+    #         return await self.bot.reply(ctx, content="🚫 No faces were detected in your image.")
+    #
+    #     image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
+    #
+    #     base_embed = discord.Embed()
+    #     base_embed.colour = 0xff66cc
+    #     base_embed.description = ctx.author.mention
+    #     base_embed.add_field(name="Source", value=target)
+    #     await embed_utils.embed_image(ctx, base_embed, image, filename="Knob.png")
+
     @commands.slash_command()
     async def tard(self, ctx, quote: Option(str, description="Message for the image"), target: MEMBER):
         """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
@@ -448,6 +439,7 @@ class Images(commands.Cog):
         e.colour = discord.Colour.blue()
         e.description = ctx.author.mention
         await embed_utils.embed_image(ctx, e, image, filename="tard.png", message=message)
+
 
 def setup(bot):
     """Load the Images Cog into the bot"""

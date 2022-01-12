@@ -1,3 +1,4 @@
+"""Reply Handlers"""
 import discord
 from discord.ext import commands
 
@@ -57,5 +58,5 @@ class ReplyHandler(commands.Cog):
 
 
 def setup(bot):
-    """Load t he Images Cog into the bot"""
+    """Load the Images Cog into the bot"""
     bot.add_cog(ReplyHandler(bot))

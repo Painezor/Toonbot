@@ -1,6 +1,5 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
 from copy import deepcopy
-from importlib import reload
 
 # D.py
 import discord
@@ -8,7 +7,7 @@ from discord.commands import Option
 from discord.ext import commands
 
 # Custom Utils
-from ext.utils import browser, timed_events, transfer_tools, football, embed_utils, image_utils, view_utils
+from ext.utils import timed_events, football, embed_utils, view_utils
 
 # Long ass strings.
 DF = "Use `.tb default team <team name>` to set a default team\nUse `.tb default league <league name>` to set a " \
@@ -65,68 +64,11 @@ TEAMS = Option(str, "Search for a team", required=False, autocomplete=live_teams
 LIVE = Option(str, "Search for a live game", autocomplete=live_games)
 
 
-# STATUS: Testing
-
-# Full Test
-# Fixtures - Team
-# Fixtures - League
-
-# Results - Team
-# Results - League
-
-# Table - Team
-# Table - League
-
-# Scorers - Team
-# Scorers - League
-
-# Scores - League
-
-# Injuries - Team
-# Squad - Team
-
-
-# Stats - Fixture
-# Summary - Fixture
-# Formations - Fixture
-# H2h - Fixture
-
-# H2H - Team
-# Formations - Team
-# Summary - Team
-# Stats - Team
-
-
-# default_team -> Set
-# default_league -> Set
-
-# Fixtures - Null
-# Results - Null
-# Table - Null
-# Scorers - Null
-# Scores - Null
-# Injuries - Null
-# Squad - Null
-
-# H2H - Null
-# Formations - Null
-# Summary - Null
-# Stats - Null
-
-# Stadium
-
 class Fixtures(commands.Cog):
     """Lookups for past, present and future football matches."""
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "⚽"
-
-        if not hasattr(bot, "browser"):
-            self.bot.loop.create_task(browser.make_browser(bot))
-
-        for package in [transfer_tools, football, embed_utils, browser, timed_events, image_utils, view_utils]:
-            reload(package)
 
     # Selection View/Filter/Pickers.
     async def search(self, ctx, qry, message, mode=None, include_live=False, include_fs=False) \
@@ -135,10 +77,7 @@ class Fixtures(commands.Cog):
         # Handle Server Defaults
         if qry == "default":
             if ctx.guild is None:
-                e = discord.Embed()
-                e.colour = discord.Colour.red()
-                e.description = "You need to specify a search query."
-                await self.bot.reply(ctx, embed=e)
+                await self.bot.error(ctx, "You need to specify a search query.")
                 return None
 
             connection = await self.bot.db.acquire()
@@ -147,12 +86,11 @@ class Fixtures(commands.Cog):
                      AND (default_league is NOT NULL OR default_team IS NOT NULL)""", ctx.guild.id)
             await self.bot.db.release(connection)
 
-            if r is None or (r["default_team"] is None and r['default_league'] is None):
+            if r is None or all(x is None for x in [r["default_team"], r['default_league']]):
                 if ctx.channel.permissions_for(ctx.author).manage_guild:
-                    await self.bot.reply(ctx, content="Your server does not have defaults set, "
-                                                      "set them with /default_team and /default_league", ephemeral=True)
+                    await self.bot.error(ctx, "Your server does not have defaults set.\nCheck `/default_league`")
                 else:
-                    await self.bot.reply(ctx, content="You need to specify a search query.", ephemeral=True)
+                    await self.bot.error(ctx, "You need to specify a search query.", ephemeral=True)
                 return None
 
             team = r["default_team"]
@@ -162,7 +100,9 @@ class Fixtures(commands.Cog):
             else:
                 default = league if league else team
 
-            assert default is not None, "Your server does not have a default set."
+            if default is None:
+                return await self.bot.error(ctx, "Your server does not have any defaults set.\n"
+                                                 "Use the /default_league and /default_team commands.")
 
             page = await self.bot.browser.newPage()
             try:
@@ -218,7 +158,6 @@ class Fixtures(commands.Cog):
             return items[0]
 
         view = view_utils.ObjectSelectView(ctx, objects=markers, timeout=30)
-        await message.edit(view=view)
         view.message = message
 
         await view.update()
@@ -546,7 +485,6 @@ class Fixtures(commands.Cog):
         markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.league})") for i in stadiums]
 
         view = view_utils.ObjectSelectView(ctx, objects=markers, timeout=30)
-        await message.edit(content="", view=view)
         view.message = message
         await view.update()
         await view.wait()

@@ -5,23 +5,18 @@ import itertools
 import json
 import sys
 import traceback
-import typing
 import urllib.parse
 from copy import deepcopy
-from importlib import reload
 from io import BytesIO
 from json import JSONDecodeError
+from typing import Union, Tuple, Dict, List
 
 import aiohttp
 import discord
 from lxml import html
 
 from ext.utils import embed_utils, timed_events, view_utils
-from ext.utils import transfer_tools, image_utils, browser
-
-reload(transfer_tools)
-reload(image_utils)
-reload(browser)
+from ext.utils import transfer_tools, image_utils
 
 ADS = ['.//div[@class="seoAdWrapper"]', './/div[@class="banner--sticky"]', './/div[@class="box_over_content"]',
        './/div[@class="ot-sdk-container"]', './/div[@class="adsenvelope"]', './/div[@id="onetrust-consent-sdk"]',
@@ -174,7 +169,7 @@ class VAR(MatchEvent):
 class Fixture:
     """An object representing a Fixture from the Flashscore Website"""
 
-    def __init__(self, time: typing.Union[str, datetime.datetime], home: str, away: str, **kwargs):
+    def __init__(self, time: Union[str, datetime.datetime], home: str, away: str, **kwargs):
         # Meta Data
         self.state = None
         self.url = None
@@ -232,7 +227,7 @@ class Fixture:
         """Create a fixture object from the flashscore match ID"""
         url = "http://www.flashscore.com/match/" + match_id
 
-        src = await browser.fetch(page, url, xpath=".//div[@class='team spoiler-content']")
+        src = await page.browser.bot.fetch(page, url, xpath=".//div[@class='team spoiler-content']")
         tree = html.fromstring(src)
 
         ko = "".join(tree.xpath(".//div[contains(@class, 'startTime')]/div/text()"))
@@ -358,7 +353,7 @@ class Fixture:
         return f"{self.country.upper()}: {self.league}"
 
     @property
-    def colour(self) -> typing.Tuple:
+    def colour(self) -> Tuple:
         """Return a tuple of (Emoji, 0xFFFFFF Colour code) based on the Meta-State of the Game"""
         if isinstance(self.time, datetime.datetime) or self.state == "sched":
             return "⚫", 0x010101  # Upcoming Games = Black
@@ -402,31 +397,32 @@ class Fixture:
 
     async def get_badge(self, page, team) -> BytesIO or None:
         """Fetch an image of a Team's Logo or Badge as a BytesIO object"""
-        return await browser.fetch(page, self.url, f'.//div[contains(@class, "tlogo-{team}")]//img', screenshot=True)
+        xp = f'.//div[contains(@class, "tlogo-{team}")]//img'
+        return await page.browser.fetch(page, self.url, xp, screenshot=True)
 
     async def get_table(self, page) -> BytesIO or None:
         """Fetch an image of the league table appropriate to the fixture as a bytesIO object"""
         xp = './/div[contains(@class, "tableWrapper")]'
         link = self.url + "/#standings/table/overall"
-        return await browser.fetch(page, link, xp, delete=ADS, screenshot=True)
+        return await page.browser.fetch(page, link, xp, delete=ADS, screenshot=True)
 
     async def get_stats(self, page) -> BytesIO or None:
         """Get an image of a list of statistics pertaining to the fixture as a BytesIO object"""
         xp = ".//div[contains(@class, 'statRow')]"
         link = self.url + "/#match-summary/match-statistics/0"
-        return await browser.fetch(page, link, xp, delete=ADS, screenshot=True)
+        return await page.browser.fetch(page, link, xp, delete=ADS, screenshot=True)
 
     async def get_formation(self, page) -> BytesIO or None:
         """Get the formations used by both teams in the fixture"""
         xp = './/div[contains(@class, "fieldWrap")]'
-        formation = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, delete=ADS, screenshot=True)
+        url = self.url + "/#match-summary/lineups"
+        formation = await page.browser.fetch(page, url, xp, delete=ADS, screenshot=True)
         xp = './/div[contains(@class, "lineUp")]'
-        lineup = await browser.fetch(page, self.url + "/#match-summary/lineups", xp, delete=ADS, screenshot=True)
-
-        if formation is None and lineup is None:
-            return None
+        lineup = await page.browser.fetch(page, self.url + "/#match-summary/lineups", xp, delete=ADS, screenshot=True)
 
         valid_images = [i for i in [formation, lineup] if i is not None]
+        if not valid_images:
+            return None
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, image_utils.stitch_vertical, valid_images)
@@ -434,17 +430,17 @@ class Fixture:
     async def get_summary(self, page) -> BytesIO or None:
         """Fetch the summary of a Fixture"""
         xp = ".//div[contains(@class, 'verticalSections')]"
-        summary = await browser.fetch(page, self.url + "#match-summary", xp, delete=ADS, screenshot=True)
+        summary = await page.browser.fetch(page, self.url + "#match-summary", xp, delete=ADS, screenshot=True)
         return summary
-    
-    async def head_to_head(self, page) -> typing.Dict:
+
+    async def head_to_head(self, page) -> Dict:
         """Get results of recent games related to the two teams in the fixture"""
         xp = ".//div[@class='h2h']"
-        src = await browser.fetch(page, self.url + "/#h2h/overall", xp, delete=ADS)
+        src = await page.browser.fetch(page, self.url + "/#h2h/overall", xp, delete=ADS)
         tree = html.fromstring(src)
         games = {}
-        _ = tree.xpath('.//div[contains(@class, "section")]')
-        for i in _:
+
+        for i in tree.xpath('.//div[contains(@class, "section")]'):
             header = "".join(i.xpath('.//div[contains(@class, "title")]//text()')).strip().title()
             if not header:
                 continue
@@ -477,7 +473,7 @@ class Fixture:
 
         clicks = ['div[class$="showMore"]']
 
-        src = await browser.fetch(page, self.url, xp, clicks=clicks)
+        src = await page.browser.fetch(page, self.url, xp, clicks=clicks)
         tree = html.fromstring(src)
 
         preview_lines = tree.xpath('.//div[@class="previewLine"]')
@@ -558,13 +554,13 @@ class Fixture:
 
         return preview
 
-    async def refresh(self, page, for_reddit=False):
+    async def refresh(self, page, for_reddit=False, max_retry=3):
         """Perform an intensive full lookup for a fixture"""
         xp = ".//div[@id='utime']"
 
-        for i in range(3):
+        for i in range(max_retry):
             try:
-                src = await browser.fetch(page, self.url, xp)
+                src = await page.browser.fetch(page, self.url, xp)
                 tree = html.fromstring(src)
                 break
             except Exception as err:
@@ -971,7 +967,7 @@ class FlashScoreSearchResult:
 
     def __init__(self, **kwargs):
         self.url = None
-        self.title = None
+        self.title = ""
         self.logo_url = None
         self.participant_type_id = None
         self.__dict__.update(**kwargs)
@@ -982,18 +978,6 @@ class FlashScoreSearchResult:
         """A discord Embed representing the flashscore search result"""
         e = discord.Embed()
         
-        if isinstance(self, Team):
-            try:
-                e.title = self.title.split('(')[0]
-            except AttributeError:
-                pass
-        else:
-            try:
-                ctry, league = self.title.split(': ')
-                e.title = f"{ctry}: {league}"
-            except (ValueError, AttributeError):
-                pass
-        
         if self.logo_url is not None:
             logo = "http://www.flashscore.com/res/image/data/" + self.logo_url
             e.colour = await embed_utils.get_colour(logo)
@@ -1003,7 +987,7 @@ class FlashScoreSearchResult:
 
     async def get_fixtures(self, page, subpage=""):
         """Get all upcoming fixtures related to the Flashscore search result"""
-        src = await browser.fetch(page, self.url + subpage, './/div[@class="sportName soccer"]')
+        src = await page.browser.fetch(page, self.url + subpage, './/div[@class="sportName soccer"]')
 
         if src is None:
             return None
@@ -1098,19 +1082,15 @@ class FlashScoreSearchResult:
 
         _ = [("⚽", f"{i.home} {i.score} {i.away}", f"{i.country.upper()}: {i.league}") for i in items]
 
-        e = discord.Embed()
-        e.colour = discord.Colour.red()
-        e.description = f"No recent games found for {self.title}"
         if not _:
-            await message.edit(embed=e)
+            await ctx.bot.error(ctx, f"No recent games found", message=message)
             return None
 
         view = view_utils.ObjectSelectView(ctx, objects=_, timeout=30)
         _ = "an upcoming" if upcoming else "a recent"
-        await message.edit(content=f'⏬ Please choose {_} game.', view=view)
         view.message = message
 
-        await view.update()
+        await view.update(text=f'⏬ Please choose {_} game.')
         await view.wait()
 
         if view.value is None:
@@ -1123,26 +1103,38 @@ class Competition(FlashScoreSearchResult):
     """An object representing a Competition on Flashscore"""
 
     def __init__(self, **kwargs):
-        self.country_name = ""
-        self.url = ""
+        # Aliases
+        self.name = kwargs.get("league", "")
+        self.country = kwargs.get("country_name", "")  # alias.
         super().__init__(**kwargs)
         self.__dict__.update(**kwargs)
+        self.title = f"{self.country.upper()}: {self.name}"
         self.emoji = '🏆'
 
         if "://" not in self.url:
-            self.url = f"https://www.flashscore.com/soccer/{self.country_name.lower().replace(' ', '-')}/{self.url}"
+            self.url = f"https://www.flashscore.com/soccer/{self.country.lower().replace(' ', '-')}/{self.url}"
+
+    @property
+    def base_embed(self):
+        """Base embed for a Team"""
+        # Get constructor parent embed.
+        e = FlashScoreSearchResult.base_embed
+        e.title = self.title
+        return e
+
+    def __str__(self):
+        return self.title
 
     @classmethod
     async def by_id(cls, comp_id, page):
         """Create a Competition object based on the Flashscore ID of the competition"""
         url = "http://flashscore.com/?r=2:" + comp_id
-        src = await browser.fetch(page, url, ".//div[@class='team spoiler-content']")
+        src = await page.browser.fetch(page, url, ".//div[@class='team spoiler-content']")
         tree = html.fromstring(src)
 
         country = tree.xpath('.//h2[@class="tournament"]/a[2]//text()')[0].strip()
         league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
-        title = f"{country.upper()}: {league}"
-        obj = cls(url=url, title=title, country=country, league=league)
+        obj = cls(url=url, country=country, league=league)
         _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
         try:
             obj.logo_url = _[0].split("(")[1].strip(')')
@@ -1157,7 +1149,7 @@ class Competition(FlashScoreSearchResult):
         assert "flashscore" in link[:25].lower(), "Invalid URL provided. Please make sure this is a flashscore link."
         assert link.count('/') > 3, "Invalid URL provided. Please make sure this is a flashscore link to a competition."
 
-        src = await browser.fetch(page, link, xpath=".//div[@class='team spoiler-content']")
+        src = await page.browser.fetch(page, link, xpath=".//div[@class='team spoiler-content']")
         tree = html.fromstring(src)
 
         try:
@@ -1184,7 +1176,7 @@ class Competition(FlashScoreSearchResult):
     async def get_table(self, page) -> BytesIO:
         """Fetch the table from a flashscore page and return it as a BytesIO object"""
         xp = './/div[contains(@class, "tableWrapper")]/parent::div'
-        table_image = await browser.fetch(page, self.url + "/standings/", xp, delete=ADS, screenshot=True)
+        table_image = await page.browser.fetch(page, self.url + "/standings/", xp, delete=ADS, screenshot=True)
         tree = html.fromstring(await page.content())
 
         _ = tree.xpath('.//div[contains(@class,"__logo")]/@style')
@@ -1198,12 +1190,12 @@ class Competition(FlashScoreSearchResult):
 
         return table_image
 
-    async def get_scorers(self, page) -> typing.List[Player]:
+    async def get_scorers(self, page) -> List[Player]:
         """Fetch a list of scorers from a Flashscore Competition page returned as a list of Player Objects"""
         xp = ".//div[@class='tabs__group']"
         clicks = ['a[href$="top_scorers"]', 'div[class^="showMore"]']
         uri = self.url + "/standings"
-        src = await browser.fetch(page, uri, xp, clicks=clicks, delete=ADS)
+        src = await page.browser.fetch(page, uri, xp, clicks=clicks, delete=ADS)
 
         try:
             tree = html.fromstring(src)
@@ -1411,7 +1403,7 @@ class CompetitionView(discord.ui.View):
 
     async def get_embed(self):
         """Fetch Generic Embed for Team"""
-        self.base_embed = await self.competition.base_embed if self.base_embed is None else self.base_embed
+        self.base_embed = self.competition.base_embed if self.base_embed is None else self.base_embed
         return deepcopy(self.base_embed)
 
     async def get_players(self):
@@ -1509,14 +1501,22 @@ class Team(FlashScoreSearchResult):
     async def by_id(cls, team_id, page):
         """Create a Team object from it's Flashscore ID"""
         url = "http://flashscore.com/?r=3:" + team_id
-        await browser.fetch(page, url, "body")
+        await page.browser.fetch(page, url, "body")
         url = await page.evaluate("() => window.location.href")
         return cls(url=url, id=team_id)
 
-    async def get_players(self, page) -> typing.List[Player]:
+    @property
+    def base_embed(self):
+        """Base embed for a Team"""
+        # Get constructor parent embed.
+        e = FlashScoreSearchResult.base_embed
+        e.title = self.name
+        return e
+
+    async def get_players(self, page) -> List[Player]:
         """Get a list of players for a Team"""
         xp = './/div[contains(@class,"playerTable")]'
-        src = await browser.fetch(page, self.url + "/squad", xp)
+        src = await page.browser.fetch(page, self.url + "/squad", xp)
 
         if src is None:
             return []
@@ -1632,7 +1632,7 @@ class TeamView(discord.ui.View):
 
     async def get_embed(self):
         """Fetch Generic Embed for Team"""
-        self.base_embed = await self.team.base_embed if self.base_embed is None else self.base_embed
+        self.base_embed = self.team.base_embed if self.base_embed is None else self.base_embed
         return deepcopy(self.base_embed)  # Do not mutate.
 
     async def get_players(self):
@@ -1692,7 +1692,7 @@ class TeamView(discord.ui.View):
 
         # Data must be fetched before embed url is updated.
         embed = await self.get_embed()
-        embed.title = f"≡ Squad for {self.team.title}"
+        embed.title = f"≡ Squad for {self.team.name}"
         embed.url = self.page.url
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, p)
@@ -1705,7 +1705,7 @@ class TeamView(discord.ui.View):
         players = await self.get_players()
         players = [i.injury_row for i in players if i.injury]
         players = players if players else ['No injuries found']
-        embed.title = f"≡ Injuries for {self.team.title}"
+        embed.title = f"≡ Injuries for {self.team.name}"
         embed.url = self.page.url
         embed.description = "\n".join(players)
         self.index = 0
@@ -1718,7 +1718,7 @@ class TeamView(discord.ui.View):
         embed = await self.get_embed()
         players = await self.get_players()
         srt = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
-        embed.title = f"≡ Top Scorers for {self.team.title}"
+        embed.title = f"≡ Top Scorers for {self.team.name}"
 
         rows = [i.scorer_row for i in srt]
 
@@ -1770,7 +1770,7 @@ class TeamView(discord.ui.View):
         rows = await self.team.get_fixtures(page=self.page, subpage='/fixtures')
         rows = [str(i) for i in rows] if rows else ["No Fixtures Found :("]
         embed = await self.get_embed()
-        embed.title = f"≡ Fixtures for {self.team.title}" if embed.title else "≡ Fixtures "
+        embed.title = f"≡ Fixtures for {self.team.name}" if embed.title else "≡ Fixtures "
         embed.timestamp = discord.Embed.Empty
 
         self.index = 0
@@ -1783,7 +1783,7 @@ class TeamView(discord.ui.View):
         rows = await self.team.get_fixtures(page=self.page, subpage='/results')
         rows = [str(i) for i in rows] if rows else ["No Results Found :("]
         embed = await self.get_embed()
-        embed.title = f"≡ Results for {self.team.title}" if embed.title else "≡ Results "
+        embed.title = f"≡ Results for {self.team.name}" if embed.title else "≡ Results "
         embed.timestamp = discord.Embed.Empty
 
         self.index = 0
@@ -1902,16 +1902,16 @@ class Stadium:
         return e
 
 
-async def get_stadiums(query) -> typing.List[Stadium]:
+async def get_stadiums(query) -> List[Stadium]:
     """Fetch a list of Stadium objects matching a user query"""
     qry = urllib.parse.quote_plus(query)
-    
+
     async with aiohttp.ClientSession() as cs:
         async with cs.get(f'https://www.footballgroundmap.com/search/{qry}') as resp:
             tree = html.fromstring(await resp.text())
-    
+
     results = tree.xpath(".//div[@class='using-grid'][1]/div[@class='grid']/div")
-    
+
     stadiums = []
     
     for i in results:
@@ -1943,7 +1943,7 @@ async def get_stadiums(query) -> typing.List[Stadium]:
     return stadiums
 
 
-async def get_fs_results(bot, query) -> typing.List[FlashScoreSearchResult]:
+async def get_fs_results(bot, query) -> List[FlashScoreSearchResult]:
     """Fetch a list of items from flashscore matching the user's query"""
     qry_debug = query
 
@@ -1982,7 +1982,7 @@ async def fs_search(ctx, message, query) -> FlashScoreSearchResult or None:
     if len(search_results) == 1:
         return search_results[0]
 
-    view = view_utils.ObjectSelectView(ctx.author, [('🏆', i.title, i.url) for i in search_results], timeout=30)
+    view = view_utils.ObjectSelectView(ctx, [('🏆', i.title, i.url) for i in search_results], timeout=30)
     view.message = message
 
     await view.update()

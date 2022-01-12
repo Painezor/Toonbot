@@ -1,7 +1,6 @@
 """r/NUFC Match Thread Bot"""
 import asyncio
 import datetime
-from importlib import reload
 
 import asyncpg
 import asyncpraw
@@ -34,7 +33,7 @@ class MatchThread:
 
     @property
     def base_embed(self):
-        """Generic Embed for MTB notifcations"""
+        """Generic Embed for MTB notifications"""
         e = discord.Embed(color=0xff4500)
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
         e.set_author(icon_url=th, name="Match Thread Bot")
@@ -48,7 +47,7 @@ class MatchThread:
         await self.fixture.refresh(self.page)
 
         # Post Pre-Match Thread if required
-        title, markdown = await self.prematch()
+        title, markdown = await self.pre_match()
 
         subreddit = await self.bot.reddit.subreddit(self.settings["subreddit"])
 
@@ -128,7 +127,7 @@ class MatchThread:
             await asyncio.sleep(60)
 
         # Make post-match thread
-        title, markdown = await self.write_markdown(postmatch=True)
+        title, markdown = await self.write_markdown(post_match=True)
         # Create post match thread, insert link into DB.
         if self.record['post_match_url'] is None:
             post = await subreddit.submit(selftext=markdown, title=title)
@@ -148,7 +147,7 @@ class MatchThread:
         else:
             post = await self.bot.reddit.submission(url=self.record["post_match_url"])
 
-        title, markdown = await self.write_markdown(postmatch=True)  # Re-write post with actual link in it.
+        title, markdown = await self.write_markdown(post_match=True)  # Re-write post with actual link in it.
         await post.edit(markdown)
 
         # Edit match markdown to include the post-match link.
@@ -170,7 +169,7 @@ class MatchThread:
             await c.send(f'{self.settings["subreddit"]} Match Thread Loop Completed: {post.url} | <{self.fixture.url}>')
         await self.page.close()
 
-    async def prematch(self):
+    async def pre_match(self):
         """Create a pre-match thread"""
         # Alias for easy replacing.
         home = self.fixture.home
@@ -207,7 +206,7 @@ class MatchThread:
         tv = {}
         async with self.bot.session.get(f"https://www.livesoccertv.com/") as resp:
             if resp.status != 200:
-                print(f"{resp.status} recieved when trying to fetch TV url {resp.url}")
+                print(f"{resp.status} received when trying to fetch TV url {resp.url}")
                 return None
             tree = html.fromstring(await resp.text())
             for i in tree.xpath(".//tr//a"):
@@ -246,7 +245,7 @@ class MatchThread:
             return  # Rip
         await channel.send(embed=discord.Embed(colour=0xFF4500, title=post.title, url=post.url))
 
-    async def write_markdown(self, postmatch=False):
+    async def write_markdown(self, post_match=False):
         """Write markdown for the current fixture"""
         await self.fixture.refresh(self.page)
 
@@ -284,7 +283,7 @@ class MatchThread:
         except AttributeError:
             pens = ""
 
-        title = f"Post-Match Thread: {home} {score}{pens}{away}" if postmatch else f"Match Thread: {home} vs {away}"
+        title = f"Post-Match Thread: {home} {score}{pens}{away}" if post_match else f"Match Thread: {home} vs {away}"
         print("MTB: title ===>\n", title)
         print("MTB: Markdown ===>\n", markdown)
 
@@ -319,7 +318,7 @@ class MatchThread:
             markdown += "---\n\n##" + " - ".join(threads) + "\n\n---\n\n"
 
         # Radio, TV.
-        if not postmatch:
+        if not post_match:
             _ = self.settings['radio_link']
             markdown += f"[📻 Radio Commentary]({_})\n\n" if _ else ""
             _ = self.settings['discord_link']
@@ -329,7 +328,7 @@ class MatchThread:
                 tv = await self.fetch_tv()
                 if tv is not None:
                     self.tv = f"📺🇬🇧 **TV** (UK): {tv['uk_tv']}\n\n" if tv["uk_tv"] else ""
-                    self.tv += f"📺🌍 **TV** (Intl): [International TV Coverage]({tv['link']})\n\n"
+                    self.tv += f"📺🌍 **TV** (International): [International TV Coverage]({tv['link']})\n\n"
                 else:
                     self.tv = ""
 
@@ -369,9 +368,7 @@ class MatchThreadCommands(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        reload(football)
         self.active_threads = []
-        self.emoji = "⚽"
         self.scheduler_task = self.schedule_threads.start()
 
     def cog_unload(self):
@@ -380,11 +377,6 @@ class MatchThreadCommands(commands.Cog):
         for i in self.active_threads:
             i.stop = True
             i.task.cancel()
-
-    def cog_check(self, ctx):
-        """Assure commands can only be ran from the r/NUFC discord"""
-        if ctx.guild:
-            return ctx.guild.id in [332159889587699712, 250252535699341312]
 
     @tasks.loop(hours=24)
     async def schedule_threads(self):

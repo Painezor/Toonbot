@@ -66,19 +66,19 @@ class RemindLater(discord.ui.Select):
 def minutes_autocomplete(ctx):
     """Return number of minutes"""
     autos = range(0, 59)
-    return [i for i in autos if ctx.value in str(i)]
+    return [i for i in autos if str(ctx.value) in str(i)]
 
 
 def hours_autocomplete(ctx):
     """Return number of hours"""
     autos = range(0, 23)
-    return [i for i in autos if ctx.value in str(i)]
+    return [i for i in autos if str(ctx.value) in str(i)]
 
 
 def days_autocomplete(ctx):
     """Return number of hours"""
     autos = range(0, 367)
-    return [i for i in autos if ctx.value in str(i)]
+    return [i for i in autos if str(ctx.value) in str(i)]
 
 
 minutes = Option(int, "Number of minutes", name="minutes", autocomplete=minutes_autocomplete, required=False, default=0)
@@ -159,7 +159,7 @@ class ReminderView(discord.ui.View):
         e = discord.Embed()
 
         e.set_author(name="⏰ Reminder Snoozed")
-        t = timed_events.Timestamp(new_time).time_relative
+        t = timed_events.Timestamp(new_time).long
         e.description = f"**{t}**\n\n> {r['reminder_content']}"
         e.colour = 0x00ffff
         await self.message.edit(embed=e, view=None)

@@ -7,14 +7,8 @@ from discord.ext import commands
 
 from ext.utils import view_utils
 
+
 # TODO: Optout command.
-
-
-MEMBER = Option(discord.Member, "Get a quote from a specific user", required=False, default=None)
-QUOTE_ID = Option(int, "Get a quote by it's ID number", required=False, default=None)
-MESSAGE_ID = Option(int, "Add a message to the quote DB by it's ID number", required=False, default=None)
-ALL_SERVERS = Option(bool, "Include all servers?", required=False, default=False)
-MOST_RECENT = Option(bool, "Get the most recent quote only?", required=False, default=False)
 
 
 class QuoteDB(commands.Cog):
@@ -23,6 +17,13 @@ class QuoteDB(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    MEMBER = Option(discord.Member, "Get a quote from a specific user", required=False, default=None)
+    QUOTE_ID = Option(int, "Get a quote by it's ID number", required=False, default=None)
+    MESSAGE_ID = Option(int, "Add a message to the quote DB by it's ID number", required=False, default=None)
+    ALL_SERVERS = Option(bool, "Include all servers?", required=False, default=False)
+    MOST_RECENT = Option(bool, "Get the most recent quote only?", required=False, default=False)
+    SEARCH = Option(str, "Quote text to search for")
+
     async def embed_quotes(self, records: list):
         """Create an embed for a list of quotes"""
         embeds = []
@@ -30,7 +31,7 @@ class QuoteDB(commands.Cog):
             # Fetch data.
             channel = self.bot.get_channel(r["channel_id"])
             submitter = self.bot.get_user(r["submitter_user_id"])
-    
+
             guild = self.bot.get_guild(r["guild_id"])
             message_id = r["message_id"]
             
@@ -43,10 +44,10 @@ class QuoteDB(commands.Cog):
             except AttributeError:
                 e.set_author(name=f"Deleted User in #{channel}")
                 e.set_thumbnail(url=quote_img)
-            
+
             try:
-                jumpurl = f"https://discordapp.com/channels/{guild.id}/{r['channel_id']}/{message_id}"
-                e.description += f"**__[Quote #{r['quote_id']}]({jumpurl})__**\n"
+                link = f"https://discordapp.com/channels/{guild.id}/{r['channel_id']}/{message_id}"
+                e.description += f"**__[Quote #{r['quote_id']}]({link})__**\n"
             except AttributeError:
                 e.description += f"**__Quote #{r['quote_id']}__**\n"
             
@@ -61,7 +62,7 @@ class QuoteDB(commands.Cog):
             embeds.append(e)
         return embeds
 
-    async def _get_quote(self, ctx, users=None, quote_id=None, all_guilds=False, random=True, qry=None):
+    async def get_quote(self, ctx, user=None, quote_id=None, all_guilds=False, random=True, qry=None):
         """Get a quote."""
         sql = """SELECT * FROM quotes"""
         multi = False
@@ -85,12 +86,12 @@ class QuoteDB(commands.Cog):
             success = "Displaying random quote"
             failure = "Couldn't find any quotes"
 
-        if users:  # Returned from discord.Greedy
+        if user is not None:  # Returned from discord.Greedy
             and_where = "WHERE" if not escaped else "AND"
             sql += f""" {and_where} author_user_id in (${len(escaped) + 1})"""
-            escaped += [i.id for i in users]
-            success += " from specified user(s)"
-            failure += " from specified user(s)"
+            escaped += user.id
+            success += " from specified user"
+            failure += " from specified user"
 
         if not all_guilds:
             and_where = "WHERE" if not escaped else "AND"
@@ -128,7 +129,7 @@ class QuoteDB(commands.Cog):
     @commands.slash_command()
     async def quote(self, ctx, quote_id: QUOTE_ID, user: MEMBER, include_all_servers: ALL_SERVERS, recent: MOST_RECENT):
         """Get a random quote from this server."""
-        await self._get_quote(ctx, quote_id=quote_id, users=[user], all_guilds=include_all_servers, random=recent)
+        await self.get_quote(ctx, quote_id=quote_id, user=user, all_guilds=include_all_servers, random=recent)
 
     # Add quote
     @commands.slash_command()
@@ -187,9 +188,9 @@ class QuoteDB(commands.Cog):
             await self.bot.db.release(connection)
 
     @commands.slash_command()
-    async def quote_search(self, ctx, *, text):
+    async def quote_search(self, ctx, text: SEARCH, include_all_servers: ALL_SERVERS):
         """Search for a quote by quote text"""
-        await self._get_quote(ctx, qry=text)
+        await self.get_quote(ctx, qry=text, all_guilds=include_all_servers)
 
     # Delete quotes
     @commands.slash_command()

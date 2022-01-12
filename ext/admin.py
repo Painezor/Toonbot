@@ -14,6 +14,14 @@ from discord.ext import commands
 from ext.utils import codeblocks, embed_utils, browser, view_utils
 
 
+def status_autocomplete(ctx):
+    """Return from this list"""
+    return [i for i in ["playing", "streaming", "watching", "listening"] if ctx.value in i]
+
+
+STATUS = Option(str, autocomplete=status_autocomplete)
+
+
 class Admin(commands.Cog):
     """Code debug & loading of modules"""
 
@@ -132,9 +140,7 @@ class Admin(commands.Cog):
 
     @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
     @permissions.is_owner()
-    async def status(self, ctx,
-                     mode: Option(str, autocomplete=["playing", "streaming", "watching", "listening"]),
-                     new_status: Option(str)):
+    async def status(self, ctx, mode: STATUS, new_status: Option(str, description="Set the new status")):
         """Change status to <cmd> {status}"""
         values = {"playing": 0, "streaming": 1, "watching": 2, "listening": 3}
         act = discord.Activity(type=values[mode], name=new_status)
@@ -143,7 +149,7 @@ class Admin(commands.Cog):
         e = self.base_embed
         e.title = "Activity"
         e.description = f"Set status to {mode} {new_status}"
-        await self.bot.reply(ctx, emebd=e)
+        await self.bot.reply(ctx, embed=e)
 
     @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
     @permissions.is_owner()
@@ -167,17 +173,6 @@ class Admin(commands.Cog):
         view = view_utils.Paginator(ctx, embeds)
         view.message = await self.bot.reply(ctx, content="Fetching Shared Servers...", view=view)
         await view.update()
-
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def kill_browser(self, ctx):
-        """ Restart browser when you potato. """
-        await self.bot.browser.close()
-        await browser.make_browser(ctx.bot)
-        e = self.base_embed
-        e.description = ":gear: Restarting Browser."
-        e.colour = discord.Colour.og_blurple()
-        await self.bot.reply(ctx, embed=e)
 
     @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
     @permissions.is_owner()
@@ -216,6 +211,17 @@ class Admin(commands.Cog):
         view = view_utils.Paginator(ctx, embeds)
         view.message = await self.bot.reply(ctx, content="Fetching Command Usage Stats...", view=view)
         await view.update()
+
+    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
+    @permissions.is_owner()
+    async def notify(self, ctx, text: Option(str, name="notification", description="Message to send to aLL servers.")):
+        """Send a global notification to channels that track it."""
+        await self.bot.dispatch("bot_notification", text)
+        e = discord.Embed()
+        e.set_thumbnail(url=ctx.me.avatar.url)
+        e.title = "Bot notification dispatched!"
+        e.description = text
+        await self.bot.reply(ctx, embed=e)
 
 
 def setup(bot):

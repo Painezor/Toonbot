@@ -9,26 +9,26 @@ from discord.ext import commands
 from ext.utils import embed_utils, view_utils, timed_events
 
 MEMBER = Option(discord.Member, "Select a user to ban", required=False)
-USER_ID = Option(int, "Ban a user by their ID number", required=False)
+USER_ID = Option(str, "Ban a user by their ID number", required=False)
 DEL_DAYS = Option(int, "Number of days worth of messages to delete", required=False, default=0)
 
 
 def minutes_autocomplete(ctx):
     """Return number of minutes"""
     autos = range(0, 59)
-    return [i for i in autos if ctx.value in str(i)]
+    return [i for i in autos if str(ctx.value) in str(i)]
 
 
 def hours_autocomplete(ctx):
     """Return number of hours"""
     autos = range(0, 23)
-    return [i for i in autos if ctx.value in str(i)]
+    return [i for i in autos if str(ctx.value) in str(i)]
 
 
 def days_autocomplete(ctx):
     """Return number of hours"""
     autos = range(0, 367)
-    return [i for i in autos if ctx.value in str(i)]
+    return [i for i in autos if str(ctx.value) in str(i)]
 
 
 minutes = Option(int, "Number of minutes", name="minutes", autocomplete=minutes_autocomplete, required=False, default=0)
@@ -81,13 +81,19 @@ class Mod(commands.Cog):
         red = discord.ButtonStyle.red
 
         view = view_utils.Confirmation(ctx, label_a="Leave", colour_a=red, label_b="Stay")
-        await self.bot.reply(ctx, content='Should I leave the server? All of your settings will be wiped.', view=view)
+
+        e = discord.Embed()
+        e.title = "Leave thee server?"
+        e.description = "```diff\nAll of your settings will be lost```"
+
+        message = await self.bot.reply(ctx, embed=e, view=view)
+        await view.wait()
 
         if view.value:
-            await self.bot.reply(ctx, content='Farewell!')
+            await message.edit(content='Farewell!', embed=None, view=None)
             await ctx.guild.leave()
         else:
-            await self.bot.reply(ctx, content="Okay, I'll stick around a bit longer then.")
+            await message.edit(content="Okay, I'll stick around a bit longer then.", embed=None, view=None)
 
     @commands.slash_command()
     async def name(self, ctx, *, new_name: str):
@@ -120,29 +126,24 @@ class Mod(commands.Cog):
         if len(message) > 2000:
             return await self.bot.error(ctx, "Message too long. Keep it under 2000.")
 
-        try:
-            await ctx.message.delete()
-        except discord.HTTPException:
-            pass
-
         await destination.send(message)
 
     @commands.slash_command()
-    async def topic(self, ctx, *, new_topic):
+    async def topic(self, ctx, *, new_topic: Option(str, description="Type the new topic for this channel..")):
         """Set the topic for the current channel"""
         if not ctx.guild:
             return await self.bot.error(ctx, "This command cannot be used in DMs")
 
-        if not ctx.channel.permissions_for(ctx.channel).manage_channels:
+        if not ctx.channel.permissions_for(ctx.me).manage_channels:
             return await self.bot.error(ctx, "You need manage_channels permissions to edit the channel topic.")
 
         await ctx.channel.edit(topic=new_topic)
         await self.bot.reply(ctx, content=f"{ctx.channel.mention} Topic updated")
 
     @commands.slash_command()
-    async def pin(self, ctx, *, message):
+    async def pin(self, ctx, message: Option(str, description="Type a message to be pinned in this channel.")):
         """Pin a message to the current channel"""
-        if not ctx.channel.permissions_for(ctx.channel).manage_channels:
+        if not ctx.channel.permissions_for(ctx.me).manage_channels:
             return await self.bot.error(ctx, "You need manage_channels permissions to pin a message.")
 
         message = await self.bot.reply(ctx, content=message)
@@ -178,9 +179,9 @@ class Mod(commands.Cog):
         try:
             await member.kick(reason=f"{ctx.author.name}: {reason}")
         except discord.Forbidden:
-            await self.bot.error(ctx, f"I can't kick {ctx.author.mention}")
+            await self.bot.error(ctx, f"I can't kick {ctx.member.mention}")
         else:
-            await self.bot.reply(ctx, content=f"{ctx.author.mention} was kicked.")
+            await self.bot.reply(ctx, content=f"{ctx.member.mention} was kicked.")
 
     @commands.slash_command()
     async def ban(self, ctx, member: MEMBER, user_id: USER_ID, delete_days: DEL_DAYS, reason="Not specified"):
@@ -204,6 +205,7 @@ class Mod(commands.Cog):
                 await self.bot.error(ctx, content=f"I can't ban {member.mention}.")
 
         if user_id is not None:
+            user_id = int(user_id)
             target = await self.bot.fetch_user(user_id)
             message = f"☠ UserID {user_id} {target} was banned for reason: \"{reason}\""
             if delete_days:
@@ -215,8 +217,10 @@ class Mod(commands.Cog):
                 await self.bot.reply(ctx, content=f"⚠ Banning failed for UserID# {user_id}.")
 
     @commands.slash_command()
-    async def unban(self, ctx, user_id: int):
+    async def unban(self, ctx, user_id: str):
         """Unbans a user from the server"""
+        user_id = int(user_id)
+
         if not ctx.guild:
             return await self.bot.error(ctx, "This command cannot be ran in DMs")
 
@@ -233,7 +237,7 @@ class Mod(commands.Cog):
             target = await self.bot.fetch_user(user_id)
             await self.bot.reply(ctx, content=f"{target} was unbanned")
 
-    @commands.slash_command()
+    @commands.slash_command(guild_ids=[250252535699341312])
     async def banlist(self, ctx):
         """Show the ban list for the server"""
         if ctx.guild is None:
@@ -242,26 +246,26 @@ class Mod(commands.Cog):
         if not ctx.channel.permissions_for(ctx.author).view_audit_log:
             return await self.bot.error(ctx, "You need view_audit_log permissions to view the ban list.")
 
-        ban_lines = [f"\💀 {x.user.name}#{x.user.discriminator}: {x.reason}" for x in await ctx.guild.bans()]
+        ban_lines = [f"{x.id} | {x.user.name}#{x.user.discriminator}"
+                     f"```yaml\n{x.reason}```" for x in await ctx.guild.bans()]
+
         if not ban_lines:
-            ban_lines = ["☠ No bans found!"]
+            ban_lines = ["No bans found"]
 
         e = discord.Embed(color=0x111)
-        n = f"≡ {ctx.guild.name} discord ban list"
+        n = f"{ctx.guild.name} ban list"
         _ = ctx.guild.icon.url if ctx.guild.icon is not None else None
         e.set_author(name=n, icon_url=_)
-        e.set_thumbnail(url="https://i.ytimg.com/vi/eoTDquDWrRI/hqdefault.jpg")
-        e.title = "User (Reason)"
 
-        embeds = embed_utils.rows_to_embeds(e, ban_lines, rows_per=25)
+        embeds = embed_utils.rows_to_embeds(e, ban_lines)
         view = view_utils.Paginator(ctx, embeds)
         view.message = await self.bot.reply(ctx, content="Fetching banlist...", view=view)
         await view.update()
 
-    @commands.slash_command()
+    @commands.slash_command(guild_ids=[250252535699341312])
     async def clean(self, ctx, number: Option(int, description="Number of messages to delete", default=10)):
         """Deletes my messages from the last x messages in channel"""
-        if not ctx.author.permissions_for(ctx.channel).manage_messages:
+        if not ctx.channel.permissions_for(ctx.author).manage_messages:
             return await self.bot.error(ctx, 'You need manage_messages permissions to clear my messages.')
 
         def is_me(m):
@@ -285,17 +289,20 @@ class Mod(commands.Cog):
 
         target_time = datetime.datetime.now(datetime.timezone.utc) + delta
 
-        t = timed_events.Timestamp(target_time).time_relative
+        t = timed_events.Timestamp(target_time).long
 
         try:
             await member.timeout(until=target_time, reason=reason)
+            e = discord.Embed()
+            e.title = "User Timed Out"
+            e.colour = discord.Colour.dark_magenta()
+            e.description = f"{member.mention} was timed out.\nTimeout ends: {t}"
+            await self.bot.reply(ctx, embed=e)
         except discord.HTTPException:
             await self.bot.error(ctx, "I can't time out that user.")
-        else:
-            await self.bot.reply(ctx, content=f"{member.mention} was timed out.\nTimeout ends: {t}")
 
-    @commands.slash_command()
-    async def untimeout(self, ctx, member: discord.Member):
+    @commands.slash_command(guild_ids=[250252535699341312])
+    async def untimeout(self, ctx, member: discord.Member, reason: str = None):
         """End the timeout for a user."""
         if ctx.guild is None:
             return await self.bot.error(ctx, "This command cannot be used in DMs")
@@ -303,12 +310,17 @@ class Mod(commands.Cog):
         if not ctx.channel.permissions_for(ctx.author).moderate_members:
             return await self.bot.error(ctx, "You need moderate_members permissions to cancel a timeout.")
 
+        reason = f"{ctx.author}" if reason is None else f"{ctx.author}: reason"
+
         try:
-            await member.untimeout()
+            await member.remove_timeout(reason=reason)
+            e = discord.Embed()
+            e.title = "User Timed Out"
+            e.colour = discord.Colour.dark_magenta()
+            e.description = f"{member.mention} is no longer timed out."
+            await self.bot.reply(ctx, embed=e)
         except discord.HTTPException:
             await self.bot.error(ctx, "I can't un-timeout that user.")
-        else:
-            await self.bot.reply(ctx, content=f"{member.mention} is no longer timed out.")
 
     # @commands.command(usage="<command name to enable>")
     # async def enable(self, ctx, command: str):
@@ -366,6 +378,7 @@ class Mod(commands.Cog):
     #     view = view_utils.Paginator(ctx, embeds)
     #     view.message = await self.bot.reply(ctx, content="Fetching disabled commands...", view=view)
     #     await view.update()
+
 
 def setup(bot):
     """Load the mod cog into the bot"""

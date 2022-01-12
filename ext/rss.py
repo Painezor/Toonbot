@@ -6,8 +6,6 @@ import discord
 from discord.ext import commands, tasks
 from lxml import html
 
-from ext.utils import browser
-
 EU_NEWS_CHANNEL = 849418195021856768
 DEV_BLOG_CHANNEL = 849412392651587614
 
@@ -57,7 +55,7 @@ class RSS(commands.Cog):
         # Fetch Image from JS Heavy news page because it looks pretty.
         page = await self.bot.browser.newPage()
         try:
-            src = await browser.fetch(page, link, xpath=".//div[@class='header__background']")
+            src = await self.bot.browser.fetch(page, link, xpath=".//div[@class='header__background']")
             tree = html.fromstring(src)
         finally:
             await page.close()

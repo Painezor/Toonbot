@@ -19,9 +19,11 @@ COGS = [  # Utility Cogs
     # Slash commands - You should probably check these
     'ext.images', 'ext.logs', 'ext.info', 'ext.lookup', 'ext.mod',
 
+    'ext.quotes',
+
     # Old commands.
     'ext.help',
-    'ext.nufc', 'ext.quotes', 'ext.reminders', 'ext.rss',
+    'ext.nufc', 'ext.reminders', 'ext.rss',
     'ext.sidebar', 'ext.warships']
 
 
@@ -39,8 +41,7 @@ class Bot(commands.Bot):
             description="Football lookup bot by Painezor#8489",
             command_prefix=".tb ",
             owner_id=210582977493598208,
-            activity=discord.Game(name="Use .tb help"),
-            # debug_guild=250252535699341312,
+            activity=discord.Game(name="Migrated to /slash_commands"),
             intents=intents
         )
         self.db = kwargs.pop("database")

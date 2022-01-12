@@ -10,7 +10,6 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 
 
 # Unhandled Events
-# on_bulk_message_delete
 # on_message_edit
 # on_reaction_clear
 # on_guild_channel_create
@@ -20,14 +19,11 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 # on_guild_update
 # on_guild_role_create
 # on_guild_role_delete
-# on_guild_stickers_update
 # on_invite_create
 # on_invite_delete
 # on_scheduled_event_create
 # on_scheduled_event_update
 # on_scheduled_event_delete
-
-# Create bot notification event so I can message server owners.
 
 
 class ToggleButton(discord.ui.Button):
@@ -55,6 +51,7 @@ class ToggleButton(discord.ui.Button):
                 await connection.execute(q, new_value, self.view.ctx.channel.id)
         finally:
             await self.view.ctx.bot.db.release(connection)
+        await self.view.ctx.bot.get_cog("Logs").update_cache()
         await self.view.update()
 
 
@@ -87,15 +84,17 @@ class ConfigView(discord.ui.View):
         """Regenerate view and push to message"""
         self.clear_items()
 
-        q = """SELECT * FROM notifications_settings WHERE channel_id = $1"""
-        qq = """INSERT INTO notifications_settings (channel_id) VALUES $1"""
+        q = """SELECT * FROM notifications_settings WHERE (channel_id) = $1"""
+        qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2)"""
+        qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
         connection = await self.ctx.bot.db.acquire()
         try:
             async with connection.transaction():
                 stg = await connection.fetchrow(q, self.ctx.channel.id)
             if not stg:
                 print("Settings not found! Creating...")
-                await connection.execute(qq, self.ctx.channel.id)
+                await connection.execute(qq, self.ctx.guild.id, self.ctx.channel.id)
+                await connection.execute(qqq, self.ctx.channel.id)
                 return await self.update()
         finally:
             await self.ctx.bot.db.release(connection)
@@ -103,9 +102,10 @@ class ConfigView(discord.ui.View):
         e = discord.Embed()
         e.colour = discord.Colour.dark_teal()
         e.title = "Notification Logs config"
+        e.description = "Click the buttons below to turn on or off logging for events."
 
         count = 0
-        row = 2
+        row = 0
         for k, v in sorted(stg.items()):
 
             print("Iterating through settings...", k, v)
@@ -119,7 +119,7 @@ class ConfigView(discord.ui.View):
 
             self.add_item(ToggleButton(db_key=k, value=v, row=row))
 
-        self.add_item(view_utils.StopButton())
+        self.add_item(view_utils.StopButton(row=5))
 
         try:
             await self.message.edit(content=text, embed=e, view=self)
@@ -167,6 +167,7 @@ class Logs(commands.Cog):
         e.set_thumbnail(url=ctx.guild.icon.url)
         view = ConfigView(ctx)
         view.message = await ctx.bot.reply(ctx, embed=e, view=view)
+        await view.update()
 
     # Join messages
     @commands.Cog.listener()
@@ -211,6 +212,12 @@ class Logs(commands.Cog):
             except (AttributeError, discord.HTTPException):
                 continue
 
+    @commands.Cog.listener()
+    async def on_bulk_message_delete(self, messages):
+        """Yeet every single deleted message into the deletion log. Awful idea I know."""
+        for message in messages:
+            await self.on_message_delete(message)
+
     # Deleted message notif
     @commands.Cog.listener()
     async def on_message_delete(self, message):
@@ -220,10 +227,9 @@ class Logs(commands.Cog):
 
         e = discord.Embed()
         t = timed_events.Timestamp(datetime.datetime.now()).datetime
-        e.title = "Deleted Message"
         e.colour = discord.Colour.dark_red()
-        e.description = f"{message.author.mention} in {message.channel.mention}: \n\n{t}\n> {message.content}"
-        e.set_footer(text=f"UserID: {message.author.id}")
+        e.description = f"{t}\n{message.channel.mention} {message.author.mention}\n> {message.content}"
+        e.set_footer(text=f"Deleted Message from UserID: {message.author.id}")
 
         for z in message.attachments:
             if hasattr(z, "height"):
@@ -334,9 +340,56 @@ class Logs(commands.Cog):
             e.colour = discord.Colour.light_gray()
             e.description = f"The '{removed_emoji}' emote was removed"
 
-        for x in [i for i in self.records if i['guild_id'] == guild.id and i['emoji_updates']]:
+        for x in [i for i in self.records if i['guild_id'] == guild.id and i['emoji_changes']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
+                await ch.send(embed=e)
+            except (AttributeError, discord.HTTPException):
+                continue
+
+    # stickers notif
+    @commands.Cog.listener()
+    async def on_guild_stickers_update(self, guild, before, after):
+        """Event listener for outputting information about updated stickers on a server"""
+        e = discord.Embed()
+        # Find if it was addition or removal.
+        new_stickers = [i for i in after if i not in before]
+        if new_stickers:
+            for sticker in new_stickers:
+                if sticker.user is not None:
+                    e.add_field(name="Uploaded by", value=sticker.user.mention)
+
+                e.title = f"New sticker: {sticker.name}"
+                e.set_image(url=sticker.url)
+                e.set_footer(text=sticker.url)
+                e.description = sticker.description
+
+        else:
+            try:
+                removed_sticker = [i for i in before if i.id not in [i.id for i in after]][0]
+            except IndexError:
+                return  # Shrug?
+            e.title = "Emote removed"
+            e.colour = discord.Colour.light_gray()
+            e.description = f"The '{removed_sticker}' emote was removed"
+
+        for x in [i for i in self.records if i['guild_id'] == guild.id and i['sticker_changes']]:
+            try:
+                ch = self.bot.get_channel(x['channel_id'])
+                await ch.send(embed=e)
+            except (AttributeError, discord.HTTPException):
+                continue
+
+    @commands.Cog.listener()
+    async def on_bot_notification(self, notification):
+        """Custom event dispatched by painezor, output to tracked guilds."""
+        e = discord.Embed()
+        e.description = notification
+
+        for x in [i for i in self.records if i['bot_notifications']]:
+            try:
+                ch = self.bot.get_channel(x['channel_id'])
+                e.colour = ch.guild.me.colour()
                 await ch.send(embed=e)
             except (AttributeError, discord.HTTPException):
                 continue

@@ -66,7 +66,8 @@ class Info(commands.Cog):
         """Get the bots invite link"""
         view = discord.ui.View()
         view.add_item(discord.ui.Button(style=discord.ButtonStyle.url, url=INV, label="Invite me to your server"))
-        await self.bot.reply(ctx, text="You can use this link to invite me.", view=view, ephemeral=True)
+        e = discord.Embed(description="Use the button below to invite me to your server.")
+        await self.bot.reply(ctx, embed=e, view=view, ephemeral=True)
 
     @commands.slash_command()
     async def permissions(self, ctx, *, member: discord.Member = None):
@@ -81,7 +82,7 @@ class Info(commands.Cog):
         await self.bot.reply(ctx, content=f"```yaml\n{permissions}```")
 
     @commands.slash_command()
-    async def info(self, ctx, *, member: typing.Union[discord.Member, discord.User] = None):
+    async def info(self, ctx, *, member: discord.Member = None):
         """Shows info about a member, or yourself."""
         member = ctx.author if member is None else member
 
@@ -105,17 +106,22 @@ class Info(commands.Cog):
         if roles:
             e.add_field(name='Roles', value=' '.join(roles))
 
+        if member.banner is not None:
+            e.set_image(url=member.banner.url)
+
         shared = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
         if shared:
             e.set_footer(text=f"User shares {shared} discords with Toonbot")
 
-        if isinstance(member, discord.Member):
+        try:
             e.description += f'\nJoined Server: {timed_events.Timestamp(member.joined_at).countdown}'
+        except AttributeError:
+            pass
         e.description += f'\nCreated Account: {timed_events.Timestamp(member.created_at).countdown}'
 
         await self.bot.reply(ctx, embed=e)
 
-    @commands.slash_command()
+    @commands.slash_command(guild_ids=[250252535699341312])
     async def server_info(self, ctx):
         """Shows information about the server"""
         if ctx.guild is None:
@@ -123,7 +129,9 @@ class Info(commands.Cog):
 
         e = discord.Embed()
         e.title = ctx.guild.name
-        e.description = f"Guild ID: {ctx.guild.id}"
+
+        e.description = ctx.guild.descritpion if ctx.guild.description is not None else ""
+        e.description += f"Guild ID: {ctx.guild.id}"
         try:
             e.description += f"\nOwner: {ctx.guild.owner.mention}"
         except AttributeError:
@@ -144,7 +152,9 @@ class Info(commands.Cog):
         if ctx.guild.premium_subscription_count:
             e.description += f"\n\n{ctx.guild.premium_subscription_count} Nitro Boosts (Tier {ctx.guild.premium_tier})"
 
-        if ctx.guild.discovery_splash:
+        if ctx.guild.banner is not None:
+            e.set_image(url=ctx.guild.banner.url)
+        elif ctx.guild.discovery_splash is not None:
             e.set_image(url=ctx.guild.discovery_splash_url)
 
         if ctx.guild.icon:
@@ -157,15 +167,21 @@ class Info(commands.Cog):
                 emojis += str(emoji)
 
         if emojis:
-            e.add_field(name=f"Server Emotes [{len(emojis)} / {ctx.guild.emoji_limit}]", value=emojis, inline=False)
+            e.add_field(name="Emotes", value=emojis, inline=False)
 
-        if ctx.guild.vanity_url_code is not None:
-            e.add_field(name="Server invite URL", value=ctx.guild.vanity_url_code)
+        e.description += f"\n**Emotes**: {len(emojis)} / {ctx.guild.emoji_limit} slots used."
+        e.description += f"\n**Stickers**: {len(ctx.guild.stickers)} / {ctx.guild.sticker_limit} slots used."
+
+        try:
+            vanity = await ctx.guild.vanity_invite()
+            if vanity is not None:
+                e.add_field(name="Server Vanity invite", value=vanity)
+        except discord.Forbidden:
+            pass
 
         roles = [role.mention for role in ctx.guild.roles]
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
         e.add_field(name="Creation Date", value=timed_events.Timestamp(ctx.guild.created_at).date_relative)
-        e.set_footer(text=f"Server Region: {str(ctx.guild.region).title()}")
         await self.bot.reply(ctx, embed=e)
 
     @commands.slash_command()

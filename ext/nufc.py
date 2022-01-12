@@ -370,11 +370,6 @@ class NUFC(commands.Cog):
         await self.bot.reply(ctx, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
 
     @commands.slash_command(guild_ids=[332159889587699712])
-    async def metro(self, ctx):
-        """GET. OFF. THE METRO. NOOOOOOOOOOW."""
-        await self.bot.reply(ctx, file=discord.File('Get off the metro now.mp3'))
-
-    @commands.slash_command(guild_ids=[332159889587699712])
     async def radio(self, ctx):
         """Sends a link to the NUFC radio channel"""
         await self.bot.reply(ctx, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")

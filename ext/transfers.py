@@ -356,7 +356,7 @@ class Transfers(commands.Cog):
 
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            r = await connection.execute("""SELECT * FROM transfers_channels WHERE channel_id = $1""", ctx.channel.id)
+            r = await connection.fetchrow("""SELECT * FROM transfers_channels WHERE channel_id = $1""", ctx.channel.id)
         await self.bot.db.release(connection)
 
         if r is None or r['channel_id'] is None:

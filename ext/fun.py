@@ -15,7 +15,7 @@ EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" 
 COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thumb.png"
 
 
-# TODO: Migrate poll command to it's own cog. Timers, /end poll command, database entry, persistant view...
+# TODO: Migrate poll command to it's own cog. Timers, /end poll command, database entry, persistent view...
 # TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
 
 
@@ -272,7 +272,7 @@ class Fun(commands.Cog):
             e.description = f"🚫 No results found for {lookup}."
             embeds = [e]
 
-        view = view_utils.Paginator(author=ctx.author, embeds=embeds)
+        view = view_utils.Paginator(ctx, embeds=embeds)
         view.message = await self.bot.reply(ctx, content=f"Fetching definitions for `{lookup}`", view=view)
         await view.update()
 

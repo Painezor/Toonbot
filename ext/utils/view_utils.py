@@ -132,7 +132,7 @@ class ObjectSelectView(discord.ui.View):
         e.description = "\n".join([i[1] for i in self.pages[self.index]])
         return e
 
-    async def update(self):
+    async def update(self, text=""):
         """Send new version of view to user"""
         self.clear_items()
 
@@ -155,7 +155,7 @@ class ObjectSelectView(discord.ui.View):
         self.add_item(_)
 
         self.add_item(StopButton(row=1))
-        await self.message.edit(view=self, embed=self.embed)
+        await self.message.edit(content=text, view=self, embed=self.embed)
 
     async def on_timeout(self):
         """Cleanup"""
@@ -165,7 +165,7 @@ class ObjectSelectView(discord.ui.View):
         e.description = "Timed out waiting for you to select a match."
 
         try:
-            await self.message.edit(content="", embed=e, view=None)
+            await self.message.edit(content="", embed=e, view=None, delete_after=15)
         except discord.NotFound:
             pass
         self.stop()

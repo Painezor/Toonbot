@@ -22,7 +22,7 @@ async def embed_image(ctx, e, image, filename=None, message=None):
     if message is None:
         await ctx.bot.reply(ctx, file=file, embed=e)
     else:
-        await message.edit(file=file, embed=e)
+        await message.edit(content="", file=file, embed=e)
 
 
 async def get_colour(url=None):
