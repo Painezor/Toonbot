@@ -1,8 +1,6 @@
 """Commands about the meta-state of the bot and information about users and servers"""
 import datetime
 import typing
-from collections import Counter
-from importlib import reload
 
 import discord
 from discord.ext import commands
@@ -18,20 +16,6 @@ class Info(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "ℹ"
-        reload(timed_events)
-        if not hasattr(self.bot, "commands_used"):
-            self.bot.commands_used = Counter()
-
-    @commands.Cog.listener()
-    async def on_command(self, ctx):
-        """A counter for how many commands have been used this session"""
-        self.bot.commands_used[str(ctx.command)] += 1
-
-    @commands.Cog.listener()
-    async def on_slash_command(self, ctx):
-        """A counter for how many slash commands have been used this session"""
-        self.bot.commands_used[f"{ctx.command} (SLASH)"] += 1
 
     @commands.slash_command()
     async def about(self, ctx):
@@ -40,17 +24,13 @@ class Info(commands.Cog):
         owner = await self.bot.fetch_user(self.bot.owner_id)
         e.set_footer(text=f"Toonbot is coded by {owner} and was created on ")
         e.set_thumbnail(url=ctx.me.display_avatar.url)
-        e.title = f"Toonbot ({ctx.me.display})" if not ctx.me.display_name == "Toonbot" else "Toonbot"
+        e.title = f"Toonbot ({ctx.me.display_name})" if not ctx.me.display_name == "Toonbot" else "Toonbot"
 
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)
         members = f"{total_members} Members across {len(self.bot.guilds)} servers."
 
         e.description = f"I do football lookup related things.\n I have {members}"
-
-        technical_stats = f"{datetime.datetime.now() - self.bot.initialised_at}\n"
-        technical_stats += f"{sum(self.bot.commands_used.values())} commands ran this session."
-        e.add_field(name="Uptime", value=technical_stats, inline=False)
 
         view = discord.ui.View()
         s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx")
@@ -69,9 +49,18 @@ class Info(commands.Cog):
         e = discord.Embed(description="Use the button below to invite me to your server.")
         await self.bot.reply(ctx, embed=e, view=view, ephemeral=True)
 
-    @commands.slash_command()
-    async def permissions(self, ctx, *, member: discord.Member = None):
+    @commands.user_command(name="Show User Permissions.")
+    async def u_perms(self, ctx, member):
         """Shows a member's permissions."""
+        await self.send_user_info(ctx, member)
+
+    @commands.slash_command()
+    async def permissions(self, ctx, member: discord.Member = None):
+        """Shows a member's permissions."""
+        await self.send_user_info(ctx, ctx.author if member is None else member)
+
+    async def send_permissions(self, ctx, member):
+        """Combined function for permissions commands"""
         if not ctx.channel.permissions_for(ctx.author).manage_roles:
             return await self.bot.error(ctx, "You need manage roles permissions to see a member's permissions.")
 
@@ -81,11 +70,18 @@ class Info(commands.Cog):
         permissions = "\n".join([f"{i[0]} : {i[1]}" for i in permissions])
         await self.bot.reply(ctx, content=f"```yaml\n{permissions}```")
 
+    @commands.user_command(name="Get User Info")
+    async def u_info(self, ctx, member):
+        """Show info about this member."""
+        await self.send_user_info(ctx, member)
+
     @commands.slash_command()
     async def info(self, ctx, *, member: discord.Member = None):
         """Shows info about a member, or yourself."""
-        member = ctx.author if member is None else member
+        await self.send_user_info(ctx, ctx.author if member is None else member)
 
+    async def send_user_info(self, ctx, member):
+        """Send info about a user to the person requesting it."""
         e = discord.Embed(colour=member.colour)
         e.set_author(name=member)
         if member.avatar:
@@ -184,11 +180,8 @@ class Info(commands.Cog):
         e.add_field(name="Creation Date", value=timed_events.Timestamp(ctx.guild.created_at).date_relative)
         await self.bot.reply(ctx, embed=e)
 
-    @commands.slash_command()
-    async def avatar(self, ctx, user: typing.Union[discord.User, discord.Member] = None):
-        """Shows a member's avatar"""
-        if user is None:
-            user = ctx.author
+    async def send_avatar(self, ctx, user):
+        """Combined avatar commands."""
         e = discord.Embed()
         e.colour = user.color
         e.set_footer(text=user.display_avatar.url)
@@ -196,6 +189,17 @@ class Info(commands.Cog):
         e.description = f"{user.mention}'s avatar"
         e.set_image(url=user.display_avatar.url)
         await self.bot.reply(ctx, embed=e)
+
+    @commands.user_command(name="Get Avatar")
+    async def u_avatar(self, ctx, member):
+        """Get the full size version of a user's avatar."""
+        await self.send_avatar(ctx, member)
+
+    @commands.slash_command()
+    async def avatar(self, ctx, user: typing.Union[discord.User, discord.Member] = None):
+        """Shows a member's avatar"""
+        user = ctx.author if user is None else user
+        await self.send_avatar(ctx, user)
 
 
 def setup(bot):
