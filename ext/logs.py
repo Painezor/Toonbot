@@ -1,8 +1,9 @@
 """Notify server moderators about specific events"""
 import datetime
 
-import discord
+from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden
 from discord.ext import commands
+from discord.ui import Button, View
 
 from ext.utils import timed_events, view_utils
 
@@ -25,8 +26,17 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 # on_scheduled_event_update
 # on_scheduled_event_delete
 
+# TODO: Message edited
+# TODO: Username changed.
+# TODO: Nickname changed.
+# TODO: Avatar changed.
 
-class ToggleButton(discord.ui.Button):
+# TODO: User Commands Pass
+# TODO: Modals pass
+# TODO: Permissions Pass.
+
+
+class ToggleButton(Button):
     """A Button to toggle the notifications settings."""
 
     def __init__(self, db_key, value, row=0):
@@ -39,7 +49,7 @@ class ToggleButton(discord.ui.Button):
         title = db_key.replace('_', ' ').title()
         super().__init__(label=f"{title} ({label})", emoji=emoji, row=row)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """Set view value to button value"""
         await interaction.response.defer()
         new_value = False if self.value else True
@@ -55,7 +65,13 @@ class ToggleButton(discord.ui.Button):
         await self.view.update()
 
 
-class ConfigView(discord.ui.View):
+# Config View SQL Queries
+q_stg = """SELECT * FROM notifications_settings WHERE (channel_id) = $1"""
+qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2)"""
+qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
+
+
+class ConfigView(View):
     """Generic Config View"""
 
     def __init__(self, ctx):
@@ -66,50 +82,30 @@ class ConfigView(discord.ui.View):
     async def on_timeout(self):
         """Hide menu on timeout."""
         self.clear_items()
-        try:
-            await self.message.delete()
-        except discord.HTTPException:
-            pass
         self.stop()
 
-    @property
-    def base_embed(self):
-        """Generic Embed for Config Views"""
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_teal()
-        e.title = "Mod Logs config"
-        return e
-
-    async def update(self, text=""):
+    async def update(self, content=""):
         """Regenerate view and push to message"""
         self.clear_items()
 
-        q = """SELECT * FROM notifications_settings WHERE (channel_id) = $1"""
-        qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2)"""
-        qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
         connection = await self.ctx.bot.db.acquire()
         try:
             async with connection.transaction():
-                stg = await connection.fetchrow(q, self.ctx.channel.id)
+                stg = await connection.fetchrow(q_stg, self.ctx.channel.id)
             if not stg:
-                print("Settings not found! Creating...")
                 await connection.execute(qq, self.ctx.guild.id, self.ctx.channel.id)
                 await connection.execute(qqq, self.ctx.channel.id)
                 return await self.update()
         finally:
             await self.ctx.bot.db.release(connection)
 
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_teal()
-        e.title = "Notification Logs config"
+        e = Embed(color=0x7289DA, title="Notification Logs config")
         e.description = "Click the buttons below to turn on or off logging for events."
+        e.set_author(name=self.ctx.guild.name, icon_url=self.ctx.guild.icon.url)
 
         count = 0
         row = 0
         for k, v in sorted(stg.items()):
-
-            print("Iterating through settings...", k, v)
-
             if k == "channel_id":
                 continue
 
@@ -118,14 +114,12 @@ class ConfigView(discord.ui.View):
                 row += 1
 
             self.add_item(ToggleButton(db_key=k, value=v, row=row))
+        self.add_item(view_utils.StopButton(row=4))
 
-        self.add_item(view_utils.StopButton(row=5))
-
-        try:
-            await self.message.edit(content=text, embed=e, view=self)
-        except discord.NotFound:
-            self.stop()
-            return
+        if self.message is None:
+            self.message = await self.ctx.reply(content=content, embed=e, view=self)
+        else:
+            await self.message.edit(content=content, embed=e, view=self)
 
 
 class Logs(commands.Cog):
@@ -153,29 +147,18 @@ class Logs(commands.Cog):
     async def logs(self, ctx):
         """Create moderator logs in this channel."""
         if ctx.guild is None:
-            return await self.bot.error(ctx, "This command cannot be ran in DMs")
+            return await ctx.error("This command cannot be ran in DMs")
+        elif not ctx.channel.permissions_for(ctx.author).manage_messages:
+            return await ctx.error("You need manage_messages permissions to view and set mod logs")
 
-        if not ctx.channel.permissions_for(ctx.author).manage_messages:
-            err = "You need manage_messages permissions to view and set mod logs"
-            return await self.bot.error(ctx, err)
-
-        # Get settings.
-        e = discord.Embed(color=0x7289DA)
-        e.description = ""
-        e.set_author(name=ctx.guild.name)
-        e.title = f"Notification message settings"
-        e.set_thumbnail(url=ctx.guild.icon.url)
-        view = ConfigView(ctx)
-        view.message = await ctx.bot.reply(ctx, embed=e, view=view)
-        await view.update()
+        await ConfigView(ctx).update()
 
     # Join messages
     @commands.Cog.listener()
     async def on_member_join(self, member):
         """Event handler to Dispatch new member information for servers that request it"""
         # Extended member join information.
-        e = discord.Embed()
-        e.colour = 0x7289DA
+        e = Embed(colour=0x7289DA)
         e.description = f"➡ {member.mention} joined {member.guild.name}\n**User ID**: {member.id}"
 
         other_servers = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
@@ -194,22 +177,20 @@ class Logs(commands.Cog):
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
     # Unban notifier.
     @commands.Cog.listener()
     async def on_member_unban(self, guild, user):
         """Event handler for outputting information about unbanned users."""
-        e = discord.Embed(title="User Unbanned")
-        e.colour = discord.Colour.dark_blue()
-        e.description = f"{user} (ID: {user.id}) was unbanned."
+        e = Embed(title="User Unbanned", colour=Colour.dark_blue(), description=f"{user} (ID: {user.id}) was unbanned.")
 
         for x in [i for i in self.records if i['guild_id'] == guild.id and i['user_unbans']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
     @commands.Cog.listener()
@@ -225,9 +206,8 @@ class Logs(commands.Cog):
         if message.guild is None or message.author.bot:
             return  # Ignore DMs & Do not log message deletions from bots.
 
-        e = discord.Embed()
+        e = Embed(colour=Colour.dark_red())
         t = timed_events.Timestamp(datetime.datetime.now()).datetime
-        e.colour = discord.Colour.dark_red()
         e.description = f"{t}\n{message.channel.mention} {message.author.mention}\n> {message.content}"
         e.set_footer(text=f"Deleted Message from UserID: {message.author.id}")
 
@@ -244,7 +224,7 @@ class Logs(commands.Cog):
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
     # Kick notif
@@ -253,20 +233,19 @@ class Logs(commands.Cog):
     async def on_member_remove(self, member):
         """Event handler for outputting information about member kick, ban, or other departures"""
         # Check if in mod action log and override to specific channels.
-        e = discord.Embed(title="Member Left")
+        e = Embed(title="Member Left", description=f"{member.mention} | {member} (ID: {member.id})")
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        e.description = f"{member.mention} | {member} (ID: {member.id})"
         db_field = "member_leaves"
         try:
             async for x in member.guild.audit_logs(limit=5):
                 if x.target == member:
-                    if x.action == discord.AuditLogAction.kick:
+                    if x.action == AuditLogAction.kick:
                         e.title = "Member Kicked"
-                        e.colour = discord.Colour.dark_red()
+                        e.colour = Colour.dark_red()
                         e.description = f"{member.mention} kicked by {x.user} for {x.reason}."
                         db_field = "member_kicks"
                         break
-        except discord.Forbidden:
+        except Forbidden:
             pass  # We cannot see audit logs.
 
         for x in [i for i in self.records if i['guild_id'] == member.guild.id and i[db_field]]:
@@ -277,7 +256,7 @@ class Logs(commands.Cog):
                 assert ch.permissions_for(member.guild.me).send_messages
                 assert ch.permissions_for(member.guild.me).embed_links
                 await ch.send(embed=e)
-            except (AttributeError, TypeError, IndexError, AssertionError, discord.HTTPException):
+            except (AttributeError, TypeError, IndexError, AssertionError, HTTPException):
                 continue
 
     # Timeout notif
@@ -293,36 +272,34 @@ class Logs(commands.Cog):
         if not channels:
             return
 
-        e = discord.Embed()
         if not before.timed_out:
-            e.title = "User Timed Out"
+            e = Embed(title="User Timed Out")
             end_time = after.communication_disabled_until
             diff = end_time - datetime.datetime.now(datetime.timezone.utc)
             target_time = timed_events.Timestamp(end_time).day_time
             e.description = f"{after.mention} was timed out for {diff}\nTimeout ends: {target_time}"
         else:
-            e.title = "Timeout ended"
-            e.description = f"{after.mention} is no longer timed out."
+            e = Embed(title="Timeout ended", description=f"{after.mention} is no longer timed out.")
 
         for x in channels:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
     # emojis notif
     @commands.Cog.listener()
     async def on_guild_emojis_update(self, guild, before, after):
         """Event listener for outputting information about updated emojis on a server"""
-        e = discord.Embed()
+        e = Embed()
         # Find if it was addition or removal.
         new_emoji = [i for i in after if i not in before]
         if new_emoji:
             for emoji in new_emoji:
                 if emoji.user is not None:
                     e.add_field(name="Uploaded by", value=emoji.user.mention)
-                e.colour = discord.Colour.dark_purple() if emoji.managed else discord.Colour.green()
+                e.colour = Colour.dark_purple() if emoji.managed else Colour.green()
                 if emoji.managed:
                     e.set_author(name="Twitch Integration", icon_url=TWITCH_LOGO)
                     if emoji.roles:
@@ -337,21 +314,21 @@ class Logs(commands.Cog):
             except IndexError:
                 return  # Shrug?
             e.title = "Emote removed"
-            e.colour = discord.Colour.light_gray()
+            e.colour = Colour.light_gray()
             e.description = f"The '{removed_emoji}' emote was removed"
 
         for x in [i for i in self.records if i['guild_id'] == guild.id and i['emoji_changes']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
     # stickers notif
     @commands.Cog.listener()
     async def on_guild_stickers_update(self, guild, before, after):
         """Event listener for outputting information about updated stickers on a server"""
-        e = discord.Embed()
+        e = Embed()
         # Find if it was addition or removal.
         new_stickers = [i for i in after if i not in before]
         if new_stickers:
@@ -370,28 +347,27 @@ class Logs(commands.Cog):
             except IndexError:
                 return  # Shrug?
             e.title = "Emote removed"
-            e.colour = discord.Colour.light_gray()
+            e.colour = Colour.light_gray()
             e.description = f"The '{removed_sticker}' emote was removed"
 
         for x in [i for i in self.records if i['guild_id'] == guild.id and i['sticker_changes']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
     @commands.Cog.listener()
     async def on_bot_notification(self, notification):
         """Custom event dispatched by painezor, output to tracked guilds."""
-        e = discord.Embed()
-        e.description = notification
+        e = Embed(description=notification)
 
         for x in [i for i in self.records if i['bot_notifications']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 e.colour = ch.guild.me.colour()
                 await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
 

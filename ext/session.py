@@ -144,10 +144,10 @@ class Browser(commands.Cog):
         """ Restart browser when you potato. """
         await self.bot.browser.close()
         await self.make_browser()
-        e = self.base_embed
+        e = discord.Embed()
         e.description = ":gear: Restarting Browser."
         e.colour = discord.Colour.og_blurple()
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
 
 def setup(bot):

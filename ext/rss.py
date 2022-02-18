@@ -2,7 +2,8 @@
 import datetime
 import re
 
-import discord
+from discord import Embed, Option
+from discord.commands import permissions
 from discord.ext import commands, tasks
 from lxml import html
 
@@ -10,14 +11,17 @@ EU_NEWS_CHANNEL = 849418195021856768
 DEV_BLOG_CHANNEL = 849412392651587614
 
 
+# TODO: Modals pass
+# TODO: Permissions Pass.
+
+
 class RSS(commands.Cog):
     """RSS Commands"""
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "📣"
         self.bot.eu_news = self.eu_news.start()
-        self.bot.dev_blog = self.dev_blog.start()
+        self.bot.dev_blog = self.blog_loop.start()
         self.cache = []
         self.news_cached = False
         self.dev_blog_cached = False
@@ -60,7 +64,7 @@ class RSS(commands.Cog):
         finally:
             await page.close()
 
-        e = discord.Embed(url=link, colour=0x064273)
+        e = Embed(url=link, colour=0x064273)
         e.title = tree.xpath('.//div[@class="title"]/text()')[0] if title is None else title
         category = "EU News: " + tree.xpath('.//nav/div/a/span/text()')[-1] if category is None else category
         date = datetime.datetime.now() if date is None else datetime.datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %Z")
@@ -83,7 +87,7 @@ class RSS(commands.Cog):
         await ch.send(embed=e)
 
     @tasks.loop(seconds=60)
-    async def dev_blog(self):
+    async def blog_loop(self):
         """Loop to get the latest dev blog articles"""
         async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
@@ -92,10 +96,16 @@ class RSS(commands.Cog):
         for i in articles:
             link = "".join(i.xpath('.//guid/text()'))
 
-            if link in self.cache:
-                continue
+            try:
+                if link in self.cache:
+                    continue
+            except AttributeError:
+                self.cache = []
 
             self.cache.append(link)
+
+            if ".ru" in link:
+                continue
 
             if not self.dev_blog_cached:
                 continue  # Skip on population
@@ -115,11 +125,8 @@ class RSS(commands.Cog):
 
         article_html = tree.xpath('.//div[@class="article__content"]')[0]
 
-        e = discord.Embed()
-        e.colour = 0x00FFFF
+        e = Embed(colour=0x00FFFF, title="".join(tree.xpath('.//h2[@class="article__title"]/text()')), url=url)
         e.set_author(name="World of Warships Development Blog", url="https://blog.worldofwarships.com/")
-        e.title = "".join(tree.xpath('.//h2[@class="article__title"]/text()'))
-        e.url = url
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
         e.description = ""
@@ -151,9 +158,14 @@ class RSS(commands.Cog):
                 out = f"*{txt}*"
             elif node.tag == "strong":
                 out = f" **{txt}**"
+                if not node.parent.text:
+                    out += "\n"
             elif node.tag == "span":
                 if "ship" in node.attrib['class']:
-                    out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
+                    try:
+                        out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
+                    except AttributeError:
+                        out = f"**{txt}**\n"
                 else:
                     out = txt
             elif node.tag == "ul":
@@ -205,54 +217,51 @@ class RSS(commands.Cog):
                     child_tail = ""
 
                 if child_text or child_tail:
-                    if child.tag == "li":
-                        output += "\n"
-
+                    output += "\n" if child.tag == "li" else ""
                     output += f"{fmt(child)}"
-
                     if child.tag == "li" and child.getnext() is None and not child.getchildren():
-                        # Extra line after lists.
-                        output += "\n\n"
-
-                    if child.tag == "p":
-                        output += "\n\n"
+                        output += "\n\n"  # Extra line after lists.
+                    output += "\n\n" if child.tag == "p" else ""
 
             if text or tail:
                 if n.tag == "p":
-                    if n.itertext():
-                        output += "\n\n"
-                elif n.tag == "li":
-                    output += "\n"
+                    output += "\n\n" if n.itertext() else ""
+                output += "\n" if n.tag == "li" else ""
 
-        trunc = f"...\n[Read Full Article]({url})"
-        e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
+        if len(output) > 4000:
+            trunc = f"...\n[Read Full Article]({url})"
+            e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
+        else:
+            e.description = output
         return e
 
-    # @commands.command(hidden=True)
-    # async def dev_blog(self, ctx, link=None):
-    #     """Fetch a World of Warships dev blog, either provide ID number or leave blank to get latest."""
-    #     if link is None:
-    #         async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
-    #             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
-    #
-    #         articles = tree.xpath('.//item')
-    #         link = ""
-    #         for i in articles:
-    #             link = "".join(i.xpath('.//guid/text()'))
-    #             if link:
-    #                 break
-    #     elif link.isdigit():
-    #         link = f"https://blog.worldofwarships.com/blog/{link}"
-    #
-    #     e = await self.parse(link)
-    #     await self.bot.reply(ctx, embed=e)
-    #
-    # @commands.command(hidden=True)
-    # @commands.is_owner()
-    # async def news(self, ctx, link):
-    #     """Manual refresh of missed news articles."""
-    #     await self.dispatch_eu_news(link)
-    #     await self.bot.reply(ctx, content="Sent.", delete_after=1)
+    @commands.slash_command(guild_ids=[742372603813036082])
+    async def dev_blog(self, ctx, number: Option(int, "Get which dev blog # ?")):
+        """Fetch a World of Warships dev blog, either provide ID number or leave blank to get latest."""
+        if number:
+            link = f"https://blog.worldofwarships.com/blog/{number}"
+        else:
+            async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
+                tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
+
+            articles = tree.xpath('.//item')
+            link = ""
+            for i in articles:
+                link = "".join(i.xpath('.//guid/text()'))
+                if link:
+                    break
+            else:
+                return await ctx.error("Couldn't find any dev blogs.")
+
+        e = await self.parse(link)
+        await ctx.reply(embed=e)
+
+    @commands.slash_command(guild_ids=[742372603813036082])
+    @permissions.is_owner()
+    async def news(self, ctx, link):
+        """Manual refresh of missed news articles."""
+        await self.dispatch_eu_news(link)
+        await ctx.reply(content="Sent.", delete_after=1)
 
 
 def setup(bot):

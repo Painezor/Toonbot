@@ -5,8 +5,9 @@ import re
 from importlib import reload
 
 import asyncpraw
-import discord
 from PIL import Image
+from discord import Option, Attachment, Embed
+from discord.commands import permissions
 from discord.ext import commands, tasks
 from lxml import html
 
@@ -56,7 +57,7 @@ class NUFCSidebar(commands.Cog):
         self.bot.sidebar.cancel()
 
     async def cog_check(self, ctx):
-        """Assure commands can only be used on the r/NUFC discord."""
+        """Assure commands can only be used on the r/NUFC """
         if not ctx.guild:
             return False
         return 332161994738368523 in [i.id for i in ctx.author.roles] or ctx.author.id == self.bot.owner_id
@@ -224,7 +225,7 @@ class NUFCSidebar(commands.Cog):
         footer = timestamp + top_bar + match_threads
         
         if subreddit == "NUFC":
-            footer += "\n\n[](https://discord.gg/" + NUFC_DISCORD_LINK + ")"
+            footer += "\n\n[](https://gg/" + NUFC_DISCORD_LINK + ")"
         
         markdown = top + table + fx_markdown
         if results:
@@ -235,24 +236,26 @@ class NUFCSidebar(commands.Cog):
             mdl = [f"{i.reddit_time} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in results]
             rx_markdown = rows_to_md_table(th, mdl, max_length=10240 - len(markdown + footer))
             markdown += rx_markdown
-            
+
         markdown += footer
         return markdown
 
-    @commands.command(invoke_without_command=True)
-    async def sidebar(self, ctx, *, caption=None):
-        """Force a sidebar update, or use sidebar manual"""
+    @commands.slash_command(guild_ids=[332159889587699712], default_permissions=False)
+    @permissions.has_role("Subreddit Moderators")
+    async def sidebar(self, ctx,
+                      caption: Option(str, "Set a new Sidebar Caption", required=False),
+                      upload_image: Option(Attachment, "Upload a new sidebar image", required=False)):
+        """Upload an image to the sidebar, or edit the caption."""
         # Check if message has an attachment, for the new sidebar image.
-        if caption is not None and caption != "image":
+        if caption:
             _ = await self.bot.reddit.subreddit('NUFC')
             _ = await _.wiki.get_page('sidebar')
-            old = _.content_md
-            markdown = re.sub(r'---.*?---', f"---\n\n> {caption}\n\n---", old, flags=re.DOTALL)
+            markdown = re.sub(r'---.*?---', f"---\n\n> {caption}\n\n---", _.content_md, flags=re.DOTALL)
             await _.edit(content=markdown)
-            await self.bot.reply(ctx, content=f"Set caption to: {caption}")
+            await ctx.reply(content=f"Set caption to: {caption}")
 
-        if ctx.message.attachments:
-            await ctx.message.attachments[0].save("sidebar.png")
+        if upload_image:
+            await upload_image.save("sidebar.png")
             s = await self.bot.reddit.subreddit("NUFC")
             await s.stylesheet.upload("sidebar", "sidebar.png")
             style = await s.stylesheet()
@@ -260,20 +263,14 @@ class NUFCSidebar(commands.Cog):
             await s.stylesheet.update(style.stylesheet, reason=f"Sidebar image by {ctx.author} via discord")
 
         # Build
-        markdown = await self.make_sidebar()
-
-        # Post
         subreddit = await self.bot.reddit.subreddit('NUFC')
         wiki = await subreddit.wiki.get_page("config/sidebar")
-        await wiki.edit(content=markdown)
+        await wiki.edit(content=await self.make_sidebar())
 
-        # Embed.
-        e = discord.Embed(color=0xff4500)
+        e = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
         e.set_author(icon_url=th, name="r/NUFC Sidebar updated")
-        e.url = "http://www.reddit.com/r/NUFC"
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
 
 def setup(bot):

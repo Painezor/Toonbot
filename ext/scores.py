@@ -3,16 +3,18 @@
 import datetime
 from collections import defaultdict
 
-# discord
-import asyncpg
-import discord
-from asyncpg import UniqueViolationError
-from discord import Option
+from asyncpg import UniqueViolationError, ForeignKeyViolationError
+from discord import Option, ButtonStyle, Interaction, Colour, Embed, NotFound, HTTPException, PermissionOverwrite, \
+    Forbidden, SlashCommandGroup
+from discord.commands import permissions
 from discord.ext import commands, tasks
+from discord.ui import Button, Select, View
 # Web Scraping
 from lxml import html
 
 from ext.utils import football, embed_utils, view_utils, timed_events
+
+# discord
 
 # Constants.
 NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
@@ -50,6 +52,10 @@ WORLD_CUP_LEAGUES = [
 ]
 
 
+# TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
+# TODO: Permissions Pass.
+
+
 # Autocomplete
 async def live_leagues(ctx):
     """Return list of live leagues"""
@@ -60,19 +66,19 @@ async def live_leagues(ctx):
 LEAGUES = Option(str, "Search for a competition", autocomplete=live_leagues)
 
 
-class ResetLeagues(discord.ui.Button):
+class ResetLeagues(Button):
     """Button to reset a live score channel back to it's default leagues"""
 
     def __init__(self):
-        super().__init__(label="Reset to default leagues", style=discord.ButtonStyle.primary)
+        super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """Click button reset leagues"""
         await interaction.response.defer()
         await self.view.reset_leagues()
 
 
-class RemoveLeague(discord.ui.Select):
+class RemoveLeague(Select):
     """Button to bring up the remove leagues dropdown."""
 
     def __init__(self, leagues, row=4):
@@ -82,13 +88,13 @@ class RemoveLeague(discord.ui.Select):
         for league in sorted(leagues):
             self.add_option(label=league)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """When a league is selected"""
         await interaction.response.defer()
         await self.view.remove_leagues(self.values)
 
 
-class ConfigView(discord.ui.View):
+class ConfigView(View):
     """Generic Config View"""
 
     def __init__(self, ctx):
@@ -103,22 +109,13 @@ class ConfigView(discord.ui.View):
         self.clear_items()
         try:
             await self.message.edit(view=self)
-        except discord.NotFound:
+        except NotFound:
             pass
         self.stop()
 
-    async def interaction_check(self, interaction: discord.Interaction):
+    async def interaction_check(self, interaction: Interaction):
         """Verify user of view is correct user."""
         return interaction.user.id == self.ctx.author.id
-
-    @property
-    def base_embed(self):
-        """Generic Embed for Config Views"""
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_teal()
-        e.title = "Toonbot Live Scores Channel Config"
-        e.set_thumbnail(url=self.ctx.bot.user.display_avatar.url)
-        return e
 
     async def get_leagues(self):
         """Fetch Leagues for View's Channel"""
@@ -131,37 +128,26 @@ class ConfigView(discord.ui.View):
         leagues = [r['league'] for r in leagues]
         return leagues
 
-    async def update(self, text=""):
+    async def update(self, content=""):
         """Push the newest version of view to message"""
         self.clear_items()
         leagues = await self.get_leagues()
 
         if leagues:
-            """Formatted Live SCores Embed"""
-            e = discord.Embed()
-            e.colour = discord.Colour.dark_teal()
-            e.title = "Toonbot Live Scores config"
+            e = Embed(colour=Colour.dark_teal(), title="Toonbot Live Scores config")
             e.set_thumbnail(url=self.ctx.channel.guild.me.display_avatar.url)
 
             header = f'Tracked leagues for {self.ctx.channel.mention}```yaml\n'
 
             if not leagues:
                 leagues = ["```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"]
+
             embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
             self.pages = embeds
-
-            _ = view_utils.PreviousButton()
-            _.disabled = True if self.index == 0 else False
-            self.add_item(_)
-
-            _ = view_utils.PageButton()
-            _.label = f"Page {self.index + 1} of {len(self.pages)}"
-            _.disabled = True if len(self.pages) == 1 else False
-            self.add_item(_)
-
-            _ = view_utils.NextButton()
-            _.disabled = True if self.index == len(self.pages) - 1 else False
-            self.add_item(_)
+            self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
+            self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
+                                                disabled=True if len(self.pages) == 1 else False))
+            self.add_item(view_utils.NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
             self.add_item(view_utils.StopButton(row=0))
 
             embed = self.pages[self.index]
@@ -175,20 +161,18 @@ class ConfigView(discord.ui.View):
         else:
             self.add_item(ResetLeagues())
             embed = None
-            text = f"You have no tracked leagues for {self.ctx.channel.mention}, would you like to reset it?"
-        try:
-            await self.message.edit(content=text, embed=embed, view=self)
-        except discord.HTTPException:
-            self.stop()
-            return
+            content = f"You have no tracked leagues for {self.ctx.channel.mention}, would you like to reset it?"
+
+        if self.message is None:
+            self.message = await self.ctx.reply(content=content, embed=embed, view=self)
+        else:
+            await self.message.edit(content=content, embed=embed, view=self)
 
     async def remove_leagues(self, leagues):
         """Bulk remove leagues from a live scores channel"""
-        red = discord.ButtonStyle.red
-        view = view_utils.Confirmation(self.ctx, label_a="Remove", label_b="Cancel", colour_a=red)
+        view = view_utils.Confirmation(self.ctx, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
         lg_text = "```yaml\n" + '\n'.join(sorted(leagues)) + "```"
-        _ = f"Remove these leagues from {self.ctx.channel.mention}? {lg_text}"
-        await self.message.edit(content=_, view=view)
+        await self.message.edit(content=f"Remove these leagues from {self.ctx.channel.mention}? {lg_text}", view=view)
         await view.wait()
 
         if view.value:
@@ -198,19 +182,19 @@ class ConfigView(discord.ui.View):
                 for x in leagues:
                     await connection.execute(q, self.ctx.channel.id, x)
             await self.ctx.bot.db.release(connection)
-            await self.message.edit(content=f"Removed {self.ctx.channel.mention} tracked leagues: {lg_text}", view=self)
-
-        await self.update()
+        await self.update(content=f"Removed {self.ctx.channel.mention} tracked leagues: {lg_text}")
 
     async def reset_leagues(self):
         """Reset a channel to default leagues."""
         connection = await self.ctx.bot.db.acquire()
-        async with connection.transaction():
-            q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
-            for x in DEFAULT_LEAGUES:
-                await connection.execute(q, self.ctx.channel.id, x)
-        await self.ctx.bot.db.release(connection)
-        await self.update(text=f"Tracked leagues for {self.ctx.channel.mention} reset")
+        try:
+            async with connection.transaction():
+                q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
+                for x in DEFAULT_LEAGUES:
+                    await connection.execute(q, self.ctx.channel.id, x)
+        finally:
+            await self.ctx.bot.db.release(connection)
+        await self.update(content=f"Tracked leagues for {self.ctx.channel.mention} reset")
 
 
 class Scores(commands.Cog, name="LiveScores"):
@@ -218,7 +202,6 @@ class Scores(commands.Cog, name="LiveScores"):
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "⚽"
         
         # Data
         if not hasattr(self.bot, "games"):
@@ -235,30 +218,22 @@ class Scores(commands.Cog, name="LiveScores"):
         """Cancel the live scores loop when cog is unloaded."""
         self.bot.scores.cancel()
 
-    @property
-    async def base_embed(self):
-        """A discord.Embed() with live-score theming"""
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_orange()
-        e.title = "Toonbot Live Scores config"
-        e.set_thumbnail(url=self.bot.user.display_avatar.url)
-        return e
-
     async def update_cache(self):
         """Grab the most recent data for all channel configurations"""
         connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            records = await connection.fetch("""SELECT channel_id, league FROM scores_leagues""")
-        await self.bot.db.release(connection)
+        try:
+            async with connection.transaction():
+                records = await connection.fetch("""SELECT channel_id, league FROM scores_leagues""")
+        finally:
+            await self.bot.db.release(connection)
 
         # Clear out our cache.
         self.cache.clear()
 
         # Repopulate.
         for r in records:
-            if self.bot.get_channel(r['channel_id']) is None:
-                continue
-            self.cache[r["channel_id"]].add(r["league"])
+            if self.bot.get_channel(r['channel_id']) is not None:
+                self.cache[r["channel_id"]].add(r["league"])
 
     async def update_channel(self, channel_id):
         """Edit a live-score channel to have the latest scores"""
@@ -299,35 +274,32 @@ class Scores(commands.Cog, name="LiveScores"):
                 if message.content != chunk:
                     try:
                         await message.edit(content=chunk)
-                    except discord.NotFound:  # reset on corruption.
+                    except NotFound:  # reset on corruption.
                         return await self.purge_chanel(channel_id, chunks)
-                    except discord.HTTPException:
+                    except HTTPException:
                         pass  # can't help.
 
         # Otherwise, we build a new message list.
         else:
             await self.purge_chanel(channel_id, chunks)
 
-    def is_me(self, m):
-        """Handle purging more gracefully. Bot Only."""
-        return m.author == self.bot.user
-
     async def purge_chanel(self, channel_id, chunks):
         """Remove all live score messages from a channel"""
         channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            return
+
         try:
             self.msg_dict[channel_id] = []
-            await channel.purge(limit=10, check=self.is_me)
-        except discord.HTTPException:
+            await channel.purge(limit=10, check=lambda m: m.author.id == self.bot.user.id)
+        except HTTPException:
             pass
-        except AttributeError:  # Channel not found.
-            return
-        
+
         for x in chunks:
             # Append message ID to our list
             try:
                 message = await channel.send(x)
-            except discord.HTTPException:
+            except HTTPException:
                 continue  # These are user-problems, not mine.
             except Exception as e:
                 # These however need to be logged.
@@ -615,14 +587,15 @@ class Scores(commands.Cog, name="LiveScores"):
                 capture_group = []
         return new_games
 
-    @commands.slash_command()
-    async def livescores(self, ctx):
-        """View the status of your live scores channels."""
-        if ctx.guild is None:
-            return await self.bot.error(ctx, "This command cannot be ran in DMs")
+    livescores = SlashCommandGroup("livescores", "Create or manage livescores channels")
 
-        if not ctx.channel.permissions_for(ctx.author).manage_channels:
-            return await self.bot.error(ctx, "You need manage_channels permissions to edit a scores channel.")
+    @livescores.command()
+    async def manage(self, ctx):
+        """View or Delete tracked leagues from a live-scores channel."""
+        if ctx.guild is None:
+            return await ctx.error("This command cannot be ran in DMs")
+        elif not ctx.channel.permissions_for(ctx.author).manage_channels:
+            return await ctx.error("You need manage_channels permissions to edit a scores channel.")
 
         connection = await self.bot.db.acquire()
         try:
@@ -633,41 +606,37 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
         if not row:
-            return await self.bot.error(ctx, f"{ctx.channel.mention} is not a live-scores channel.")
+            return await ctx.error(f"{ctx.channel.mention} is not a live-scores channel.")
 
-        view = ConfigView(ctx)
-        view.message = await self.bot.reply(ctx, content=f"Fetching config for {ctx.channel.mention}...", view=view)
-        await view.update()
+        await ConfigView(ctx).update(content=f"Fetching config for {ctx.channel.mention}...")
 
-    @commands.slash_command()
-    async def livescores_create_channel(self, ctx, channel_name="live-scores"):
+    @livescores.command()
+    async def create(self, ctx, channel_name: Option(str, "Enter name for the the new channel", default="live-scores")):
         """Create a live-scores channel for your server."""
         if ctx.guild is None:
-            return await self.bot.error(ctx, "This command cannot be ran in DMs")
+            return await ctx.error("This command cannot be ran in DMs")
 
         if not ctx.channel.permissions_for(ctx.author).manage_channels:
-            return await self.bot.error(ctx, "You need manage_channels permissions to create a scores channel.")
+            return await ctx.error("You need manage_channels permissions to create a scores channel.")
 
         if not ctx.channel.permissions_for(ctx.me).manage_channels:
-            return await self.bot.error(ctx, "I need manage_channels permissions to create a scores channel.")
+            return await ctx.error("I need manage_channels permissions to create a scores channel.")
 
         reason = f'{ctx.author} (ID: {ctx.author.id}) created a Toonbot live-scores channel.'
         topic = "Live Scores from around the world"
 
         try:
             channel = await ctx.guild.create_text_channel(name=channel_name, reason=reason, topic=topic)
-        except discord.Forbidden:
-            return await self.bot.error(ctx, 'I need manage_channels permissions to make a channel.')
+        except Forbidden:
+            return await ctx.error('I need manage_channels permissions to make a channel.')
 
         if ctx.channel.permissions_for(ctx.me).manage_roles:
             ow = {
-                ctx.me: discord.PermissionOverwrite(send_messages=True, manage_messages=True,
-                                                    read_message_history=True),
-                ctx.guild.default_role: discord.PermissionOverwrite(read_messages=True, send_messages=False)}
-
+                ctx.me: PermissionOverwrite(send_messages=True, manage_messages=True, read_message_history=True),
+                ctx.guild.default_role: PermissionOverwrite(read_messages=True, send_messages=False)}
             try:
                 channel = await channel.edit(overwrites=ow)
-            except discord.Forbidden:
+            except Forbidden:
                 pass
 
         connection = await self.bot.db.acquire()
@@ -676,8 +645,8 @@ class Scores(commands.Cog, name="LiveScores"):
                 q = """INSERT INTO scores_channels (guild_id, channel_id) VALUES ($1, $2)"""
                 try:
                     await connection.execute(q, channel.guild.id, channel.id)
-                except asyncpg.exceptions.ForeignKeyViolationError:
-                    cog = await self.bot.get_cog("Mod")
+                except ForeignKeyViolationError:
+                    cog = self.bot.get_cog("Mod")
                     await cog.create_guild(channel.guild.id)
                     await connection.execute(q, channel.guild.id, channel.id)
 
@@ -687,22 +656,23 @@ class Scores(commands.Cog, name="LiveScores"):
         finally:
             await self.bot.db.release(connection)
 
-        await self.bot.reply(ctx, content=f"The {channel.mention} channel was created! Use /scores add in there "
-                                          f"to add tracked leagues.")
+        await ctx.reply(content=f"The {channel.mention} channel was created! Use /livescores add in there "
+                                f"to add tracked leagues.")
 
         await self.update_cache()
         await self.update_channel(channel.id)
 
-    @commands.slash_command()
-    async def livescores_add(self, ctx, league_name: LEAGUES):
+    @livescores.command()
+    async def add(self, ctx, league_name: LEAGUES):
         """Add a league to an existing live-scores channel"""
         if ctx.guild is None:
-            return await self.bot.error(ctx, "This command cannot be ran in DMs")
+            return await ctx.error("This command cannot be ran in DMs")
 
         if not ctx.channel.permissions_for(ctx.author).manage_channels:
-            return await self.bot.error(ctx, "You need manage_channels permissions to create a scores channel.")
+            return await ctx.error("You need manage_channels permissions to create a scores channel.")
 
         q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
+
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
@@ -711,21 +681,21 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
         if not row:
-            return await self.bot.error(ctx, "This command can only be ran in a live-scores channel.")
+            return await ctx.error("This command can only be ran in a live-scores channel.")
 
         if league_name is None:
-            return await self.bot.error(ctx, "You need to specify a query or a flashscore team link.")
+            return await ctx.error("You need to specify a query or a flashscore team link.")
 
         if "http" not in league_name:
-            message = await self.bot.reply(ctx, content=f"Searching for {league_name}...")
+            message = await ctx.reply(content=f"Searching for {league_name}...")
             res = await football.fs_search(ctx, message, league_name)
             if res is None:
                 return
         else:
             if "flashscore" not in league_name:
-                return await self.bot.error(ctx, "Invalid link provided.")
+                return await ctx.error("Invalid link provided.")
 
-            message = await self.bot.reply(ctx, content=f"Searching for {league_name}...")
+            message = await ctx.reply(content=f"Searching for {league_name}...")
             qry = str(league_name).strip('[]<>')  # idiots
             page = await self.bot.browser.newPage()
             try:
@@ -734,7 +704,7 @@ class Scores(commands.Cog, name="LiveScores"):
                 await page.close()
 
             if res is None:
-                return await self.bot.error(ctx, f"🚫 Failed to get data from <{qry}> channel not modified.")
+                return await ctx.error(f"Failed to get data for {qry} channel not modified.", message=message)
 
         res = res.title  # Get competition full name from competition object.
 
@@ -747,30 +717,28 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
         await self.update_cache()
-
         view = ConfigView(ctx)
         view.message = message
-        await view.update(text=f"Added tracked leagues for {ctx.channel.mention}```yaml\n{res}```")
+        await view.update(content=f"Added tracked leagues for {ctx.channel.mention}```yaml\n{res}```")
 
-    @commands.slash_command()
-    async def livescores_add_world_cup(self, ctx):
-        """ Temporary command: Add the qualifying tournaments for the World Cup to a live score channel"""
+    @livescores.command(name="worldcup")
+    async def addwc(self, ctx):
+        """Add the qualifying tournaments for the World Cup to a live score channel"""
         if ctx.guild is None:
-            return await self.bot.error(ctx, "This command cannot be ran in DMs")
+            return await ctx.error("This command cannot be ran in DMs")
 
         if not ctx.channel.permissions_for(ctx.author).manage_channels:
-            return await self.bot.error(ctx, "You need manage_channels permissions to create a scores channel.")
+            return await ctx.error("You need manage_channels permissions to create a scores channel.")
 
         q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 row = await connection.fetchrow(q, ctx.channel.id)
+                if not row:
+                    return await ctx.error("This command can only be ran in a live-scores channel.")
         finally:
             await self.bot.db.release(connection)
-
-        if not row:
-            return await self.bot.error(ctx, "This command can only be ran in a live-scores channel.")
 
         q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
         connection = await self.bot.db.acquire()
@@ -783,24 +751,21 @@ class Scores(commands.Cog, name="LiveScores"):
         finally:
             await self.bot.db.release(connection)
 
-        res = "\n".join(WORLD_CUP_LEAGUES)
+        res = "```yaml\n" + "\n".join(WORLD_CUP_LEAGUES) + "```"
 
         await self.update_cache()
-
-        view = ConfigView(ctx)
-        message = await self.bot.reply(ctx, content=f"Added to tracked leagues for {ctx.channel.mention}"
-                                                    f"```yaml\n{res}```", view=view)
-        view.message = message
-        await view.update()
+        await ConfigView(ctx).update(content=f"Added to tracked leagues for {ctx.channel.mention}{res}")
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel):
         """Remove all of a channel's stored data upon deletion"""
         connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM scores_channels WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+        try:
+            async with connection.transaction():
+                await connection.execute("""DELETE FROM scores_channels WHERE channel_id = $1""", channel.id)
+        finally:
+            await self.bot.db.release(connection)
         await self.update_cache()
 
     # @commands.Cog.listener()
@@ -811,11 +776,15 @@ class Scores(commands.Cog, name="LiveScores"):
     #         await connection.execute("""DELETE FROM scores_channels WHERE guild_id = $1""", guild.id)
     #     await self.bot.db.release(connection)
     #     await self.update_cache()
-    #
+
+    @livescores.command(guild_ids=[250252535699341312], default_permission=False)
+    @permissions.is_owner()
+    async def scores_refresh(self, ctx):
+        """ ADMIN: Force a cache refresh of the live scores"""
+        self.bot.games = []
+        await ctx.reply(embed=Embed(colour=Colour.og_blurple(), description="[ADMIN] Cleared global games cache."))
 
 
 def setup(bot):
     """Load the cog into the bot"""
     bot.add_cog(Scores(bot))
-
-# TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?

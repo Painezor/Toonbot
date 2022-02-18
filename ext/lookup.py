@@ -2,12 +2,19 @@
 from importlib import reload
 
 import discord
+from discord import SlashCommandGroup
 from discord.ext import commands
 
 from ext.utils import transfer_tools
 
 TF = "https://www.transfermarkt.co.uk"
 FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/Transfermarkt_favicon.png"
+
+
+# TODO: User Commands Pass
+# TODO: Modals pass
+# TODO: Slash attachments pass
+# TODO: Permissions Pass.
 
 
 class Lookups(commands.Cog):
@@ -23,12 +30,12 @@ class Lookups(commands.Cog):
         e = discord.Embed()
         e.description = f"Searching for {string}..."
         e.set_author(name="TransferMarkt", icon_url=FAVICON)
-        return await self.bot.reply(ctx, embed=e)
+        return await ctx.reply(embed=e)
 
     async def comp_view(self, ctx, query):
         """Shared function for following commands."""
         view = transfer_tools.SearchView(ctx, query, category="Competitions", fetch=True)
-        view.message = await self.bot.reply(ctx, content=f"Fetching Competitions matching {query}", view=view)
+        view.message = await ctx.reply(content=f"Fetching Competitions matching {query}", view=view)
         await view.update()
 
         comp = view.value
@@ -42,57 +49,50 @@ class Lookups(commands.Cog):
 
         return None if comp is None else _
 
-    # Base lookup - No Sub-command invoked.
-    @commands.slash_command()
-    async def lookup(self, ctx, *, query):
-        """Look something up on transfermarkt"""
-        message = await self.searching(ctx, query)
-        view = transfer_tools.SearchView(ctx, query)
-        view.message = message
-        await view.update()
+    lookup = SlashCommandGroup("lookup", "Look something up on TransferMarkt")
 
-    @commands.slash_command()
-    async def lookup_player(self, ctx, *, player_name):
+    @lookup.command()
+    async def player(self, ctx, *, player_name):
         """Search for a player on transfermarkt"""
         message = await self.searching(ctx, player_name)
         view = transfer_tools.SearchView(ctx, player_name, category="Players")
         view.message = message
         await view.update()
 
-    @commands.slash_command()
-    async def lookup_team(self, ctx, *, team_name):
+    @lookup.command()
+    async def team(self, ctx, *, team_name):
         """Lookup a team on transfermarkt"""
         message = await self.searching(ctx, team_name)
         view = transfer_tools.SearchView(ctx, team_name, category="Clubs")
         view.message = message
         await view.update()
 
-    @commands.slash_command()
-    async def lookup_staff(self, ctx, *, name):
+    @lookup.command()
+    async def staff(self, ctx, *, name):
         """Lookup a manager, trainer, or club official on transfermarkt"""
         message = await self.searching(ctx, name)
         view = transfer_tools.SearchView(ctx, name, category="Managers")
         view.message = message
         await view.update()
 
-    @commands.slash_command()
-    async def lookup_referee(self, ctx, *, name):
+    @lookup.command()
+    async def referee(self, ctx, *, name):
         """Lookup a referee on transfermarkt"""
         message = await self.searching(ctx, name)
         view = transfer_tools.SearchView(ctx, name, category="Referees")
         view.message = message
         await view.update()
 
-    @commands.slash_command()
-    async def lookup_competition(self, ctx, *, name):
+    @lookup.command()
+    async def competition(self, ctx, *, name):
         """Lookup a competition on transfermarkt"""
         message = await self.searching(ctx, name)
         view = transfer_tools.SearchView(ctx, name, category="Competitions")
         view.message = message
         await view.update()
 
-    @commands.slash_command()
-    async def lookup_agent(self, ctx, *, name):
+    @lookup.command()
+    async def agent(self, ctx, *, name):
         """Lookup an agent on transfermarkt"""
         message = await self.searching(ctx, name)
         view = transfer_tools.SearchView(ctx, name, category="Agents")

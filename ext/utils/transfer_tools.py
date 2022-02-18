@@ -1,4 +1,4 @@
-"""Utilties for working with transfers from transfermarkt"""
+"""Utilities for working with transfers from transfermarkt"""
 import datetime
 import typing
 from copy import deepcopy
@@ -81,12 +81,10 @@ TF = "https://www.transfermarkt.co.uk"
 
 def get_flag(country, unicode=False) -> str:
     """Get a flag emoji from a string representing a country"""
-    try:
-        country = country.strip().replace('Retired', '').replace('Without Club', '')
-    except AttributeError:
-        return country
     if not country:
-        return country
+        return ""
+
+    country = country.strip().replace('Retired', '').replace('Without Club', '')
 
     # Check if py country has country
     if country.lower() in ["england", "scotland", "wales"]:
@@ -102,12 +100,21 @@ def get_flag(country, unicode=False) -> str:
             country = f":{country.lower()}:"
         return country
 
-    try:
-        country = pycountry.countries.get(name=country.title()).alpha_2
-    except (KeyError, AttributeError):
+    def try_country(ct):
+        """Try to get the country."""
         try:
-            # else revert to manual dict.
-            country = country_dict[country]
+            ct = pycountry.countries.get(name=ct.title()).alpha_2
+        except (KeyError, AttributeError):
+            ct = country_dict[ct]
+        return ct
+
+    try:
+        country = try_country(country)
+    except KeyError:
+        country = country.split(" ")[0]
+        try:
+            if country.strip() != "":
+                country = try_country(country)
         except KeyError:
             print(f'No flag found for country: {country}')
 
@@ -372,7 +379,7 @@ class Team(TransferResult):
 
         async with ctx.bot.session.get(f"{target}") as resp:
             if resp.status != 200:
-                return await ctx.bot.reply(ctx, content=f"Error {resp.status} connecting to {resp.url}")
+                return await ctx.reply(content=f"Error {resp.status} connecting to {resp.url}")
             tree = html.fromstring(await resp.text())
             e.url = str(resp.url)
 
@@ -405,7 +412,7 @@ class Team(TransferResult):
         rows = ["No expiring contracts found."] if not rows else rows
 
         view = view_utils.Paginator(ctx, embed_utils.rows_to_embeds(e, rows))
-        view.message = await ctx.bot.reply(ctx, content=f"Fetching contracts for {self.name}", view=view)
+        view.message = await ctx.reply(content=f"Fetching contracts for {self.name}", view=view)
         await view.update()
 
     def view(self, ctx):
@@ -438,35 +445,30 @@ class TeamView(discord.ui.View):
         """Verify user of view is correct user."""
         return interaction.user.id == self.ctx.author.id
 
-    async def update(self):
+    async def update(self, content=""):
         """Send the latest version of the view"""
         self.clear_items()
 
         if len(self.pages) > 1:
-            _ = view_utils.PreviousButton()
-            _.disabled = True if self.index == 0 else False
-            self.add_item(_)
-
+            self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
             if len(self.pages) > 2:
-                _ = view_utils.PageButton()
-                _.label = f"Page {self.index + 1} of {len(self.pages)}"
-                self.add_item(_)
+                self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}"))
+            self.add_item(view_utils.NextButton(disabled=True if self.index + 1 == len(self.pages) else False))
 
-            _ = view_utils.NextButton()
-            _.disabled = True if self.index + 1 == len(self.pages) else False
-            self.add_item(_)
-
-        buttons = [view_utils.Button(label="Transfers", func=self.push_transfers, emoji='🔄'),
-                   view_utils.Button(label="Rumours", func=self.push_rumours, emoji='🕵'),
-                   view_utils.Button(label="Trophies", func=self.push_trophies, emoji='🏆'),
-                   view_utils.Button(label="Contracts", func=self.push_contracts, emoji='📝'),
+        buttons = [view_utils.FuncButton(label="Transfers", func=self.push_transfers, emoji='🔄'),
+                   view_utils.FuncButton(label="Rumours", func=self.push_rumours, emoji='🕵'),
+                   view_utils.FuncButton(label="Trophies", func=self.push_trophies, emoji='🏆'),
+                   view_utils.FuncButton(label="Contracts", func=self.push_contracts, emoji='📝'),
                    view_utils.StopButton(row=0)
                    ]
 
         for _ in buttons:
             self.add_item(_)
 
-        await self.message.edit(content="", embed=self.pages[self.index], view=self)
+        if self.message is None:
+            self.message = await self.ctx.reply(content="", embed=self.pages[self.index], view=self)
+        else:
+            await self.message.edit(content="", embed=self.pages[self.index], view=self)
 
     async def push_transfers(self):
         """Push transfers to View"""
@@ -480,10 +482,7 @@ class TeamView(discord.ui.View):
         # p = {"w_s": period}
         async with self.ctx.bot.session.get(url) as resp:  # , params=p
             if resp.status != 200:
-                e = discord.Embed()
-                e.colour = discord.Colour.red()
-                e.description = f"Error {resp.status} connecting to {resp.url}"
-                await self.ctx.bot.reply(self.ctx, embed=e, ephemeral=True)
+                await self.ctx.error(f"Error {resp.status} connecting to {resp.url}", message=self.message)
                 return None
             tree = html.fromstring(await resp.text())
 
@@ -625,7 +624,7 @@ class TeamView(discord.ui.View):
 
         async with self.ctx.bot.session.get(url) as resp:
             if resp.status != 200:
-                return await self.ctx.bot.error(self.ctx, text=f"Error {resp.status} connecting to {resp.url}")
+                return await self.ctx.error(f"Error {resp.status} connecting to {resp.url}")
             tree = html.fromstring(await resp.text())
 
         rows = tree.xpath('.//div[@class="box"][./div[@class="header"]]')
@@ -786,8 +785,8 @@ class CompetitionView(discord.ui.View):
         """Verify user of view is correct user."""
         return interaction.user.id == self.ctx.author.id
 
-    async def update(self):
-        """Send latest version of view"""
+    async def update(self, content=""):
+        """Send the latest version of the view"""
         self.clear_items()
 
         if len(self.pages) > 1:
@@ -804,17 +803,31 @@ class CompetitionView(discord.ui.View):
             _.disabled = True if self.index + 1 == len(self.pages) else False
             self.add_item(_)
 
-        buttons = [view_utils.Button(label="Attendances", func=self.push_attendance, emoji='🏟️'),
+        buttons = [view_utils.FuncButton(label="Attendances", func=self.push_attendance, emoji='🏟️'),
                    view_utils.StopButton(row=0)
                    ]
 
         for _ in buttons:
             self.add_item(_)
-
-        await self.message.edit(content="", embed=self.pages[self.index], view=self)
+        if self.message is None:
+            self.message = self.ctx.send(content=content, embed=self.pages[self.index], view=self)
+        else:
+            await self.message.edit(content=content, embed=self.pages[self.index], view=self)
 
     async def push_attendance(self):
         """Fetch attendances for league's stadiums."""
+        async with self.ctx.bot.session.get(self.comp.link + "/besucherzahlen/wettbewerb/GB1/plus/") as resp:
+            if resp.status != 200:
+                return await self.ctx.error(f"HTTP Error {resp.status} accessing transfermarkt")
+            tree = html.fromstring(await resp.text())
+
+        rows = []
+        for i in tree.xpath('.//table[@class="items"]/tr'):
+            stadium = ""
+            std_lnk = ""
+            team = ""
+            team_lk = ""
+
         # TODO: League Attendance
         # https://www.transfermarkt.co.uk/premier-league/besucherzahlen/wettbewerb/GB1/plus/?saison_id=2020
         pass
@@ -954,7 +967,7 @@ class SearchView(discord.ui.View):
         except AttributeError:
             pass
 
-    async def update(self):
+    async def update(self, content=""):
         """Populate Initial Results"""
         self.clear_items()
         url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
@@ -964,7 +977,8 @@ class SearchView(discord.ui.View):
             p = {"query": self.query}
 
             async with self.ctx.bot.session.post(url, params=p) as resp:
-                assert resp.status == 200, "Error Connecting to Transfermarkt"
+                if resp.status != 200:
+                    return await self.ctx.error(f"HTTP {resp.status} Error connecting to transfermarkt.")
                 self.url = str(resp.url)
                 tree = html.fromstring(await resp.text())
 
@@ -1004,8 +1018,7 @@ class SearchView(discord.ui.View):
                     ce.description += f"Competitions: {length} Result{s}\n"
 
             if not select.options:
-                ce.description = f'No results found for query {self.query}'
-                return await self.message.edit(embed=ce)
+                return await self.ctx.error(f'No results found for query {self.query}', message=self.message)
 
             elif len(select.options) == 1:
                 self.category = select.options[0].label
@@ -1013,7 +1026,7 @@ class SearchView(discord.ui.View):
             else:
                 self.clear_items()
                 self.add_item(select)
-                await self.message.edit("", view=self, embed=ce)
+                await self.message.edit(content=content, view=self, embed=ce)
                 return await self.wait()
 
         qs, ms, parser = self.settings
@@ -1046,27 +1059,16 @@ class SearchView(discord.ui.View):
         self.add_item(HomeButton())
 
         if len(self.pages) > 1:
-            _ = view_utils.PreviousButton()
-            _.disabled = True if self.index == 1 else False
-            self.add_item(_)
-
-            _ = view_utils.PageButton()
-            _.label = f"Page {self.index} of {len(self.pages)}"
-            self.add_item(_)
-
-            _ = view_utils.NextButton()
-            _.disabled = True if self.index == len(self.pages) else False
-            self.add_item(_)
+            self.add_item(view_utils.PreviousButton(disabled=True if self.index == 1 else False))
+            self.add_item(view_utils.PageButton(label=f"Page {self.index} of {len(self.pages)}"))
+            self.add_item(view_utils.NextButton(disabled=True if self.index == len(self.pages) else False))
 
         self.add_item(view_utils.StopButton(row=0))
 
         if self.fetch and results:
-            _ = SearchSelect(objects=results)
-            self.add_item(_)
+            self.add_item(SearchSelect(objects=results))
 
-        try:
-            await self.message.edit(content="", embed=e, view=self)
-        except discord.HTTPException:
-            print("Error in transfer_tools. SearchView.update")
-
-        await self.wait()
+        if self.message is None:
+            self.message = await self.ctx.reply(content=content, embed=e, view=self)
+        else:
+            await self.message.edit(content=content, embed=e, view=self)

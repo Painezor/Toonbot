@@ -665,16 +665,13 @@ class Fixture:
                 if icon_desc and icon_desc != "Penalty missed":
                     event.note = icon_desc
                     print(f"Penalty Miss | icon_desc: {icon_desc}\n{p}")
-            elif "arrowUp" in icon:
+            elif "substitution" in icon:
                 event = Substitution()
                 event.player_off = "".join(node.xpath('.//div[contains(@class, "incidentSubOut")]/a/text()')).strip()
                 try:
                     event.player_on = node.xpath('.//a[contains(@class, "playerName")]/text()')[0].strip()
                 except IndexError:
                     event.player_on = ""
-                if "Substitution" not in icon_desc:
-                    event.note = icon_desc
-                    print(f"Substitution | icon_desc: {icon_desc}\n{p}")
             elif "yellowCard" in icon:
                 event = Booking()
                 if icon_desc and "Yellow Card" not in icon_desc:
@@ -752,16 +749,16 @@ class FixtureView(discord.ui.View):
         """Assure only the command's invoker can select a result"""
         return interaction.user.id == self.ctx.author.id
 
-    async def update(self):
+    async def update(self, content=""):
         """Update the view for the user"""
         embed = self.pages[self.index]
         async with self.semaphore:
             self.clear_items()
-            buttons = [view_utils.Button(label="Stats", func=self.push_stats, emoji="📊"),
-                       view_utils.Button(label="Table", func=self.push_table),
-                       view_utils.Button(label="Lineups", func=self.push_lineups),
-                       view_utils.Button(label="Summary", func=self.push_summary),
-                       view_utils.Button(label="H2H", func=self.push_head_to_head, emoji="⚔"),
+            buttons = [view_utils.FuncButton(label="Stats", func=self.push_stats, emoji="📊"),
+                       view_utils.FuncButton(label="Table", func=self.push_table),
+                       view_utils.FuncButton(label="Lineups", func=self.push_lineups),
+                       view_utils.FuncButton(label="Summary", func=self.push_summary),
+                       view_utils.FuncButton(label="H2H", func=self.push_head_to_head, emoji="⚔"),
                        view_utils.StopButton()
                        ]
 
@@ -769,11 +766,10 @@ class FixtureView(discord.ui.View):
                 _.disabled = True if self._current_mode == _.label else False
                 self.add_item(_)
 
-            try:
-                await self.message.edit(content="", view=self, embed=embed)
-            except discord.HTTPException:
-                return await self.on_timeout()
-        await self.wait()
+            if self.message is None:
+                self.message = await self.ctx.reply(content=content, view=self, embed=embed)
+            else:
+                await self.message.edit(content=content, view=self, embed=embed)
 
     async def get_embed(self):
         """Fetch Generic Embed for Team"""
@@ -977,7 +973,19 @@ class FlashScoreSearchResult:
     async def base_embed(self) -> discord.Embed:
         """A discord Embed representing the flashscore search result"""
         e = discord.Embed()
-        
+
+        if isinstance(self, Team):
+            try:
+                e.title = self.title.split('(')[0]
+            except AttributeError:
+                pass
+        else:
+            try:
+                ctry, league = self.title.split(': ')
+                e.title = f"{ctry}: {league}"
+            except (ValueError, AttributeError):
+                pass
+
         if self.logo_url is not None:
             logo = "http://www.flashscore.com/res/image/data/" + self.logo_url
             e.colour = await embed_utils.get_colour(logo)
@@ -1000,8 +1008,6 @@ class FlashScoreSearchResult:
         except IndexError:
             if ".png" in _:
                 self.logo_url = _
-            else:
-                print(f"Failed to extract logo Url from: {_}")
 
         # Iterate through to generate data.
         league, country = None, None
@@ -1083,14 +1089,14 @@ class FlashScoreSearchResult:
         _ = [("⚽", f"{i.home} {i.score} {i.away}", f"{i.country.upper()}: {i.league}") for i in items]
 
         if not _:
-            await ctx.bot.error(ctx, f"No recent games found", message=message)
+            await ctx.error(f"No recent games found", message=message)
             return None
 
         view = view_utils.ObjectSelectView(ctx, objects=_, timeout=30)
         _ = "an upcoming" if upcoming else "a recent"
         view.message = message
 
-        await view.update(text=f'⏬ Please choose {_} game.')
+        await view.update(content=f'⏬ Please choose {_} game.')
         await view.wait()
 
         if view.value is None:
@@ -1108,19 +1114,10 @@ class Competition(FlashScoreSearchResult):
         self.country = kwargs.get("country_name", "")  # alias.
         super().__init__(**kwargs)
         self.__dict__.update(**kwargs)
-        self.title = f"{self.country.upper()}: {self.name}"
         self.emoji = '🏆'
 
         if "://" not in self.url:
             self.url = f"https://www.flashscore.com/soccer/{self.country.lower().replace(' ', '-')}/{self.url}"
-
-    @property
-    def base_embed(self):
-        """Base embed for a Team"""
-        # Get constructor parent embed.
-        e = FlashScoreSearchResult.base_embed
-        e.title = self.title
-        return e
 
     def __str__(self):
         return self.title
@@ -1154,7 +1151,7 @@ class Competition(FlashScoreSearchResult):
 
         try:
             country = tree.xpath('.//h2[@class="breadcrumb"]//a/text()')[-1].strip()
-            league = tree.xpath('.//div[@class="teamHeader__name"]//text()')[0].strip()
+            league = tree.xpath('.//div[@class="heading__name"]//text()')[0].strip()
             title = f"{country.upper()}: {league}"
         except IndexError:
             print(f'Error fetching Competition country/league by_link - {link}')
@@ -1168,8 +1165,6 @@ class Competition(FlashScoreSearchResult):
         except IndexError:
             if ".png" in _:
                 comp.logo_url = _
-            else:
-                print(f"Failed to extract logo Url from: {_}")
 
         return comp
 
@@ -1185,8 +1180,6 @@ class Competition(FlashScoreSearchResult):
         except IndexError:
             if ".png" in _:
                 self.logo_url = _
-            else:
-                print(f"Failed to extract logo Url from: {_}")
 
         return table_image
 
@@ -1196,6 +1189,9 @@ class Competition(FlashScoreSearchResult):
         clicks = ['a[href$="top_scorers"]', 'div[class^="showMore"]']
         uri = self.url + "/standings"
         src = await page.browser.fetch(page, uri, xp, clicks=clicks, delete=ADS)
+
+        if src is None:
+            return []
 
         try:
             tree = html.fromstring(src)
@@ -1209,8 +1205,6 @@ class Competition(FlashScoreSearchResult):
         except IndexError:
             if ".png" in _:
                 self.logo_url = _
-            else:
-                print(f"Failed to extract logo Url from: {_}")
 
         hdr = tree.xpath('.//div[contains(@class,"table__headerCell")]/div/@title')
         if "Team" in hdr:
@@ -1305,7 +1299,7 @@ class CompetitionView(discord.ui.View):
         await self.page.close()
         self.stop()
 
-    async def update(self):
+    async def update(self, content=""):
         """Update the view for the Competition"""
         if self.message is None:
             return await self.on_timeout()
@@ -1316,18 +1310,11 @@ class CompetitionView(discord.ui.View):
                 await self.filter_players()
 
             if self.pages and len(self.pages) > 1:
-                _ = view_utils.PreviousButton()
-                _.disabled = True if self.index == 0 else False
-                self.add_item(_)
+                self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
 
-                _ = view_utils.PageButton()
-                _.label = f"Page {self.index + 1} of {len(self.pages)}"
-                _.disabled = True if len(self.pages) == 1 else False
-                self.add_item(_)
-
-                _ = view_utils.NextButton()
-                _.disabled = True if self.index == len(self.pages) - 1 else False
-                self.add_item(_)
+                self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
+                                                    disabled=True if len(self.pages) == 1 else False))
+                self.add_item(view_utils.NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
 
             if self.filter_mode is not None:
                 all_players = [('👕', str(i.team), str(i.team_url)) for i in self.players]
@@ -1337,7 +1324,6 @@ class CompetitionView(discord.ui.View):
                 if teams and len(teams) < 26:
                     _ = "Filter by Team..."
                     _ = view_utils.MultipleSelect(placeholder=_, options=teams, attribute='team_filter', row=2)
-                    _.row = 2
                     if self.team_filter is not None:
                         _.placeholder = f"Teams: {', '.join(self.team_filter)}"
                     self.add_item(_)
@@ -1352,10 +1338,10 @@ class CompetitionView(discord.ui.View):
                         _.placeholder = f"Countries:{', '.join(self.nationality_filter)}"
                     self.add_item(_)
 
-            items = [view_utils.Button(label="Table", func=self.push_table, emoji="🥇", row=4),
-                     view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽', row=4),
-                     view_utils.Button(label="Fixtures", func=self.push_fixtures, emoji='📆', row=4),
-                     view_utils.Button(label="Results", func=self.push_results, emoji='⚽', row=4),
+            items = [view_utils.FuncButton(label="Table", func=self.push_table, emoji="🥇", row=4),
+                     view_utils.FuncButton(label="Scorers", func=self.push_scorers, emoji='⚽', row=4),
+                     view_utils.FuncButton(label="Fixtures", func=self.push_fixtures, emoji='📆', row=4),
+                     view_utils.FuncButton(label="Results", func=self.push_results, emoji='⚽', row=4),
                      view_utils.StopButton(row=4)
                      ]
 
@@ -1403,7 +1389,7 @@ class CompetitionView(discord.ui.View):
 
     async def get_embed(self):
         """Fetch Generic Embed for Team"""
-        self.base_embed = self.competition.base_embed if self.base_embed is None else self.base_embed
+        self.base_embed = await self.competition.base_embed if self.base_embed is None else self.base_embed
         return deepcopy(self.base_embed)
 
     async def get_players(self):
@@ -1504,14 +1490,6 @@ class Team(FlashScoreSearchResult):
         await page.browser.fetch(page, url, "body")
         url = await page.evaluate("() => window.location.href")
         return cls(url=url, id=team_id)
-
-    @property
-    def base_embed(self):
-        """Base embed for a Team"""
-        # Get constructor parent embed.
-        e = FlashScoreSearchResult.base_embed
-        e.title = self.name
-        return e
 
     async def get_players(self, page) -> List[Player]:
         """Get a list of players for a Team"""
@@ -1622,9 +1600,9 @@ class TeamView(discord.ui.View):
 
     async def on_error(self, error, item, interaction):
         """Extended Error Logging."""
-        print(self.ctx.message.content)
         print(f'Ignoring exception in view {self} for item {item}:', file=sys.stderr)
         traceback.print_exception(error.__class__, error, error.__traceback__, file=sys.stderr)
+        print(self.ctx.message)
 
     async def interaction_check(self, interaction):
         """Assure only the command's invoker can select a result"""
@@ -1632,7 +1610,7 @@ class TeamView(discord.ui.View):
 
     async def get_embed(self):
         """Fetch Generic Embed for Team"""
-        self.base_embed = self.team.base_embed if self.base_embed is None else self.base_embed
+        self.base_embed = await self.team.base_embed if self.base_embed is None else self.base_embed
         return deepcopy(self.base_embed)  # Do not mutate.
 
     async def get_players(self):
@@ -1640,7 +1618,7 @@ class TeamView(discord.ui.View):
         self.players = await self.team.get_players(page=self.page) if not self.players else self.players
         return self.players
 
-    async def update(self):
+    async def update(self, content=""):
         """Update the view for the user"""
         async with self.semaphore:
 
@@ -1664,12 +1642,12 @@ class TeamView(discord.ui.View):
                     _.disabled = True if self.index == len(self.pages) - 1 else False
                     self.add_item(_)
 
-                buttons = [view_utils.Button(label="Squad", func=self.push_squad),
-                           view_utils.Button(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI),
-                           view_utils.Button(label="Scorers", func=self.push_scorers, emoji='⚽'),
-                           view_utils.Button(label="Table", func=self.select_table, row=3),
-                           view_utils.Button(label="Fixtures", func=self.push_fixtures, row=3),
-                           view_utils.Button(label="Results", func=self.push_results, row=3),
+                buttons = [view_utils.FuncButton(label="Squad", func=self.push_squad),
+                           view_utils.FuncButton(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI),
+                           view_utils.FuncButton(label="Scorers", func=self.push_scorers, emoji='⚽'),
+                           view_utils.FuncButton(label="Table", func=self.select_table, row=3),
+                           view_utils.FuncButton(label="Fixtures", func=self.push_fixtures, row=3),
+                           view_utils.FuncButton(label="Results", func=self.push_results, row=3),
                            view_utils.StopButton(row=0)
                            ]
 
@@ -1678,11 +1656,11 @@ class TeamView(discord.ui.View):
                     self.add_item(_)
 
             embed = self.pages[self.index] if self.pages else None
-            try:
+
+            if self.message is None:
+                self.message = await self.ctx.reply(content="", view=self, embed=embed)
+            else:
                 await self.message.edit(content="", view=self, embed=embed)
-            except discord.HTTPException:
-                return await self.on_timeout()
-        await self.wait()
 
     async def push_squad(self):
         """Push the Squad Embed to the team View"""
@@ -1692,7 +1670,7 @@ class TeamView(discord.ui.View):
 
         # Data must be fetched before embed url is updated.
         embed = await self.get_embed()
-        embed.title = f"≡ Squad for {self.team.name}"
+        embed.title = f"≡ Squad for {self.team.title}"
         embed.url = self.page.url
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, p)
@@ -1705,7 +1683,7 @@ class TeamView(discord.ui.View):
         players = await self.get_players()
         players = [i.injury_row for i in players if i.injury]
         players = players if players else ['No injuries found']
-        embed.title = f"≡ Injuries for {self.team.name}"
+        embed.title = f"≡ Injuries for {self.team.title}"
         embed.url = self.page.url
         embed.description = "\n".join(players)
         self.index = 0
@@ -1718,7 +1696,7 @@ class TeamView(discord.ui.View):
         embed = await self.get_embed()
         players = await self.get_players()
         srt = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
-        embed.title = f"≡ Top Scorers for {self.team.name}"
+        embed.title = f"≡ Top Scorers for {self.team.title}"
 
         rows = [i.scorer_row for i in srt]
 
@@ -1770,7 +1748,7 @@ class TeamView(discord.ui.View):
         rows = await self.team.get_fixtures(page=self.page, subpage='/fixtures')
         rows = [str(i) for i in rows] if rows else ["No Fixtures Found :("]
         embed = await self.get_embed()
-        embed.title = f"≡ Fixtures for {self.team.name}" if embed.title else "≡ Fixtures "
+        embed.title = f"≡ Fixtures for {self.team.title}" if embed.title else "≡ Fixtures "
         embed.timestamp = discord.Embed.Empty
 
         self.index = 0
@@ -1783,7 +1761,7 @@ class TeamView(discord.ui.View):
         rows = await self.team.get_fixtures(page=self.page, subpage='/results')
         rows = [str(i) for i in rows] if rows else ["No Results Found :("]
         embed = await self.get_embed()
-        embed.title = f"≡ Results for {self.team.name}" if embed.title else "≡ Results "
+        embed.title = f"≡ Results for {self.team.title}" if embed.title else "≡ Results "
         embed.timestamp = discord.Embed.Empty
 
         self.index = 0

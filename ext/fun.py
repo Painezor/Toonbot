@@ -4,9 +4,10 @@ import random
 import re
 from copy import deepcopy
 
-import discord
+from discord import ButtonStyle, HTTPException, Colour, Embed, Interaction
 from discord.commands import Option
 from discord.ext import commands
+from discord.ui import Button, View
 
 from ext.utils import view_utils
 
@@ -15,87 +16,14 @@ EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" 
 COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thumb.png"
 
 
-# TODO: Migrate poll command to it's own cog. Timers, /end poll command, database entry, persistent view...
 # TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
+# TODO: Modals pass
+# TODO: Grouped Commands pass
+# TODO: Slash attachments pass
+# TODO: Permissions Pass.
 
 
-class PollButton(discord.ui.Button):
-    """A Voting Button"""
-
-    def __init__(self, emoji=None, label=None, row=0):
-        super().__init__(emoji=emoji, label=label, row=row, style=discord.ButtonStyle.primary)
-
-    async def callback(self, interaction):
-        """Reply to user to let them know their vote has changed."""
-        ej = f"{self.emoji} " if self.emoji is not None else ""
-        if interaction.user.id in self.view.answers:
-            await interaction.response.send_message(f'Your vote has been changed to {ej}{self.label}', ephemeral=True)
-        else:
-            await interaction.response.send_message(f'You have voted for {ej}{self.label}', ephemeral=True)
-        self.view.answers.update({interaction.user.mention: self.label})
-        await self.view.update()
-
-
-class PollView(discord.ui.View):
-    """View for a poll commands"""
-
-    def __init__(self, ctx, question, answers):
-        self.ctx = ctx
-        self.message = None
-        self.answers = {}
-        self.question = question
-        super().__init__(timeout=3600)
-
-        buttons = [(None, i) for i in answers if i] if answers else [('👍', 'Yes'), ('👎', 'No')]
-        for x, y in enumerate(buttons):
-            row = x // 5
-            self.add_item(PollButton(emoji=y[0], label=y[1], row=row))
-
-    async def on_timeout(self):
-        """Remove buttons and dropdowns when listening stops."""
-        self.clear_items()
-        e = self.prepare_embed(final=True)
-        try:
-            await self.message.edit(embed=e, view=self)
-        except discord.HTTPException:
-            pass
-        self.stop()
-
-    def prepare_embed(self, final=False):
-        """Calculate current poll results"""
-        e = discord.Embed()
-        e.set_author(name=f"{self.ctx.author.name} asks...", icon_url=self.ctx.author.display_avatar.url)
-        e.colour = discord.Colour.og_blurple() if not final else discord.Colour.green()
-        if self.question:
-            e.title = self.question + "?"
-
-        e.description = ""
-        counter = collections.Counter(self.answers.values())
-        results = sorted(counter)
-        if results:
-            winning = results.pop(0)
-            voters = [i for i in self.answers if self.answers[i] == winning]
-            e.description = f"🥇 **{winning}: {counter[winning]} votes**\n{' '.join(voters)}\n"
-        else:
-            e.description = "No Votes yet."
-
-        for x in results:
-            voters = ' '.join([i for i in self.answers if self.answers[i] == x])
-            e.description += f"**{x}: {counter[x]} votes**\n{voters}\n"
-
-        votes = f"{len(self.answers)} responses"
-        state = "Voting in Progress" if not final else "Final Results"
-        e.set_footer(text=f"{state} | {votes}")
-        return e
-
-    async def update(self):
-        """Refresh the view and send to user"""
-        e = self.prepare_embed()
-        await self.message.edit(view=self, embed=e)
-        await self.wait()
-
-
-class CoinView(discord.ui.View):
+class CoinView(View):
     """A View with a counter for 2 results"""
 
     def __init__(self, ctx, count: int = 1):
@@ -111,23 +39,19 @@ class CoinView(discord.ui.View):
         self.clear_items()
         try:
             await self.message.edit(view=self)
-        except discord.HTTPException:
+        except HTTPException:
             return
         finally:
             self.stop()
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
         return self.ctx.author.id == interaction.user.id
 
-    async def update(self):
+    async def update(self, content=""):
         """Update embed and push to view"""
-        e = discord.Embed()
-        e.colour = discord.Colour.og_blurple()
+        e = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(), description=f"**{self.results[-1]}**\n\n")
         e.set_thumbnail(url=COIN_IMAGE)
-        e.title = "🪙 Coin Flip"
-
-        e.description = f"**{self.results[-1]}**\n\n"
 
         if len(self.results) > 1:
             counter = collections.Counter(self.results)
@@ -137,11 +61,14 @@ class CoinView(discord.ui.View):
             e.description += "\n" + f"{'...' if len(self.results) > 200 else ''}"
             e.description += ', '.join([f'*{i}*' for i in self.results[-200:]])
 
-        await self.message.edit(content="", view=self, embed=e)
+        if self.message is None:
+            self.message = await self.ctx.reply(content=content, view=self, embed=e)
+        else:
+            await self.message.edit(content=content, view=self, embed=e)
         await self.wait()
 
 
-class FlipButton(discord.ui.Button):
+class FlipButton(Button):
     """Flip a coin and pass the result to the view"""
 
     def __init__(self, label="Flip a Coin", count=1):
@@ -149,7 +76,7 @@ class FlipButton(discord.ui.Button):
         self.label = label
         self.emoji = "🪙"
         self.count = count
-        self.style = discord.ButtonStyle.primary
+        self.style = ButtonStyle.primary
 
     async def callback(self, interaction):
         """When clicked roll"""
@@ -164,7 +91,6 @@ class Fun(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.emoji = "🤡"
 
     # Migrate these into FUN group command
     @commands.slash_command(name="8ball")
@@ -180,12 +106,9 @@ class Fun(commands.Cog):
                "mebbe like", "dain't bet on it like"
                ]
 
-        e = discord.Embed()
+        e = Embed(title=message, colour=0x000001, description=random.choice(res))
         e.set_author(icon_url=ctx.author.display_avatar.url, name=f'🎱 8 Ball')
-        e.colour = 0x000001
-        e.title = message
-        e.description = random.choice(res)
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
     @commands.slash_command()
     async def lenny(self, ctx):
@@ -194,23 +117,23 @@ class Fun(commands.Cog):
                   '( ͡◉ ͜ʖ ͡◉)', '( ͡° ͜V ͡°)', '( ͡ᵔ ͜ʖ ͡ᵔ )',
                   '(☭ ͜ʖ ☭)', '( ° ͜ʖ °)', '( ‾ ʖ̫ ‾)', '( ͡° ʖ̯ ͡°)', '( ͡° ل͜ ͡°)', '( ͠° ͟ʖ ͠°)', '( ͡o ͜ʖ ͡o)',
                   '( ͡☉ ͜ʖ ͡☉)', 'ʕ ͡° ͜ʖ ͡°ʔ', '( ͡° ͜ʖ ͡ °)']
-        await self.bot.reply(ctx, content=random.choice(lennys))
+        await ctx.reply(content=random.choice(lennys))
 
     @commands.slash_command()
     async def thatsthejoke(self, ctx):
         """That's the joke"""
-        await self.bot.reply(ctx, content="https://www.youtube.com/watch?v=xECUrlnXCqk")
+        await ctx.reply(content="https://www.youtube.com/watch?v=xECUrlnXCqk")
 
     @commands.slash_command()
     async def dead(self, ctx):
         """STOP, STOP HE'S ALREADY DEAD"""
-        await self.bot.reply(ctx, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
+        await ctx.reply(content="https://www.youtube.com/watch?v=mAUY1J8KizU")
 
     @commands.slash_command()
     async def coin(self, ctx, count: int = 1):
         """Flip a coin"""
         if count > 10000:
-            return await self.bot.reply(ctx, content='Too many coins.')
+            return await ctx.reply(content='Too many coins.')
 
         view = CoinView(ctx, count=count)
         view.add_item(FlipButton())
@@ -218,7 +141,7 @@ class Fun(commands.Cog):
         for _ in [5, 10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
         view.add_item(view_utils.StopButton(row=1))
-        view.message = await self.bot.reply(ctx, content="Flipping coin...", view=view)
+        view.message = await ctx.reply(content="Flipping coin...", view=view)
         await view.update()
 
     @commands.slash_command()
@@ -227,7 +150,7 @@ class Fun(commands.Cog):
         url = f"http://api.urbandictionary.com/v0/define?term={lookup}"
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
-                await self.bot.reply(ctx, content=f"🚫 HTTP Error, code: {resp.status}", ephemeral=True)
+                await ctx.reply(content=f"🚫 HTTP Error, code: {resp.status}", ephemeral=True)
                 return
             resp = await resp.json()
 
@@ -237,7 +160,7 @@ class Fun(commands.Cog):
 
         resp = resp["list"]
         # Populate Embed, add to list
-        e = discord.Embed(color=0xFE3511)
+        e = Embed(color=0xFE3511)
         e.set_author(name=f"Urban Dictionary")
         e.set_thumbnail(url=tn)
 
@@ -273,7 +196,7 @@ class Fun(commands.Cog):
             embeds = [e]
 
         view = view_utils.Paginator(ctx, embeds=embeds)
-        view.message = await self.bot.reply(ctx, content=f"Fetching definitions for `{lookup}`", view=view)
+        view.message = await ctx.reply(content=f"Fetching definitions for `{lookup}`", view=view)
         await view.update()
 
     @commands.slash_command(usage="1d6+3")
@@ -282,7 +205,7 @@ class Fun(commands.Cog):
         advantage = True if roll_string.startswith("adv") else False
         disadvantage = True if roll_string.startswith("dis") else False
 
-        e = discord.Embed()
+        e = Embed()
         e.title = "🎲 Dice Roller"
         if advantage:
             e.title += " (Advantage)"
@@ -338,9 +261,9 @@ class Fun(commands.Cog):
                     sides = int(sides)
 
                 if dice > 1000:
-                    return await self.bot.reply(ctx, content='Too many dice', ephemeral=True)
+                    return await ctx.reply(content='Too many dice', ephemeral=True)
                 if sides > 1000000:
-                    return await self.bot.reply(ctx, content='Too many sides', ephemeral=True)
+                    return await ctx.reply(content='Too many sides', ephemeral=True)
 
             e.description += f"{roll}: "
             total_roll = 0
@@ -364,10 +287,10 @@ class Fun(commands.Cog):
 
                 if dice == 1 and sides >= 20:
                     if roll_outcome == 1:
-                        e.colour = discord.Colour.red()
+                        e.colour = Colour.red()
                         e.set_footer(text="Critical Failure")
                     elif roll_outcome == sides:
-                        e.colour = discord.Colour.green()
+                        e.colour = Colour.green()
                         e.set_footer(text="Critical.")
 
             roll_info += ", ".join(curr_rolls)
@@ -382,35 +305,18 @@ class Fun(commands.Cog):
         if len(roll_list) > 1:
             e.description += f"\n**Total: {total}**"
 
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
-    @commands.slash_command()
-    async def mock(self, ctx, *, text: Option(str, "InSeRt TeXT hErE")):
+    @commands.message_command(name="MoCk")
+    async def mock(self, ctx, message):
         """AlTeRnAtInG cApS"""
-        content = "".join(c.lower() if i & 1 else c.upper() for i, c in enumerate(text))
-        await self.bot.reply(ctx, content=content)
-
-    @commands.slash_command()
-    async def poll(self, ctx,
-                   question: Option(str, "What is your question?"),
-                   answers: Option(str, "Separate, answers, with, commas")):
-        """Create a poll with multiple choice answers. Separate your answers with commas.
-        Polls end after 1 hour of no responses."""
-        if answers is None:
-            answers = []
-        else:
-            answers = answers.split(', ')
-
-        if len(answers) > 25:
-            return await self.bot.reply(ctx, content='Too many answers provided. 25 is more than enough thanks.')
-
-        view = PollView(ctx, question=question, answers=answers)
-        view.message = await self.bot.reply(ctx, embed=view.prepare_embed(), view=view)
+        content = "".join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
+        await ctx.reply(content=content)
 
     @commands.slash_command()
     async def choose(self, ctx, choices: Option(str, "Separate, choices, with, commas")):
         """Make a decision for you (separate choices with commas)"""
-        e = discord.Embed()
+        e = Embed()
         e.set_author(icon_url=ctx.author.display_avatar.url, name=f'Choose')
         e.colour = ctx.author.colour
 
@@ -426,7 +332,7 @@ class Fun(commands.Cog):
             e.description += ' ,'.join([f"*{i}*" for i in choices])
         except IndexError:
             pass
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
 
 def setup(bot):

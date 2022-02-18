@@ -1,24 +1,21 @@
 """Administration commands for Painezor, including logging, debugging, and loading of modules"""
 import datetime
+import glob
 import inspect
 import sys
 from collections import Counter
 from os import system
 
-import discord
-from discord.commands import Option
-from discord.commands import permissions
+from discord import SlashCommandGroup, CommandPermission, Embed, Colour, ButtonStyle, Activity, Attachment
+from discord.commands import Option, permissions
 from discord.ext import commands
+from discord.ui import View, Button
 
-from ext.utils import codeblocks, embed_utils, view_utils
+from ext.utils import codeblocks
 
-
-def status_autocomplete(ctx):
-    """Return from this list"""
-    return [i for i in ["playing", "streaming", "watching", "listening"] if ctx.value in i]
-
-
-STATUS = Option(str, autocomplete=status_autocomplete)
+NO_SLASH_COMM = ("Due to changes with discord, Toonbot will soon be unable to parse messages to find commands\n"
+                 "All commands have been moved to use the new /slashcommands system, bots must be re-invited to servers"
+                 " with a new scope to use them. Use the link below to re-invite me. All old prefixes are disabled.")
 
 
 class Admin(commands.Cog):
@@ -28,21 +25,38 @@ class Admin(commands.Cog):
         self.bot = bot
         self.bot.socket_stats = Counter()
 
-    @property
-    def base_embed(self):
-        """Base Embed for commands in this cog."""
-        e = discord.Embed()
-        e.colour = discord.Colour.og_blurple()
-        return e
+    async def on_message(self, message):
+        """Slash commands warning system."""
+        me = message.channel.me
+        if me in message.mentions or message.startswith(".tb"):
+            name = f"{me.display_name} ({me.name})" if me.display_name != message.me.name else f"{me.name}"
+            e = Embed(title=f"{name} now uses slash commands")
+            e.colour = Colour.og_blurple()
+
+            if not message.channel.permissions_for(message.author).use_slash_commands:
+                e.colour = Colour.red()
+                e.description = f"Your server's settings do not allow any of your roles to use slash commands.\n" \
+                                "Ask a moderator to give you `use_slash_commands` permissions."
+
+            else:
+                e.description = "I use slash commands now, type `/` to see a list of my commands"
+                if message.guild is not None:
+                    e.description += "\nIf you don't see any slash commands, you need to re-invite the bot using" \
+                                     "the link below."
+
+            view = View()
+            view.add_item(Button(style=ButtonStyle.url, url=self.bot.invite_url, label="Invite me to your server"))
+            e.add_field(name="Discord changes", value=NO_SLASH_COMM)
+            return await message.reply(embed=e, view=view)
 
     @commands.slash_command(guild_ids=[250252535699341312], name="print", default_permission=False)
     @permissions.is_owner()
     async def _print(self, ctx, *, to_print):
         """Print something to console."""
         print(to_print)
-        e = self.base_embed
+        e = Embed(colour=Colour.og_blurple())
         e.description = f"```\n{to_print}```"
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
     @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
     @permissions.is_owner()
@@ -51,64 +65,59 @@ class Admin(commands.Cog):
         system('cls')
         _ = f'{self.bot.user}: {self.bot.initialised_at}'
         print(f'{_}\n{"-" * len(_)}\nConsole cleared at: {datetime.datetime.utcnow().replace(microsecond=0)}')
-        e = self.base_embed
-        e.title = "Bot Console"
-        e.description = "```\nConsole Log Cleared.```"
-        await self.bot.reply(ctx, embed=e)
 
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def reload(self, ctx, *, module: str):
+        e = Embed(title="Bot Console", colour=Colour.og_blurple(), description="```\nConsole Log Cleared.```")
+        await ctx.reply(embed=e)
+
+    COGS = Option(str, "Select the cog to reload or load", options=glob.glob("/ext/*.py"))
+    modules = SlashCommandGroup("cogs", "Load/Unload bot cogs", permissions=[CommandPermission("owner", 2)])
+
+    @modules.command(guild_ids=[250252535699341312])
+    async def reload(self, ctx, *, module: COGS):
         """Reloads a module."""
-        e = self.base_embed
-        e.title = 'Modules'
+        e = Embed(title="Modules", colour=Colour.og_blurple())
 
         try:
-            self.bot.reload_extension(module)
+            self.bot.reload_extension(f'ext.{module}')
         except Exception as err:
-            return await self.bot.error(ctx, codeblocks.error_to_codeblock(err))
+            return await ctx.error(codeblocks.error_to_codeblock(err))
         else:
             e.description = f':gear: Reloaded {module}'
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def load(self, ctx, *, module: str):
+    @modules.command(guild_ids=[250252535699341312])
+    async def load(self, ctx, *, module: COGS):
         """Loads a module."""
-        e = self.base_embed
-        e.title = 'Modules'
+        e = Embed(title="Modules", colour=Colour.og_blurple())
 
         try:
-            self.bot.load_extension(module)
+            self.bot.load_extension('ext.' + module)
         except Exception as err:
-            return await self.bot.error(ctx, codeblocks.error_to_codeblock(err))
+            return await ctx.error(codeblocks.error_to_codeblock(err))
         else:
             e.description = f':gear: Loaded {module}'
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def scores_refresh(self, ctx):
-        """ ADMIN: Force a cache refresh of the live scores"""
-        self.bot.games = []
-        e = discord.Embed(colour=discord.Colour.og_blurple(), description="[ADMIN] Cleared global games cache.")
-        await self.bot.reply(ctx, embed=e)
-
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def unload(self, ctx, *, module: str):
+    @modules.command(guild_ids=[250252535699341312])
+    async def unload(self, ctx, *, module: COGS):
         """Unloads a module."""
-        e = self.base_embed
-        e.title = 'Modules'
+        e = Embed(title="Modules", colour=Colour.og_blurple())
 
         try:
-            self.bot.unload_extension(module)
+            self.bot.unload_extension('ext.' + module)
         except Exception as err:
-            return await self.bot.error(ctx, codeblocks.error_to_codeblock(err))
+            return await ctx.error(codeblocks.error_to_codeblock(err))
         else:
             e.description = f':gear: Unloaded {module}'
 
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
+
+    @modules.command()
+    async def list(self, ctx):
+        """List all currently loaded modules"""
+        loaded = sorted([i for i in self.bot.cogs])
+        e = Embed(title="Currently loaded Cogs", colour=Colour.og_blurple(), description="\n".join(loaded))
+        await ctx.reply(embed=e)
 
     @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
     @permissions.is_owner()
@@ -118,7 +127,8 @@ class Admin(commands.Cog):
         env = {'bot': self.bot, 'ctx': ctx}
         env.update(globals())
 
-        e = self.base_embed
+        e = Embed(title="Code Evaluation", colour=Colour.og_blurple())
+        e.set_footer(text=f"Python Version: {sys.version}")
 
         try:
             result = eval(code, env)
@@ -133,92 +143,69 @@ class Admin(commands.Cog):
                 e.description = etc
         else:
             e.description = f"**Input**```py\n>>> {code}```**Output**```py\n{result}```"
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def status(self, ctx, mode: STATUS, new_status: Option(str, description="Set the new status")):
-        """Change status to <cmd> {status}"""
-        values = {"playing": 0, "streaming": 1, "watching": 2, "listening": 3}
-        act = discord.Activity(type=values[mode], name=new_status)
-        await self.bot.change_presence(activity=act)
+    edit_bot = SlashCommandGroup("bot", "Edit bot presence", permissions=[CommandPermission("owner", 2)])
 
-        e = self.base_embed
-        e.title = "Activity"
-        e.description = f"Set status to {mode} {new_status}"
-        await self.bot.reply(ctx, embed=e)
-
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def shared(self, ctx, user_id: int):
-        """Check ID for shared servers"""
-        if user_id is None:
-            user_id = ctx.author.id
-
-        matches = [f"`{i.id}:` **{i.name}**" for i in self.bot.guilds if i.get_member(user_id) is not None]
-
-        if not matches:
-            return await self.bot.reply(ctx, content=f"User id {user_id} not found on any servers.")
-
-        user = self.bot.get_user(user_id)
-        e = self.base_embed
-        e.title = f"User found on {len(matches)} servers."
-        e.set_footer(text=f"{user} (ID: {user_id})", icon_url=user.display_avatar.url)
-
-        embeds = embed_utils.rows_to_embeds(e, matches, 20)
-
-        view = view_utils.Paginator(ctx, embeds)
-        view.message = await self.bot.reply(ctx, content="Fetching Shared Servers...", view=view)
-        await view.update()
-
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def setavatar(self, ctx, new_pic: str = None):
+    @edit_bot.command(guild_ids=[250252535699341312])
+    async def avatar(self, ctx,
+                     file: Option(Attachment, "Upload a file", required=False),
+                     link: Option(str, "Provide a link", required=False)):
         """Change the avatar of the bot"""
-        if ctx.message.attachments:
-            new_pic = ctx.attachments[0].url
+        avatar = file if file else link
 
-        async with self.bot.session.get(new_pic) as resp:
+        if avatar is None:
+            return await ctx.error("You need to provide either a link or an attachment.")
+
+        async with self.bot.session.get(avatar) as resp:
             if resp.status != 200:
-                return await self.bot.reply(ctx, content=f"HTTP Error: Status Code {resp.status}")
-            new_avatar = await resp.read()
+                return await ctx.reply(content=f"HTTP Error: Status Code {resp.status}")
+            new_avatar = await resp.read()  # Needs to be bytes.
 
         await self.bot.user.edit(avatar=new_avatar)
-        e = self.base_embed
-        e.title = "Avatar Updated!"
+        e = Embed(title="Avatar Updated", colour=Colour.og_blurple())
         e.set_image(url=new_avatar)
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def version(self, ctx):
-        """Get local environment python version"""
-        e = self.base_embed
-        e.title = "Python Version"
-        e.description = sys.version
-        await self.bot.reply(ctx, embed=e)
+    # Presence Commands
+    status = edit_bot.create_subgroup(name="status", description="Set bot activity")
 
-    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
-    @permissions.is_owner()
-    async def commandstats(self, ctx):
-        """Counts how many commands have been ran this session."""
-        e = self.base_embed
-        e.title = f"{sum(self.bot.commands_used.values())} commands ran this session"
-        embeds = embed_utils.rows_to_embeds(e, [f"{k}: {v}" for k, v in self.bot.commands_used.most_common()], 20)
-        view = view_utils.Paginator(ctx, embeds)
-        view.message = await self.bot.reply(ctx, content="Fetching Command Usage Stats...", view=view)
-        await view.update()
+    @status.command(guild_ids=[250252535699341312])
+    async def playing(self, ctx, status: Option(str, description="Set the new status")):
+        """Set bot status to playing {status}"""
+        await self.update_presence(ctx, Activity(type=0, name=status))
+
+    @status.command(guild_ids=[250252535699341312])
+    async def streaming(self, ctx, status: Option(str, description="Set the new status")):
+        """Change status to streaming {status}"""
+        await self.update_presence(ctx, Activity(type=1, name=status))
+
+    @status.command(guild_ids=[250252535699341312])
+    async def watching(self, ctx, status: Option(str, description="Set the new status")):
+        """Change status to watching {status}"""
+        await self.update_presence(ctx, Activity(type=2, name=status))
+
+    @status.command(guild_ids=[250252535699341312])
+    async def listening(self, ctx, status: Option(str, description="Set the new status")):
+        """Change status to listening to {status}"""
+        await self.update_presence(ctx, Activity(type=3, name=status))
+
+    async def update_presence(self, ctx, act: Activity):
+        """Pass the updated status."""
+        await self.bot.change_presence(activity=act)
+
+        e = Embed(title="Activity", colour=Colour.og_blurple())
+        e.description = f"Set status to {ctx.invoked_with} {act.name}"
+        await ctx.reply(embed=e)
 
     @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
     @permissions.is_owner()
     async def notify(self, ctx, text: Option(str, name="notification", description="Message to send to aLL servers.")):
         """Send a global notification to channels that track it."""
         await self.bot.dispatch("bot_notification", text)
-        e = discord.Embed()
+        e = Embed(title="Bot notification dispatched", description=text)
         e.set_thumbnail(url=ctx.me.avatar.url)
-        e.title = "Bot notification dispatched!"
-        e.description = text
-        await self.bot.reply(ctx, embed=e)
+        await ctx.reply(embed=e)
 
 
 def setup(bot):

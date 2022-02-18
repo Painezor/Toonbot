@@ -3,12 +3,14 @@ import datetime
 import random
 from collections import defaultdict
 
-import discord
-from discord import Option
+from discord import Option, Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, SlashCommandGroup
 from discord.ext import commands
+from discord.ui import Button, View
+
+# TODO: Permissions Pass.
 
 # Shake meme
-_ = ("""Well to start off with anyone who thinks you can trick women into sleeping with you, don't understand game, 
+SHAKE = ("""Well to start off with anyone who thinks you can trick women into sleeping with you, don't understand game, 
 and are generally the ones who embarrass themselves. In a social context women are a lot cleverer then men (in 
 general) and understand what's going on when it comes to male female dynamic, that's why you see a lot less 40 year 
 old women virgins. \n\nBut just to dispel some myths about \"game\" that are being pushed in this sub. If you 
@@ -199,41 +201,43 @@ STREAMS = Option(str, "Remove a stream", autocomplete=streams)
 COLOUR = Option(str, "Enter a colour")
 
 
-class MbembaView(discord.ui.View):
+class MbembaView(View):
     """Generic View for the Mbemba Generator."""
 
     def __init__(self, ctx):
         self.ctx = ctx
         self.message = None
-        self.add_item(MbembaButton())
         super().__init__()
 
     async def interaction_check(self, interaction):
         """Assure only person invoking the command can re-roll it."""
         return interaction.user.id == self.ctx.author.id
 
-    async def update(self):
+    async def update(self, content=""):
         """Regenerate the embed and push to view."""
+        self.clear_items()
+        self.add_item(MbembaButton())
+
         this = random.choice(MBEMBA)
 
-        e = discord.Embed()
+        e = Embed()
         e.title = "Mbemba when..."
         e.description = f"<:mbemba:332196308825931777> {this}"
-        e.colour = discord.Colour.purple()
+        e.colour = Colour.purple()
 
         if self.message is None:
-            self.message = await self.ctx.bot.reply(self.ctx, embed=e, view=self)
+            self.message = await self.ctx.reply(content=content, embed=e, view=self)
         else:
-            await self.message.edit(view=self)
+            await self.message.edit(content=content, embed=e, view=self)
 
 
-class MbembaButton(discord.ui.Button):
+class MbembaButton(Button):
     """Re-roll button"""
 
     def __init__(self):
-        super().__init__(label="Mbemba Again", style=discord.ButtonStyle.blurple, emoji="<:mbemba:332196308825931777>")
+        super().__init__(label="Mbemba Again", style=ButtonStyle.blurple, emoji="<:mbemba:332196308825931777>")
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """When clicked, reroll."""
         await interaction.response.defer()
         await self.view.update()
@@ -244,41 +248,41 @@ class NUFC(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.bot.streams = defaultdict(set)
+        self.bot.streams = defaultdict(dict)
+
+    @commands.slash_command(guild_ids=[332159889587699712])
+    async def toon_toon(self, ctx):
+        """Toon. Toon, black & white army"""
+        return await ctx.reply(content="**BLACK AND WHITE ARMY**")
 
     @commands.slash_command(guild_ids=[332159889587699712])
     async def mbemba(self, ctx):
         """Mbemba When..."""
-        view = MbembaView(ctx)
-        await view.update()
+        await MbembaView(ctx).update()
 
     @commands.slash_command(guild_ids=[332159889587699712])
     async def colour(self, ctx, colour: COLOUR):
         """Gives you a colour"""
         if not ctx.channel.permissions_for(ctx.me).manage_roles:
-            return await self.bot.error(ctx, 'I need manage roles permissions to give you a custom colour.')
+            return await ctx.error('I need manage roles permissions to give you a custom colour.')
 
         # Get user's old colours.
         remove_list = [i for i in ctx.author.roles if "#" in i.name]
 
-        e = discord.Embed()
-        e.description = f"Your colour has been updated."
-
+        e = Embed(description=f"Your colour has been updated.")
         colour.strip('#')
-        colour = colour.replace('0x', "")
-        colour = colour.upper()
+        colour = colour.replace('0x', "").upper()
 
         try:
-            d_colo = discord.Colour(int(colour, 16))
+            d_colo = Colour(int(colour, 16))
         except ValueError:
-            view = discord.ui.View()
-            btn = discord.ui.Button(style=discord.ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/")
-            btn.label = "Colour picker."
+            view = View()
+            btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
             view.add_item(btn)
-            return await self.bot.error(ctx, 'Invalid colour.', view=view)
+            return await ctx.error('Invalid colour.', view=view)
 
         # Create new role or fetch if already exists.
-        role = discord.utils.get(ctx.guild.roles, name=f"#{colour}")
+        role = utils.get(ctx.guild.roles, name=f"#{colour}")
         if role is None:
             role = await ctx.guild.create_role(name=f"#{colour}", reason=f"Colour for {ctx.author}", color=d_colo)
 
@@ -293,86 +297,74 @@ class NUFC(commands.Cog):
             if not i.members:
                 await i.delete()
 
-        await self.bot.reply(ctx, embed=e, ephemeral=True)
+        await ctx.reply(embed=e, ephemeral=True)
 
     @commands.slash_command(guild_ids=[332159889587699712])
     async def shake(self, ctx):
         """Well to start off with..."""
-        await self.bot.reply(ctx, content=_)
+        await ctx.reply(content=SHAKE)
 
-    @commands.slash_command(guild_ids=[332159889587699712])
-    async def streams(self, ctx):
+    streams = SlashCommandGroup("streams", "Stream list for your server")
+
+    @streams.command()
+    async def list(self, ctx):
         """List all streams for the match added by users."""
         guild_streams = self.bot.streams[ctx.guild.id]
 
         if not guild_streams:
-            return await self.bot.reply(ctx, content="Nobody has added any streams yet.")
+            return await ctx.reply(content="Nobody has added any streams yet.")
 
-        e = discord.Embed()
-        e.title = "Streams"
-        e.description = ""
+        e = Embed(title="Streams", description="")
+        e.description = ["\n".join(f"{stream} (Added by {added})" for stream, added in guild_streams.items())]
+        await ctx.reply(embed=e)
 
-        for stream, added in guild_streams.items():
-            e.description += f"{stream} (Added by {added})\n"
-
-        await self.bot.reply(ctx, embed=e)
-
-    @commands.slash_command(guild_ids=[332159889587699712])
-    async def streams_add(self, ctx, *, stream):
+    @streams.command()
+    async def add(self, ctx, *, stream):
         """Add a stream to the stream list."""
         guild_streams = self.bot.streams[ctx.guild.id]
 
-        if "://" not in stream:
-            return await self.bot.error(ctx, "That doesn't look like a valid URL.")
+        if stream in guild_streams:
+            return await ctx.error("Already in stream list.")
 
-        if stream in streams:
-            return await self.bot.error(ctx, "Already in stream list.")
+        self.bot.streams[ctx.guild.id].update({stream: ctx.author.mention})
 
-        else:
-            self.bot.streams[ctx.guild.id].update({stream: ctx.author.mention})
+        e = Embed(title="Streams", description="")
+        e.description = ["\n".join(f"{stream} (Added by {added})" for stream, added in guild_streams.items())]
+        await ctx.reply(content=f"Added <{stream}> to stream list.", embed=e)
 
-        e = discord.Embed()
-        e.title = "Streams"
-        e.description = ""
-
-        for stream, added in guild_streams.items():
-            e.description += f"{stream} (Added by {added})\n"
-
-        await self.bot.reply(ctx, content=f"Added {stream} to stream list.", embed=e)
-
-    @commands.slash_command(guild_ids=[332159889587699712])
-    async def streams_delete(self, ctx, *, stream: STREAMS):
+    @streams.command()
+    async def delete(self, ctx, *, stream: STREAMS):
         """Delete a stream from the stream list"""
         if not ctx.channel.permissions_for(ctx.author).manage_messages:
             if not self.bot.streams[ctx.guild.id][stream] == ctx.author.mention:
                 err = "You cannot remove a stream you did not add unless you have manage_messages permissions"
-                return await self.bot.error(ctx, err)
+                return await ctx.error(err)
         try:
             removed = self.bot.streams[ctx.guild.id].pop(stream)
         except KeyError:
-            return await self.bot.error(ctx, f"Couldn't find that stream in {ctx.guild.name} stream list.")
+            return await ctx.error(f"Couldn't find that stream in {ctx.guild.name} stream list.")
 
-        await self.bot.reply(ctx, content=f"<{removed}> removed from streams list.")
+        await ctx.reply(content=f"<{removed}> removed from streams list.")
 
-    @commands.slash_command(guild_ids=[332159889587699712])
-    async def streams_clear(self, ctx):
+    @streams.command()
+    async def clear(self, ctx):
         """Remove all streams from guild stream list"""
         if not ctx.channel.permissions_for(ctx.author).manage_messages:
             err = "You cannot remove a stream you did not add unless you have manage_messages permissions"
-            return await self.bot.error(ctx, err)
+            return await ctx.error(err)
 
         self.bot.streams[ctx.guild.id] = []
-        await self.bot.reply(ctx, content="Streams cleared.")
+        await ctx.reply(content="Streams cleared.")
 
     @commands.slash_command(guild_ids=[332159889587699712])
     async def gherkin(self, ctx):
         """DON'T LET ME GOOOOOO AGAIN"""
-        await self.bot.reply(ctx, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
+        await ctx.reply(content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
 
     @commands.slash_command(guild_ids=[332159889587699712])
     async def radio(self, ctx):
         """Sends a link to the NUFC radio channel"""
-        await self.bot.reply(ctx, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
+        await ctx.reply(content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
 
     @commands.slash_command(guild_ids=[332159889587699712])
     async def uprafa(self, ctx):
@@ -393,14 +385,12 @@ class NUFC(commands.Cog):
         outcome = random.choice(x)
         if outcome:
             try:
-                e = discord.Embed()
-                e.title = "Timed out for 1 minute."
-                await self.bot.reply(ctx, embed=e)
+                await ctx.reply(embed=Embed(title="Timed out for 1 minute."))
                 await ctx.author.timeout_for(datetime.timedelta(minutes=1), reason="Roulette")
-            except discord.Forbidden:
-                await self.bot.error(ctx, "Your skull is too thick to penetrate with these bullets.")
+            except Forbidden:
+                await ctx.reply(content="The bullet bounced off your thick fucking skull.")
         else:
-            await self.bot.reply(ctx, content="Click.")
+            await ctx.reply(content="Click.")
 
 
 def setup(bot):

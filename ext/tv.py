@@ -2,8 +2,7 @@
 import datetime
 import json
 
-import discord
-from discord import Option
+from discord import Option, Embed
 from discord.ext import commands
 from lxml import html
 
@@ -41,7 +40,7 @@ class Tv(commands.Cog):
     @commands.slash_command()
     async def tv(self, ctx, team: TV):
         """Lookup next televised games for a team"""
-        e = discord.Embed()
+        e = Embed()
         e.colour = 0x034f76
         e.set_author(name="LiveSoccerTV.com")
 
@@ -50,14 +49,14 @@ class Tv(commands.Cog):
             matches = [i for i in self.bot.tv if str(team).lower() in i.lower()]
 
             if not matches:
-                return await self.bot.error(ctx, f"Could not find a matching team/league for {team}.")
+                return await ctx.error(f"Could not find a matching team/league for {team}.")
 
             _ = [('📺', i, self.bot.tv[i]) for i in matches]
 
             if len(_) > 1:
                 view = view_utils.ObjectSelectView(ctx, objects=_, timeout=30)
                 e.description = '⏬ Multiple results found, choose from the dropdown.'
-                message = await self.bot.reply(ctx, embed=e, view=view)
+                message = await ctx.reply(embed=e, view=view)
                 view.message = message
                 await view.update()
                 await view.wait()
@@ -68,19 +67,19 @@ class Tv(commands.Cog):
                 team = matches[view.value]
             else:
                 team = matches[0]
-                message = await self.bot.reply(ctx, content=f"Fetching televised matches for {team}")
+                message = await ctx.reply(content=f"Fetching televised matches for {team}")
 
             e.url = self.bot.tv[team]
             e.title = f"Televised Fixtures for {team}"
         else:
             e.url = "http://www.livesoccertv.com/schedules/"
             e.title = f"Today's Televised Matches"
-            message = await self.bot.reply(ctx, content=f"Fetching televised matches...")
+            message = await ctx.reply(content=f"Fetching televised matches...")
 
         rows = []
         async with self.bot.session.get(e.url, headers=HEADERS) as resp:
             if resp.status != 200:
-                return await self.bot.error(ctx, content=f"{e.url} returned a HTTP {resp.status} error.")
+                return await ctx.error(f"{e.url} returned a HTTP {resp.status} error.")
             tree = html.fromstring(await resp.text())
 
         match_column = 3 if not team else 5

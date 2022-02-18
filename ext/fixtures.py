@@ -2,7 +2,7 @@
 from copy import deepcopy
 
 # D.py
-import discord
+from discord import Embed, Colour, SlashCommandGroup
 from discord.commands import Option
 from discord.ext import commands
 
@@ -12,6 +12,11 @@ from ext.utils import timed_events, football, embed_utils, view_utils
 # Long ass strings.
 DF = "Use `.tb default team <team name>` to set a default team\nUse `.tb default league <league name>` to set a " \
      "default league.\n\nThis will allow you to skip the selection process to get information about your favourites."
+
+
+# todo: News https://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/news/
+# TODO: Permissions Pass.
+# TODO: Grouped Commands pass | Fixture / Team / Competition
 
 
 async def team_or_league(ctx):
@@ -77,20 +82,23 @@ class Fixtures(commands.Cog):
         # Handle Server Defaults
         if qry == "default":
             if ctx.guild is None:
-                await self.bot.error(ctx, "You need to specify a search query.")
+                await ctx.error("You need to specify a search query.")
                 return None
 
             connection = await self.bot.db.acquire()
-            async with connection.transaction():
-                r = await connection.fetchrow("""SELECT * FROM fixtures_defaults WHERE (guild_id) = $1
-                     AND (default_league is NOT NULL OR default_team IS NOT NULL)""", ctx.guild.id)
-            await self.bot.db.release(connection)
+            try:
+                async with connection.transaction():
+                    r = await connection.fetchrow("""SELECT * FROM fixtures_defaults WHERE (guild_id) = $1
+                         AND (default_league is NOT NULL OR default_team IS NOT NULL)""", ctx.guild.id)
+            finally:
+                await self.bot.db.release(connection)
 
             if r is None or all(x is None for x in [r["default_team"], r['default_league']]):
                 if ctx.channel.permissions_for(ctx.author).manage_guild:
-                    await self.bot.error(ctx, "Your server does not have defaults set.\nCheck `/default_league`")
+                    await ctx.error("Your server does not have defaults set.\nCheck `/default_league`")
                 else:
-                    await self.bot.error(ctx, "You need to specify a search query.", ephemeral=True)
+                    await ctx.error("You need to specify a search query, or ask the server mods to use "
+                                    "`/default_league` or `/default_team` to set the server default.")
                 return None
 
             team = r["default_team"]
@@ -101,8 +109,8 @@ class Fixtures(commands.Cog):
                 default = league if league else team
 
             if default is None:
-                return await self.bot.error(ctx, "Your server does not have any defaults set.\n"
-                                                 "Use the /default_league and /default_team commands.")
+                return await ctx.error("Your server does not have any defaults set.\n"
+                                       "Use the /default_league and /default_team commands.")
 
             page = await self.bot.browser.newPage()
             try:
@@ -148,10 +156,7 @@ class Fixtures(commands.Cog):
         items = live + search_results
 
         if not markers:
-            e = discord.Embed()
-            e.colour = discord.Colour.red()
-            e.description = f'🚫 {ctx.command.name.title()}: No results found for {qry}'
-            await message.edit(content="", embed=e)
+            await self.ctx.error.edit(f"🚫 {ctx.command.name.title()}: No results found for {qry}", message=message)
             return None
 
         if len(markers) == 1:
@@ -169,7 +174,7 @@ class Fixtures(commands.Cog):
     @commands.slash_command()
     async def fixtures(self, ctx, query: SEARCH):
         """Fetch upcoming fixtures for a team or league."""
-        message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+        message = await ctx.reply(content=f"Searching for `{query}`...")
         fsr = await self.search(ctx, query, message, include_fs=True)
         if fsr is None:
             return
@@ -180,7 +185,10 @@ class Fixtures(commands.Cog):
             logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url
             e.colour = await embed_utils.get_colour(logo)
             e.set_thumbnail(url=logo)
-        e.description = f"Fetching fixtures data for [{fsr.title}][{fsr.url}]..."
+
+        print(fsr.__dict__)
+
+        e.description = f"Fetching fixtures data for [{fsr.title}]({fsr.url})..."
         await message.edit(embed=e, content="", view=None)
 
         # Spawn Browser & Go.
@@ -192,7 +200,7 @@ class Fixtures(commands.Cog):
     @commands.slash_command()
     async def results(self, ctx, query: SEARCH):
         """Get past results for a team or league."""
-        message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+        message = await ctx.reply(content=f"Searching for `{query}`...")
         fsr = await self.search(ctx, query, message, include_fs=True)
         if fsr is None:
             return
@@ -203,7 +211,7 @@ class Fixtures(commands.Cog):
             logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url
             e.colour = await embed_utils.get_colour(logo)
             e.set_thumbnail(url=logo)
-        e.description = f"Fetching results data for [{fsr.title}][{fsr.url}]..."
+        e.description = f"Fetching results data for [{fsr.title}]({fsr.url})..."
         await message.edit(embed=e, content="", view=None)
 
         # Spawn Browser & Go.
@@ -215,7 +223,7 @@ class Fixtures(commands.Cog):
     @commands.slash_command()
     async def table(self, ctx, query: SEARCH):
         """Get table for a league"""
-        message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+        message = await ctx.reply(content=f"Searching for `{query}`...")
         fsr = await self.search(ctx, query, message, include_fs=True)
         if fsr is None:
             return
@@ -242,7 +250,7 @@ class Fixtures(commands.Cog):
     @commands.slash_command()
     async def scorers(self, ctx, query: SEARCH):
         """Get top scorers from a league, or search for a team and get their top scorers in a league."""
-        message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+        message = await ctx.reply(content=f"Searching for `{query}`...")
         fsr = await self.search(ctx, query, message, include_fs=True)
         if fsr is None:
             return
@@ -253,7 +261,7 @@ class Fixtures(commands.Cog):
             logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url
             e.colour = await embed_utils.get_colour(logo)
             e.set_thumbnail(url=logo)
-        e.description = f"Fetching Top Scorer Data for [{fsr.title}][{fsr.url}]..."
+        e.description = f"Fetching Top Scorer Data for [{fsr.title}]({fsr.url})..."
         await message.edit(embed=e, content="", view=None)
 
         # Spawn Browser & Go.
@@ -267,10 +275,9 @@ class Fixtures(commands.Cog):
     async def scores(self, ctx, query: LEAGUES):
         """Fetch current scores for a specified league"""
         _ = "all games" if query is None else f"games matching `{query}`"
-        message = await self.bot.reply(ctx, content=f"Fetching scores for {_}")
+        message = await ctx.reply(content=f"Fetching scores for {_}")
 
-        e = discord.Embed(color=discord.Colour.og_blurple())
-        e.title = "Current scores"
+        e = Embed(color=Colour.og_blurple(), title="Current scores")
 
         if query is None:
             matches = self.bot.games
@@ -279,12 +286,10 @@ class Fixtures(commands.Cog):
             matches = [i for i in self.bot.games if _ in (i.home + i.away + i.league + i.country).lower()]
 
         if not matches:
-            e.colour = discord.Colour.red()
             _ = "No live games found!"
             if query is not None:
                 _ += f" matching search query `{query}`"
-            e.description = _
-            return await message.edit(content="", embed=e)
+            return await ctx.error(_, message=message)
 
         header = f'Scores as of: {timed_events.Timestamp().long}\n'
 
@@ -316,7 +321,7 @@ class Fixtures(commands.Cog):
     @commands.slash_command(description="Fetch a team's current injuries")
     async def injuries(self, ctx, query: TEAMS):
         """Get a team's current injuries"""
-        message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+        message = await ctx.reply(content=f"Searching for `{query}`...")
         fsr = await self.search(ctx, query, message, include_fs=True, mode="team")
         if fsr is None:
             return  # Rip
@@ -327,7 +332,7 @@ class Fixtures(commands.Cog):
             logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url
             e.colour = await embed_utils.get_colour(logo)
             e.set_thumbnail(url=logo)
-        e.description = f"Fetching injury Data for [{fsr.title}][{fsr.url}]..."
+        e.description = f"Fetching injury Data for [{fsr.title}]({fsr.url})..."
         await message.edit(embed=e, content="", view=None)
 
         # Spawn Browser & Go.
@@ -339,7 +344,7 @@ class Fixtures(commands.Cog):
     @commands.slash_command(description="Fetch the squad for a team")
     async def squad(self, ctx, query: TEAMS):
         """Lookup a team's squad members"""
-        message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+        message = await ctx.reply(content=f"Searching for `{query}`...")
         fsr = await self.search(ctx, query, message, include_fs=True, include_live=True, mode="team")
         if fsr is None:
             return  # Rip
@@ -350,7 +355,7 @@ class Fixtures(commands.Cog):
             logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url
             e.colour = await embed_utils.get_colour(logo)
             e.set_thumbnail(url=logo)
-        e.description = f"Fetching Squad Data for [{fsr.title}][{fsr.url}]"
+        e.description = f"Fetching Squad Data for [{fsr.title}({fsr.url})"
         await message.edit(embed=e, content="", view=None)
 
         # Spawn Browser & Go.
@@ -368,10 +373,10 @@ class Fixtures(commands.Cog):
 
             e = await fsr.base_embed
             e.description = f"Fetching Stats..."
-            message = await self.bot.reply(ctx, embed=e)
+            message = await ctx.reply(embed=e)
             page = await self.bot.browser.newPage()
         else:
-            message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+            message = await ctx.reply(content=f"Searching for `{query}`...")
             fsr = await self.search(ctx, query, message, include_fs=True, include_live=True, mode="team")
             if fsr is None:
                 return  # Rip
@@ -396,10 +401,10 @@ class Fixtures(commands.Cog):
 
             e = await fsr.base_embed
             e.description = f"Fetching formations..."
-            message = await self.bot.reply(ctx, embed=e)
+            message = await ctx.reply(embed=e)
             page = await self.bot.browser.newPage()
         else:
-            message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+            message = await ctx.reply(content=f"Searching for `{query}`...")
             fsr = await self.search(ctx, query, message, include_fs=True, include_live=True, mode="team")
             if fsr is None:
                 return  # Rip
@@ -426,10 +431,10 @@ class Fixtures(commands.Cog):
 
             e = await fsr.base_embed
             e.description = f"Fetching summary..."
-            message = await self.bot.reply(ctx, embed=e)
+            message = await ctx.reply(embed=e)
             page = await self.bot.browser.newPage()
         else:
-            message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+            message = await ctx.reply(content=f"Searching for `{query}`...")
             fsr = await self.search(ctx, query, message, include_fs=True, include_live=True, mode="team")
             if fsr is None:
                 return  # Rip
@@ -453,10 +458,10 @@ class Fixtures(commands.Cog):
             fsr = [i for i in self.bot.games if i.home in query and i.away in query and i.league in query][0]
             e = await fsr.base_embed
             e.description = f"Fetching Head-To-Head data..."
-            message = await self.bot.reply(ctx, embed=e)
+            message = await ctx.reply(embed=e)
             page = await self.bot.browser.newPage()
         else:
-            message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+            message = await ctx.reply(content=f"Searching for `{query}`...")
             fsr = await self.search(ctx, query, message, include_fs=True, include_live=True, mode="team")
             if fsr is None:
                 return  # Rip
@@ -477,7 +482,7 @@ class Fixtures(commands.Cog):
     @commands.slash_command(description="Fetch information about a stadium")
     async def stadium(self, ctx, query: Option(str, "Enter a search query")):
         """Lookup information about a team's stadiums"""
-        message = await self.bot.reply(ctx, content=f"Searching for `{query}`...")
+        message = await ctx.reply(content=f"Searching for `{query}`...")
         stadiums = await football.get_stadiums(query)
         if not stadiums:
             return await message.edit(content=f"🚫 No stadiums found matching search: {query}")
@@ -495,23 +500,25 @@ class Fixtures(commands.Cog):
         embed = await stadiums[view.value].to_embed
         await message.edit(content="", embed=embed, view=None)
 
-    @commands.slash_command()
-    async def default_team(self, ctx, team: DEF_TEAM):
+    default = SlashCommandGroup("default", "Set server defaults")
+
+    @default.command()
+    async def team(self, ctx, team: DEF_TEAM):
         """Set a default team for your server's Fixture commands"""
-        e = discord.Embed()
-        e.colour = discord.Colour.red()
+        e = Embed()
+        e.colour = Colour.red()
 
         if ctx.guild is None:
             e.description = "This command cannot be ran in DMs"
-            await self.bot.reply(ctx, embed=e)
+            await ctx.reply(embed=e)
             return
 
         if not ctx.channel.permissions_for(ctx.author).manage_guild:
             e.description = "You need manage messages permissions to set a defaults."
-            await self.bot.reply(ctx, embed=e, ephemeral=True)
+            await ctx.reply(embed=e, ephemeral=True)
             return
 
-        message = await self.bot.reply(ctx, content=f"Searching for {team}...")
+        message = await ctx.reply(content=f"Searching for {team}...")
         fsr = await self.search(ctx, team, message=message, mode="team", include_fs=True)
 
         if fsr is None:
@@ -527,8 +534,8 @@ class Fixtures(commands.Cog):
         finally:
             await self.bot.db.release(connection)
 
-        e = discord.Embed()
-        e.colour = discord.Colour.green()
+        e = Embed()
+        e.colour = Colour.green()
         e.description = f'Your Fixtures commands will now use [{fsr.title}]({fsr.url}) as a default team'
         if fsr.logo_url is not None:
             logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url
@@ -536,35 +543,31 @@ class Fixtures(commands.Cog):
             e.set_thumbnail(url=logo)
         await message.edit(content="", embed=e, view=None)
 
-    @commands.slash_command()
-    async def default_league(self, ctx, league: DEF_LEAGUES):
+    @default.command()
+    async def league(self, ctx, league: DEF_LEAGUES):
         """Set a default league for your server's Fixture commands"""
         if ctx.guild is None:
-            await self.bot.reply(ctx, content="This command cannot be ran in DMs, sorry!", ephemeral=True)
-            return
+            return await ctx.reply(content="This command cannot be ran in DMs")
+        elif not ctx.channel.permissions_for(ctx.author).manage_guild:
+            return await ctx.reply(content="You need manage messages permissions to set a defaults.")
 
-        if not ctx.channel.permissions_for(ctx.author).manage_guild:
-            await self.bot.reply(ctx, content="You need manage messages permissions to set a defaults.", ephemeral=True)
-            return
-
-        message = await self.bot.reply(ctx, content=f'Searching for {league}...')
+        message = await ctx.reply(content=f'Searching for {league}...')
         fsr = await self.search(ctx, league, message=message, mode="league", include_fs=True)
 
         if fsr is None:
             return
 
-        url = fsr.url
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 await connection.execute(f"""INSERT INTO fixtures_defaults (guild_id, default_league) VALUES ($1,$2)
                        ON CONFLICT (guild_id) DO UPDATE SET default_league = $2 WHERE excluded.guild_id = $1
-                 """, ctx.guild.id, url)
+                 """, ctx.guild.id, fsr.url)
         finally:
             await self.bot.db.release(connection)
 
-        e = discord.Embed()
-        e.colour = discord.Colour.green()
+        e = Embed()
+        e.colour = Colour.green()
         e.description = f'Your Fixtures commands will now use [{fsr.title}]({fsr.url}) as a default league'
         if fsr.logo_url is not None:
             logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url

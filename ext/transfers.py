@@ -1,6 +1,7 @@
 """Automated fetching of the latest football transfer information from transfermarkt"""
-import discord
+from discord import ButtonStyle, Interaction, Embed, Colour, NotFound, HTTPException, SlashCommandGroup
 from discord.ext import commands, tasks
+from discord.ui import View, Button, Select
 from lxml import html
 
 from ext.utils import transfer_tools, embed_utils, view_utils
@@ -18,13 +19,16 @@ TF = "https://www.transfermarkt.co.uk"
 MIN_MARKET_VALUE = "200.000"
 
 
-class ResetLeagues(discord.ui.Button):
+# TODO: Permissions Pass.
+
+
+class ResetLeagues(Button):
     """Button to reset a transfer ticker back to its default leagues"""
 
     def __init__(self):
-        super().__init__(label="Reset to default leagues", style=discord.ButtonStyle.primary)
+        super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """Click button reset leagues"""
         await interaction.response.defer()
         connection = await self.view.ctx.bot.db.acquire()
@@ -34,16 +38,16 @@ class ResetLeagues(discord.ui.Button):
                                             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
                                          self.view.ctx.channel.id, link, alias)
         await self.view.ctx.bot.db.release(connection)
-        await self.view.update(text=f"The tracked transfers for {self.view.channel.mention} were reset")
+        await self.view.update(content=f"The tracked transfers for {self.view.ctx.channel.mention} were reset")
 
 
-class DeleteTicker(discord.ui.Button):
+class DeleteTicker(Button):
     """Button to delete a ticker entirely"""
 
     def __init__(self):
-        super().__init__(label="Delete ticker", style=discord.ButtonStyle.red)
+        super().__init__(label="Delete ticker", style=ButtonStyle.red)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """Click button reset leagues"""
         await interaction.response.defer()
         connection = await self.view.ctx.bot.db.acquire()
@@ -51,10 +55,10 @@ class DeleteTicker(discord.ui.Button):
             q = """DELETE FROM transfers_channels WHERE channel_id = $1"""
             await connection.execute(q, self.view.ctx.channel.id)
         await self.view.ctx.bot.db.release(connection)
-        await self.view.update(text=f"The transfer ticker for {self.view.ctx.channel.mention} was deleted.")
+        await self.view.update(content=f"The transfer ticker for {self.view.ctx.channel.mention} was deleted.")
 
 
-class RemoveLeague(discord.ui.Select):
+class RemoveLeague(Select):
     """Dropdown to remove leagues from a match event ticker."""
 
     def __init__(self, leagues, items, row=2):
@@ -69,7 +73,7 @@ class RemoveLeague(discord.ui.Select):
 
             self.add_option(label=league, value=value)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """When a league is selected"""
         await interaction.response.defer()
 
@@ -82,7 +86,7 @@ class RemoveLeague(discord.ui.Select):
         await self.view.update()
 
 
-class ConfigView(discord.ui.View):
+class ConfigView(View):
     """View for configuring Transfer Tickers"""
 
     def __init__(self, ctx):
@@ -93,25 +97,20 @@ class ConfigView(discord.ui.View):
         self.settings = None
         super().__init__()
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify interactor is person who ran command."""
         return self.ctx.author.id == interaction.user.id
-
-    @property
-    def base_embed(self):
-        """Generic Embed for Config Views"""
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_blue()
-        e.title = "Transfers Ticker config"
-        return e
 
     async def creation_dialogue(self):
         """Send a dialogue to check if the user wishes to create a new ticker."""
         self.clear_items()
-        view = view_utils.Confirmation(self.ctx, colour_a=discord.ButtonStyle.green,
+        view = view_utils.Confirmation(self.ctx, colour_a=ButtonStyle.green,
                                        label_a=f"Create ticker", label_b="Cancel")
         _ = f"{self.ctx.channel.mention} does not have a ticker, would you like to create one?"
-        await self.message.edit(content=_, view=view)
+        if self.message is None:
+            self.message = await self.ctx.reply(content=_, view=view)
+        else:
+            await self.message.edit(content=_, view=view)
         await view.wait()
 
         if view.value:
@@ -126,20 +125,13 @@ class ConfigView(discord.ui.View):
                                                     VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
                                                  self.ctx.channel.id, link, alias)
             except Exception as err:
-                _ = f"An error occurred while trying to create a ticker for {self.ctx.channel.mention}"
-                e = discord.Embed(description=_)
-                e.colour = discord.Colour.red()
-                await self.message.edit(embed=e, view=None)
-                self.stop()
+                await self.ctx.error(f"Error occurred creating {self.ctx.channel.mention} ticker", message=self.message)
                 raise err
             finally:
                 await self.ctx.bot.db.release(connection)
-            await self.update(text=f"A ticker was created for {self.ctx.channel.mention}")
+            await self.update(content=f"A ticker was created for {self.ctx.channel.mention}")
         else:
-            _ = f"Cancelled ticker creation for {self.ctx.channel.mention}"
-            e = discord.Embed(description=_)
-            e.colour = discord.Colour.red()
-            await self.message.edit(embed=e, view=None)
+            await self.ctx.error(f"Cancelled ticker creation for {self.ctx.channel.mention}", message=self.message)
             self.stop()
 
     async def on_timeout(self):
@@ -147,11 +139,11 @@ class ConfigView(discord.ui.View):
         self.clear_items()
         try:
             await self.message.edit(view=self)
-        except discord.NotFound:
+        except NotFound:
             pass
         self.stop()
 
-    async def update(self, text=""):
+    async def update(self, content=""):
         """Push the latest version of the embed to view."""
         self.clear_items()
 
@@ -172,29 +164,19 @@ class ConfigView(discord.ui.View):
         if not leagues:
             self.add_item(ResetLeagues())
             self.add_item(DeleteTicker())
-            e = self.base_embed
+            e = Embed(title="Transfers Ticker config", color=Colour.dark_blue())
             e.description = f"{self.ctx.channel.mention} has no tracked leagues."
         else:
-            e = discord.Embed()
-            e.colour = discord.Colour.dark_teal()
-            e.title = "Toonbot Transfer Ticker config"
+            e = Embed(title="Toonbot Transfer Ticker config", color=Colour.dark_teal())
             e.set_thumbnail(url=self.ctx.me.display_avatar.url)
             header = f'Tracked leagues for {self.ctx.channel.mention}\n'
             embeds = embed_utils.rows_to_embeds(e, sorted(links), header=header, rows_per=25)
             self.pages = embeds
 
-            _ = view_utils.PreviousButton()
-            _.disabled = True if self.index == 0 else False
-            self.add_item(_)
-
-            _ = view_utils.PageButton()
-            _.label = f"Page {self.index + 1} of {len(self.pages)}"
-            _.disabled = True if len(self.pages) == 1 else False
-            self.add_item(_)
-
-            _ = view_utils.NextButton()
-            _.disabled = True if self.index == len(self.pages) - 1 else False
-            self.add_item(_)
+            self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
+            self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
+                                                disabled=True if len(self.pages) == 1 else False))
+            self.add_item(view_utils.NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
             self.add_item(view_utils.StopButton(row=0))
 
             e = self.pages[self.index]
@@ -209,15 +191,13 @@ class ConfigView(discord.ui.View):
             self.add_item(RemoveLeague(leagues, items, row=1))
 
         if channel is None:
-            await self.creation_dialogue()
-            return
+            return await self.creation_dialogue()
 
         else:
-            try:
-                await self.message.edit(content=text, embed=e, view=self)
-            except discord.NotFound:
-                self.stop()
-                return
+            if self.message is None:
+                self.message = await self.ctx.reply(content=content, embed=e, view=self)
+            else:
+                await self.message.edit(content=content, embed=e, view=self)
 
 
 class Transfers(commands.Cog):
@@ -232,15 +212,6 @@ class Transfers(commands.Cog):
     def cog_unload(self):
         """Cancel transfers task on Cog Unload."""
         self.bot.transfers.cancel()
-
-    @property
-    async def base_embed(self):
-        """Generic Discord Embed for Transfers Settings data"""
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_blue()
-        e.title = "Toonbot Transfer Ticker config"
-        e.set_thumbnail(url=self.bot.user.display_avatar.url)
-        return e
 
     async def _get_team_league(self, link):
         """Fetch additional data for parsed player"""
@@ -329,30 +300,30 @@ class Transfers(commands.Cog):
                     continue
                 try:
                     await ch.send(embed=transfer.embed)
-                except discord.HTTPException:
+                except HTTPException:
                     pass
 
-    @commands.slash_command()
-    async def transfer_ticker(self, ctx):
+    transfers = SlashCommandGroup("transferticker", "Create or manage a Transfer Ticker")
+
+    @transfers.command()
+    async def manage(self, ctx):
         """View the config of this channel's transfer ticker"""
         if ctx.guild is None:
-            return await self.bot.error(ctx, "This command cannot be ran in DMs")
+            return await ctx.error("This command cannot be ran in DMs")
 
         if not ctx.channel.permissions_for(ctx.author).manage_messages:
-            return await self.bot.error(ctx, "You need manage messages permissions to edit a ticker")
+            return await ctx.error("You need manage messages permissions to edit a ticker")
 
-        view = ConfigView(ctx)
-        view.message = await self.bot.reply(ctx, content=f"Fetching config for {ctx.channel.mention}...", view=view)
-        await view.update()
+        await ConfigView(ctx).update()
 
-    @commands.slash_command()
-    async def transfer_ticker_add(self, ctx, league_name):
+    @transfers.command()
+    async def add(self, ctx, league_name):
         """Add a league to your transfer ticker channel(s)"""
         if ctx.guild is None:
-            return await self.bot.error(ctx, "This command cannot be ran in DMs")
+            return await ctx.error("This command cannot be ran in DMs")
 
         if not ctx.channel.permissions_for(ctx.author).manage_messages:
-            return await self.bot.error(ctx, "You need manage messages permissions to edit a ticker")
+            return await ctx.error("You need manage messages permissions to edit a ticker")
 
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -360,10 +331,10 @@ class Transfers(commands.Cog):
         await self.bot.db.release(connection)
 
         if r is None or r['channel_id'] is None:
-            return await self.bot.error(ctx, "This channel does not have a transfer ticker set. Please make one first.")
+            return await ctx.error("This channel does not have a transfer ticker set. Please make one first.")
 
         view = transfer_tools.SearchView(ctx, league_name, category="Competitions", fetch=True)
-        view.message = await self.bot.reply(ctx, content=f"Fetching Leagues matching {league_name}", view=view)
+        view.message = await ctx.reply(content=f"Fetching Leagues matching {league_name}", view=view)
         await view.update()
 
         result = view.value
@@ -371,7 +342,7 @@ class Transfers(commands.Cog):
         if result is None:
             try:
                 await view.message.delete()
-            except discord.HTTPException:
+            except HTTPException:
                 pass
             return
 

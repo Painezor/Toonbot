@@ -12,6 +12,10 @@ from lxml import html
 from ext.utils import football
 
 
+# TODO: Slash attachments pass
+# TODO: Permissions Pass.
+
+
 class MatchThread:
     """Tool for updating a reddit post with the latest information about a match."""
 

@@ -20,7 +20,7 @@ async def embed_image(ctx, e, image, filename=None, message=None):
     e.set_image(url=f"attachment://{filename}")
     file = make_file(image=image, name=filename)
     if message is None:
-        await ctx.bot.reply(ctx, file=file, embed=e)
+        await ctx.reply(file=file, embed=e)
     else:
         await message.edit(content="", file=file, embed=e)
 

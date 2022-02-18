@@ -2,8 +2,9 @@
 import datetime
 import os
 
-import discord
 from PIL import Image
+from discord import Embed, ActivityType, Colour
+from discord.commands import permissions
 from discord.ext import commands
 
 targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1", "DobbyM8",
@@ -12,7 +13,11 @@ targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "dark
            "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend", "Xairen", "Yuzral"]
 
 
-# TODO: Apply for
+# TODO: Apply for intents
+# TODO: Modals pass
+# TODO: Permissions Pass.
+# TODO: Dev Blog Search
+# TODO: Dev Blog Browser View
 
 
 def make_bauble(img):
@@ -51,15 +56,15 @@ class Warships(commands.Cog):
         self.emoji = "🚢"
         self.now_live_cache = {}
 
-    @commands.command()
-    @commands.is_owner()
+    @commands.slash_command(guild_ids=[250252535699341312], default_permission=False)
+    @permissions.is_owner()
     async def codes(self, ctx, *, codes):
         """Strip codes for world of warships"""
         codes = codes.replace(';', '')
         codes = codes.split('|')
         codes = "\n".join([i.strip() for i in codes if i])
 
-        await self.bot.reply(ctx, content=f"```\n{codes}```")
+        await ctx.reply(content=f"```\n{codes}```")
 
     async def on_presence_update(self, before, after):
         """Apply hoisted role to streamers when they go live."""
@@ -70,7 +75,7 @@ class Warships(commands.Cog):
             return
 
         # Check if member has either started, or stopped streaming.
-        if not [before.activity, after.activity].count(discord.ActivityType.streaming) == 1:
+        if not [before.activity, after.activity].count(ActivityType.streaming) == 1:
             return
 
         # Only output notifications for those users who are being intentionally tracked on the server.
@@ -81,7 +86,7 @@ class Warships(commands.Cog):
         now_live_role = row["now_live_role"]
 
         # If User is no longer live, de-hoist them.
-        if before.activity == discord.ActivityType.streaming:
+        if before.activity == ActivityType.streaming:
             return await after.remove_roles([now_live_role])
 
         # Else If user is GOING live.
@@ -95,12 +100,12 @@ class Warships(commands.Cog):
         activity = after.activity
 
         # Build embeds.
-        e = discord.Embed()
+        e = Embed()
         if activity.platform.lower() == "twitch":
             name = f"Twitch: {activity.twitch_name}"
             e.colour = 0x6441A4
         else:
-            e.colour = discord.Colour.red() if activity.platform.lower() == "youtube" else discord.Colour.og_blurple()
+            e.colour = Colour.red() if activity.platform.lower() == "youtube" else Colour.og_blurple()
             name = f"{activity.platform}: {after.name}"
         e.set_author(name=name, url=activity.url)
         e.title = activity.game
@@ -111,22 +116,22 @@ class Warships(commands.Cog):
 
         await ch.send(embed=e)
 
-    @commands.command()
-    @commands.is_owner()
-    async def twitch(self, ctx):
-        """Test command for twitch embeds"""
-        e = discord.Embed()
-        e.title = "World of Warships"
-        e.set_author(name="Twitch: Painezor", url="http://www.twitch.tv/Painezor")
-        e.colour = 0x6441A4
-        tw = "http://www.twitch.tv/Painezor"
-        e.description = f"[**{ctx.guild.get_member(ctx.bot.owner_id).mention} just went live!**]({tw})\n"
-        e.description += "\nGold League Ranked & Regrinding Destroyers!"
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        url = ctx.guild.get_member(ctx.bot.owner_id).display_avatar.url
-        e.set_thumbnail(url=url)
-
-        await self.bot.reply(ctx, tw, embed=e)
+    # @commands.command()
+    # @commands.is_owner()
+    # async def twitch(self, ctx):
+    #     """Test command for twitch embeds"""
+    #     e = Embed()
+    #     e.title = "World of Warships"
+    #     e.set_author(name="Twitch: Painezor", url="http://www.twitch.tv/Painezor")
+    #     e.colour = 0x6441A4
+    #     tw = "http://www.twitch.tv/Painezor"
+    #     e.description = f"[**{ctx.guild.get_member(ctx.bot.owner_id).mention} just went live!**]({tw})\n"
+    #     e.description += "\nGold League Ranked & Regrinding Destroyers!"
+    #     e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    #     url = ctx.guild.get_member(ctx.bot.owner_id).display_avatar.url
+    #     e.set_thumbnail(url=url)
+    #
+    #     await ctx.reply(tw, embed=e)
 
 
 def setup(bot):

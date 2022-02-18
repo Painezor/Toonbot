@@ -62,7 +62,7 @@
 #             view.add_item(DiceButton(x, row=row))
 #         view.add_item(StopButton(row=2))
 #
-#         view.message = await self.bot.reply(ctx, content="Generating Dice Tray...", view=view)
+#         view.message = await ctx.reply(content="Generating Dice Tray...", view=view)
 #         await view.update()
 #
 #     # OLD PICK_CHANNELS FROM TICKER.PY
@@ -71,7 +71,7 @@
 #         channels = [channels] if isinstance(channels, discord.TextChannel) else channels
 #
 #         if ctx.guild.id not in [i[0] for i in self.cache]:
-#             await self.bot.reply(ctx, content=f'{ctx.guild.name} does not have any tickers.')
+#             await ctx.reply(content=f'{ctx.guild.name} does not have any tickers.')
 #             channels = []
 #
 #         if channels:
@@ -79,7 +79,7 @@
 #             checked = []
 #             for i in channels:
 #                 if i.id not in [c[1] for c in self.cache]:
-#                     await self.bot.reply(ctx, content=f"{i.mention} does not have any tickers.")
+#                     await ctx.reply(content=f"{i.mention} does not have any tickers.")
 #                 else:
 #                     checked.append(i)
 #             channels = checked
