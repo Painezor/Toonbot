@@ -69,7 +69,7 @@ class EditBot(app_commands.Group):
         """Pass the updated status."""
         if interaction.user.id != interaction.client.owner_id:
             return await interaction.client.error(interaction, error_message="You do not own this bot.")
-        await self.bot.change_presence(activity=act)
+        await interaction.client.change_presence(activity=act)
 
         e = Embed(title="Activity", colour=Colour.og_blurple())
         e.description = f"Set status to {act.type} {act.name}"
@@ -86,7 +86,7 @@ class Modules(app_commands.Group):
     async def reload(self, interaction: Interaction, cog: COGS):
         """Reloads a module."""
         try:
-            self.bot.reload_extension(f'ext.{cog}')
+            interaction.client.reload_extension(f'ext.{cog}')
         except Exception as err:
             return await interaction.client.error(error_messasge=codeblocks.error_to_codeblock(err))
         e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Reloaded {cog}')
@@ -98,7 +98,7 @@ class Modules(app_commands.Group):
     async def load(self, interaction: Interaction, cog: COGS):
         """Loads a module."""
         try:
-            self.bot.load_extension('ext.' + cog)
+            interaction.client.load_extension('ext.' + cog)
         except Exception as err:
             return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
 
@@ -110,7 +110,7 @@ class Modules(app_commands.Group):
     async def unload(self, interaction: Interaction, module: COGS):
         """Unloads a module."""
         try:
-            self.bot.unload_extension('ext.' + module)
+            interaction.client.unload_extension('ext.' + module)
         except Exception as err:
             return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
 
@@ -152,13 +152,13 @@ async def cc(interaction):
 
 
 @app_commands.command(guild_ids=[250252535699341312], default_permission=False)
-async def debug(self, interaction: Interaction, code: str):
+async def debug(interaction: Interaction, code: str):
     """Evaluates code."""
-    if interaction.user.id != self.bot.owner_id:
+    if interaction.user.id != interaction.client.owner_id:
         return await interaction.client.error(interaction, "You do not own this bot.")
 
     code = code.strip('` ')
-    env = {'bot': self.bot, 'ctx': interaction, 'interaction': interaction}
+    env = {'bot': interaction.client, 'ctx': interaction, 'interaction': interaction}
     env.update(globals())
 
     e = Embed(title="Code Evaluation", colour=Colour.og_blurple())
