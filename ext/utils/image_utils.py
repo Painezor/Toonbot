@@ -7,11 +7,11 @@ from PIL import Image
 
 
 # Dump Image Util
-async def dump_image(ctx, img):
+async def dump_image(interaction: discord.Interaction, img):
     """Dump an image to discord so it's URL can be used in an embed"""
     if img is None:
         return None
-    ch = ctx.bot.get_channel(874655045633843240)
+    ch = interaction.client.get_channel(874655045633843240)
     img_msg = await ch.send(file=discord.File(fp=img, filename="embed_image.png"))
     url = img_msg.attachments[0].url
     return None if url == "none" else url
