@@ -1,7 +1,7 @@
 """Notify server moderators about specific events"""
 import datetime
 
-from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden
+from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, app_commands
 from discord.ext import commands
 from discord.ui import Button, View
 
@@ -10,13 +10,18 @@ from ext.utils import timed_events, view_utils
 TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 
 
+# TODO: Handle events.
 # Unhandled Events
 # on_message_edit
+# TODO: Message edited
 # on_reaction_clear
 # on_guild_channel_create
 # on_guild_channel_delete
 # on_guild_channel_update
 # on_user_update
+# TODO: Username changed.
+# TODO: Nickname changed.
+# TODO: Avatar changed.
 # on_guild_update
 # on_guild_role_create
 # on_guild_role_delete
@@ -26,13 +31,6 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 # on_scheduled_event_update
 # on_scheduled_event_delete
 
-# TODO: Message edited
-# TODO: Username changed.
-# TODO: Nickname changed.
-# TODO: Avatar changed.
-
-# TODO: User Commands Pass
-# TODO: Modals pass
 # TODO: Permissions Pass.
 
 
@@ -54,14 +52,14 @@ class ToggleButton(Button):
         await interaction.response.defer()
         new_value = False if self.value else True
 
-        connection = await self.view.ctx.bot.db.acquire()
+        connection = await self.view.interaction.client.db.acquire()
         try:
             async with connection.transaction():
                 q = f"""UPDATE notifications_settings SET {self.db_key} = $1 WHERE channel_id = $2"""
-                await connection.execute(q, new_value, self.view.ctx.channel.id)
+                await connection.execute(q, new_value, self.view.interaction.channel.id)
         finally:
-            await self.view.ctx.bot.db.release(connection)
-        await self.view.ctx.bot.get_cog("Logs").update_cache()
+            await self.view.interaction.client.db.release(connection)
+        await self.view.interaction.client.get_cog("Logs").update_cache()
         await self.view.update()
 
 
@@ -71,12 +69,24 @@ qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2
 qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 
 
+@app_commands.command()
+async def logs(interaction):
+    """Create moderator logs in this channel."""
+    if interaction.guild is None:
+        return await interaction.client.error(interaction, "This command cannot be ran in DMs")
+    elif not interaction.permissions.manage_messages:
+        err = "You need manage_messages permissions to view and set mod logs"
+        return await interaction.client.error(interaction, error_message=err)
+
+    await ConfigView(interaction).update()
+
+
 class ConfigView(View):
     """Generic Config View"""
 
-    def __init__(self, ctx):
+    def __init__(self, interaction):
         super().__init__()
-        self.ctx = ctx
+        self.interaction = interaction
         self.message = None
 
     async def on_timeout(self):
@@ -88,20 +98,20 @@ class ConfigView(View):
         """Regenerate view and push to message"""
         self.clear_items()
 
-        connection = await self.ctx.bot.db.acquire()
+        connection = await self.interaction.client.db.acquire()
         try:
             async with connection.transaction():
-                stg = await connection.fetchrow(q_stg, self.ctx.channel.id)
+                stg = await connection.fetchrow(q_stg, self.interaction.channel.id)
             if not stg:
-                await connection.execute(qq, self.ctx.guild.id, self.ctx.channel.id)
-                await connection.execute(qqq, self.ctx.channel.id)
+                await connection.execute(qq, self.interaction.guild.id, self.interaction.channel.id)
+                await connection.execute(qqq, self.interaction.channel.id)
                 return await self.update()
         finally:
-            await self.ctx.bot.db.release(connection)
+            await self.interaction.client.db.release(connection)
 
         e = Embed(color=0x7289DA, title="Notification Logs config")
         e.description = "Click the buttons below to turn on or off logging for events."
-        e.set_author(name=self.ctx.guild.name, icon_url=self.ctx.guild.icon.url)
+        e.set_author(name=self.interaction.guild.name, icon_url=self.interaction.guild.icon.url)
 
         count = 0
         row = 0
@@ -117,7 +127,7 @@ class ConfigView(View):
         self.add_item(view_utils.StopButton(row=4))
 
         if self.message is None:
-            self.message = await self.ctx.reply(content=content, embed=e, view=self)
+            self.message = await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
         else:
             await self.message.edit(content=content, embed=e, view=self)
 
@@ -127,8 +137,9 @@ class Logs(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.records = []
+        self.bot.notifications_cache = []
         self.bot.loop.create_task(self.update_cache())
+        self.bot.tree.add_command(logs)
 
     # We don't need to db call every single time an event happens, just when config is updated
     # So we cache everything and store it in memory instead for performance and sanity reasons.
@@ -139,19 +150,10 @@ class Logs(commands.Cog):
 
         connection = await self.bot.db.acquire()
         async with connection.transaction():
-            self.records = await connection.fetch(q)
+            self.bot.notifications_cache = await connection.fetch(q)
         await self.bot.db.release(connection)
 
     # Master info command.
-    @commands.slash_command()
-    async def logs(self, ctx):
-        """Create moderator logs in this channel."""
-        if ctx.guild is None:
-            return await ctx.error("This command cannot be ran in DMs")
-        elif not ctx.channel.permissions_for(ctx.author).manage_messages:
-            return await ctx.error("You need manage_messages permissions to view and set mod logs")
-
-        await ConfigView(ctx).update()
 
     # Join messages
     @commands.Cog.listener()
@@ -173,7 +175,7 @@ class Logs(commands.Cog):
         except AttributeError:
             pass
 
-        for x in [i for i in self.records if i['guild_id'] == member.guild.id and i['member_joins']]:
+        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i['member_joins']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
@@ -186,7 +188,7 @@ class Logs(commands.Cog):
         """Event handler for outputting information about unbanned users."""
         e = Embed(title="User Unbanned", colour=Colour.dark_blue(), description=f"{user} (ID: {user.id}) was unbanned.")
 
-        for x in [i for i in self.records if i['guild_id'] == guild.id and i['user_unbans']]:
+        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['user_unbans']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
@@ -220,7 +222,8 @@ class Logs(commands.Cog):
                 print("Deletion log - unspecified attachment info [No HEIGHT found]")
                 print(z.__dict__)
 
-        for x in [i for i in self.records if i['guild_id'] == message.guild.id and i['message_deletes']]:
+        for x in [i for i in self.bot.notifications_cache
+                  if i['guild_id'] == message.guild.id and i['message_deletes']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
@@ -248,7 +251,7 @@ class Logs(commands.Cog):
         except Forbidden:
             pass  # We cannot see audit logs.
 
-        for x in [i for i in self.records if i['guild_id'] == member.guild.id and i[db_field]]:
+        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i[db_field]]:
             try:
                 ch = [x['channel_id']]
                 ch = self.bot.get_channel(ch)
@@ -267,7 +270,7 @@ class Logs(commands.Cog):
         if after.timed_out == before.timed_out:
             return
 
-        channels = [i for i in self.records if i['guild_id'] == after.guild.id and i['member_timeouts']]
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == after.guild.id and i['member_timeouts']]
 
         if not channels:
             return
@@ -317,7 +320,7 @@ class Logs(commands.Cog):
             e.colour = Colour.light_gray()
             e.description = f"The '{removed_emoji}' emote was removed"
 
-        for x in [i for i in self.records if i['guild_id'] == guild.id and i['emoji_changes']]:
+        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['emote_changes']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
@@ -350,7 +353,7 @@ class Logs(commands.Cog):
             e.colour = Colour.light_gray()
             e.description = f"The '{removed_sticker}' emote was removed"
 
-        for x in [i for i in self.records if i['guild_id'] == guild.id and i['sticker_changes']]:
+        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['sticker_changes']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
@@ -362,7 +365,7 @@ class Logs(commands.Cog):
         """Custom event dispatched by painezor, output to tracked guilds."""
         e = Embed(description=notification)
 
-        for x in [i for i in self.records if i['bot_notifications']]:
+        for x in [i for i in self.bot.notifications_cache if i['bot_notifications']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 e.colour = ch.guild.me.colour()
