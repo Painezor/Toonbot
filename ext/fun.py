@@ -8,7 +8,7 @@ from discord import ButtonStyle, HTTPException, Colour, Embed, Interaction, app_
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 
-from ext.utils import view_utils
+from ext.utils import view_utils, embed_utils
 
 EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" \
                   "thumbs/120/samsung/265/pool-8-ball_1f3b1.png"
@@ -120,6 +120,12 @@ async def lenny(interaction):
 async def thatsthejoke(interaction):
     """That's the joke"""
     await interaction.client.reply(interaction, content="https://www.youtube.com/watch?v=xECUrlnXCqk")
+
+
+@app_commands.command()
+async def helmet(interaction: Interaction):
+    """Helmet"""
+    await interaction.client.reply(interaction, file=embed_utils.make_file(image="Images/helmet.jpg"))
 
 
 @app_commands.command()
@@ -356,6 +362,7 @@ class Fun(commands.Cog):
         self.bot.tree.add_command(roll)
         self.bot.tree.add_command(mock)
         self.bot.tree.add_command(choose)
+        self.bot.tree.add_command(helmet)
 
 
 def setup(bot):
