@@ -67,5 +67,4 @@ def make_file(image=None, name=None):
     if image is None:
         return None
 
-    file = discord.File(fp=image, filename=name) if name is not None else discord.File(image)
-    return file
+    return discord.File(fp=image, filename=name) if name is not None else discord.File(image)
