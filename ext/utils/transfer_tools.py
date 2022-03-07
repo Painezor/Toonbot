@@ -3,8 +3,9 @@ import datetime
 import typing
 from copy import deepcopy
 
-import discord
 import pycountry
+from discord import Interaction, Embed, Colour, HTTPException
+from discord.ui import View, Select, Button
 from lxml import html
 
 from ext.utils import embed_utils, view_utils, timed_events
@@ -134,10 +135,10 @@ class TransferResult:
         return f"TransferResult({self.__dict__})"
 
     @property
-    async def base_embed(self) -> discord.Embed():
+    async def base_embed(self) -> Embed():
         """A generic embed used for transfermarkt objects"""
-        e = discord.Embed()
-        e.colour = discord.Colour.dark_blue()
+        e = Embed()
+        e.colour = Colour.dark_blue()
         e.set_author(name="TransferMarkt")
         return e
 
@@ -305,7 +306,7 @@ class Transfer(TransferResult):
     @property
     def embed(self):
         """An embed representing a transfermarkt player transfer."""
-        e = discord.Embed()
+        e = Embed()
         e.description = ""
         e.colour = 0x1a3151
         e.title = f"{self.player.flag} {self.name} | {self.player.age}"
@@ -370,22 +371,23 @@ class Team(TransferResult):
         club = f"{self.markdown} ({self.flag} {self.league_markdown})"
         return f"{club}".strip()
 
-    async def get_contracts(self, ctx):
+    async def get_contracts(self, interaction):
         """Get a list of expiring contracts for a team."""
         e = await self.base_embed
         e.description = ""
         target = self.link
         target = target.replace('startseite', 'vertragsende')
 
-        async with ctx.bot.session.get(f"{target}") as resp:
+        async with interaction.client.session.get(f"{target}") as resp:
             if resp.status != 200:
-                return await ctx.reply(content=f"Error {resp.status} connecting to {resp.url}")
+                return await interaction.client.reply(interaction,
+                                                      content=f"Error {resp.status} connecting to {resp.url}")
             tree = html.fromstring(await resp.text())
             e.url = str(resp.url)
 
         e.title = f"Expiring contracts for {e.title}"
         e.set_author(name="Transfermarkt", url=str(resp.url))
-        e.set_footer(text=discord.Embed.Empty)
+        e.set_footer(text=Embed.Empty)
 
         rows = []
 
@@ -411,24 +413,23 @@ class Team(TransferResult):
 
         rows = ["No expiring contracts found."] if not rows else rows
 
-        view = view_utils.Paginator(ctx, embed_utils.rows_to_embeds(e, rows))
-        view.message = await ctx.reply(content=f"Fetching contracts for {self.name}", view=view)
+        view = view_utils.Paginator(interaction, embed_utils.rows_to_embeds(e, rows))
         await view.update()
 
-    def view(self, ctx):
+    def view(self, interaction):
         """Send a view of this Team to the user."""
-        return TeamView(ctx, self)
+        return TeamView(interaction, self)
 
 
-class TeamView(discord.ui.View):
+class TeamView(View):
     """A View representing a Team on TransferMarkt"""
 
-    def __init__(self, ctx, team: Team):
+    def __init__(self, interaction: Interaction, team: Team):
         super().__init__()
         self.team = team
 
         self.message = None
-        self.ctx = ctx
+        self.interaction = interaction
         self.index = 0
         self.pages = []
 
@@ -437,13 +438,13 @@ class TeamView(discord.ui.View):
         self.clear_items()
         try:
             await self.message.edit(view=self)
-        except discord.HTTPException:
+        except HTTPException:
             pass
         self.stop()
 
-    async def interaction_check(self, interaction: discord.Interaction):
+    async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify user of view is correct user."""
-        return interaction.user.id == self.ctx.author.id
+        return interaction.user.id == self.interaction.user.id
 
     async def update(self, content=""):
         """Send the latest version of the view"""
@@ -466,9 +467,10 @@ class TeamView(discord.ui.View):
             self.add_item(_)
 
         if self.message is None:
-            self.message = await self.ctx.reply(content="", embed=self.pages[self.index], view=self)
+            i = self.interaction
+            self.message = await i.client.reply(i, content=content, embed=self.pages[self.index], view=self)
         else:
-            await self.message.edit(content="", embed=self.pages[self.index], view=self)
+            await self.message.edit(content=content, embed=self.pages[self.index], view=self)
 
     async def push_transfers(self):
         """Push transfers to View"""
@@ -480,10 +482,10 @@ class TeamView(discord.ui.View):
         # url = f"{url}/saison_id/{season_id}/pos//0/w_s/plus/plus/1"
         #
         # p = {"w_s": period}
-        async with self.ctx.bot.session.get(url) as resp:  # , params=p
+        async with self.interaction.client.session.get(url) as resp:  # , params=p
             if resp.status != 200:
-                await self.ctx.error(f"Error {resp.status} connecting to {resp.url}", message=self.message)
-                return None
+                i = self.interaction
+                return await i.client.error(i, f"Error {resp.status} connecting to {resp.url}", message=self.message)
             tree = html.fromstring(await resp.text())
 
         def parse(rows, out=False) -> typing.List[Transfer]:
@@ -554,19 +556,19 @@ class TeamView(discord.ui.View):
         if players_in:
             e = deepcopy(base_embed)
             e.title = f"Inbound Transfers for {e.title}"
-            e.colour = discord.Colour.green()
+            e.colour = Colour.green()
             embeds += embed_utils.rows_to_embeds(e, [i.inbound for i in players_in])
 
         if players_out:
             e = deepcopy(base_embed)
             e.title = f"Outbound Transfers for {e.title}"
-            e.colour = discord.Colour.red()
+            e.colour = Colour.red()
             embeds += embed_utils.rows_to_embeds(e, [i.outbound for i in players_out])
 
         if not embeds:
             e = base_embed
             e.title = f"No transfers found {e.title}"
-            e.colour = discord.Colour.orange()
+            e.colour = Colour.orange()
             embeds = [e]
 
         self.pages = embeds
@@ -578,7 +580,7 @@ class TeamView(discord.ui.View):
         e = await self.team.base_embed
         e.description = ""
         target = self.team.link.replace('startseite', 'geruechte')
-        async with self.ctx.bot.session.get(target) as resp:
+        async with self.interaction.client.session.get(target) as resp:
             if resp.status != 200:
                 e.description = f"Error {resp.status} connecting to {resp.url}"
                 return await self.message.edit(embed=e, view=self)
@@ -622,9 +624,10 @@ class TeamView(discord.ui.View):
         """Send trophies for a team to View"""
         url = self.team.link.replace('startseite', 'erfolge')
 
-        async with self.ctx.bot.session.get(url) as resp:
+        i = self.interaction
+        async with i.client.session.get(url) as resp:
             if resp.status != 200:
-                return await self.ctx.error(f"Error {resp.status} connecting to {resp.url}")
+                return await i.client.error(i, f"Error {resp.status} connecting to {resp.url}")
             tree = html.fromstring(await resp.text())
 
         rows = tree.xpath('.//div[@class="box"][./div[@class="header"]]')
@@ -648,7 +651,7 @@ class TeamView(discord.ui.View):
         e.description = ""
         target = self.team.link.replace('startseite', 'vertragsende')
 
-        async with self.ctx.bot.session.get(target) as resp:
+        async with self.interaction.client.session.get(target) as resp:
             if resp.status != 200:
                 e.description = f"Error {resp.status} connecting to {resp.url}"
                 return await self.message.edit(embed=e, view=self)
@@ -764,14 +767,14 @@ class Competition(TransferResult):
         return f"{self.flag} [{self.name}]({self.link})"
 
 
-class CompetitionView(discord.ui.View):
+class CompetitionView(View):
     """A View representing a competition on TransferMarkt"""
 
-    def __init__(self, ctx, comp: Competition):
+    def __init__(self, interaction: Interaction, comp: Competition):
         super().__init__()
         self.comp = comp
         self.message = None
-        self.ctx = ctx
+        self.interaction = interaction
         self.index = 0
         self.pages = []
 
@@ -781,9 +784,9 @@ class CompetitionView(discord.ui.View):
         await self.message.edit(view=self)
         self.stop()
 
-    async def interaction_check(self, interaction: discord.Interaction):
+    async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify user of view is correct user."""
-        return interaction.user.id == self.ctx.author.id
+        return interaction.user.id == self.interaction.user.id
 
     async def update(self, content=""):
         """Send the latest version of the view"""
@@ -810,15 +813,17 @@ class CompetitionView(discord.ui.View):
         for _ in buttons:
             self.add_item(_)
         if self.message is None:
-            self.message = self.ctx.send(content=content, embed=self.pages[self.index], view=self)
+            i = self.interaction
+            self.message = i.client.send(i, content=content, embed=self.pages[self.index], view=self)
         else:
             await self.message.edit(content=content, embed=self.pages[self.index], view=self)
 
     async def push_attendance(self):
         """Fetch attendances for league's stadiums."""
-        async with self.ctx.bot.session.get(self.comp.link + "/besucherzahlen/wettbewerb/GB1/plus/") as resp:
+        async with self.interaction.client.session.get(self.comp.link + "/besucherzahlen/wettbewerb/GB1/plus/") as resp:
             if resp.status != 200:
-                return await self.ctx.error(f"HTTP Error {resp.status} accessing transfermarkt")
+                i = self.interaction
+                return await i.client.error(i, f"HTTP Error {resp.status} accessing transfermarkt")
             tree = html.fromstring(await resp.text())
 
         rows = []
@@ -867,13 +872,13 @@ def parse_agents(rows) -> typing.List[Agent]:
 
 
 # Transfer View.
-class CategorySelect(discord.ui.Select):
+class CategorySelect(Select):
     """Dropdown to specify what user is searching for."""
 
     def __init__(self):
         super().__init__(placeholder="What are you trying to search for...?")
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """Edit view on select."""
         await interaction.response.defer()
         self.view.category = self.values[0]
@@ -881,13 +886,13 @@ class CategorySelect(discord.ui.Select):
         await self.view.update()
 
 
-class HomeButton(discord.ui.Button):
+class HomeButton(Button):
     """Reset Search view to not have a category."""
 
     def __init__(self):
         super().__init__(emoji="⬆", label="Back")
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """On Click Event"""
         await interaction.response.defer()
         self.view.category = None
@@ -895,8 +900,9 @@ class HomeButton(discord.ui.Button):
         await self.view.update()
 
 
-class SearchSelect(discord.ui.Select):
+class SearchSelect(Select):
     """Dropdown."""
+
     def __init__(self, objects: typing.List):
         super().__init__(row=3, placeholder="Select correct option")
         self.objects = objects
@@ -907,17 +913,17 @@ class SearchSelect(discord.ui.Select):
             elif isinstance(_, Competition):
                 self.add_option(label=_.name, description=_.country[0], value=str(num), emoji='🏆')
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: Interaction):
         """Set view value to item."""
         await interaction.response.defer()
         self.view.value = self.objects[int(self.values[0])]
         self.view.stop()
 
 
-class SearchView(discord.ui.View):
+class SearchView(View):
     """A TransferMarkt Search in View Form"""
 
-    def __init__(self, ctx, query, category=None, fetch=False):
+    def __init__(self, interaction: Interaction, query, category=None, fetch=False):
         super().__init__()
         self.index = 1
         self.value = None
@@ -926,7 +932,7 @@ class SearchView(discord.ui.View):
         self.query = query
         self.category = category
         self.fetch = fetch
-        self.ctx = ctx
+        self.interaction = interaction
         self.message = None
 
         self.url = None
@@ -953,7 +959,7 @@ class SearchView(discord.ui.View):
     async def on_error(self, error, item, interaction):
         """Error handling & logging."""
         print("Error in transfer_tools.SearchView")
-        print(self.ctx.message.content)
+        print(self.interaction.message.content)
         print(item)
         print(item.__dict__)
         print(interaction)
@@ -976,16 +982,17 @@ class SearchView(discord.ui.View):
         if self.category is None:
             p = {"query": self.query}
 
-            async with self.ctx.bot.session.post(url, params=p) as resp:
+            async with self.interaction.client.session.post(url, params=p) as resp:
                 if resp.status != 200:
-                    return await self.ctx.error(f"HTTP {resp.status} Error connecting to transfermarkt.")
+                    i = self.interaction
+                    return await i.client.error(i, f"HTTP {resp.status} Error connecting to transfermarkt.")
                 self.url = str(resp.url)
                 tree = html.fromstring(await resp.text())
 
             categories = [i.lower().strip() for i in tree.xpath(".//div[@class='table-header']/text()")]
 
             select = CategorySelect()
-            ce = discord.Embed(title="Multiple results found", description="")
+            ce = Embed(title="Multiple results found", description="")
             ce.set_footer(text="Use the dropdown to select a category")
 
             for i in categories:
@@ -1018,7 +1025,8 @@ class SearchView(discord.ui.View):
                     ce.description += f"Competitions: {length} Result{s}\n"
 
             if not select.options:
-                return await self.ctx.error(f'No results found for query {self.query}', message=self.message)
+                i = self.interaction
+                return await i.client.error(i, f'No results found for query {self.query}', message=self.message)
 
             elif len(select.options) == 1:
                 self.category = select.options[0].label
@@ -1032,7 +1040,7 @@ class SearchView(discord.ui.View):
         qs, ms, parser = self.settings
         p = {"query": self.query, qs: self.index}
 
-        async with self.ctx.bot.session.post(url, params=p) as resp:
+        async with self.interaction.client.session.post(url, params=p) as resp:
             assert resp.status == 200, "Error Connecting to Transfermarkt"
             self.url = str(resp.url)
             tree = html.fromstring(await resp.text())
@@ -1048,7 +1056,7 @@ class SearchView(discord.ui.View):
             if _:
                 print("ValueError in transfer_tools", _)
 
-        e = discord.Embed(title=f"{matches} {self.category.title().rstrip('s')} results for {self.query}")
+        e = Embed(title=f"{matches} {self.category.title().rstrip('s')} results for {self.query}")
         e.set_author(name="TransferMarkt Search", url=self.url, icon_url=FAVICON)
 
         results = parser(tree.xpath(trs))
@@ -1069,6 +1077,7 @@ class SearchView(discord.ui.View):
             self.add_item(SearchSelect(objects=results))
 
         if self.message is None:
-            self.message = await self.ctx.reply(content=content, embed=e, view=self)
+            i = self.interaction
+            self.message = await i.client.reply(i, content=content, embed=e, view=self)
         else:
             await self.message.edit(content=content, embed=e, view=self)
