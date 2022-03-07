@@ -28,11 +28,7 @@ class PreviousButton(Button):
     """Previous Button for Pagination Views"""
 
     def __init__(self, disabled=False, row=0):
-        super().__init__()
-        self.label = "Previous"
-        self.emoji = "◀"
-        self.row = row
-        self.disabled = disabled
+        super().__init__(label="Previous", emoji="◀", row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
@@ -45,12 +41,7 @@ class PageButton(Button):
     """Button to spawn a dropdown to select pages."""
 
     def __init__(self, label="Jump to a page", disabled=False, row=0):
-        super().__init__()
-        self.emoji = "⏬"
-        self.label = label
-        self.row = row
-        self.disabled = disabled
-        self.style = ButtonStyle.primary
+        super().__init__(emoji="⏬", label=label, row=row, disabled=disabled, style=ButtonStyle.primary)
 
     async def callback(self, interaction: Interaction):
         """The pages button."""
@@ -66,7 +57,8 @@ class PageButton(Button):
                 sliced = self.view.pages[self.view.index - 12:self.view.index + 12]
         options = [SelectOption(label=f"Page {n}", value=str(n)) for n, e in enumerate(sliced, start=1)]
 
-        self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row + 1))
+        self.view.clear_items()
+        self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row))
         self.disabled = True
 
         try:
@@ -79,11 +71,7 @@ class NextButton(Button):
     """Get next item in a view's pages"""
 
     def __init__(self, disabled=False, row=0):
-        super().__init__()
-        self.label = "Next"
-        self.emoji = "▶"
-        self.row = row
-        self.disabled = disabled
+        super().__init__(label="Next", emoji="▶", row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
@@ -96,11 +84,7 @@ class LastButton(Button):
     """Get the last item in a paginator."""
 
     def __init__(self, disabled=False, row=0):
-        super().__init__()
-        self.label = "Last"
-        self.emoji = "⏭"
-        self.row = row
-        self.disabled = disabled
+        super().__init__(label="Last", emoji="⏭", row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
@@ -113,10 +97,7 @@ class StopButton(Button):
     """A generic button to stop a View"""
 
     def __init__(self, row=3):
-        super().__init__()
-        self.label = "Hide"
-        self.emoji = "🚫"
-        self.row = row
+        super().__init__(label="Hide", emoji="🚫", row=row)
 
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
@@ -124,9 +105,10 @@ class StopButton(Button):
             await self.view.message.delete()
         except NotFound:
             pass
+
+        self.view.stop()
         if hasattr(self.view, "page"):
             await self.view.page.close()
-        self.view.stop()
 
 
 # Dropdowns
@@ -134,8 +116,7 @@ class PageSelect(Select):
     """Page Selector Dropdown"""
 
     def __init__(self, placeholder=None, options=None, row=4):
-        super().__init__(placeholder=placeholder, options=options)
-        self.row = row
+        super().__init__(placeholder=placeholder, options=options, row=row)
 
     async def callback(self, interaction):
         """Set View Index """
@@ -168,25 +149,25 @@ class JumpModal(Modal):
 class ObjectSelectView(View):
     """Generic Object Select and return"""
 
-    def __init__(self, ctx, objects: list, timeout=180):
-        self.ctx = ctx
+    def __init__(self, interaction: Interaction, objects: list, timeout=180):
+        self.interaction = interaction
         self.value = None  # As Yet Unset
         self.index = 0
         self.message = None
         self.objects = objects
+
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(timeout=timeout)
 
-    async def interaction_check(self, interaction):
+    async def interaction_check(self, interaction: Interaction):
         """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.ctx.author.id
+        return interaction.user.id == self.interaction.user.id
 
     @property
     def embed(self):
         """Embeds look prettier, ok?"""
-        e = Embed()
+        e = Embed(title="Use the dropdown below to select from the following list.")
         e.set_author(name="Multiple results found")
-        e.title = "Use the dropdown below to select from the following list."
         e.description = "\n".join([i[1] for i in self.pages[self.index]])
         return e
 
@@ -201,21 +182,19 @@ class ObjectSelectView(View):
 
         _ = ItemSelect(placeholder="Select Matching Item...", options=self.pages[0])
         _.label = f"Page {self.index + 1} of {len(self.pages)}"
-        _.row = 0
         self.add_item(_)
 
         self.add_item(StopButton(row=1))
         if self.message is None:
-            self.message = await self.ctx.reply(content=content, view=self, embed=self.embed)
+            i = self.interaction
+            self.message = await i.client.reply(i, content=content, view=self, embed=self.embed)
         else:
             await self.message.edit(content=content, view=self, embed=self.embed)
 
     async def on_timeout(self):
         """Cleanup"""
         self.clear_items()
-        e = Embed()
-        e.colour = Colour.red()
-        e.description = "Timed out waiting for you to select a match."
+        e = Embed(colour=Colour.red(), description="Timed out waiting for you to select a match.")
 
         try:
             await self.message.edit(content="", embed=e, view=None, delete_after=15)
@@ -249,6 +228,9 @@ class ItemSelect(Select):
         super().__init__(placeholder=placeholder)
         self.row = row
         for index, (emoji, label, description) in enumerate(options):
+            if not label:
+                print("Item Select [ERROR]: No label for passed object", index, emoji, label, description)
+                continue
             self.add_option(emoji=emoji, label=label, description=description, value=str(index))
 
     async def callback(self, interaction):
@@ -259,6 +241,7 @@ class ItemSelect(Select):
             pass
 
         self.view.value = self.view.index * 25 + int(self.values[0])
+        await self.view.message.delete()  # Respond further with followup.
         self.view.stop()
 
 
@@ -279,25 +262,25 @@ class FuncButton(Button):
 class Paginator(View):
     """Generic Paginator that returns nothing."""
 
-    def __init__(self, ctx, embeds: typing.List[Embed]):
+    def __init__(self, interaction: Interaction, embeds: typing.List[Embed]):
         super().__init__()
         self.index = 0
         self.pages = embeds
-        self.ctx = ctx
+        self.interaction = interaction
         self.message = None
 
     async def on_timeout(self):
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
-        self.stop()
         try:
             await self.message.edit(view=self)
         except HTTPException:
             pass
+        self.stop()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
-        return self.ctx.author.id == interaction.user.id
+        return self.interaction.user.id == interaction.user.id
 
     async def update(self, content=""):
         """Refresh the view and send to user"""
@@ -310,7 +293,8 @@ class Paginator(View):
         self.add_item(StopButton(row=0))
 
         if self.message is None:
-            self.message = await self.ctx.reply(content=content, embed=self.pages[self.index], view=self)
+            i = self.interaction
+            self.message = await i.client.reply(i, content=content, embed=self.pages[self.index], view=self)
         else:
             await self.message.edit(content=content, embed=self.pages[self.index], view=self)
 
@@ -318,19 +302,19 @@ class Paginator(View):
 class Confirmation(View):
     """Ask the user if they wish to confirm an option."""
 
-    def __init__(self, ctx,
+    def __init__(self, interaction,
                  label_a: str = "Yes", colour_a: ButtonStyle = None,
                  label_b: str = "No", colour_b: ButtonStyle = None):
         super().__init__()
         self.message = None
-        self.ctx = ctx
+        self.interaction = interaction
         self.add_item(BoolButton(label=label_a, colour=colour_a))
         self.add_item(BoolButton(label=label_b, colour=colour_b, value=False))
         self.value = None
 
     async def interaction_check(self, interaction: Interaction):
         """Verify only invoker of command can use the buttons."""
-        return interaction.user.id == self.ctx.author.id
+        return interaction.user.id == self.interaction.user.id
 
 
 class BoolButton(Button):
