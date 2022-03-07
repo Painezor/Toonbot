@@ -68,7 +68,7 @@ class EditBot(app_commands.Group):
     async def update_presence(self, interaction: Interaction, act: Activity):
         """Pass the updated status."""
         if interaction.user.id != interaction.client.owner_id:
-            return await interaction.client.error(interaction, error_message="You do not own this bot.")
+            return await interaction.client.error(interaction, "You do not own this bot.")
         await interaction.client.change_presence(activity=act)
 
         e = Embed(title="Activity", colour=Colour.og_blurple())
