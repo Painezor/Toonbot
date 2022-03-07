@@ -91,7 +91,7 @@ class Modules(app_commands.Group):
         except Exception as err:
             return await interaction.client.error(error_messasge=codeblocks.error_to_codeblock(err))
         e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Reloaded {cog}')
-        await sync_commands(interaction.client)
+        await interaction.client.tree.sync(interaction.client)
         return await interaction.client.reply(interaction, embed=e)
 
     @app_commands.command()
@@ -104,7 +104,7 @@ class Modules(app_commands.Group):
             return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
 
         e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Loaded {cog}')
-        await sync_commands(interaction.client)
+        await interaction.client.tree.sync(interaction.client)
         return await interaction.client.reply(interaction, embed=e)
 
     @app_commands.command(guild_ids=[250252535699341312])
@@ -116,7 +116,7 @@ class Modules(app_commands.Group):
             return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
 
         e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Unloaded {module}')
-        await sync_commands(interaction.client)
+        await interaction.client.tree.sync(interaction.client)
         return await interaction.client.reply(interaction, embed=e)
 
     @app_commands.command()
@@ -194,12 +194,6 @@ async def notify(interaction: Interaction, notification: str):
     await interaction.client.reply(interaction, embed=e)
 
 
-async def sync_commands(bot):
-    """Synchronise the command list."""
-    await bot.tree.sync(TB_GUILD)
-    await bot.tree.sync()
-
-
 class Admin(commands.Cog):
     """Code debug & loading of modules"""
 
@@ -211,7 +205,12 @@ class Admin(commands.Cog):
         self.bot.tree.add_command(Modules(), guild=TB_GUILD)
         self.bot.tree.add_command(EditBot(), guild=TB_GUILD)
         self.bot.tree.add_command(notify, guild=TB_GUILD)
-        self.bot.loop.create_task(sync_commands(bot))
+        self.bot.loop.create_task(self.sync)
+
+    async def sync(self):
+        """Synchronise the command list."""
+        await self.bot.tree.sync(TB_GUILD)
+        await self.bot.tree.sync()
 
     async def on_message(self, message):
         """Slash commands warning system."""

@@ -353,6 +353,11 @@ class NUFC(commands.Cog):
         self.bot.tree.add_command(gherkin, guild=NUFCGuild)
         self.bot.tree.add_command(radio, guild=NUFCGuild)
         self.bot.tree.add_command(roulette, guild=NUFCGuild)
+        self.bot.loop.create_task(self.sync)
+
+    async def sync(self):
+        """Sync NUFC commands"""
+        await self.bot.tree.sync(guild=NUFCGuild)
 
 
 def setup(bot):
