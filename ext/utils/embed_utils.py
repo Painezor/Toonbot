@@ -12,17 +12,17 @@ from colorthief import ColorThief
 PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
 
 
-async def embed_image(ctx, e, image, filename=None, message=None):
+async def embed_image(interaction, e, image, filename=None, message=None):
     """Utility / Shortcut to upload image & set it within an embed."""
-    if filename is None:
-        filename = f"{ctx.command}.png"
+    try:  # If it's an application command, defer while we process the image.
+        await interaction.response.defer()
+    except AttributeError:
+        pass
+
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     e.set_image(url=f"attachment://{filename}")
     file = make_file(image=image, name=filename)
-    if message is None:
-        await ctx.reply(file=file, embed=e)
-    else:
-        await message.edit(content="", file=file, embed=e)
+    await interaction.client.reply(interaction, file=file, embed=e, message=message)
 
 
 async def get_colour(url=None):
