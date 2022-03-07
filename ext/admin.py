@@ -48,32 +48,33 @@ class EditBot(app_commands.Group):
     @status.command()
     async def playing(self, interaction: Interaction, status: str):
         """Set bot status to playing {status}"""
-        await self.update_presence(interaction, Activity(type=0, name=status))
+        await update_presence(interaction, Activity(type=0, name=status))
 
     @status.command()
     async def streaming(self, interaction: Interaction, status: Option(str, description="Set the new status")):
         """Change status to streaming {status}"""
-        await self.update_presence(interaction, Activity(type=1, name=status))
+        await update_presence(interaction, Activity(type=1, name=status))
 
     @status.command()
     async def watching(self, interaction: Interaction, status: Option(str, description="Set the new status")):
         """Change status to watching {status}"""
-        await self.update_presence(interaction, Activity(type=2, name=status))
+        await update_presence(interaction, Activity(type=2, name=status))
 
     @status.command()
     async def listening(self, interaction: Interaction, status: Option(str, description="Set the new status")):
         """Change status to listening to {status}"""
-        await self.update_presence(interaction, Activity(type=3, name=status))
+        await update_presence(interaction, Activity(type=3, name=status))
 
-    async def update_presence(self, interaction: Interaction, act: Activity):
-        """Pass the updated status."""
-        if interaction.user.id != interaction.client.owner_id:
-            return await interaction.client.error(interaction, "You do not own this bot.")
-        await interaction.client.change_presence(activity=act)
 
-        e = Embed(title="Activity", colour=Colour.og_blurple())
-        e.description = f"Set status to {act.type} {act.name}"
-        await interaction.client.reply(interaction, embed=e)
+async def update_presence(interaction: Interaction, act: Activity):
+    """Pass the updated status."""
+    if interaction.user.id != interaction.client.owner_id:
+        return await interaction.client.error(interaction, "You do not own this bot.")
+    await interaction.client.change_presence(activity=act)
+
+    e = Embed(title="Activity", colour=Colour.og_blurple())
+    e.description = f"Set status to {act.type} {act.name}"
+    await interaction.client.reply(interaction, embed=e)
 
 
 class Modules(app_commands.Group):

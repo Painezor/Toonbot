@@ -180,7 +180,7 @@ class ImageView(View):
     async def error(self, err):
         """Handle Image Errors"""
         if self.message is None:
-            self.message = await self.interaction.response.error(self.interaction, error_message=err)
+            self.message = await self.interaction.response.error(self.interaction, err)
 
     async def update(self, content=""):
         """Push latest version to view"""
