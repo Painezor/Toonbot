@@ -4,9 +4,9 @@ from importlib import reload
 
 import asyncpg
 from dateutil.relativedelta import relativedelta
-from discord import Embed, Interaction, HTTPException, SlashCommandGroup, InputTextStyle, Message
+from discord import Embed, Interaction, HTTPException, TextStyle, Message, app_commands
 from discord.ext import commands
-from discord.ui import View, Button, Modal, InputText
+from discord.ui import View, Button, Modal, TextInput
 from discord.utils import sleep_until
 
 from ext.utils import timed_events, embed_utils, view_utils
@@ -25,51 +25,50 @@ async def spool_reminder(bot, r: asyncpg.Record):
 
 class RemindModal(Modal):
     """A Modal Dialogue asking the user to enter a time & message for their reminder."""
+    months = TextInput(label="Number of months", value=0, placeholder=1, max_length=2, required=False)
+    days = TextInput(label="Number of days", value=0, placeholder=0, max_length=2, required=False)
+    hours = TextInput(label="Number of hours", value=0, placeholder=0, max_length=2, required=False)
+    minutes = TextInput(label="Number of minutes", value=0, placeholder=0, max_length=2, required=False)
+    description = TextInput(label="Reminder Description", placeholder="Remind me about...", style=TextStyle.paragraph)
 
-    def __init__(self, ctx, message: Message = None) -> None:
-        super().__init__(title="Create a new reminder")
-        self.ctx = ctx
+    def __init__(self, title: str, message: Message = None):
+        super().__init__(title=title)
         self.message = message
-        self.add_item(InputText(label="Months", placeholder="Enter number of months", max_length=2, required=False))
-        self.add_item(InputText(label="Days", placeholder="Enter number of days", max_length=2, required=False))
-        self.add_item(InputText(label="Hours", placeholder="Enter number of hours", max_length=2, required=False))
-        self.add_item(InputText(label="Minutes", placeholder="Enter number of minutes", max_length=2, required=False))
-        self.add_item(InputText(label="Reminder Description", placeholder="Enter a description of your reminder",
-                                style=InputTextStyle.long, required=False))
+        self.interaction = None
 
-    async def callback(self, interaction: Interaction):
+    async def on_submit(self, interaction: Interaction):
         """Insert entry to the database when the form is submitted"""
-        months = int(self.children[0].value) if self.children[0].value.isdigit() else 0
-        days = int(self.children[1].value) if self.children[1].value.isdigit() else 0
-        hours = int(self.children[2].value) if self.children[1].value.isdigit() else 0
-        minutes = int(self.children[3].value) if self.children[1].value.isdigit() else 0
-        description = self.children[4].value
+        months = int(self.months) if self.months.isdigit() else 0
+        days = int(self.days) if self.days.isdigit() else 0
+        hours = int(self.hours) if self.hours.isdigit() else 0
+        minutes = int(self.minutes) if self.minutes.isdigit() else 0
 
         delta = relativedelta(minutes=minutes, hours=hours, days=days, months=months)
 
         remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
-        connection = await self.ctx.bot.db.acquire()
+        connection = await interaction.client.db.acquire()
 
         msg_id = None if self.message is None else self.message.id
-        ch_id = None if self.message is None else self.ctx.channel.id
+        ch_id = interaction.channel.id
 
         try:
-            gid = self.ctx.guild.id if self.ctx.guild is not None else None
+            gid = interaction.guild.id if interaction.guild is not None else None
             time = datetime.datetime.now(datetime.timezone.utc)
             async with connection.transaction():
                 record = await connection.fetchrow("""INSERT INTO reminders
                 (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""", msg_id, ch_id, gid, description,
-                                                   time, remind_at, self.ctx.author.id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""", msg_id, ch_id, gid, self.description,
+                                                   time, remind_at, interaction.user.id)
         finally:
-            await self.ctx.bot.db.release(connection)
+            await interaction.client.db.release(connection)
 
-        self.ctx.bot.reminders.append(self.ctx.bot.loop.create_task(spool_reminder(self.ctx.bot, record)))
+        c = interaction.client
+        c.reminders.append(c.loop.create_task(spool_reminder(c, record)))
 
         t = timed_events.Timestamp(remind_at).time_relative
-        e = Embed(colour=0x00ffff, description=f"**{t}**\n\n> {description}")
+        e = Embed(colour=0x00ffff, description=f"**{t}**\n\n> {self.description}")
         e.set_author(name="⏰ Reminder Created")
-        await self.ctx.reply(embed=e, ephemeral=True)
+        await c.reply(interaction, embed=e, ephemeral=True)
 
 
 class ReminderView(View):
@@ -99,7 +98,7 @@ class ReminderView(View):
         self.add_item(view_utils.StopButton(row=0))
 
         try:
-            self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
+            self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self, ephemeral=True)
         except HTTPException:
             try:
                 self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
@@ -113,7 +112,7 @@ class ReminderView(View):
         finally:
             await self.bot.db.release(connection)
 
-    async def interaction_check(self, interaction: Interaction):
+    async def interaction_check(self, interaction: Interaction) -> bool:
         """Only reminder owner can interact to hide or snooze"""
         return interaction.user.id == self.record['user_id']
 
@@ -123,6 +122,48 @@ class ReminderView(View):
         await self.message.edit(view=self)
 
 
+class Reminder(app_commands.Group):
+    """Set reminders for yourself"""
+
+    @app_commands.command()
+    async def add(self, interaction: Interaction):
+        """Remind you of something at a specified time."""
+        modal = RemindModal(title="Create a reminder")
+        await interaction.response.send_modal(modal)
+
+    @app_commands.command()
+    async def list(self, interaction: Interaction):
+        """Check your active reminders"""
+        connection = await interaction.client.db.acquire()
+        try:
+            async with connection.transaction():
+                records = await connection.fetch("""SELECT * FROM reminders WHERE user_id = $1""", interaction.user.id)
+        finally:
+            await interaction.client.db.release(connection)
+
+        def short(r: asyncpg.Record):
+            """Get oneline version of reminder"""
+            time = timed_events.Timestamp(r['target_time']).time_relative
+            guild = "@me" if r['guild_id'] is None else r['guild_id']
+            j = f"https://com/channels/{guild}/{r['channel_id']}/{r['message_id']}"
+            return f"**{time}**: [{r['reminder_content']}]({j})"
+
+        _ = [short(r) for r in records] if records else ["You have no reminders set."]
+
+        e = Embed(colour=0x7289DA, title="Your reminders")
+        embeds = embed_utils.rows_to_embeds(e, _)
+
+        view = view_utils.Paginator(interaction, embeds)
+        await view.update()
+
+
+@app_commands.context_menu(name="Create reminder")
+async def add_reminder(interaction: Interaction, message: Message):
+    """Create a reminder with a link to a message."""
+    modal = RemindModal(title="Remind me about this message", message=message)
+    await interaction.response.send_modal(modal)
+
+
 class Reminders(commands.Cog):
     """Set yourself reminders"""
 
@@ -130,6 +171,8 @@ class Reminders(commands.Cog):
         self.bot = bot
         self.bot.reminders = []  # A list of tasks.
         self.bot.loop.create_task(self.spool_initial())
+        self.bot.tree.add_command(Reminder())
+        self.bot.tree.add_command(add_reminder)
         reload(timed_events)
         reload(embed_utils)
 
@@ -146,46 +189,6 @@ class Reminders(commands.Cog):
             for r in records:
                 self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, r)))
         await self.bot.db.release(connection)
-
-    reminder = SlashCommandGroup("reminder", "manage or add reminders")
-
-    @reminder.command()
-    async def add(self, ctx):
-        """Remind you of something at a specified time."""
-        modal = RemindModal(ctx)
-        await ctx.interaction.response.send_modal(modal)
-
-    @commands.message_command(name="Create reminder")
-    async def add_reminder(self, ctx, message):
-        """Create a reminder with a link to a message."""
-        modal = RemindModal(ctx, message=message)
-        await ctx.interaction.response.send_modal(modal)
-
-    @reminder.command()
-    async def list(self, ctx):
-        """Check your active reminders"""
-        connection = await self.bot.db.acquire()
-        try:
-            async with connection.transaction():
-                records = await connection.fetch("""SELECT * FROM reminders WHERE user_id = $1""", ctx.author.id)
-        finally:
-            await self.bot.db.release(connection)
-
-        def short(r: asyncpg.Record):
-            """Get oneline version of reminder"""
-            time = timed_events.Timestamp(r['target_time']).time_relative
-            guild = "@me" if r['guild_id'] is None else r['guild_id']
-            j = f"https://com/channels/{guild}/{r['channel_id']}/{r['message_id']}"
-            return f"**{time}**: [{r['reminder_content']}]({j})"
-
-        _ = [short(r) for r in records] if records else ["You have no reminders set."]
-
-        e = Embed(colour=0x7289DA, title="Your reminders")
-        embeds = embed_utils.rows_to_embeds(e, _)
-
-        view = view_utils.Paginator(ctx, embeds)
-        view.message = await ctx.reply(content="Fetching your reminders...", view=view)
-        await view.update()
 
 
 def setup(bot):
