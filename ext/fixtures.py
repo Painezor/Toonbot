@@ -218,7 +218,7 @@ async def league(interaction: Interaction, current: str, namespace) -> List[app_
 @app_commands.command()
 @app_commands.describe(query="league name to search for")
 @app_commands.autocomplete(query=league)
-async def scores(interaction: Interaction, query: Optional[str] = "default"):
+async def scores(interaction: Interaction, query: Optional[str] = None):
     """Fetch current scores for a specified league"""
     await interaction.response.defer(thinking=True)
 
