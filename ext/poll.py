@@ -97,17 +97,18 @@ class PollModal(Modal, title="Create a poll"):
         await PollView(interaction, question=self.question, answers=self.answers).update()
 
 
+@app_commands.command()
+async def poll(interaction):
+    """Create a poll with multiple answers. Polls end after 1 hour of no responses."""
+    await interaction.response.send_modal(PollModal)
+
+
 class Poll(commands.Cog):
     """User Created Polls"""
 
     def __init__(self, bot):
         self.bot = bot
-
-    @app_commands.command()
-    async def poll(self, interaction):
-        """Create a poll with multiple choice answers. Separate your answers with commas.
-        Polls end after 1 hour of no responses."""
-        await interaction.response.send_modal(PollModal)
+        self.bot.tree.add_command(poll)
 
 
 def setup(bot):
