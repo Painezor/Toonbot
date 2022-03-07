@@ -348,6 +348,12 @@ async def choose(interaction: Interaction):
     await interaction.response.send_modal(PollModal)
 
 
+@app_commands.command()
+async def pressf(interaction):
+    """Press F to pay respects"""
+    await interaction.client.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
+
+
 class Fun(commands.Cog):
     """Various Toys for you to play with."""
 
@@ -363,6 +369,7 @@ class Fun(commands.Cog):
         self.bot.tree.add_command(mock)
         self.bot.tree.add_command(choose)
         self.bot.tree.add_command(helmet)
+        self.bot.tree.add_command(pressf)
 
 
 def setup(bot):
