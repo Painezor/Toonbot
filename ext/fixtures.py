@@ -70,7 +70,7 @@ async def search(interaction: Interaction, qry, mode=None, include_live=False, i
             else:
                 err = f"You need to specify a search query, or ask the server mods to use " \
                       f"`/default_{mode}` to set a server default {mode}."
-            await interaction.client.error(interaction, error_message=err)
+            await interaction.client.error(interaction, err)
             return None
 
         page = await interaction.client.browser.newPage()
@@ -419,7 +419,7 @@ async def stadium(interaction: Interaction, query: str):
 
     stadiums = await football.get_stadiums(query)
     if not stadiums:
-        return await interaction.client.error(interaction, error_message=f"🚫 No stadiums found matching `{query}`")
+        return await interaction.client.error(interaction, f"🚫 No stadiums found matching `{query}`")
 
     markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.name})") for i in stadiums]
 
@@ -443,10 +443,10 @@ class Default(app_commands.Group):
     async def team(self, interaction: Interaction, query: str):
         """Set a default team for your server's Fixture commands"""
         if interaction.guild is None:
-            return await interaction.client.error(interaction, error_message="This command cannot be ran in DMs")
+            return await interaction.client.error(interaction, "This command cannot be ran in DMs")
         if not interaction.permissions.manage_guild:
             err = "You need manage messages permissions to set a defaults."
-            return await interaction.client.error(interaction, error_message=err)
+            return await interaction.client.error(interaction, err)
 
         if query in interaction.client.games:
             fsr = interaction.client.games[query]
@@ -478,10 +478,10 @@ class Default(app_commands.Group):
     async def league(self, interaction: Interaction, query: str):
         """Set a default league for your server's Fixture commands"""
         if interaction.guild is None:
-            return await interaction.client.error(interaction, error_message="This command cannot be ran in DMs")
+            return await interaction.client.error(interaction, "This command cannot be ran in DMs")
         if not interaction.permissions.manage_guild:
             err = "You need manage messages permissions to set a defaults."
-            return await interaction.client.error(interaction, error_message=err)
+            return await interaction.client.error(interaction, err)
 
         if query in interaction.client.games:
             fsr = interaction.client.games[query]
