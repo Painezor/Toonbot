@@ -243,7 +243,7 @@ class ConfigView(View):
         try:
             async with connection.transaction():
                 q = """INSERT INTO ticker_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-                await connection.execute(q, self.interaction.channel.guild.id, self.interaction.channel.id)
+                await connection.execute(q, self.interaction.guild.id, self.interaction.channel.id)
 
             async with connection.transaction():
                 qq = """INSERT INTO ticker_settings (channel_id) VALUES ($1)"""
@@ -292,7 +292,7 @@ class ConfigView(View):
             e.description = f"{self.interaction.channel.mention} has no tracked leagues."
         else:
             e = Embed(colour=Colour.dark_teal(), title="Toonbot Match Event Ticker config")
-            e.set_thumbnail(url=self.interaction.channel.guild.me.display_avatar.url)
+            e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
             header = f'Tracked leagues for {self.interaction.channel.mention}```yaml\n'
             embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
             self.pages = embeds

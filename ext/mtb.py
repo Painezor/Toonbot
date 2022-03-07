@@ -199,7 +199,7 @@ class MatchThread:
             away_link = ""
 
         markdown = f"# {home_icon}[{home}]({home_link}) vs [{away}]({away_link}){away_icon}\n\n"
-        markdown += f"#### {self.fixture.kickoff} | {self.fixture.full_league} | *Pre* | *Match* | *Post*\n\n"
+        markdown += f"#### {self.fixture.kickoff} | {self.fixture.competition} | *Pre* | *Match* | *Post*\n\n"
 
         title = f"Pre-Match Thread: {home} vs {away}"
         markdown += await self.fixture.get_preview(self.page)
@@ -258,7 +258,7 @@ class MatchThread:
         away = self.fixture.away
         score = self.fixture.score
 
-        markdown = f"#### {self.fixture.kickoff} | {self.fixture.full_league} \n\n"
+        markdown = f"#### {self.fixture.kickoff} | {self.fixture.competition} \n\n"
 
         # Grab DB data
         try:
