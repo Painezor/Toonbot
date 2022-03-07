@@ -76,7 +76,7 @@ async def logs(interaction):
         return await interaction.client.error(interaction, "This command cannot be ran in DMs")
     elif not interaction.permissions.manage_messages:
         err = "You need manage_messages permissions to view and set mod logs"
-        return await interaction.client.error(interaction, error_message=err)
+        return await interaction.client.error(interaction, err)
 
     await ConfigView(interaction).update()
 
