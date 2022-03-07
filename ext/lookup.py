@@ -6,9 +6,6 @@ from discord.ext import commands
 
 from ext.utils import transfer_tools
 
-TF = "https://www.transfermarkt.co.uk"
-FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/Transfermarkt_favicon.png"
-
 
 # TODO: Permissions Pass.
 
