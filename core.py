@@ -24,7 +24,8 @@ INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=250051254783311
              "&scope=bot%20applications.commands"
 
 
-async def error(interaction: Interaction, error_message: str, message: Message = None, ephemeral=True) -> Message:
+async def error(interaction: Interaction, error_message: str, message: Message = None, ephemeral: bool = True) \
+        -> Message:
     """Send a Generic Error Embed"""
     e = Embed(colour=Colour.red(), description=error_message)
 
