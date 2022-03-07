@@ -322,8 +322,8 @@ async def mock(interaction: Interaction, message):
 
 class PollModal(Modal, title="Make a Decision"):
     """Send a Modal to the User to enter their options in."""
-    question = TextInput(label="Enter a question")
-    answers = TextInput(label="Put each answer on a new line", style=TextStyle.paragraph)
+    question = TextInput(label="Enter a question", placeholder="What should I do?")
+    answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
 
     async def on_submit(self, interaction: Interaction):
         """When the Modal is submitted, pick at random and send the reply back"""

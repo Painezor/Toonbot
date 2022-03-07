@@ -85,8 +85,8 @@ class PollView(View):
 
 class PollModal(Modal, title="Create a poll"):
     """UI Sent to user to ask them to create a poll."""
-    question = TextInput(label="Enter a question")
-    answers = TextInput(label="Put each answer on a new line", style=TextStyle.paragraph)
+    question = TextInput(label="Enter a question", placeholder="What is your favourite colour?")
+    answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Red\nBlue\nYellow")
 
     async def on_submit(self, interaction: Interaction):
         """When the Modal is submitted, pick at random and send the reply back"""
