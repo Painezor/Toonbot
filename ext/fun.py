@@ -156,7 +156,7 @@ async def urban(interaction: Interaction, *, query: str):
     url = f"http://api.urbandictionary.com/v0/define?term={query}"
     async with interaction.client.session.get(url) as resp:
         if resp.status != 200:
-            return await interaction.client.error(interaction, error_message=f"🚫 HTTP Error, code: {resp.status}")
+            return await interaction.client.error(interaction, f"🚫 HTTP Error, code: {resp.status}")
         resp = await resp.json()
 
     tn = "http://d2gatte9o95jao.cloudfront.net/assets/apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
@@ -266,9 +266,9 @@ async def roll(interaction: Interaction, *, roll_string="d20"):
                 sides = int(sides)
 
             if dice > 1000:
-                return await interaction.client.error(interaction, error_message='Too many dice')
+                return await interaction.client.error(interaction, 'Too many dice')
             if sides > 1000000:
-                return await interaction.client.error(interaction, error_message='Too many sides')
+                return await interaction.client.error(interaction, 'Too many sides')
 
         e.description += f"{r}: "
         total_roll = 0
