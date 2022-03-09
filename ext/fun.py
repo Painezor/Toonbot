@@ -4,7 +4,7 @@ import random
 import re
 from copy import deepcopy
 
-from discord import ButtonStyle, HTTPException, Colour, Embed, Interaction, app_commands, TextStyle
+from discord import ButtonStyle, HTTPException, Colour, Embed, Interaction, app_commands, TextStyle, Message
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 
@@ -16,8 +16,6 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 
 
 # TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
-# TODO: Modals pass
-# TODO: Grouped Commands pass
 # TODO: Slash attachments pass
 # TODO: Permissions Pass.
 
@@ -204,12 +202,12 @@ async def urban(interaction: Interaction, *, query: str):
     await view.update()
 
 
-@app_commands.command(usage="1d6+3")
-@app_commands.describe(roll_string="enter a roll (format: 1d20+3)")
-async def roll(interaction: Interaction, *, roll_string="d20"):
+@app_commands.command()
+@app_commands.describe(dice="enter a roll (format: 1d20+3)")
+async def roll(interaction: Interaction, dice: str = "d20"):
     """Roll a set of dice in the format XdY+Z. Use 'adv' or 'dis' for (dis)advantage"""
-    advantage = True if roll_string.startswith("adv") else False
-    disadvantage = True if roll_string.startswith("dis") else False
+    advantage = True if dice.startswith("adv") else False
+    disadvantage = True if dice.startswith("dis") else False
 
     e = Embed(title="🎲 Dice Roller")
     if advantage:
@@ -219,9 +217,9 @@ async def roll(interaction: Interaction, *, roll_string="d20"):
 
     e.description = ""
 
-    roll_list = roll_string.split(' ')
+    roll_list = dice.split(' ')
     if len(roll_list) == 1:
-        roll_list = [roll_string]
+        roll_list = [dice]
 
     total = 0
     bonus = 0
@@ -314,7 +312,7 @@ async def roll(interaction: Interaction, *, roll_string="d20"):
 
 
 @app_commands.context_menu(name="MoCk")
-async def mock(interaction: Interaction, message):
+async def mock(interaction: Interaction, message: Message):
     """AlTeRnAtInG cApS"""
     content = "".join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
     await interaction.client.reply(interaction, content=content)

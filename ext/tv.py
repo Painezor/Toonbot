@@ -23,7 +23,7 @@ async def team(interaction: Interaction, current: str, namespace) -> List[app_co
 @app_commands.command()
 @app_commands.describe(name="Search for a team")
 @app_commands.autocomplete(name=team)
-async def tv(self, interaction: Interaction, name: Optional[str] = None):
+async def tv(interaction: Interaction, name: Optional[str] = None):
     """Lookup next televised games for a team"""
     await interaction.response.defer(thinking=True)
     e = Embed(colour=0x034f76)
@@ -31,12 +31,12 @@ async def tv(self, interaction: Interaction, name: Optional[str] = None):
 
     # Selection View if team is passed
     if name:
-        matches = [i for i in self.bot.tv if str(name).lower() in i.lower()]
+        matches = [i for i in interaction.client.tv if str(name).lower() in i.lower()]
 
         if not matches:
             return await interaction.client.error(interaction, f"Could not find a matching team/league for {name}.")
 
-        _ = [('📺', i, self.bot.tv[i]) for i in matches]
+        _ = [('📺', i, interaction.client.tv[i]) for i in matches]
 
         if len(_) > 1:
             view = view_utils.ObjectSelectView(interaction, objects=_, timeout=30)
@@ -53,14 +53,14 @@ async def tv(self, interaction: Interaction, name: Optional[str] = None):
         else:
             result = matches[0]
 
-        e.url = self.bot.tv[result]
+        e.url = interaction.client.tv[result]
         e.title = f"Televised Fixtures for {result}"
     else:
         e.url = "http://www.livesoccertv.com/schedules/"
         e.title = f"Today's Televised Matches"
 
     rows = []
-    async with self.bot.session.get(e.url, headers=HEADERS) as resp:
+    async with interaction.client.session.get(e.url, headers=HEADERS) as resp:
         if resp.status != 200:
             return await interaction.client.error(interaction, f"{e.url} returned a HTTP {resp.status} error.")
         tree = html.fromstring(await resp.text())

@@ -287,7 +287,7 @@ def setup(bot):
 
 
 @app_commands.command()
-@app_commands.describe(user="Select a user", link="Provide a link to an image", attachment="Upload a file")
+@app_commands.describe(user="Select a user", link="Provide a link to an image", file="Upload a file")
 async def ruins(interaction: Interaction, user: Optional[Member], link: Optional[str], file: Optional[Attachment]):
     """Local man ruins everything"""
     await interaction.response.defer(thinking=True)
@@ -323,7 +323,7 @@ async def ruins(interaction: Interaction, user: Optional[Member], link: Optional
 
 @app_commands.command()
 @app_commands.describe(quote="enter quote text", target="pick a user")
-async def tard(self, interaction: Interaction, quote: str, target: Optional[Union[User, Member]]):
+async def tard(interaction: Interaction, quote: str, target: Optional[Union[User, Member]]):
     """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
     await interaction.response.defer(thinking=True)
 
@@ -384,12 +384,12 @@ async def tard(self, interaction: Interaction, quote: str, target: Optional[Unio
         output.seek(0)
         return output
 
-    image = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
+    image = await interaction.client.loop.run_in_executor(None, draw_tard, image, quote)
     await embed_utils.embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
 
 
 @app_commands.command()
-async def tinder(self, interaction):
+async def tinder(interaction: Interaction):
     """Try to Find your next date."""
     if interaction.guild is None:
         return await interaction.client.error(interaction, "This command cannot be used in DMs")
@@ -440,7 +440,7 @@ async def tinder(self, interaction):
         out.seek(0)
         return out
 
-    output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
+    output = await interaction.client.loop.run_in_executor(None, draw_tinder, target, av, name)
     if match.id == interaction.user.id:
         caption = f"{interaction.user.mention} matched with themself, How pathetic."
     elif match.id == interaction.client.user.id:

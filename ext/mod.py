@@ -1,6 +1,6 @@
 """Moderation Commands"""
 import datetime
-from typing import Optional
+from typing import Optional, Literal
 
 import discord
 from discord import Interaction, Member, app_commands, Colour, Embed
@@ -125,7 +125,7 @@ async def pin(interaction: Interaction, message: str):
 
 @app_commands.command()
 @app_commands.describe(member="Pick a user to rename", new_nickname="Choose a new nickname for the member")
-async def rename(interaction: Interaction, member: Member, new_nickname):
+async def rename(interaction: Interaction, member: Member, new_nickname: str):
     """Rename a member"""
     if not interaction.guild:
         return await interaction.client.error(interaction, "This command cannot be used in DMs")
@@ -164,19 +164,17 @@ async def kick(interaction: Interaction, member: Member, reason: str = "unspecif
 
 
 @app_commands.command()
-@app_commands.describe(member="Pick a user to ban", user_id="enter a user id to ban",
+@app_commands.describe(member="Pick a user to ban",
+                       user_id="enter a user id to ban",
                        reason="provide a reason for kicking the user",
                        delete_days="delete messages from the last x days")
-async def ban(interaction: Interaction, member: Member, user_id: Optional[str],
-              delete_days: Optional[app_commands.Range[int, 0, 7]] = 0, reason="Not specified"):
+async def ban(interaction: Interaction, delete_days: Literal[0, 1, 2, 3, 4, 5, 6, 7], member: Optional[Member] = None,
+              user_id: Optional[str] = None, reason: str = "Not specified"):
     """Bans a list of members (or User IDs) from the server, deletes all messages for the last x days"""
     if not interaction.guild:
         return await interaction.client.error(interaction, "This command cannot be ran in DMs")
-
     if not interaction.permissions.ban_members:
         return await interaction.client.error(interaction, "You need ban_members permissions to ban someone.")
-
-    delete_days = 7 if delete_days > 7 else delete_days
 
     if member is not None:
         message = f"{member.mention} was banned by {interaction.user} for: \"{reason}\""
@@ -272,13 +270,13 @@ async def clean(interaction: Interaction, number: int = None):
 
 
 @app_commands.command()
-@app_commands.describe(number="Number of messages to delete.", minutes="number of minutes to timeout for",
-                       hours="number of hours to timeout for", days="number of days to timeout for",
-                       reason="provide a reason for the timeout")
+@app_commands.describe(minutes="number of minutes to timeout for", hours="number of hours to timeout for",
+                       days="number of days to timeout for", reason="provide a reason for the timeout")
 async def timeout(interaction: Interaction, member: Member,
-                  minutes: Optional[app_commands.Range[int, 0, 60]] = 0,
-                  hours: Optional[app_commands.Range[int, 0, 24]] = 0,
-                  days: Optional[app_commands.Range[int, 0, 7]] = 0, reason="Not specified"):
+                  minutes: app_commands.Range[int, 0, 60] = 0,
+                  hours: app_commands.Range[int, 0, 24] = 0,
+                  days: app_commands.Range[int, 0, 7] = 0,
+                  reason: str = "Not specified"):
     """Timeout a user for the specified amount of time."""
     if minutes == 0 and hours == 0 and days == 0:
         return await interaction.client.error(interaction, "You need to specify a duration")

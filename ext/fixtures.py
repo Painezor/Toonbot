@@ -19,32 +19,6 @@ from ext.utils.football import Competition, Team, Fixture
 # Maybe Todo: League.archive -> https://www.flashscore.com/football/england/premier-league/archive/
 # Maybe todo: League.Form table.
 
-
-class Fixtures(commands.Cog):
-    """Lookups for past, present and future football matches."""
-
-    def __init__(self, bot):
-        self.bot = bot
-        self.bot.tree.add_command(fixtures)
-        self.bot.tree.add_command(results)
-        self.bot.tree.add_command(table)
-        self.bot.tree.add_command(scores)
-        self.bot.tree.add_command(scorers)
-        self.bot.tree.add_command(squad)
-        self.bot.tree.add_command(injuries)
-        self.bot.tree.add_command(stats)
-        self.bot.tree.add_command(formations)
-        self.bot.tree.add_command(summary)
-        self.bot.tree.add_command(head_to_head)
-        self.bot.tree.add_command(stadium)
-        self.bot.tree.add_command(Default())
-
-
-def setup(bot):
-    """Load the fixtures Cog into the bot"""
-    bot.add_cog(Fixtures(bot))
-
-
 # Selection View/Filter/Pickers.
 async def search(interaction: Interaction, qry, mode=None, include_live=False, include_fs=False) \
         -> Union[Team, Competition, Fixture, None]:
@@ -138,9 +112,12 @@ async def team_or_league(interaction: Interaction, current: str, namespace) -> L
 @app_commands.command()
 @app_commands.describe(query="team or league name to search for")
 @app_commands.autocomplete(query=team_or_league)
-async def fixtures(interaction: Interaction, query: Optional[str] = "default"):
+async def fixtures(interaction: Interaction, query: Optional[str]):
     """Fetch upcoming fixtures for a team or league."""
     await interaction.response.defer(thinking=True)
+
+    if query is None:
+        query = "default"
 
     fsr = await search(interaction, query, include_fs=True)
     if fsr is None:
@@ -155,9 +132,12 @@ async def fixtures(interaction: Interaction, query: Optional[str] = "default"):
 @app_commands.command()
 @app_commands.describe(query="team or league name to search for")
 @app_commands.autocomplete(query=team_or_league)
-async def results(interaction: Interaction, query: Optional[str] = "default"):
+async def results(interaction: Interaction, query: Optional[str]):
     """Get past results for a team or league."""
     await interaction.response.defer(thinking=True)
+
+    if query is None:
+        query = "default"
 
     fsr = await search(interaction, query, include_fs=True)
     if fsr is None:
@@ -172,9 +152,12 @@ async def results(interaction: Interaction, query: Optional[str] = "default"):
 @app_commands.command()
 @app_commands.describe(query="team or league name to search for")
 @app_commands.autocomplete(query=team_or_league)
-async def table(interaction: Interaction, query: Optional[str] = "default"):
+async def table(interaction: Interaction, query: Optional[str]):
     """Get table for a league"""
     await interaction.response.defer(thinking=True)
+
+    if query is None:
+        query = "default"
 
     fsr = await search(interaction, query, include_fs=True)
     if fsr is None:
@@ -193,9 +176,12 @@ async def table(interaction: Interaction, query: Optional[str] = "default"):
 @app_commands.command()
 @app_commands.describe(query="team or league name to search for")
 @app_commands.autocomplete(query=team_or_league)
-async def scorers(interaction: Interaction, query: Optional[str] = "default"):
+async def scorers(interaction: Interaction, query: Optional[str]):
     """Get top scorers from a league, or search for a team and get their top scorers in a league."""
     await interaction.response.defer(thinking=True)
+
+    if query is None:
+        query = "default"
 
     fsr = await search(interaction, query, include_fs=True)
     if fsr is None:
@@ -209,7 +195,7 @@ async def scorers(interaction: Interaction, query: Optional[str] = "default"):
 
 # LEAGUE only
 # Autocomplete
-async def league(interaction: Interaction, current: str, namespace) -> List[app_commands.Choice[str]]:
+async def atc_league(interaction: Interaction, current: str, namespace) -> List[app_commands.Choice[str]]:
     """Return list of live leagues"""
     comps = list(set([i.competition.name for i in interaction.client.games.values()]))
     return [app_commands.Choice(name=item, value=item) for item in comps if current.lower() in item.lower()]
@@ -217,7 +203,7 @@ async def league(interaction: Interaction, current: str, namespace) -> List[app_
 
 @app_commands.command()
 @app_commands.describe(query="league name to search for")
-@app_commands.autocomplete(query=league)
+@app_commands.autocomplete(query=atc_league)
 async def scores(interaction: Interaction, query: Optional[str] = None):
     """Fetch current scores for a specified league"""
     await interaction.response.defer(thinking=True)
@@ -272,9 +258,12 @@ async def team(interaction: Interaction, current: str, namespace) -> List[app_co
 @app_commands.command()
 @app_commands.describe(query="team name to search for")
 @app_commands.autocomplete(query=team)
-async def injuries(interaction: Interaction, query: Optional[str] = "default"):
+async def injuries(interaction: Interaction, query: Optional[str]):
     """Get a team's current injuries"""
     await interaction.response.defer(thinking=True)
+
+    if query is None:
+        query = "default"
 
     fsr = await search(interaction, query, include_fs=True, mode="team")
     if fsr is None:
@@ -289,9 +278,12 @@ async def injuries(interaction: Interaction, query: Optional[str] = "default"):
 @app_commands.command(description="Fetch the squad for a team")
 @app_commands.describe(query="team name to search for")
 @app_commands.autocomplete(query=team)
-async def squad(interaction: Interaction, query: Optional[str] = "default"):
+async def squad(interaction: Interaction, query: Optional[str]):
     """Lookup a team's squad members"""
     await interaction.response.defer(thinking=True)
+
+    if query is None:
+        query = "default"
 
     fsr = await search(interaction, query, include_fs=True, include_live=True, mode="team")
     if fsr is None:
@@ -474,7 +466,7 @@ class Default(app_commands.Group):
 
     @app_commands.command()
     @app_commands.describe(query="pick a league to use for defaults")
-    @app_commands.autocomplete(query=league)
+    @app_commands.autocomplete(query=atc_league)
     async def league(self, interaction: Interaction, query: str):
         """Set a default league for your server's Fixture commands"""
         if interaction.guild is None:
@@ -505,3 +497,27 @@ class Default(app_commands.Group):
             e.colour = await embed_utils.get_colour(logo)
             e.set_thumbnail(url=logo)
         await interaction.client.reply(interaction, embed=e)
+
+
+cmd = [fixtures, results, table, scores, scorers, squad, injuries, stats, formations, summary, head_to_head, stadium,
+       Default()]
+
+
+class Fixtures(commands.Cog):
+    """Lookups for past, present and future football matches."""
+
+    def __init__(self, bot):
+        self.bot = bot
+        for x in cmd:
+            self.bot.tree.add_command(x)
+
+
+def setup(bot):
+    """Load the fixtures Cog into the bot"""
+    bot.add_cog(Fixtures(bot))
+
+
+def teardown(bot):
+    """Remove all commands from the bot"""
+    for x in cmd:
+        bot.tree.remove_command(x)

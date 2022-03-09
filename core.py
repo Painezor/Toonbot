@@ -5,8 +5,13 @@ from abc import ABC
 from datetime import datetime
 
 import asyncpg
-from discord import Intents, Game, CommandTree, Colour, Embed, Interaction, Message
+from discord import Intents, Game, Colour, Embed, Interaction, Message, app_commands, http
 from discord.ext import commands
+
+from ext.scores import LiveScores
+
+# MESSAGE INTENTS
+http._set_api_version(9)
 
 with open('credentials.json') as f:
     credentials = json.load(f)
@@ -38,7 +43,7 @@ async def error(interaction: Interaction, error_message: str, message: Message =
 async def reply(interaction: Interaction, message=None, **kwargs) -> Message:
     """Send a Generic Interaction Reply"""
     if interaction.response.is_done():  # If we need to do a followup.
-        return await interaction.response.followup.send(**kwargs)
+        return await interaction.followup.send(**kwargs)
 
     if message is None:
         return await interaction.response.send_message(**kwargs)
@@ -50,7 +55,6 @@ class Bot(commands.Bot, ABC):
     """The core functionality of the bot."""
 
     def __init__(self, **kwargs):
-
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=".tb ",
@@ -64,7 +68,11 @@ class Bot(commands.Bot, ABC):
         self.credentials = credentials
         self.initialised_at = datetime.utcnow()
         self.invite = INVITE_URL
-        self.tree = CommandTree(self)
+        self.tree = app_commands.CommandTree(self)
+
+        # Hackjob for reloading. Remove later.
+        self.tree.add_command(LiveScores())
+
         self.error = error
         self.reply = reply
 

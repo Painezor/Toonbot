@@ -7,10 +7,11 @@ import pyppeteer
 from PIL import Image
 from discord import Embed, Colour, Object, app_commands
 from discord.ext import commands
+from pyppeteer.browser import Browser
 from pyppeteer.errors import TimeoutError as _TimeoutError
 
 
-async def make_browser(bot):
+async def make_browser(bot) -> Browser:
     """Spawn an instance of Pyppeteer"""
     options = {"args": [
         '--autoplay-policy=user-gesture-required',
@@ -53,9 +54,10 @@ async def make_browser(bot):
     bot.browser = await pyppeteer.launch(options=options)
     bot.browser.fetch = fetch
     bot.browser.bot = bot
+    return bot.browser
 
 
-@app_commands.command(guild_ids=[250252535699341312])
+@app_commands.command()
 async def kill_browser(interaction):
     """ Restart browser when you potato."""
     if interaction.user.id != interaction.client.owner_id:
@@ -67,14 +69,14 @@ async def kill_browser(interaction):
     await interaction.client.reply(interaction, embed=e)
 
 
-async def fetch(bot, page, url, xpath, screenshot=False, max_retry=3, **kwargs) -> (Union[str, BytesIO] or None):
+async def fetch(page, url, xpath, screenshot=False, max_retry=3, **kwargs) -> (Union[str, BytesIO] or None):
     """Fetch a webpage's source code or an image"""
     assert url.startswith("http"), f"BROWSER - FETCH: {url} does not appear to be a valid url."
 
     close = False
     if page.isClosed():
         # Replace closed pages.
-        page = await bot.browser.newPage()
+        page = await page.browser.newPage()
         close = True
 
     for _ in range(max_retry):
@@ -141,7 +143,7 @@ class Browser(commands.Cog):
         self.bot = bot
         self.bot.loop.create_task(self.spawn_session())
         if not hasattr(bot, "browser"):
-            self.bot.loop.create_task(self.make_browser())
+            self.bot.loop.create_task(make_browser(self.bot))
         self.bot.tree.add_command(kill_browser, guild=Object(id=250252535699341312))
 
     async def spawn_session(self):

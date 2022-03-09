@@ -2,12 +2,16 @@
 import datetime
 import re
 
-from discord import Embed, Object, app_commands, Interaction
+from discord import Embed, Object, app_commands, Interaction, Client
 from discord.ext import commands, tasks
 from lxml import html
 
 EU_NEWS_CHANNEL = 849418195021856768
 DEV_BLOG_CHANNEL = 849412392651587614
+
+
+# TODO: Dev Blog Search
+# TODO: Dev Blog Browser View
 
 
 @app_commands.command()
@@ -32,7 +36,7 @@ async def dev_blog(interaction: Interaction, number: int):
     await interaction.client.reply(interaction, embed=e)
 
 
-async def dispatch_eu_news(bot, link, date=None, title=None, category=None, desc=None):
+async def dispatch_eu_news(bot, link: str, date=None, title=None, category=None, desc=None):
     """Handle dispatching of news article."""
     # Fetch Image from JS Heavy news page because it looks pretty.
     page = await bot.browser.newPage()
@@ -65,7 +69,7 @@ async def dispatch_eu_news(bot, link, date=None, title=None, category=None, desc
     await ch.send(embed=e)
 
 
-async def parse(bot, url):
+async def parse(bot: Client, url: str):
     """Get Embed from the Dev Blog page"""
     async with bot.session.get(url) as resp:
         tree = html.fromstring(await resp.text())
@@ -186,16 +190,16 @@ async def parse(bot, url):
 
 
 @app_commands.command()
-async def news(interaction: Interaction, link):
+@app_commands.describe(link="Enter the news article link to be parsed")
+async def news(interaction: Interaction, link: str) -> None:
     """Manual refresh of missed news articles."""
     if interaction.user.id != interaction.client.owner_id:
         return await interaction.client.error(interaction, "You do not own this bot.")
-
     await dispatch_eu_news(interaction.client, link)
     await interaction.client.reply(interaction, content="Sent.", delete_after=1)
 
 
-PZRGUILD = Object(id=742372603813036082)
+PZRGUILD: Object = Object(id=742372603813036082)
 
 
 class RSS(commands.Cog):
@@ -205,9 +209,9 @@ class RSS(commands.Cog):
         self.bot = bot
         self.bot.eu_news = self.eu_news.start()
         self.bot.dev_blog = self.blog_loop.start()
-        self.cache = []
-        self.news_cached = False
-        self.dev_blog_cached = False
+        self.bot.blog_cache = []
+        self.bot.news_cached = False
+        self.bot.dev_blog_cached = False
         self.bot.tree.add_command(news, guild=PZRGUILD)
         self.bot.tree.add_command(dev_blog, guild=PZRGUILD)
 
@@ -225,11 +229,11 @@ class RSS(commands.Cog):
         articles = tree.xpath('.//item')
         for i in articles:
             link = "".join(i.xpath('.//guid/text()'))
-            if link in self.cache:
+            if link in self.bot.blog_cache:
                 continue
 
-            self.cache.append(link)
-            if not self.news_cached:
+            self.bot.blog_cache.append(link)
+            if not self.bot.news_cached:
                 continue  # Skip on population
 
             date = "".join(i.xpath('.//pubdate/text()'))
@@ -237,7 +241,7 @@ class RSS(commands.Cog):
             desc = " ".join("".join(i.xpath('.//description/text()')).split()).replace(' ]]>', '')
             title = "".join(i.xpath('.//title/text()'))
             await dispatch_eu_news(self.bot, link, date=date, title=title, desc=desc, category=category)
-        self.news_cached = True
+        self.bot.news_cached = True
 
     @tasks.loop(seconds=60)
     async def blog_loop(self):
@@ -250,24 +254,24 @@ class RSS(commands.Cog):
             link = "".join(i.xpath('.//guid/text()'))
 
             try:
-                if link in self.cache:
+                if link in self.bot.blog_cache:
                     continue
             except AttributeError:
-                self.cache = []
+                self.bot.blog_cache = []
 
-            self.cache.append(link)
+            self.bot.blog_cache.append(link)
 
             if ".ru" in link:
                 continue
 
-            if not self.dev_blog_cached:
+            if not self.bot.dev_blog_cached:
                 continue  # Skip on population
 
-            e = await self.parse(link)
+            e = await parse(self.bot, link)
 
             ch = self.bot.get_channel(DEV_BLOG_CHANNEL)
             await ch.send(embed=e)
-        self.dev_blog_cached = True
+        self.bot.dev_blog_cached = True
 
 
 def setup(bot):

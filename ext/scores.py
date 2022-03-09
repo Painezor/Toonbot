@@ -7,11 +7,13 @@ from typing import List, Tuple, Optional
 
 from asyncpg import UniqueViolationError, ForeignKeyViolationError
 from discord import ButtonStyle, Interaction, Colour, Embed, NotFound, HTTPException, PermissionOverwrite, Forbidden, \
-    app_commands, Message
+    app_commands, Message, TextChannel
 from discord.ext import commands, tasks
 from discord.ui import Button, Select, View
 # Web Scraping
-from lxml import html
+from lxml import html, etree
+from lxml.etree import ParserError
+from pyppeteer.errors import ElementHandleError
 
 from ext.utils import football, embed_utils, view_utils
 from ext.utils.football import Team, GameTime, Fixture, Competition
@@ -224,8 +226,8 @@ class LiveScores(app_commands.Group):
         await ConfigView(interaction).update(content=f"Fetching config for {interaction.channel.mention}...")
 
     @app_commands.command()
-    @app_commands.describe(channel="Enter a name for the channel")
-    async def create(self, interaction: Interaction, channel_name: Optional[str] = "live-scores"):
+    @app_commands.describe(name="Enter a name for the channel")
+    async def create(self, interaction: Interaction, name: Optional[str]):
         """Create a live-scores channel for your server."""
         if interaction.guild is None:
             return await interaction.client.error(interaction, "This command cannot be ran in DMs")
@@ -234,7 +236,7 @@ class LiveScores(app_commands.Group):
             err = "You need manage_channels permissions to create a scores channel."
             return await interaction.client.error(interaction, err)
 
-        if not interaction.channel.permissions_for(interaction.channel.guild.me).manage_channels:
+        if not interaction.channel.permissions_for(interaction.guild.me).manage_channels:
             err = "I need manage_channels permissions to create a scores channel."
             return await interaction.client.error(interaction, err)
 
@@ -242,14 +244,15 @@ class LiveScores(app_commands.Group):
         topic = "Live Scores from around the world"
 
         try:
-            channel = await interaction.guild.create_text_channel(name=channel_name, reason=reason, topic=topic)
+            name = "live-scores" if name is None else name
+            channel = await interaction.guild.create_text_channel(name=name, reason=reason, topic=topic)
         except Forbidden:
             return await interaction.client.error(interaction, 'I need manage_channels permissions to make a channel.')
 
-        if interaction.channel.permissions_for(interaction.channel.guild.me).manage_roles:
+        if interaction.channel.permissions_for(interaction.guild.me).manage_roles:
             ow = {
-                interaction.channel.guild.me: PermissionOverwrite(send_messages=True, manage_messages=True,
-                                                                  read_message_history=True),
+                interaction.guild.me: PermissionOverwrite(send_messages=True, manage_messages=True,
+                                                          read_message_history=True),
                 interaction.guild.default_role: PermissionOverwrite(read_messages=True, send_messages=False)}
             try:
                 channel = await channel.edit(overwrites=ow)
@@ -399,43 +402,68 @@ async def get_cache(bot):
     return cache
 
 
-async def update_channel(bot, channel_id, cache):
+async def update_channel(bot, channel_id: int, cache: dict):
     """Edit a live-score channel to have the latest scores"""
-    if bot.get_channel(channel_id) is None:
+    if not bot.is_ready():
+        return  # on_ready takes a long time, and we're spam reloading rn.
+
+    channel: TextChannel = bot.get_channel(channel_id)
+    if channel is None:
         return
 
     # Does league exist in both whitelist and found games.
     guild_embeds: List[Embed] = [bot.scores_embeds[lg] for lg in bot.scores_embeds.keys() & cache[channel_id]]
 
-    new_pages: List[List[Embed]] = []
-    embeds: List[Embed] = []
+    # Type Hinting for loop
+    messages: List[Message]
+    replacement_list: List[Tuple[Message, List[Embed]]] = []
+    old_embeds_paged: List[List[Embed]]  # This is a paged list of Embeds
+    new_embeds_paged: List[List[Embed]] = []
+    old_embeds: List[Embed]
+    new_embeds: List[Embed] = []
+    embed_new: Embed
+    embed_old: Embed
     length: int = 0
     count: int = 1
+
+    # Paginate into maxsize 6000 / max number 10 chunks.
     for x in guild_embeds:
-        if len(x) < 6000 and count < 10:
-            count += 1
+        if length + len(x) < 6000 and count < 10:
             length += len(x)
-            embeds.append(x)
+            count += 1
+            new_embeds.append(x)
         else:
-            new_pages.append(embeds)
-            embeds = [x]
+            new_embeds_paged.append(new_embeds)
+            new_embeds = [x]
             length = len(x)
             count = 1
-    new_pages.append(embeds)
+    new_embeds_paged.append(new_embeds)
 
-    if not new_pages:
-        new_pages = [[Embed(description=NO_GAMES_FOUND)]]
+    if not new_embeds_paged:
+        new_embeds_paged = [[Embed(description=NO_GAMES_FOUND)]]
 
-    old: List[Tuple[Message, List[Embed]]] = bot.scores_messages[channel_id]
+    # Unpack Lists to Variables.
+    messages, old_embeds_paged = zip(bot.scores_messages[channel_id])
+    for message, old_embeds, new_embeds in zip_longest(messages, old_embeds_paged, new_embeds_paged):
+        if message is None:  # No message exists in cache, or we need an additional message.
+            try:
+                try:
+                    await channel.purge()
+                except Forbidden:
+                    pass
+                message = await channel.send(embeds=new_embeds)
+            except HTTPException:
+                continue
 
-    replacement_list: list = []
-    for old_tuple, new_embeds in zip_longest(old, new_pages):
-        message, old_embeds = old_tuple[0], old_tuple[1]
+            replacement_list.append((message, new_embeds))
+            continue
+
         # We now have a Message, a list of old_embeds, and a list of new_embeds
+
         for embed_new, embed_old in zip_longest(old_embeds, new_embeds):
             try:
                 assert hasattr(embed_old, "description")
-                assert embed_new.description == embed_new.old.description
+                assert embed_new.description == embed_old.description
             except AttributeError:
                 break  # Message needs to be edited.
         else:
@@ -462,17 +490,18 @@ class Scores(commands.Cog, name="LiveScores"):
             self.bot.games = dict()
 
         if not hasattr(self.bot, "fs_games"):
-            self.bot.fs_games = defaultdict(dict)
+            self.bot.fs_games = dict()
 
         self.bot.scores_embeds = {}  # for fast refresh
         if not hasattr(bot, "scores_messages"):
             self.bot.scores_messages = defaultdict(list)
 
-        self.bot.tree.add_command(LiveScores())
+        # Hackjob done in core for reloading, remove later.
+        # self.bot.tree.add_command(LiveScores())
 
-        # Core loop.
+        # Score loops.
         self.bot.score_loop = self.score_loop.start()
-        self.bot.fs_score_loop = self.score_loop.start()
+        self.bot.fs_score_loop = self.fs_score_loop.start()
 
     def cog_unload(self):
         """Cancel the live scores loop when cog is unloaded."""
@@ -492,11 +521,15 @@ class Scores(commands.Cog, name="LiveScores"):
         cache = await get_cache(self.bot)
         await self.fetch_games()
 
-        embeds = dict()
+        print(f"Scores mobi: found {len(self.bot.games)} games")
+
+        embeds: dict = {}
         g = self.bot.games.values()
-        for lg in set([str(i.competition) for i in g]):
-            e = Embed(title=lg)
-            e.description = "\n".join([i.live_score_text for i in g if str(i.competition) == lg])
+
+        lg: Competition
+        for lg in set(i.competition for i in g):
+            e = await lg.base_embed
+            e.description = "\n".join([i.live_score_text for i in g if str(i.competition) == str(lg)])
             embeds[lg] = e
 
         self.bot.scores_embeds = embeds
@@ -504,14 +537,9 @@ class Scores(commands.Cog, name="LiveScores"):
         # Iterate: Check vs each server's individual config settings
         # Every 5 minutes
         if self.iterations % 5 == 0:
-            for i in cache:  # Error if dict changes sizes during iteration.
-                self.bot.loop.create_task(update_channel(self.bot, i, cache))
+            for i in cache.copy():  # Error if dict changes sizes during iteration.
+                await update_channel(self.bot, i, cache)
         self.iterations += 1
-
-    @score_loop.before_loop
-    async def before_score_loop(self):
-        """Updates Cache at the start of a score loop"""
-        await self.bot.wait_until_ready()
 
     async def get_games(self):
         """Grab current scores from flashscore using Pyppeteer"""
@@ -523,19 +551,24 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.page.goto("http://www.flashscore.co.uk/")
 
         show_more = await self.page.xpath("//div[contains(@title, 'Display all matches')]")
-        print(len(show_more), "show more fields found.")
+        print(len(show_more), "show more fields nodes.")
         for x in show_more:
             print("Debug, clicked on a show_more element")
-            await x.click()
+            try:
+                await x.click()
+            except ElementHandleError:
+                break
 
         tree = html.fromstring(await self.page.content())
 
-        competition = Competition()
-        for row in tree.xpath('.//div[@id="live_table"]/div[@class="sportName soccer"]/div'):
+        rows = tree.xpath('.//div[@class="sportName soccer"]/div')
+        print(f"fs_scores: {len(rows)} found")
+        competition: Competition = Competition()
+        for row in rows:
             # This is a competition Header, update competition Info.
             if "event__header" in row.classes:
-                country = "".join(row.xpath('.//span[@class="event__title-type"]/text()'))
-                lg = "".join(row.xpath('.//span[@class="event__title-name"]/text()'))
+                country = "".join(row.xpath('.//span[@class="event__title--type"]/text()'))
+                lg = "".join(row.xpath('.//span[@class="event__title--name"]/text()'))
                 print(f"[DEBUG]: scores get_games country [{country}] league [{lg}]")
                 competition = Competition(name=lg, country=country)
                 continue
@@ -543,63 +576,58 @@ class Scores(commands.Cog, name="LiveScores"):
             # Fetch the Basic required Info to create our Fixture object.
 
             fixture_id = row.get("id").split('_')[-1]
-            url = "http://www.flashscore.com/" + fixture_id
+            url = "http://www.flashscore.com/match/" + fixture_id
 
             # Get index of existing fixture, or create new one.
-            try:
-                fx = self.bot.fs_games.pop([f for f in self.bot.fs_games if url == f.url][0])
-            except IndexError:
+            if url not in self.bot.fs_games:
                 home = "".join(row.xpath('.//div[contains(@class, "participant--home")]//text()'))
                 away = "".join(row.xpath('.//div[contains(@class, "participant--away")]//text()'))
                 print(f"[DEBUG]: scores get_games fixture_id [{fixture_id}] [{home}] vs [{away}]")
-                fx = Fixture(home=Team(name=home), away=Team(name=away))
-                fx.competition = competition
+                self.bot.fs_games[url] = Fixture(home=Team(name=home), away=Team(name=away), competition=competition)
 
             # Get scores & dispatch goals.
             try:
-                sh = row.xpath('.//div[contains(@class, "score--home")]/text()')[0]
-                if sh != fx.score_home:
-                    event = "goal" if sh > fx.score_home else "var_goal"
+                sh = str(row.xpath('.//div[contains(@class, "score--home")]/text()')[0])
+                if sh != self.bot.fs_games[url].score_home:
+                    event = "goal" if sh > self.bot.fs_games[url].score_home else "var_goal"
                     # self.bot.dispatch("fixture_event", event_type, fx)
                     print("DEBUG: pretending to fire fixture_event", event)
-                    fx.score_home = sh
+                    self.bot.fs_games[url].score_home = sh
             except (IndexError, ValueError):
                 pass
 
             try:
-                sa = row.xpath('.//div[contains(@class, "score--away")]/text()')[0]
-                if sa != fx.score_away:
-                    event = "goal" if sa > fx.score_away else "var_goal"
+                sa = str(row.xpath('.//div[contains(@class, "score--away")]/text()')[0])
+                if sa != self.bot.fs_games[url].score_away:
+                    event = "goal" if sa > self.bot.fs_games[url].score_away else "var_goal"
                     # self.bot.dispatch("fixture_event", event_type, fx, home=False)
                     print("DEBUG: pretending to fire fixture_event", event)
-                    fx.score_away = sa
+                    self.bot.fs_games[url].score_away = sa
             except (IndexError, ValueError):
                 pass
 
             time = "".join(row.xpath('.//div[@class="event__stage--block"]'))
-            fx.time = GameTime(time, fixture=fx)
+            self.bot.fs_games[url].time = GameTime(time, fixture=self.bot.fs_games[url])
 
             # Set Red Cards
-            fx.cards_home = len(row.xpath('.//div[contains(@class, "participant--home")]//svg'))
-            fx.cards_away = len(row.xpath('.//div[contains(@class, "participant--away")]//svg'))
-
-            self.bot.fs_games.append(fx)
+            self.bot.fs_games[url].home_cards = len(row.xpath('.//div[contains(@class, "participant--home")]//svg'))
+            self.bot.fs_games[url].away_cards = len(row.xpath('.//div[contains(@class, "participant--away")]//svg'))
             print("Ending get_games iteration")
-            return self.bot.fs_games
+        return self.bot.fs_games
 
     async def fetch_games(self):
         """Grab current scores from flashscore using aiohttp"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             if resp.status != 200:
                 print(f'{datetime.datetime.utcnow()} | Scores error {resp.status} ({resp.reason}) during fetch_games')
-                return self.games
+                return self.bot.games
             tree = html.fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
         elements = tree.xpath('.//div[@id="score-data"]/* | .//div[@id="score-data"]/text()')
 
-        home_cards = 0
-        away_cards = 0
-        score_home = None
-        score_away = None
+        c_home = None
+        c_away = None
+        s_home = None
+        s_away = None
         url = None
         time = None
         day = datetime.datetime.now().day
@@ -607,6 +635,47 @@ class Scores(commands.Cog, name="LiveScores"):
         capture_group = []
 
         competition = Competition(country=None, name=None)
+
+        # Alt Version
+        inner_html = tree.xpath('.//div[@id="score-data"]')[0]
+        byt: bytes = etree.tostring(inner_html)
+        string: str = byt.decode('utf8')
+        chunks = str(string).split('<br/>')
+
+        for chunk in chunks:
+            fx: Fixture = Fixture()
+            try:
+                tree = html.fromstring(chunk)
+            except ParserError:  # Document is empty because of trailing </div>
+                continue
+
+            teams = [i.strip() for i in tree.xpath('./text()') if i.strip()]
+            cards = tree.xpath('./img/@class')
+            if cards:
+                print(f"Mobi rewrite: cards: {cards}")
+                print(f"Mobi rewrite: teams: {teams}")
+            elif len(teams) != 1:
+                print()
+
+            # Check if chunk has header row:
+            header = "".join(tree.xpath('.//h4/text()'))
+            if header:
+                country, name = header.split(':', 1)
+                competition = Competition(country=country.strip(), name=name.strip())
+            fx.competition = competition
+            fx.url = "http://www.flashscore.com" + "".join(tree.xpath('.//a/@href'))
+            # print(f"mobi rewrite: link: {fx.url}")
+            # Score strings
+            score_line = "".join(tree.xpath('.//a/text()')).split(':')
+
+            try:
+                h, a = score_line
+                fx.score_home = None if h == "-" else int(h)
+                fx.score_away = None if a == "-" else int(a)
+            except IndexError:
+                print(f"Could not split {score_line} into h, a")
+            except ValueError:
+                print(f"Could not convert {score_line} into ints")
 
         for i in elements:
             try:
@@ -626,21 +695,21 @@ class Scores(commands.Cog, name="LiveScores"):
                 url = i.attrib['href']
                 url = url.split('/?')[0].strip('/')  # Trim weird shit that causes duplicates.
                 url = "http://www.flashscore.com/" + url
-                score_home, score_away = i.text.split(':')
+                s_home, s_away = i.text.split(':')
                 if not state:
                     state = i.attrib['class'].lower()
-                if score_away.endswith('aet'):
-                    score_away = score_away.replace('aet', "").strip()
+                if s_away.endswith('aet'):
+                    s_away = s_away.replace('aet', "").strip()
                     state = "after extra time"
-                elif score_away.endswith('pen'):
-                    score_away = score_away.replace('pen', "").strip()
+                elif s_away.endswith('pen'):
+                    s_away = s_away.replace('pen', "").strip()
                     state = "after pens"
 
                 try:
-                    score_home = int(score_home)
-                    score_away = int(score_away)
+                    s_home = int(s_home)
+                    s_away = int(s_away)
                 except ValueError:
-                    score_home, score_away = 0, 0
+                    s_home, s_away = None, None
 
             elif tag == "span":
                 # Sub-span containing postponed data.
@@ -673,9 +742,9 @@ class Scores(commands.Cog, name="LiveScores"):
                 if "rcard" in i.attrib['class']:
                     cards = int("".join([i for i in i.attrib['class'] if i.isdecimal()]))
                     if " - " in "".join(capture_group):
-                        away_cards = cards
+                        c_away = cards
                     else:
-                        home_cards = cards
+                        c_home = cards
                 else:
                     print(f"Live scores loop / Unhandled class for {i.home} vs {i.away} {i.attrib['class']}")
 
@@ -693,25 +762,27 @@ class Scores(commands.Cog, name="LiveScores"):
                     state = "ht"
 
                 # If we are refreshing, create a new object and append it.
-                if url not in self.bot.games[competition.link]:
-                    fx = Fixture(time=time, home=home, away=away, url=url, competition=competition, expires=day)
+                if url not in self.bot.games:
+                    fx = Fixture(home=home, score_home=s_home, expires=day, competition=competition, state=state,
+                                 url=url, away=away, score_away=s_away, home_cards=c_home, away_cards=c_away)
                     fx.time = GameTime(time, fixture=fx)
-                    fx.state = state
                     self.bot.games[url] = fx
                 else:
                     # Otherwise, update the existing one and spool out notifications.
                     # Update all changed values.
                     self.bot.games[url].update_state(self.bot, state)
-                    self.bot.games[url].set_cards(self.bot, home_cards)
-                    self.bot.games[url].set_cards(self.bot, away_cards, home=False)
-                    self.bot.games[url].set_score(self.bot, score_home)
-                    self.bot.games[url].set_score(self.bot, score_away, home=False)
+                    self.bot.games[url].set_cards(self.bot, c_home)
+                    self.bot.games[url].set_cards(self.bot, c_away, home=False)
+                    self.bot.games[url].set_score(self.bot, s_home)
+                    self.bot.games[url].set_score(self.bot, s_away, home=False)
                     self.bot.games[url].time = GameTime(time, fixture=self.bot.games[url])
                     self.bot.games[url].state = state
 
                 # Clear attributes
-                home_cards = 0
-                away_cards = 0
+                c_home = None
+                c_away = None
+                s_home = None
+                s_away = None
                 state = None
                 capture_group = []
 

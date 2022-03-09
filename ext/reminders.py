@@ -25,10 +25,10 @@ async def spool_reminder(bot, r: asyncpg.Record):
 
 class RemindModal(Modal):
     """A Modal Dialogue asking the user to enter a time & message for their reminder."""
-    months = TextInput(label="Number of months", value=0, placeholder=1, max_length=2, required=False)
-    days = TextInput(label="Number of days", value=0, placeholder=0, max_length=2, required=False)
-    hours = TextInput(label="Number of hours", value=0, placeholder=0, max_length=2, required=False)
-    minutes = TextInput(label="Number of minutes", value=0, placeholder=0, max_length=2, required=False)
+    months = TextInput(label="Number of months", default="0", placeholder="1", max_length=2, required=False)
+    days = TextInput(label="Number of days", default="0", placeholder="1", max_length=2, required=False)
+    hours = TextInput(label="Number of hours", default="0", placeholder="1", max_length=2, required=False)
+    minutes = TextInput(label="Number of minutes", default="0", placeholder="1", max_length=2, required=False)
     description = TextInput(label="Reminder Description", placeholder="Remind me about...", style=TextStyle.paragraph)
 
     def __init__(self, title: str, message: Message = None):
@@ -38,12 +38,18 @@ class RemindModal(Modal):
 
     async def on_submit(self, interaction: Interaction):
         """Insert entry to the database when the form is submitted"""
-        months = int(self.months) if self.months.isdigit() else 0
-        days = int(self.days) if self.days.isdigit() else 0
-        hours = int(self.hours) if self.hours.isdigit() else 0
-        minutes = int(self.minutes) if self.minutes.isdigit() else 0
 
-        delta = relativedelta(minutes=minutes, hours=hours, days=days, months=months)
+        def get_value(value):
+            """Convert to number"""
+            try:
+                return int(str(value))
+            except ValueError:
+                return 0
+
+        hours = get_value(self.hours)
+        minutes = get_value(self.minutes)
+
+        delta = relativedelta(minutes=minutes, hours=hours, days=get_value(self.days), months=get_value(self.months))
 
         remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
         connection = await interaction.client.db.acquire()

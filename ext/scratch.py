@@ -5,7 +5,7 @@
 # class DiceRoller(discord.ui.View):
 #     """A View to handle dice rolling"""
 #
-#     def __init__(self, ctx):
+#     def __init__(self, interaction):
 #         self.ctx = ctx
 #         self.message = None
 #         super().__init__()
@@ -33,7 +33,7 @@
 #
 #     async def interaction_check(self, interaction: discord.Interaction) -> bool:
 #         """Verify clicker is owner of interaction"""
-#         return self.ctx.author.id == interaction.user.id
+#         return self.interaction.user.id == interaction.user.id
 #
 #
 # class DiceButton(discord.ui.Button):
@@ -53,25 +53,26 @@
 #         await self.view.update()
 #
 #     @commands.command(aliases=['dice', 'tray'])
-#     @commands.is_owner()
-#     async def dice_tray(self, ctx):
+#     async def dice_tray(self, interaction):
 #         """Roll dice with clicky buttons"""
+#         if interaction.user.id != self.bot.owner_id:
+#             return await interaction.client.error(interaction, "You do not own this bot.")
 #         view = DiceRoller(ctx)
 #         for num, x in enumerate([4, 6, 8, 10, 12, 20]):
 #             row = num // 5
 #             view.add_item(DiceButton(x, row=row))
 #         view.add_item(StopButton(row=2))
 #
-#         view.message = await ctx.reply(content="Generating Dice Tray...", view=view)
+#         view.message = await interaction.client.reply(interaction, content="Generating Dice Tray...", view=view)
 #         await view.update()
 #
 #     # OLD PICK_CHANNELS FROM TICKER.PY
-#     async def _pick_channels(self, ctx, channels):
+#     async def _pick_channels(self, interaction: Interaction,channels):
 #         # Assure guild has goal ticker channel.
 #         channels = [channels] if isinstance(channels, discord.TextChannel) else channels
 #
-#         if ctx.guild.id not in [i[0] for i in self.cache]:
-#             await ctx.reply(content=f'{ctx.guild.name} does not have any tickers.')
+#         if interaction.guild.id not in [i[0] for i in self.cache]:
+#             await interaction.client.reply(interaction, content=f'{interaction.guild.name} does not have any tickers.')
 #             channels = []
 #
 #         if channels:
@@ -79,13 +80,13 @@
 #             checked = []
 #             for i in channels:
 #                 if i.id not in [c[1] for c in self.cache]:
-#                     await ctx.reply(content=f"{i.mention} does not have any tickers.")
+#                     await interaction.client.reply(interaction, content=f"{i.mention} does not have any tickers.")
 #                 else:
 #                     checked.append(i)
 #             channels = checked
 #
 #         if not channels:
-#             channels = [self.bot.get_channel(i[1]) for i in self.cache if i[0] == ctx.guild.id]
+#             channels = [self.bot.get_channel(i[1]) for i in self.cache if i[0] == interaction.guild.id]
 #             # Filter out NoneTypes caused by deleted channels.
 #             channels = [i for i in channels if i is not None]
 #

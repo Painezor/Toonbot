@@ -253,7 +253,7 @@ async def mbemba(interaction):
     await MbembaView(interaction).update()
 
 
-@app_commands.command(guild_ids=[332159889587699712])
+@app_commands.command()
 @app_commands.describe(hex_code="Enter a colour #hexcode")
 async def colour(interaction: Interaction, hex_code: str):
     """Gives you a colour"""
@@ -353,11 +353,6 @@ class NUFC(commands.Cog):
         self.bot.tree.add_command(gherkin, guild=NUFCGuild)
         self.bot.tree.add_command(radio, guild=NUFCGuild)
         self.bot.tree.add_command(roulette, guild=NUFCGuild)
-        self.bot.loop.create_task(self.sync)
-
-    async def sync(self):
-        """Sync NUFC commands"""
-        await self.bot.tree.sync(guild=NUFCGuild)
 
 
 def setup(bot):

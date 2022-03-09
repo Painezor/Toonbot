@@ -4,7 +4,7 @@ import typing
 from typing import Iterable, List, Callable, Tuple
 
 from discord import Interaction, ButtonStyle, SelectOption, HTTPException, NotFound, Embed, Colour
-from discord.ui import Button, Select, Modal, View, InputText
+from discord.ui import Button, Select, Modal, View, TextInput
 
 
 class FirstButton(Button):
@@ -128,17 +128,17 @@ class PageSelect(Select):
 
 class JumpModal(Modal):
     """Type page number in box, set index to that page."""
+    page = TextInput(label="Enter a page number")
 
     def __init__(self, view, title="Jump to page"):
         super().__init__(title=title)
         self.view = view
+        self.page.placeholder = f"0 - {len(self.view.pages)}"
 
-        self.add_item(InputText(label="Enter page number to jump to"))
-
-    async def callback(self, interaction):
+    async def on_submit(self, interaction):
         """Validate entered data & set parent index."""
         try:
-            _ = self.view.pages[int(self.children[0].value)]
+            _ = self.view.pages[int(str(self.page))]
         except ValueError:  # User did not enter a number.
             await self.view.update(content="Invalid page selected.")
         except IndexError:  # Number was out of range.

@@ -29,7 +29,7 @@ class Streams(app_commands.Group):
     """Stream list for your server"""
 
     @app_commands.command()
-    async def list(self, interaction):
+    async def list(self, interaction: Interaction):
         """List all streams for the match added by users."""
         if interaction.guild is None:
             return await interaction.client.error(interaction, "This command cannot be used in DMs")
@@ -74,7 +74,7 @@ class Streams(app_commands.Group):
         await interaction.client.reply(interaction, content=f"{interaction.guild.name} stream list cleared.")
 
     @app_commands.command()
-    @app_commands.auto_complete(stream=streams)
+    @app_commands.autocomplete(stream=streams)
     async def delete(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""
         if interaction.guild is None:
@@ -107,7 +107,7 @@ class GuildStreams(commands.Cog):
         self.bot = bot
         if not hasattr(self.bot, "streams"):
             self.bot.streams = defaultdict(list)
-        self.bot.tree.add_command(Streams)
+        self.bot.tree.add_command(Streams())
 
 
 def setup(bot):

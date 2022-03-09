@@ -1,13 +1,12 @@
 """Administration commands for Painezor, including logging, debugging, and loading of modules"""
 import datetime
-import glob
 import inspect
 import sys
 from os import system
-from typing import Optional, Literal, List
+from typing import Optional
 
-from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, Object, app_commands
-from discord.commands import Option
+from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, Object, app_commands, Message
+from discord.app_commands import Choice
 from discord.ext import commands
 from discord.ui import View, Button
 
@@ -17,17 +16,19 @@ NO_SLASH_COMM = ("Due to changes with discord, Toonbot will soon be unable to pa
                  "All commands have been moved to use the new /slashcommands system, bots must be re-invited to servers"
                  " with a new scope to use them. Use the link below to re-invite me. All old prefixes are disabled.")
 
-TB_GUILD = Object(id=250252535699341312)
+TB_GUILD: Object = Object(id=250252535699341312)
+NUFCGuild: Object = Object(id=332159889587699712)
+PZRGUILD: Object = Object(id=742372603813036082)
 
 
 class EditBot(app_commands.Group):
     """Set the status of the bot"""
 
     @app_commands.command()
-    @app_commands.describe(attachment='The file to upload', link="Provide a link")
-    async def avatar(self, interaction: Interaction, attachment: Optional[Attachment], link: Optional[str]):
+    @app_commands.describe(file='The file to upload', link="Provide a link")
+    async def avatar(self, interaction: Interaction, file: Optional[Attachment] = None, link: Optional[str] = None):
         """Change the avatar of the bot"""
-        avatar = attachment if attachment else link
+        avatar = file if file else link
 
         if avatar is None:
             return await interaction.client.error(interaction, "You need to provide either a link or an attachment.")
@@ -46,22 +47,26 @@ class EditBot(app_commands.Group):
     status = app_commands.Group(name="status", description="Set bot activity")
 
     @status.command()
+    @app_commands.describe(status="What game is the bot playing")
     async def playing(self, interaction: Interaction, status: str):
         """Set bot status to playing {status}"""
         await update_presence(interaction, Activity(type=0, name=status))
 
     @status.command()
-    async def streaming(self, interaction: Interaction, status: Option(str, description="Set the new status")):
+    @app_commands.describe(status="What is the bot streaming")
+    async def streaming(self, interaction: Interaction, status: str):
         """Change status to streaming {status}"""
         await update_presence(interaction, Activity(type=1, name=status))
 
     @status.command()
-    async def watching(self, interaction: Interaction, status: Option(str, description="Set the new status")):
+    @app_commands.describe(status="What is the bot watching")
+    async def watching(self, interaction: Interaction, status: str):
         """Change status to watching {status}"""
         await update_presence(interaction, Activity(type=2, name=status))
 
     @status.command()
-    async def listening(self, interaction: Interaction, status: Option(str, description="Set the new status")):
+    @app_commands.describe(status="What is the bot listening to")
+    async def listening(self, interaction: Interaction, status: str):
         """Change status to listening to {status}"""
         await update_presence(interaction, Activity(type=3, name=status))
 
@@ -77,26 +82,36 @@ async def update_presence(interaction: Interaction, act: Activity):
     await interaction.client.reply(interaction, embed=e)
 
 
-class Modules(app_commands.Group):
+# TODO: Autocomplete for cogs.
+
+MODULES = ['errors', 'session',
+           'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv', 'logs', 'lookup', 'mod',
+           'nufc', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
+           'testing'
+           ]
+
+
+class Cogs(app_commands.Group):
     """Atomic reloading of cogs"""
-    files: List[str] = glob.glob("/ext/*.py")
-    COGS = Literal[files]
+
+    choices = [Choice(name=i, value=i) for i in MODULES]
 
     @app_commands.command()
     @app_commands.describe(cog="pick a cog to reload")
-    async def reload(self, interaction: Interaction, cog: COGS):
+    @app_commands.choices(cog=choices)
+    async def reload(self, interaction: Interaction, cog: str):
         """Reloads a module."""
         try:
             interaction.client.reload_extension(f'ext.{cog}')
         except Exception as err:
-            return await interaction.client.error(error_messasge=codeblocks.error_to_codeblock(err))
+            return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
         e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Reloaded {cog}')
-        await interaction.client.tree.sync(interaction.client)
         return await interaction.client.reply(interaction, embed=e)
 
     @app_commands.command()
     @app_commands.describe(cog="pick a cog to load")
-    async def load(self, interaction: Interaction, cog: COGS):
+    @app_commands.choices(cog=choices)
+    async def load(self, interaction: Interaction, cog: str):
         """Loads a module."""
         try:
             interaction.client.load_extension('ext.' + cog)
@@ -104,19 +119,18 @@ class Modules(app_commands.Group):
             return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
 
         e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Loaded {cog}')
-        await interaction.client.tree.sync(interaction.client)
         return await interaction.client.reply(interaction, embed=e)
 
-    @app_commands.command(guild_ids=[250252535699341312])
-    async def unload(self, interaction: Interaction, module: COGS):
+    @app_commands.command()
+    @app_commands.choices(cog=choices)
+    async def unload(self, interaction: Interaction, cog: str):
         """Unloads a module."""
         try:
-            interaction.client.unload_extension('ext.' + module)
+            interaction.client.unload_extension('ext.' + cog)
         except Exception as err:
             return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
 
-        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Unloaded {module}')
-        await interaction.client.tree.sync(interaction.client)
+        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Unloaded {cog}')
         return await interaction.client.reply(interaction, embed=e)
 
     @app_commands.command()
@@ -128,9 +142,9 @@ class Modules(app_commands.Group):
 
 
 @app_commands.command(name="print")
-async def _print(interaction: Interaction, *, to_print):
+async def _print(interaction: Interaction, to_print: str):
     """Print something to console."""
-    if interaction.author.id != interaction.client.owner_id:
+    if interaction.user.id != interaction.client.owner_id:
         return await interaction.client.error(interaction, "You do not own this bot.")
 
     print(to_print)
@@ -152,7 +166,7 @@ async def cc(interaction):
     return await interaction.client.reply(interaction, embed=e)
 
 
-@app_commands.command(guild_ids=[250252535699341312], default_permission=False)
+@app_commands.command()
 async def debug(interaction: Interaction, code: str):
     """Evaluates code."""
     if interaction.user.id != interaction.client.owner_id:
@@ -188,31 +202,24 @@ async def notify(interaction: Interaction, notification: str):
     if interaction.user.id != interaction.client.owner_id:
         return await interaction.client.error(interaction, "You do not own this bot.")
 
-    await interaction.client.dispatch("bot_notification", notification)
+    interaction.client.dispatch("bot_notification", notification)
     e = Embed(title="Bot notification dispatched", description=notification)
     e.set_thumbnail(url=interaction.client.user.avatar.url)
     await interaction.client.reply(interaction, embed=e)
 
 
+cmd = [_print, cc, debug, Cogs(), EditBot(), notify]
+
+
 class Admin(commands.Cog):
     """Code debug & loading of modules"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
-        self.bot.tree.add_command(_print, guild=TB_GUILD)
-        self.bot.tree.add_command(cc, guild=TB_GUILD)
-        self.bot.tree.add_command(debug, guild=TB_GUILD)
-        self.bot.tree.add_command(Modules(), guild=TB_GUILD)
-        self.bot.tree.add_command(EditBot(), guild=TB_GUILD)
-        self.bot.tree.add_command(notify, guild=TB_GUILD)
-        self.bot.loop.create_task(self.sync)
+        for x in cmd:
+            self.bot.tree.add_command(x, guild=TB_GUILD)
 
-    async def sync(self):
-        """Synchronise the command list."""
-        await self.bot.tree.sync(TB_GUILD)
-        await self.bot.tree.sync()
-
-    async def on_message(self, message):
+    async def on_message(self, message) -> Message:
         """Slash commands warning system."""
         me = message.channel.me
         if me in message.mentions or message.startswith(".tb"):
@@ -239,3 +246,9 @@ class Admin(commands.Cog):
 def setup(bot):
     """Load the Administration cog into the Bot"""
     bot.add_cog(Admin(bot))
+
+
+def teardown(bot) -> None:
+    """Remove all commands from the tree"""
+    for x in cmd:
+        bot.tree.remove_command(x, guild=TB_GUILD)

@@ -7,8 +7,7 @@ from typing import Optional
 
 import asyncpraw
 from PIL import Image
-from discord import Attachment, Embed, File, app_commands, Object
-from discord.commands import permissions
+from discord import Attachment, Embed, File, app_commands, Object, Interaction
 from discord.ext import commands, tasks
 from lxml import html
 
@@ -44,9 +43,8 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
 
 
 @app_commands.command()
-@permissions.has_role("Subreddit Moderators")
 @app_commands.describe(image="Upload a new sidebar image", caption="Set a new Sidebar Caption")
-async def sidebar(interaction, caption: Optional[str] = None, image: Optional[Attachment] = None):
+async def sidebar(interaction: Interaction, caption: Optional[str] = None, image: Optional[Attachment] = None):
     """Upload an image to the sidebar, or edit the caption."""
 
     if "Subreddit Moderators" not in [i.name for i in interaction.user.roles]:
@@ -270,7 +268,7 @@ class NUFCSidebar(commands.Cog):
     @tasks.loop(hours=6)
     async def sidebar_loop(self):
         """Background task, repeat every 6 hours to update the sidebar"""
-        markdown = await self.make_sidebar()
+        markdown = await make_sidebar(self.bot)
         _ = await self.bot.reddit.subreddit('NUFC')
         _ = await _.wiki.get_page("config/sidebar")
         await _.edit(content=markdown)

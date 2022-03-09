@@ -1,7 +1,7 @@
 """Notify server moderators about specific events"""
 import datetime
 
-from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, app_commands
+from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, app_commands, Member
 from discord.ext import commands
 from discord.ui import Button, View
 
@@ -265,9 +265,9 @@ class Logs(commands.Cog):
     # Timeout notif
     # Timeout end notif
     @commands.Cog.listener()
-    async def on_member_update(self, before, after):
+    async def on_member_update(self, before: Member, after: Member):
         """Track Timeouts"""
-        if after.timed_out == before.timed_out:
+        if after.is_timed_out() == before.is_timed_out():
             return
 
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == after.guild.id and i['member_timeouts']]
@@ -275,7 +275,7 @@ class Logs(commands.Cog):
         if not channels:
             return
 
-        if not before.timed_out:
+        if not before.is_timed_out():
             e = Embed(title="User Timed Out")
             end_time = after.communication_disabled_until
             diff = end_time - datetime.datetime.now(datetime.timezone.utc)
