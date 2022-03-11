@@ -7,110 +7,6 @@ from discord.ext import commands
 from ext.utils import transfer_tools
 
 
-# TODO: Permissions Pass.
-
-class Lookup(app_commands.Group):
-    """Look a query up on TransferMarkt"""
-
-    @app_commands.command()
-    @app_commands.describe(player_name="search for a player by name")
-    async def player(self, interaction: Interaction, player_name: str):
-        """Search for a player on transfermarkt"""
-        view = transfer_tools.SearchView(interaction, player_name, category="Players")
-        await view.update()
-
-    @app_commands.command()
-    @app_commands.describe(team_name="search for a team by name")
-    async def team(self, interaction: Interaction, team_name: str):
-        """Lookup a team on transfermarkt"""
-        view = transfer_tools.SearchView(interaction, team_name, category="Clubs")
-        await view.update()
-
-    @app_commands.command()
-    @app_commands.describe(name="search for a club official by name")
-    async def staff(self, interaction: Interaction, name: str):
-        """Lookup a manager, trainer, or club official on transfermarkt"""
-        view = transfer_tools.SearchView(interaction, name, category="Managers")
-        await view.update()
-
-    @app_commands.command()
-    @app_commands.describe(name="search for a referee by name")
-    async def referee(self, interaction: Interaction, name: str):
-        """Lookup a referee on transfermarkt"""
-        view = transfer_tools.SearchView(interaction, name, category="Referees")
-        await view.update()
-
-    @app_commands.command()
-    @app_commands.describe(name="search for a competition by name")
-    async def competition(self, interaction: Interaction, name: str):
-        """Lookup a competition on transfermarkt"""
-        view = transfer_tools.SearchView(interaction, name, category="Competitions")
-        await view.update()
-
-    @app_commands.command()
-    @app_commands.describe(name="search for an agent by name")
-    async def agent(self, interaction: Interaction, name: str):
-        """Lookup an agent on transfermarkt"""
-        view = transfer_tools.SearchView(interaction, name, category="Agents")
-        await view.update()
-
-
-@app_commands.command()
-@app_commands.describe(team_name="name of a team")
-async def transfers(interaction: Interaction, team_name: str):
-    """Get this window's transfers for a team on transfermarkt"""
-    view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
-    await view.update()
-
-    if view.value is None:
-        return
-
-    view = view.value.view(interaction)
-    await view.push_transfers()
-
-
-@app_commands.command()
-@app_commands.describe(team_name="name of a team")
-async def rumours(interaction: Interaction, team_name: str):
-    """Get the latest transfer rumours for a team"""
-    view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
-    await view.update()
-
-    if view.value is None:
-        return
-
-    view = view.value.view(interaction)
-    await view.push_rumours()
-
-
-@app_commands.command()
-@app_commands.describe(team_name="name of a team")
-async def contracts(interaction: Interaction, team_name: str):
-    """Get a team's expiring contracts"""
-    view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
-    await view.update()
-
-    if view.value is None:
-        return
-
-    view = view.value.view(interaction)
-    await view.push_contracts()
-
-
-@app_commands.command()
-@app_commands.describe(team_name="name of a team")
-async def trophies(interaction: Interaction, team_name: str):
-    """Get a team's trophy case"""
-    view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
-    await view.update()
-
-    if view.value is None:
-        return
-
-    view = view.value.view(interaction)
-    await view.push_trophies()
-
-
 # TODO: Attendance Command
 @app_commands.command()
 @app_commands.describe(query="league name to search for")
@@ -135,10 +31,103 @@ class Lookups(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.bot.tree.add_command(Lookup())
-        self.bot.tree.add_command(transfers)
-        self.bot.tree.add_command(rumours)
         reload(transfer_tools)
+
+    lookup = app_commands.Group(name="lookup", description="Look a query up on TransferMarkt")
+
+    @lookup.command()
+    @app_commands.describe(player_name="search for a player by name")
+    async def player(self, interaction: Interaction, player_name: str):
+        """Search for a player on transfermarkt"""
+        view = transfer_tools.SearchView(interaction, player_name, category="Players")
+        await view.update()
+
+    @lookup.command()
+    @app_commands.describe(team_name="search for a team by name")
+    async def team(self, interaction: Interaction, team_name: str):
+        """Lookup a team on transfermarkt"""
+        view = transfer_tools.SearchView(interaction, team_name, category="Clubs")
+        await view.update()
+
+    @lookup.command()
+    @app_commands.describe(name="search for a club official by name")
+    async def staff(self, interaction: Interaction, name: str):
+        """Lookup a manager, trainer, or club official on transfermarkt"""
+        view = transfer_tools.SearchView(interaction, name, category="Managers")
+        await view.update()
+
+    @lookup.command()
+    @app_commands.describe(name="search for a referee by name")
+    async def referee(self, interaction: Interaction, name: str):
+        """Lookup a referee on transfermarkt"""
+        view = transfer_tools.SearchView(interaction, name, category="Referees")
+        await view.update()
+
+    @lookup.command()
+    @app_commands.describe(name="search for a competition by name")
+    async def competition(self, interaction: Interaction, name: str):
+        """Lookup a competition on transfermarkt"""
+        view = transfer_tools.SearchView(interaction, name, category="Competitions")
+        await view.update()
+
+    @lookup.command()
+    @app_commands.describe(name="search for an agent by name")
+    async def agent(self, interaction: Interaction, name: str):
+        """Lookup an agent on transfermarkt"""
+        view = transfer_tools.SearchView(interaction, name, category="Agents")
+        await view.update()
+
+    @app_commands.command()
+    @app_commands.describe(team_name="name of a team")
+    async def transfers(self, interaction: Interaction, team_name: str):
+        """Get this window's transfers for a team on transfermarkt"""
+        view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
+        await view.update()
+
+        if view.value is None:
+            return
+
+        view = view.value.view(interaction)
+        await view.push_transfers()
+
+    @app_commands.command()
+    @app_commands.describe(team_name="name of a team")
+    async def rumours(self, interaction: Interaction, team_name: str):
+        """Get the latest transfer rumours for a team"""
+        view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
+        await view.update()
+
+        if view.value is None:
+            return
+
+        view = view.value.view(interaction)
+        await view.push_rumours()
+
+    @app_commands.command()
+    @app_commands.describe(team_name="name of a team")
+    async def contracts(self, interaction: Interaction, team_name: str):
+        """Get a team's expiring contracts"""
+        view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
+        await view.update()
+
+        if view.value is None:
+            return
+
+        view = view.value.view(interaction)
+        await view.push_contracts()
+
+    @app_commands.command()
+    @app_commands.describe(team_name="name of a team")
+    async def trophies(self, interaction: Interaction, team_name: str):
+        """Get a team's trophy case"""
+        view = transfer_tools.SearchView(interaction, team_name, category="Clubs", fetch=True)
+        await view.update()
+
+        if view.value is None:
+            return
+
+        view = view.value.view(interaction)
+        await view.push_trophies()
 
 
 def setup(bot):
