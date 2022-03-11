@@ -296,12 +296,12 @@ class Staff(TransferResult):
 class Transfer:
     """An Object representing a transfer from transfermarkt"""
     link = None
-    player: Player
-    fee: str
-    fee_link: str
-    old_team: Team
-    new_team: Team
-    date: str
+    player: Player = None
+    fee: str = None
+    fee_link: str = None
+    old_team: Team = None
+    new_team: Team = None
+    date: str = None
 
     @property
     def loan_fee(self):

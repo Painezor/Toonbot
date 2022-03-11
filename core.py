@@ -90,6 +90,10 @@ class Bot(commands.Bot, ABC):
         # Streams
         self.streams: Dict[int, List] = defaultdict(list)
 
+        # Transfers
+        self.transfers: Task | None = None
+        self.parsed_transfers: List[str] = []
+
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
         for c in COGS:
