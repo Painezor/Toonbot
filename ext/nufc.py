@@ -1,8 +1,9 @@
 """Commands specific to the r/NUFC discord"""
 import datetime
 import random
+from typing import List
 
-from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, Object, app_commands
+from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, app_commands, Role
 from discord.ext import commands
 from discord.ui import Button, View
 
@@ -226,133 +227,112 @@ class MbembaButton(Button):
         await self.view.update()
 
 
-NUFCGuild = Object(id=332159889587699712)
-
-
-@app_commands.command()
-async def goala(interaction):
-    """Party on Garth"""
-    await interaction.client.reply(interaction, file=embed_utils.make_file(image='Images/goala.gif'))
-
-
-@app_commands.command()
-async def ructions(interaction):
-    """WEW. RUCTIONS."""
-    await interaction.client.reply(interaction, file=embed_utils.make_file(image="Images/ructions.png"))
-
-
-@app_commands.command()
-async def toon_toon(interaction):
-    """Toon. Toon, black & white army"""
-    return await interaction.client.reply(interaction, content="**BLACK AND WHITE ARMY**")
-
-
-@app_commands.command()
-async def mbemba(interaction):
-    """Mbemba When..."""
-    await MbembaView(interaction).update()
-
-
-@app_commands.command()
-@app_commands.describe(hex_code="Enter a colour #hexcode")
-async def colour(interaction: Interaction, hex_code: str):
-    """Gives you a colour"""
-    # Get user's old colours.
-    remove_list = [i for i in interaction.user.roles if i.name.startswith('#')]
-
-    e = Embed(description=f"Your colour has been updated.")
-    hex_code.strip('#')
-    clr = hex_code.replace('0x', "").upper()
-
-    try:
-        d_colo = Colour(int(clr, 16))
-    except ValueError:
-        view = View()
-        btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
-        view.add_item(btn)
-        return await interaction.client.error(interaction, 'Invalid colour.', view=view)
-
-    # Create new role or fetch if already exists.
-    role = utils.get(interaction.guild.roles, name=f"#{colour}")
-    if role is None:
-        role = await interaction.guild.create_role(name=f"#{colour}",
-                                                   reason=f"Colour for {interaction.user}", color=d_colo)
-
-    await interaction.user.add_roles(role, reason="Apply colour role")
-    e.colour = role.color
-
-    # Remove old role.
-    await interaction.user.remove_roles(*remove_list)
-
-    # Cleanup old roles.
-    for i in remove_list:
-        if not i.members:
-            await i.delete()
-
-    await interaction.client.reply(interaction, embed=e, ephemeral=True)
-
-
-@app_commands.command()
-async def shake(interaction):
-    """Well to start off with..."""
-    await interaction.client.reply(interaction, content=SHAKE)
-
-
-@app_commands.command()
-async def gherkin(interaction):
-    """DON'T LET ME GOOOOOO AGAIN"""
-    await interaction.client.reply(interaction, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
-
-
-@app_commands.command()
-async def radio(interaction):
-    """Sends a link to the NUFC radio channel"""
-    await interaction.client.reply(interaction, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
-
-
-@app_commands.command()
-async def uprafa(interaction):
-    """Adds an upvote reaction to the last 10 messages"""
-    async for message in interaction.channel.history(limit=10):
-        await message.add_reaction(":upvote:332196220460072970")
-
-
-@app_commands.command()
-async def downrafa(interaction):
-    """Adds a downvote reaction to the last 10 messages"""
-    async for message in interaction.channel.history(limit=10):
-        await message.add_reaction(":downvote:332196251959427073")
-
-
-@app_commands.command()
-async def roulette(interaction):
-    """Russian Roulette"""
-    x = [False * 5, True]
-    outcome = random.choice(x)
-    if outcome:
-        try:
-            await interaction.client.reply(interaction, embed=Embed(title="Timed out for 1 minute."))
-            await interaction.user.timeout_for(datetime.timedelta(minutes=1), reason="Roulette")
-        except Forbidden:
-            await interaction.client.reply(interaction, content="The bullet bounced off your thick fucking skull.")
-    else:
-        await interaction.client.reply(interaction, content="Click.")
-
-
 class NUFC(commands.Cog):
     """r/NUFC discord commands"""
 
     def __init__(self, bot):
         self.bot = bot
-        self.bot.tree.add_command(goala, guild=NUFCGuild)
-        self.bot.tree.add_command(toon_toon, guild=NUFCGuild)
-        self.bot.tree.add_command(ructions, guild=NUFCGuild)
-        self.bot.tree.add_command(mbemba, guild=NUFCGuild)
-        self.bot.tree.add_command(colour, guild=NUFCGuild)
-        self.bot.tree.add_command(shake, guild=NUFCGuild)
-        self.bot.tree.add_command(gherkin, guild=NUFCGuild)
-        self.bot.tree.add_command(radio, guild=NUFCGuild)
-        self.bot.tree.add_command(roulette, guild=NUFCGuild)
+
+    @app_commands.command()
+    async def mbemba(self, interaction):
+        """Mbemba When..."""
+        await MbembaView(interaction).update()
+
+    @app_commands.command()
+    @app_commands.describe(hex_code="Enter a colour #hexcode")
+    async def colour(self, interaction: Interaction, hex_code: str):
+        """Gives you a colour"""
+        # Get user's old colours.
+        remove_list: List[Role] = [i for i in interaction.user.roles if i.name.startswith('#')]
+
+        e = Embed(description=f"Your colour has been updated.")
+        hex_code.strip('#')
+        clr = hex_code.replace('0x', "").upper()
+
+        try:
+            d_colo = Colour(int(clr, 16))
+        except ValueError:
+            view = View()
+            btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
+            view.add_item(btn)
+            return await interaction.client.error(interaction, 'Invalid colour.', view=view)
+
+        # Create new role or fetch if already exists.
+        role = utils.get(interaction.guild.roles, name=f"#{hex_code}")
+        if role is None:
+            role = await interaction.guild.create_role(name=f"#{hex_code}",
+                                                       reason=f"Colour for {interaction.user}", color=d_colo)
+
+        await interaction.user.add_roles(role, reason="Apply colour role")
+        e.colour = role.color
+
+        # Remove old role.
+        await interaction.user.remove_roles(*remove_list)
+
+        # Cleanup old roles.
+        [await i.delete() for i in remove_list if not i.members]
+        await interaction.client.reply(interaction, embed=e, ephemeral=True)
+
+    @app_commands.command()
+    async def shake(self, interaction):
+        """Well to start off with..."""
+        await self.bot.reply(interaction, content=SHAKE)
+
+    @app_commands.command()
+    async def gherkin(self, interaction):
+        """DON'T LET ME GOOOOOO AGAIN"""
+        await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
+
+    @app_commands.command()
+    async def radio(self, interaction):
+        """Sends a link to the NUFC radio channel"""
+        await self.bot.reply(interaction, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
+
+    @app_commands.command()
+    @app_commands.guilds(332159889587699712)
+    async def downrafa(self, interaction):
+        """Adds a downvote reaction to the last 10 messages"""
+        async for message in interaction.channel.history(limit=10):
+            await message.add_reaction(":downvote:332196251959427073")
+
+    @app_commands.command()
+    @app_commands.guilds(332159889587699712)
+    async def uprafa(self, interaction):
+        """Adds an upvote reaction to the last 10 messages"""
+        async for message in interaction.channel.history(limit=10):
+            await message.add_reaction(":upvote:332196220460072970")
+
+    @app_commands.command()
+    @app_commands.guilds(332159889587699712)
+    async def toon_toon(self, interaction):
+        """Toon. Toon, black & white army"""
+        await self.bot.reply(interaction, content="**BLACK AND WHITE ARMY**")
+
+    @app_commands.command()
+    @app_commands.guilds(332159889587699712)
+    async def goala(self, interaction):
+        """Party on Garth"""
+        await self.bot.reply(interaction, file=embed_utils.make_file(image='Images/goala.gif'))
+
+    @app_commands.command()
+    @app_commands.guilds(332159889587699712)
+    async def ructions(self, interaction: Interaction):
+        """WEW. RUCTIONS."""
+        await self.bot.reply(interaction, file=embed_utils.make_file(image="Images/ructions.png"))
+
+    @app_commands.command()
+    @app_commands.guilds(332159889587699712)
+    async def roulette(self, interaction: Interaction):
+        """Russian Roulette"""
+        x: List[bool] = [False * 5, True]
+        if random.choice(x):
+            try:
+                await self.bot.reply(interaction, embed=Embed(title="Timed out for 1 minute."))
+                await interaction.user.timeout(datetime.timedelta(minutes=1), reason="Roulette")
+            except Forbidden:
+                await self.bot.reply(interaction, content="The bullet bounced off your thick fucking skull.")
+        else:
+            await self.bot.reply(interaction, content="Click.")
 
 
 def setup(bot):
