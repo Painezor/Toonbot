@@ -5,7 +5,7 @@ from typing import Union
 import aiohttp
 import pyppeteer
 from PIL import Image
-from discord import Embed, Colour, Object, app_commands
+from discord import Embed, Colour, app_commands
 from discord.ext import commands
 from pyppeteer.browser import Browser
 from pyppeteer.errors import TimeoutError as _TimeoutError
@@ -57,18 +57,7 @@ async def make_browser(bot) -> Browser:
     return bot.browser
 
 
-@app_commands.command()
-async def kill_browser(interaction):
-    """ Restart browser when you potato."""
-    if interaction.user.id != interaction.client.owner_id:
-        return await interaction.client.error(interaction, "You do not own this bot.")
-
-    await interaction.client.browser.close()
-    await make_browser(interaction.client)
-    e = Embed(description=":gear: Restarting Browser.", colour=Colour.og_blurple())
-    await interaction.client.reply(interaction, embed=e)
-
-
+# TODO: Figure out how to overload this.
 async def fetch(page, url, xpath, screenshot=False, max_retry=3, **kwargs) -> (Union[str, BytesIO] or None):
     """Fetch a webpage's source code or an image"""
     assert url.startswith("http"), f"BROWSER - FETCH: {url} does not appear to be a valid url."
@@ -142,15 +131,26 @@ class Browser(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.loop.create_task(self.spawn_session())
-        if not hasattr(bot, "browser"):
+        if self.bot.browser is None:
             self.bot.loop.create_task(make_browser(self.bot))
-        self.bot.tree.add_command(kill_browser, guild=Object(id=250252535699341312))
+
+    @app_commands.command()
+    @app_commands.guilds(250252535699341312)
+    async def kill_browser(self, interaction):
+        """ Restart browser when you potato."""
+        if interaction.user.id != interaction.client.owner_id:
+            return await interaction.client.error(interaction, "You do not own this bot.")
+        if interaction.client.browser is not None:
+            await interaction.client.browser.close()
+        await make_browser(interaction.client)
+        e = Embed(description=":gear: Restarting Browser.", colour=Colour.og_blurple())
+        await interaction.client.reply(interaction, embed=e)
 
     async def spawn_session(self):
         """Create a ClientSession object and attach to the bot."""
         try:
             await self.bot.session.close()
-        except AttributeError:
+        except TypeError:  # NoneType.
             pass
 
         self.bot.session = aiohttp.ClientSession(loop=self.bot.loop, connector=aiohttp.TCPConnector(ssl=False))
