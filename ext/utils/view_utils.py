@@ -197,7 +197,7 @@ class ObjectSelectView(View):
         e = Embed(colour=Colour.red(), description="Timed out waiting for you to select a match.")
 
         try:
-            await self.message.edit(content="", embed=e, view=None, delete_after=15)
+            await self.message.edit(content="", embed=e, view=None)
         except NotFound:
             pass
         self.stop()
