@@ -74,7 +74,6 @@ class Admin(commands.Cog):
     @cogs.command()
     @app_commands.describe(cog="pick a cog to reload")
     @app_commands.choices(cog=choices)
-    @app_commands.guilds()
     async def reload(self, interaction: Interaction, cog: str):
         """Reloads a module."""
         try:
@@ -142,6 +141,7 @@ class Admin(commands.Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @app_commands.command()
+    @app_commands.describe(code=">>> Code Go Here")
     @app_commands.guilds(250252535699341312)
     async def debug(self, interaction: Interaction, code: str):
         """Evaluates code."""
@@ -161,11 +161,11 @@ class Admin(commands.Cog):
                 result = await result
         except Exception as err:
             result = error_to_codeblock(err)
-        if len(result) < 4000:
+
+        e.description = f"**Input**```py\n>>> {code}```**Output**```py\n{result}```"
+        if len(e.description) > 4000:
+            print(e.description)
             e.description = 'Too long for discord, output sent to console.'
-            print(result)
-        else:
-            e.description = f"**Input**```py\n>>> {code}```**Output**```py\n{result}```"
         await self.bot.reply(interaction, embed=e)
 
     @app_commands.command()
@@ -181,11 +181,10 @@ class Admin(commands.Cog):
         e.set_thumbnail(url=self.bot.user.avatar.url)
         await self.bot.reply(interaction, embed=e)
 
-    edit_bot = app_commands.Group(name="EditBot", description="Edit the bot profile")
+    edit_bot = app_commands.Group(name="editbot", description="Edit the bot profile", guild_ids=[250252535699341312])
 
     @edit_bot.command()
     @app_commands.describe(file='The file to upload', link="Provide a link")
-    @app_commands.guilds(250252535699341312)
     async def avatar(self, interaction: Interaction, file: Optional[Attachment] = None, link: Optional[str] = None):
         """Change the avatar of the bot"""
         avatar = file if file else link
@@ -203,10 +202,8 @@ class Admin(commands.Cog):
         e.set_image(url=new_avatar)
         await self.bot.reply(interaction, embed=e)
 
-        # Presence Commands
-
-    status = app_commands.Group(name="status", description="Set bot activity", parent=edit_bot,
-                                guild_ids=[250252535699341312])
+    # Presence Commands
+    status = app_commands.Group(name="status", description="Set bot activity", parent=edit_bot)
 
     @status.command()
     @app_commands.describe(status="What game is the bot playing")
