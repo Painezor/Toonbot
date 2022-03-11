@@ -27,6 +27,16 @@ class Timestamp:
 		return f"<t:{self.time}:d> (<t:{self.time}:R>)"
 
 	@property
+	def time_hour(self):
+		"""Return string in form '14:36'"""
+		return f"<t:{self.time}:t>"
+
+	@property
+	def time_seconds(self):
+		"""Return string in form '14:36:00'"""
+		return f"<t:{self.time}:T>"
+
+	@property
 	def time_relative(self):
 		"""Return string in form '14:36 (a few seconds ago)'"""
 		return f"<t:{self.time}:t> (<t:{self.time}:R>)"
@@ -54,11 +64,6 @@ class Timestamp:
 	def day_time(self):
 		"""Return string in form 'Saturday, 7 August 2021 14:36'"""
 		return f"<t:{self.time}:F>"
-
-	@property
-	def time_seconds(self):
-		"""Return string in form '14:36:00'"""
-		return f"<t:{self.time}:T>"
 
 
 async def parse_time(time):
