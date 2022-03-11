@@ -90,17 +90,14 @@ class PollModal(Modal, title="Create a poll"):
 
     async def on_submit(self, interaction: Interaction):
         """When the Modal is submitted, pick at random and send the reply back"""
-        if len(self.answers) > 25:
+        question = self.question.value
+        answers = self.answers.value.split('\n')
+
+        if len(answers) > 25:
             i = interaction
             return await i.client.error(i, 'Too many answers provided. 25 is more than enough thanks.')
 
-        await PollView(interaction, question=self.question, answers=self.answers).update()
-
-
-@app_commands.command()
-async def poll(interaction):
-    """Create a poll with multiple answers. Polls end after 1 hour of no responses."""
-    await interaction.response.send_modal(PollModal)
+        await PollView(interaction, question=question, answers=answers).update()
 
 
 class Poll(commands.Cog):
@@ -108,9 +105,13 @@ class Poll(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.bot.tree.add_command(poll)
+
+    @app_commands.command()
+    async def poll(self, interaction):
+        """Create a poll with multiple answers. Polls end after 1 hour of no responses."""
+        await interaction.response.send_modal(PollModal)
 
 
 def setup(bot):
     """Add the Poll cog to the Bot"""
-    bot.add_Cog(Poll)
+    bot.add_cog(Poll(bot))
