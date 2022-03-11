@@ -1,6 +1,5 @@
 """Commands about the meta-state of the bot and information about users and servers"""
 import datetime
-import typing
 from copy import deepcopy
 from typing import Optional
 
@@ -12,42 +11,6 @@ from ext.utils import timed_events, embed_utils, view_utils
 
 INV = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
       "&scope=bot%20applications.commands"
-
-
-@app_commands.command()
-async def about(interaction: Interaction):
-    """Tells you information about the bot itself."""
-    e = Embed(colour=0x2ecc71, timestamp=interaction.client.user.created_at)
-    owner = await interaction.client.fetch_user(interaction.client.owner_id)
-    e.set_footer(text=f"Toonbot is coded by {owner} and was created on ")
-
-    me = interaction.client.user
-
-    e.set_thumbnail(url=me.display_avatar.url)
-    e.title = f"Toonbot ({me.display_name})" if not me.display_name == "Toonbot" else "Toonbot"
-
-    # statistics
-    total_members = sum(len(s.members) for s in interaction.client.guilds)
-    members = f"{total_members} Members across {len(interaction.client.guilds)} servers."
-
-    e.description = f"I do football lookup related things.\n I have {members}"
-
-    view = View()
-    s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx")
-    i = ("Invite me to your server", INV)
-    d = ("Donate", "https://paypal.me/Toonbot")
-    for label, link in [s, i, d]:
-        view.add_item(Button(style=ButtonStyle.url, url=link, label=label))
-    await interaction.client.reply(interaction, embed=e, view=view)
-
-
-@app_commands.command()
-async def invite(interaction: Interaction):
-    """Get the bots invite link"""
-    view = View()
-    view.add_item(Button(style=ButtonStyle.url, url=INV, label="Invite me to your server"))
-    e = Embed(description="Use the button below to invite me to your server.")
-    await interaction.client.reply(interaction, embed=e, view=view, ephemeral=True)
 
 
 @app_commands.context_menu(name="Get User Info")
@@ -117,96 +80,122 @@ async def u_info(interaction: Interaction, member: Member):
     await view.update()
 
 
-@app_commands.command()
-async def avatar(interaction: Interaction, user: Optional[typing.Union[User, Member]]):
-    """Shows a member's avatar"""
-    user = interaction.user if user is None else user
-
-    try:
-        e = Embed(colour=user.color, description=f"{user.mention}'s avatar")
-    except AttributeError:
-        e = Embed(description=f"{user}'s avatar")
-
-    e.set_footer(text=user.display_avatar.url)
-    e.set_image(url=user.display_avatar.url)
-    e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-    await interaction.client.reply(interaction, embed=e)
-
-
-@app_commands.command()
-async def server_info(interaction: Interaction):
-    """Shows information about the server"""
-    if interaction.guild is None:
-        return await interaction.client.error(interaction, "This command cannot be ran in DMs.")
-
-    e = Embed(title=interaction.guild.name)
-    e.description = interaction.guild.description if interaction.guild.description is not None else ""
-    e.description += f"Guild ID: {interaction.guild.id}"
-    try:
-        e.description += f"\nOwner: {interaction.guild.owner.mention}"
-    except AttributeError:
-        pass
-    e.description += f'\n\n{len(interaction.guild.members)} Members'
-
-    # figure out what channels are 'secret'
-    text_channels = 0
-    for channel in interaction.guild.channels:
-        text_channels += isinstance(channel, TextChannel)
-    regular_channels = len(interaction.guild.channels)
-    voice_channels = regular_channels - text_channels
-
-    e.description += f"\n{regular_channels} text channels "
-    if voice_channels:
-        e.description += f"\n{voice_channels} Voice channels"
-
-    if interaction.guild.premium_subscription_count:
-        e.description += f"\n\n{interaction.guild.premium_subscription_count} " \
-                         f"Nitro Boosts (Tier {interaction.guild.premium_tier})"
-
-    if interaction.guild.banner is not None:
-        e.set_image(url=interaction.guild.banner.url)
-    elif interaction.guild.discovery_splash is not None:
-        e.set_image(url=interaction.guild.discovery_splash.url)
-
-    if interaction.guild.icon:
-        e.set_thumbnail(url=interaction.guild.icon.url)
-        e.colour = await embed_utils.get_colour(str(interaction.guild.icon.url))
-
-    emojis = ""
-    for emoji in interaction.guild.emojis:
-        if len(emojis) + len(str(emoji)) < 1024:
-            emojis += str(emoji)
-
-    if emojis:
-        e.add_field(name="Emotes", value=emojis, inline=False)
-
-    e.description += f"\n**Emotes**: {len(emojis)} / {interaction.guild.emoji_limit} slots used."
-    e.description += f"\n**Stickers**: {len(interaction.guild.stickers)} " \
-                     f"/ {interaction.guild.sticker_limit} slots used."
-
-    try:
-        vanity = await interaction.guild.vanity_invite()
-        if vanity is not None:
-            e.add_field(name="Server Vanity invite", value=vanity)
-    except Forbidden:
-        pass
-
-    roles = [role.mention for role in interaction.guild.roles]
-    e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
-    e.add_field(name="Creation Date", value=timed_events.Timestamp(interaction.guild.created_at).date_relative)
-    await interaction.client.reply(interaction, embed=e)
-
-
 class Info(commands.Cog):
     """Get information about users or servers."""
 
     def __init__(self, bot):
         self.bot = bot
-        self.bot.tree.add_command(about)
-        self.bot.tree.add_command(invite)
         self.bot.tree.add_command(u_info)
-        self.bot.tree.add_command(avatar)
-        self.bot.tree.add_command(server_info)
+
+    @app_commands.command()
+    async def server_info(self, interaction: Interaction):
+        """Shows information about the server"""
+        if interaction.guild is None:
+            return await self.bot.error(interaction, "This command cannot be ran in DMs.")
+
+        e = Embed(title=interaction.guild.name)
+        e.description = interaction.guild.description if interaction.guild.description is not None else ""
+        e.description += f"Guild ID: {interaction.guild.id}"
+        try:
+            e.description += f"\nOwner: {interaction.guild.owner.mention}"
+        except AttributeError:
+            pass
+        e.description += f'\n\n{len(interaction.guild.members)} Members'
+
+        # figure out what channels are 'secret'
+        text_channels = 0
+        for channel in interaction.guild.channels:
+            text_channels += isinstance(channel, TextChannel)
+        regular_channels = len(interaction.guild.channels)
+        voice_channels = regular_channels - text_channels
+
+        e.description += f"\n{regular_channels} text channels "
+        if voice_channels:
+            e.description += f"\n{voice_channels} Voice channels"
+
+        if interaction.guild.premium_subscription_count:
+            e.description += f"\n\n{interaction.guild.premium_subscription_count} " \
+                             f"Nitro Boosts (Tier {interaction.guild.premium_tier})"
+
+        if interaction.guild.banner is not None:
+            e.set_image(url=interaction.guild.banner.url)
+        elif interaction.guild.discovery_splash is not None:
+            e.set_image(url=interaction.guild.discovery_splash.url)
+
+        if interaction.guild.icon:
+            e.set_thumbnail(url=interaction.guild.icon.url)
+            e.colour = await embed_utils.get_colour(str(interaction.guild.icon.url))
+
+        emojis = ""
+        for emoji in interaction.guild.emojis:
+            if len(emojis) + len(str(emoji)) < 1024:
+                emojis += str(emoji)
+
+        if emojis:
+            e.add_field(name="Emotes", value=emojis, inline=False)
+
+        e.description += f"\n**Emotes**: {len(emojis)} / {interaction.guild.emoji_limit} slots used."
+        e.description += f"\n**Stickers**: {len(interaction.guild.stickers)} " \
+                         f"/ {interaction.guild.sticker_limit} slots used."
+
+        try:
+            vanity = await interaction.guild.vanity_invite()
+            if vanity is not None:
+                e.add_field(name="Server Vanity invite", value=vanity)
+        except Forbidden:
+            pass
+
+        roles = [role.mention for role in interaction.guild.roles]
+        e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
+        e.add_field(name="Creation Date", value=timed_events.Timestamp(interaction.guild.created_at).date_relative)
+        await self.bot.reply(interaction, embed=e)
+
+    @app_commands.command()
+    async def avatar(self, interaction: Interaction, user: Optional[User | Member]):
+        """Shows a member's avatar"""
+        user = interaction.user if user is None else user
+
+        try:
+            e = Embed(colour=user.color, description=f"{user.mention}'s avatar")
+        except AttributeError:
+            e = Embed(description=f"{user}'s avatar")
+
+        e.set_footer(text=user.display_avatar.url)
+        e.set_image(url=user.display_avatar.url)
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        await self.bot.reply(interaction, embed=e)
+
+    @app_commands.command()
+    async def invite(self, interaction: Interaction):
+        """Get the bots invite link"""
+        view = View()
+        view.add_item(Button(style=ButtonStyle.url, url=INV, label="Invite me to your server"))
+        e = Embed(description="Use the button below to invite me to your server.")
+        await self.bot.reply(interaction, embed=e, view=view, ephemeral=True)
+
+    @app_commands.command()
+    async def about(self, interaction: Interaction):
+        """Tells you information about the bot itself."""
+        e = Embed(colour=0x2ecc71, timestamp=interaction.client.user.created_at)
+        e.set_footer(text=f"Toonbot is coded by Painezor and was created on ")
+
+        me = self.bot.user
+        e.set_thumbnail(url=me.display_avatar.url)
+        e.title = "About Toonbot"
+
+        # statistics
+        total_members = sum(len(s.members) for s in self.bot.guilds)
+        members = f"{total_members} Members across {len(self.bot.guilds)} servers."
+
+        e.description = f"I do football lookup related things.\n I have {members}"
+
+        view = View()
+        s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx")
+        i = ("Invite me to your server", INV)
+        d = ("Donate", "https://paypal.me/Toonbot")
+        for label, link in [s, i, d]:
+            view.add_item(Button(style=ButtonStyle.url, url=link, label=label))
+        await self.bot.reply(interaction, embed=e, view=view)
 
 
 def setup(bot):
