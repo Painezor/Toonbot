@@ -14,7 +14,6 @@ from discord.ext import commands
 # Loading of commands.
 from pyppeteer.browser import Browser
 
-from ext.scores import LiveScores
 # MESSAGE INTENTS
 from ext.utils.football import Fixture, Competition, Team
 
@@ -78,9 +77,6 @@ class Bot(commands.Bot, ABC):
         self.blog_cache: List[str] = []
         self.news_cached: bool = False
         self.dev_blog_cached: bool = False
-
-        # Hack-job for reloading. Remove later.
-        self.tree.add_command(LiveScores())
 
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
