@@ -94,6 +94,9 @@ class Bot(commands.Bot, ABC):
         self.transfers: Task | None = None
         self.parsed_transfers: List[str] = []
 
+        # TV
+        self.tv: dict = {}
+
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
         for c in COGS:
