@@ -3,11 +3,13 @@ import asyncio
 from importlib import reload
 from typing import List, Tuple
 
-from discord import Colour, ButtonStyle, Interaction, Embed, NotFound, HTTPException, app_commands, Forbidden
+from discord import Colour, ButtonStyle, Interaction, Embed, NotFound, \
+    HTTPException, app_commands, Forbidden, TextChannel, Guild
 from discord.ext import commands
 from discord.ui import Select, View, Button
 
-from ext.utils import football, embed_utils, view_utils
+from ext.utils import embed_utils, view_utils, football
+from ext.utils.football import Substitution, Penalty, Goal, VAR, RedCard, Fixture
 
 DEFAULT_LEAGUES = [
     "WORLD: Friendly international",
@@ -193,7 +195,7 @@ class RemoveLeague(Select):
         await self.view.update()
 
 
-class ConfigView(View):
+class TickerConfig(View):
     """Generic Config View"""
 
     def __init__(self, interaction):
@@ -430,12 +432,12 @@ class TickerEvent:
         e = await self.embed
         if self.fixture.events:
             for i in self.fixture.events:
-                if isinstance(i, football.Substitution):
+                if isinstance(i, Substitution):
                     continue  # skip subs, they're just spam.
 
                 # Penalties are handled later on.
                 if self.fixture.penalties_away:
-                    if isinstance(i, football.Penalty) and i.shootout:
+                    if isinstance(i, Penalty) and i.shootout:
                         continue
 
                 if str(i) in e.description:  # Dupes bug.
@@ -447,11 +449,11 @@ class TickerEvent:
     def valid_events(self):
         """Valid events for ticker mode"""
         if self.mode == "goal":
-            return tuple([football.Goal, football.VAR])
+            return tuple([Goal, VAR])
         elif self.mode == "red_card":
-            return football.RedCard
+            return RedCard
         elif self.mode in ("var_goal", "var_red_card"):
-            return football.VAR
+            return VAR
         return None
 
     async def retract_event(self):
@@ -575,6 +577,13 @@ class TickerEvent:
                 await self.send_messages()
 
 
+# Autocomplete
+async def lg_ac(interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
+    """Return list of live leagues"""
+    comps = list(set([i.competition.name for i in interaction.client.games.values()]))
+    return [app_commands.Choice(name=item, value=item) for item in comps if current.lower() in item.lower()]
+
+
 class TickerCog(commands.Cog, name="Ticker"):
     """Get updates whenever match events occur"""
 
@@ -582,8 +591,8 @@ class TickerCog(commands.Cog, name="Ticker"):
         self.bot = bot
         [reload(_) for _ in [football, view_utils]]
 
-    @commands.Cog.listener()
-    async def on_fixture_event(self, mode, f: football.Fixture, home=True):
+    @commands.Cog.listener()  # TODO: Make Mode an Enum
+    async def on_fixture_event(self, mode: str, f: Fixture, home: bool = True):
         """Event handler for when something occurs during a fixture."""
         if mode == "ht_et_begin":  # Special Check - Must pass both
             _ = ["half_time", "extra_time"]
@@ -643,7 +652,7 @@ class TickerCog(commands.Cog, name="Ticker"):
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel):
+    async def on_guild_channel_delete(self, channel: TextChannel):
         """Handle deletion of channel data from database upon channel deletion."""
         q = f"""DELETE FROM ticker_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -654,7 +663,7 @@ class TickerCog(commands.Cog, name="Ticker"):
             await self.bot.db.release(connection)
 
     @commands.Cog.listener()
-    async def on_guild_remove(self, guild):
+    async def on_guild_remove(self, guild: Guild):
         """Delete all data related to a guild from the database upon guild leave."""
         q = f"""DELETE FROM ticker_channels WHERE guild_id = $1"""
         connection = await self.bot.db.acquire()
@@ -662,111 +671,104 @@ class TickerCog(commands.Cog, name="Ticker"):
             await connection.execute(q, guild.id)
         await self.bot.db.release(connection)
 
+    ticker = app_commands.Group(name="ticker", description="match event ticker")
 
-def setup(bot):
-    """Load the goal tracker cog into the bot."""
-    bot.add_cog(TickerCog(bot))
-
-
-# Autocomplete
-async def league(interaction: Interaction, current: str, namespace) -> List[app_commands.Choice[str]]:
-    """Return list of live leagues"""
-    comps = list(set([i.competition.name for i in interaction.client.games.values()]))
-    return [app_commands.Choice(name=item, value=item) for item in comps if current.lower() in item.lower()]
-
-
-class Ticker(app_commands.Group):
-    """Match Event Ticker"""
-
-    @app_commands.command()
-    async def manage(self, interaction):
+    @ticker.command()
+    async def manage(self, interaction: Interaction):
         """View the config of this channel's Match Event Ticker"""
         if interaction.guild is None:
-            return await interaction.client.error(interaction, "This command cannot be ran in DMs")
+            return await self.bot.error(interaction, "This command cannot be ran in DMs")
 
         if not interaction.permissions:
-            return await interaction.client.error(interaction, "You need manage messages permissions to edit a ticker")
+            return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
 
-        await ConfigView(interaction).update(content=f"Fetching config for {interaction.channel.mention}...")
+        await TickerConfig(interaction).update(content=f"Fetching config for {interaction.channel.mention}...")
 
-    @app_commands.command()
+    @ticker.command()
     @app_commands.describe(query="League to search for")
-    @app_commands.autocomplete(query=league)
+    @app_commands.autocomplete(query=lg_ac)
     async def add(self, interaction: Interaction, query: str):
         """Add a league to your Match Event Ticker"""
         if interaction.guild is None:
-            return await interaction.client.error(interaction, "This command cannot be ran in DMs")
+            return await self.bot.error(interaction, "This command cannot be ran in DMs")
         elif not interaction.permissions.manage_messages:
-            return await interaction.client.error(interaction, "You need manage messages permissions to edit a ticker")
+            return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
 
-        connection = await interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """SELECT * FROM ticker_channels WHERE channel_id = $1"""
             row = await connection.fetchrow(q, interaction.channel.id)
-        await interaction.client.db.release(connection)
+        await self.bot.db.release(connection)
 
         if not row:
             # If we cannot add, send to creation dialogue.
-            return await ConfigView(interaction).update(content=f"Fetching config for {interaction.channel.mention}...")
+            i = interaction
+            return await TickerConfig(i).update(content=f"Fetching config for {i.channel.mention}...")
 
         if "http" not in query:
             res = await football.fs_search(interaction, query)
             if res is None:
-                return await interaction.client.error(interaction, f"No matching competitions found for {query}")
+                return await self.bot.error(interaction, f"No matching competitions found for {query}")
         else:
             if "flashscore" not in query:
-                return await interaction.client.error(interaction, '🚫 Invalid link provided')
+                return await self.bot.error(interaction, '🚫 Invalid link provided')
 
-            page = await interaction.client.browser.newPage()
+            page = await self.bot.browser.newPage()
             try:
                 res = await football.Competition.by_link(query, page)
             except IndexError:
-                return await interaction.client.error(interaction, '🚫 Could not find competition data on that page')
+                return await self.bot.error(interaction, '🚫 Could not find competition data on that page')
             finally:
                 await page.close()
 
             if res is None:
-                return await interaction.client.error(interaction, f"🚫 Failed to get league data from <{query}>.")
+                return await self.bot.error(interaction, f"🚫 Failed to get league data from <{query}>.")
 
-        connection = await interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 q = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, interaction.channel.id, str(res))
         finally:
-            await interaction.client.db.release(connection)
+            await self.bot.db.release(connection)
 
-        await ConfigView(interaction).update(content=f"Added {res} tracked leagues for {interaction.channel.mention}")
+        await TickerConfig(interaction).update(content=f"Added {res} tracked leagues for {interaction.channel.mention}")
 
-    @app_commands.command()
+    @ticker.command()
     async def add_world_cup(self, interaction):
         """Add the qualifying tournaments for the World Cup to a channel's ticker"""
         if interaction.guild is None:
-            return await interaction.client.error(interaction, "This command cannot be ran in DMs")
+            return await self.bot.error(interaction, "This command cannot be ran in DMs")
         if not interaction.permissions.manage_messages:
-            return await interaction.client.error(interaction, "You need manage messages permissions to edit a ticker")
+            return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
 
         # Validate.
-        c = await interaction.client.db.acquire()
+        c = await self.bot.db.acquire()
         try:
             async with c.transaction():
                 q = """SELECT * FROM ticker_channels WHERE channel_id = $1"""
                 row = await c.fetchrow(q, interaction.channel.id)
         finally:
-            await interaction.client.db.release(c)
+            await self.bot.db.release(c)
 
         if not row:
-            return await ConfigView(interaction).update(content=f"Fetching config for {interaction.channel.mention}...")
+            i = interaction
+            return await TickerConfig(i).update(content=f"Fetching config for {i.channel.mention}...")
 
-        connection = await interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 q = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 for res in WORLD_CUP_LEAGUES:
                     await connection.execute(q, interaction.channel.id, res)
         finally:
-            await interaction.client.db.release(connection)
+            await self.bot.db.release(connection)
 
         leagues = "\n".join(WORLD_CUP_LEAGUES)
         msg = f"Added tracked leagues to {interaction.channel.mention}```yaml\n{leagues}```"
-        await interaction.client.reply(interaction, content=msg)
+        await self.bot.reply(interaction, content=msg)
+
+
+def setup(bot):
+    """Load the goal tracker cog into the bot."""
+    bot.add_cog(TickerCog(bot))
