@@ -59,7 +59,7 @@ class MatchThread:
             os = self.settings['pre_match_offset']
             _ = datetime.timedelta(days=3) if os is None else datetime.timedelta(days=os)
 
-            target_time = self.fixture.time - _
+            target_time = self.fixture.kickoff - _
             print(f"{self.fixture} | {self.settings['subreddit']}\nSleeping until {target_time}")
 
             await discord.utils.sleep_until(target_time)
@@ -181,7 +181,7 @@ class MatchThread:
 
         # Grab DB data
         try:
-            _ = [i for i in self.bot.teams if i['name'] == home][0]
+            _ = [i for i in self.bot.reddit_teams if i['name'] == home][0]
             home_icon = _['icon']
             home_link = _['subreddit']
         except IndexError:
@@ -190,7 +190,7 @@ class MatchThread:
             home_link = ""
 
         try:
-            _ = [i for i in self.bot.teams if i['name'] == away][0]
+            _ = [i for i in self.bot.reddit_teams if i['name'] == away][0]
             away_icon = _['icon']
             away_link = _['subreddit']
         except IndexError:
@@ -214,8 +214,8 @@ class MatchThread:
                 return None
             tree = html.fromstring(await resp.text())
             for i in tree.xpath(".//tr//a"):
-                if self.fixture.home in "".join(i.xpath(".//text()")):
-                    lnk = "".join(i.xpath(".//@href"))
+                if self.fixture.home.name in ''.join(i.xpath(".//text()")):
+                    lnk = ''.join(i.xpath(".//@href"))
                     tv.update({"link": f"http://www.livesoccertv.com{lnk}"})
                     break
         if not tv:
@@ -262,7 +262,7 @@ class MatchThread:
 
         # Grab DB data
         try:
-            home_team = [i for i in self.bot.teams if i['name'] == home][0]
+            home_team = [i for i in self.bot.reddit_teams if i['name'] == home][0]
             home_icon = home_team['icon']
             home_link = home_team['subreddit']
         except IndexError:
@@ -271,7 +271,7 @@ class MatchThread:
             home_link = None
 
         try:
-            away_team = [i for i in self.bot.teams if i['name'] == away][0]
+            away_team = [i for i in self.bot.reddit_teams if i['name'] == away][0]
             away_icon = away_team['icon']
             away_link = away_team['subreddit']
         except IndexError:
@@ -404,7 +404,7 @@ class MatchThreadCommands(commands.Cog):
 
     async def spool_thread(self, f: football.Fixture, settings: asyncpg.Record):
         """Create match threads for all scheduled games."""
-        diff = f.time - datetime.datetime.now()
+        diff = f.kickoff - datetime.datetime.now()
         if diff.days > 7:
             return
 
