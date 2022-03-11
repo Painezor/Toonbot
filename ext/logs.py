@@ -1,7 +1,9 @@
 """Notify server moderators about specific events"""
 import datetime
+from typing import List, Sequence
 
-from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, app_commands, Member
+from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, app_commands, Member, User, \
+    Message, Guild, Emoji, GuildSticker
 from discord.ext import commands
 from discord.ui import Button, View
 
@@ -154,7 +156,7 @@ class Logs(commands.Cog):
 
     # Join messages
     @commands.Cog.listener()
-    async def on_member_join(self, member):
+    async def on_member_join(self, member: Member):
         """Event handler to Dispatch new member information for servers that request it"""
         # Extended member join information.
         e = Embed(colour=0x7289DA)
@@ -181,7 +183,7 @@ class Logs(commands.Cog):
 
     # Unban notifier.
     @commands.Cog.listener()
-    async def on_member_unban(self, guild, user):
+    async def on_member_unban(self, guild, user: User):
         """Event handler for outputting information about unbanned users."""
         e = Embed(title="User Unbanned", colour=Colour.dark_blue(), description=f"{user} (ID: {user.id}) was unbanned.")
 
@@ -192,15 +194,18 @@ class Logs(commands.Cog):
             except (AttributeError, HTTPException):
                 continue
 
+        e = Embed(title="Unbanned", description=f"You have been unbanned from {guild.name}")
+        await user.send(embed=e)
+
     @commands.Cog.listener()
-    async def on_bulk_message_delete(self, messages):
+    async def on_bulk_message_delete(self, messages: List[Message]):
         """Yeet every single deleted message into the deletion log. Awful idea I know."""
         for message in messages:
             await self.on_message_delete(message)
 
     # Deleted message notif
     @commands.Cog.listener()
-    async def on_message_delete(self, message):
+    async def on_message_delete(self, message: Message):
         """Event handler for reposting deleted messages from users/"""
         if message.guild is None or message.author.bot:
             return  # Ignore DMs & Do not log message deletions from bots.
@@ -230,7 +235,7 @@ class Logs(commands.Cog):
     # Kick notif
     # Leave notif
     @commands.Cog.listener()
-    async def on_member_remove(self, member):
+    async def on_member_remove(self, member: Member):
         """Event handler for outputting information about member kick, ban, or other departures"""
         # Check if in mod action log and override to specific channels.
         e = Embed(title="Member Left", description=f"{member.mention} | {member} (ID: {member.id})")
@@ -290,7 +295,7 @@ class Logs(commands.Cog):
 
     # emojis notif
     @commands.Cog.listener()
-    async def on_guild_emojis_update(self, guild, before, after):
+    async def on_guild_emojis_update(self, guild: Guild, before: Sequence[Emoji], after: Sequence[Emoji]):
         """Event listener for outputting information about updated emojis on a server"""
         e = Embed()
         # Find if it was addition or removal.
@@ -326,11 +331,11 @@ class Logs(commands.Cog):
 
     # stickers notif
     @commands.Cog.listener()
-    async def on_guild_stickers_update(self, guild, before, after):
+    async def on_guild_stickers_update(self, guild: Guild, old: Sequence[GuildSticker], new: Sequence[GuildSticker]):
         """Event listener for outputting information about updated stickers on a server"""
         e = Embed()
         # Find if it was addition or removal.
-        new_stickers = [i for i in after if i not in before]
+        new_stickers = [i for i in new if i not in old]
         if new_stickers:
             for sticker in new_stickers:
                 if sticker.user is not None:
@@ -343,7 +348,7 @@ class Logs(commands.Cog):
 
         else:
             try:
-                removed_sticker = [i for i in before if i.id not in [i.id for i in after]][0]
+                removed_sticker = [i for i in old if i.id not in [i.id for i in new]][0]
             except IndexError:
                 return  # Shrug?
             e.title = "Emote removed"
