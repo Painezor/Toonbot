@@ -1,6 +1,6 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
 from copy import deepcopy
-from typing import Union, List, Optional
+from typing import List, Optional
 
 # D.py
 from discord import Embed, Colour, app_commands, Interaction
@@ -27,7 +27,7 @@ class Fixtures(commands.Cog):
         self.bot = bot
 
     # Selection View/Filter/Pickers.
-    async def search(self, interaction: Interaction, qry, mode=None, include_fs=False) -> Union[FlashScoreItem, None]:
+    async def search(self, interaction: Interaction, qry, mode=None, include_fs=False) -> FlashScoreItem | None:
         """Get Matches from Live Games & FlashScore Search Results"""
         # Handle Server Defaults
         if qry == "default":
@@ -94,12 +94,12 @@ class Fixtures(commands.Cog):
 
     # Autocompletes
     async def tm_ac(self, interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
-        """Autocomplete from bot.teams"""
+        """Autocomplete from list of stored teams"""
         teams = self.bot.teams.values()
         return [app_commands.Choice(name=t.name, value=t.name) for t in teams if current.lower() in t.name.lower()]
 
     async def lg_ac(self, interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
-        """Autocomplete from bot.teams"""
+        """Autocomplete from list of stored leagues"""
         leagues = self.bot.competitions.values()
         return [app_commands.Choice(name=lg.name, value=lg.name) for lg in leagues if
                 current.lower() in lg.name.lower()]
