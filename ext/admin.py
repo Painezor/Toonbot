@@ -2,213 +2,30 @@
 import datetime
 import inspect
 import sys
+import traceback
 from os import system
 from typing import Optional
 
-from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, Object, app_commands, Message
+from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, app_commands, Message
 from discord.app_commands import Choice
 from discord.ext import commands
 from discord.ui import View, Button
-
-from ext.utils import codeblocks
 
 NO_SLASH_COMM = ("Due to changes with discord, Toonbot will soon be unable to parse messages to find commands\n"
                  "All commands have been moved to use the new /slashcommands system, bots must be re-invited to servers"
                  " with a new scope to use them. Use the link below to re-invite me. All old prefixes are disabled.")
 
-TB_GUILD: Object = Object(id=250252535699341312)
-NUFCGuild: Object = Object(id=332159889587699712)
-PZRGUILD: Object = Object(id=742372603813036082)
+
+def error_to_codeblock(error):
+    """Formatting of python errors into codeblocks"""
+    return f':no_entry_sign: {type(error).__name__}: {error}```py\n' \
+           f'{"".join(traceback.format_exception(type(error), error, error.__traceback__))}```'
 
 
-class EditBot(app_commands.Group):
-    """Set the status of the bot"""
-
-    @app_commands.command()
-    @app_commands.describe(file='The file to upload', link="Provide a link")
-    async def avatar(self, interaction: Interaction, file: Optional[Attachment] = None, link: Optional[str] = None):
-        """Change the avatar of the bot"""
-        avatar = file if file else link
-
-        if avatar is None:
-            return await interaction.client.error(interaction, "You need to provide either a link or an attachment.")
-
-        async with interaction.client.session.get(avatar) as resp:
-            if resp.status != 200:
-                return await interaction.client.reply(interaction, content=f"HTTP Error: Status Code {resp.status}")
-            new_avatar = await resp.read()  # Needs to be bytes.
-
-        await interaction.client.user.edit(avatar=new_avatar)
-        e = Embed(title="Avatar Updated", colour=Colour.og_blurple())
-        e.set_image(url=new_avatar)
-        await interaction.client.reply(interaction, embed=e)
-
-    # Presence Commands
-    status = app_commands.Group(name="status", description="Set bot activity")
-
-    @status.command()
-    @app_commands.describe(status="What game is the bot playing")
-    async def playing(self, interaction: Interaction, status: str):
-        """Set bot status to playing {status}"""
-        await update_presence(interaction, Activity(type=0, name=status))
-
-    @status.command()
-    @app_commands.describe(status="What is the bot streaming")
-    async def streaming(self, interaction: Interaction, status: str):
-        """Change status to streaming {status}"""
-        await update_presence(interaction, Activity(type=1, name=status))
-
-    @status.command()
-    @app_commands.describe(status="What is the bot watching")
-    async def watching(self, interaction: Interaction, status: str):
-        """Change status to watching {status}"""
-        await update_presence(interaction, Activity(type=2, name=status))
-
-    @status.command()
-    @app_commands.describe(status="What is the bot listening to")
-    async def listening(self, interaction: Interaction, status: str):
-        """Change status to listening to {status}"""
-        await update_presence(interaction, Activity(type=3, name=status))
-
-
-async def update_presence(interaction: Interaction, act: Activity):
-    """Pass the updated status."""
-    if interaction.user.id != interaction.client.owner_id:
-        return await interaction.client.error(interaction, "You do not own this bot.")
-    await interaction.client.change_presence(activity=act)
-
-    e = Embed(title="Activity", colour=Colour.og_blurple())
-    e.description = f"Set status to {act.type} {act.name}"
-    await interaction.client.reply(interaction, embed=e)
-
-
-# TODO: Autocomplete for cogs.
-
-MODULES = ['errors', 'session',
-           'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv', 'logs', 'lookup', 'mod',
-           'nufc', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
-           'testing'
-           ]
-
-
-class Cogs(app_commands.Group):
-    """Atomic reloading of cogs"""
-
-    choices = [Choice(name=i, value=i) for i in MODULES]
-
-    @app_commands.command()
-    @app_commands.describe(cog="pick a cog to reload")
-    @app_commands.choices(cog=choices)
-    async def reload(self, interaction: Interaction, cog: str):
-        """Reloads a module."""
-        try:
-            interaction.client.reload_extension(f'ext.{cog}')
-        except Exception as err:
-            return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
-        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Reloaded {cog}')
-        return await interaction.client.reply(interaction, embed=e)
-
-    @app_commands.command()
-    @app_commands.describe(cog="pick a cog to load")
-    @app_commands.choices(cog=choices)
-    async def load(self, interaction: Interaction, cog: str):
-        """Loads a module."""
-        try:
-            interaction.client.load_extension('ext.' + cog)
-        except Exception as err:
-            return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
-
-        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Loaded {cog}')
-        return await interaction.client.reply(interaction, embed=e)
-
-    @app_commands.command()
-    @app_commands.choices(cog=choices)
-    async def unload(self, interaction: Interaction, cog: str):
-        """Unloads a module."""
-        try:
-            interaction.client.unload_extension('ext.' + cog)
-        except Exception as err:
-            return await interaction.client.error(interaction, codeblocks.error_to_codeblock(err))
-
-        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Unloaded {cog}')
-        return await interaction.client.reply(interaction, embed=e)
-
-    @app_commands.command()
-    async def list(self, interaction: Interaction):
-        """List all currently loaded modules"""
-        loaded = sorted([i for i in interaction.client.cogs])
-        e = Embed(title="Currently loaded Cogs", colour=Colour.og_blurple(), description="\n".join(loaded))
-        return await interaction.client.reply(interaction, embed=e)
-
-
-@app_commands.command(name="print")
-async def _print(interaction: Interaction, to_print: str):
-    """Print something to console."""
-    if interaction.user.id != interaction.client.owner_id:
-        return await interaction.client.error(interaction, "You do not own this bot.")
-
-    print(to_print)
-    e = Embed(colour=Colour.og_blurple(), description=f"```\n{to_print}```")
-    return await interaction.client.reply(interaction, embed=e)
-
-
-@app_commands.command()
-async def cc(interaction):
-    """Clear the command window."""
-    if interaction.user.id != interaction.client.owner_id:
-        return await interaction.client.error(interaction, "You do not own this bot.")
-
-    system('cls')
-    _ = f'{interaction.client.user}: {interaction.client.initialised_at}'
-    print(f'{_}\n{"-" * len(_)}\nConsole cleared at: {datetime.datetime.utcnow().replace(microsecond=0)}')
-
-    e = Embed(title="Bot Console", colour=Colour.og_blurple(), description="```\nConsole Log Cleared.```")
-    return await interaction.client.reply(interaction, embed=e)
-
-
-@app_commands.command()
-async def debug(interaction: Interaction, code: str):
-    """Evaluates code."""
-    if interaction.user.id != interaction.client.owner_id:
-        return await interaction.client.error(interaction, "You do not own this bot.")
-
-    code = code.strip('` ')
-    env = {'bot': interaction.client, 'ctx': interaction, 'interaction': interaction}
-    env.update(globals())
-
-    e = Embed(title="Code Evaluation", colour=Colour.og_blurple())
-    e.set_footer(text=f"Python Version: {sys.version}")
-
-    try:
-        result = eval(code, env)
-        if inspect.isawaitable(result):
-            result = await result
-    except Exception as err:
-        etc = codeblocks.error_to_codeblock(err)
-        if len(etc) > 2047:
-            e.description = 'Too long for discord, output sent to console.'
-            print(etc)
-        else:
-            e.description = etc
-    else:
-        e.description = f"**Input**```py\n>>> {code}```**Output**```py\n{result}```"
-    await interaction.client.reply(interaction, embed=e)
-
-
-@app_commands.command()
-@app_commands.describe(notification="Message to send to aLL servers.")
-async def notify(interaction: Interaction, notification: str):
-    """Send a global notification to channels that track it."""
-    if interaction.user.id != interaction.client.owner_id:
-        return await interaction.client.error(interaction, "You do not own this bot.")
-
-    interaction.client.dispatch("bot_notification", notification)
-    e = Embed(title="Bot notification dispatched", description=notification)
-    e.set_thumbnail(url=interaction.client.user.avatar.url)
-    await interaction.client.reply(interaction, embed=e)
-
-
-cmd = [_print, cc, debug, Cogs(), EditBot(), notify]
+# AutoComplete
+choices = [Choice(name=i, value=i) for i in
+           ['errors', 'session', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
+            'logs', 'lookup', 'mod', 'nufc', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships', 'testing']]
 
 
 class Admin(commands.Cog):
@@ -216,8 +33,6 @@ class Admin(commands.Cog):
 
     def __init__(self, bot) -> None:
         self.bot = bot
-        for x in cmd:
-            self.bot.tree.add_command(x, guild=TB_GUILD)
 
     async def on_message(self, message) -> Message:
         """Slash commands warning system."""
@@ -242,13 +57,180 @@ class Admin(commands.Cog):
             e.add_field(name="Discord changes", value=NO_SLASH_COMM)
             return await message.reply(embed=e, view=view)
 
+    cogs = app_commands.Group(name="cogs", description="Load and unload modules", guild_ids=[250252535699341312])
+
+    @cogs.command()
+    @app_commands.describe(cog="pick a cog to reload")
+    @app_commands.choices(cog=choices)
+    @app_commands.guilds()
+    async def reload(self, interaction: Interaction, cog: str):
+        """Reloads a module."""
+        try:
+            self.bot.reload_extension(f'ext.{cog}')
+        except Exception as err:
+            return await self.bot.error(interaction, error_to_codeblock(err))
+        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Reloaded {cog}')
+        return await self.bot.reply(interaction, embed=e)
+
+    @cogs.command()
+    @app_commands.describe(cog="pick a cog to load")
+    @app_commands.choices(cog=choices)
+    async def load(self, interaction: Interaction, cog: str):
+        """Loads a module."""
+        try:
+            self.bot.load_extension('ext.' + cog)
+        except Exception as err:
+            return await self.bot.error(interaction, error_to_codeblock(err))
+
+        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Loaded {cog}')
+        return await self.bot.reply(interaction, embed=e)
+
+    @cogs.command()
+    @app_commands.choices(cog=choices)
+    async def unload(self, interaction: Interaction, cog: str):
+        """Unloads a module."""
+        try:
+            self.bot.unload_extension('ext.' + cog)
+        except Exception as err:
+            return await self.bot.error(interaction, error_to_codeblock(err))
+
+        e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Unloaded {cog}')
+        return await self.bot.reply(interaction, embed=e)
+
+    @cogs.command()
+    async def list(self, interaction: Interaction):
+        """List all currently loaded modules"""
+        loaded = sorted([i for i in self.bot.cogs])
+        e = Embed(title="Currently loaded Cogs", colour=Colour.og_blurple(), description="\n".join(loaded))
+        return await self.bot.reply(interaction, embed=e)
+
+    @app_commands.command(name="print")
+    @app_commands.guilds(250252535699341312)
+    async def _print(self, interaction: Interaction, to_print: str):
+        """Print something to console."""
+        if interaction.user.id != self.bot.owner_id:
+            return await self.bot.error(interaction, "You do not own this bot.")
+
+        print(to_print)
+        e = Embed(colour=Colour.og_blurple(), description=f"```\n{to_print}```")
+        return await self.bot.reply(interaction, embed=e)
+
+    @app_commands.command()
+    @app_commands.guilds(250252535699341312)
+    async def cc(self, interaction):
+        """Clear the command window."""
+        if interaction.user.id != self.bot.owner_id:
+            return await self.bot.error(interaction, "You do not own this bot.")
+
+        system('cls')
+        _ = f'{self.bot.user}: {self.bot.initialised_at}'
+        print(f'{_}\n{"-" * len(_)}\nConsole cleared at: {datetime.datetime.utcnow().replace(microsecond=0)}')
+
+        e = Embed(title="Bot Console", colour=Colour.og_blurple(), description="```\nConsole Log Cleared.```")
+        return await self.bot.reply(interaction, embed=e)
+
+    @app_commands.command()
+    @app_commands.guilds(250252535699341312)
+    async def debug(self, interaction: Interaction, code: str):
+        """Evaluates code."""
+        if interaction.user.id != self.bot.owner_id:
+            return await self.bot.error(interaction, "You do not own this bot.")
+
+        code = code.strip('` ')
+        env = {'bot': self.bot, 'ctx': interaction, 'interaction': interaction}
+        env.update(globals())
+
+        e = Embed(title="Code Evaluation", colour=Colour.og_blurple())
+        e.set_footer(text=f"Python Version: {sys.version}")
+
+        try:
+            result = eval(code, env)
+            if inspect.isawaitable(result):
+                result = await result
+        except Exception as err:
+            result = error_to_codeblock(err)
+        if len(result) < 4000:
+            e.description = 'Too long for discord, output sent to console.'
+            print(result)
+        else:
+            e.description = f"**Input**```py\n>>> {code}```**Output**```py\n{result}```"
+        await self.bot.reply(interaction, embed=e)
+
+    @app_commands.command()
+    @app_commands.describe(notification="Message to send to aLL servers.")
+    @app_commands.guilds(250252535699341312)
+    async def notify(self, interaction: Interaction, notification: str):
+        """Send a global notification to channels that track it."""
+        if interaction.user.id != self.bot.owner_id:
+            return await self.bot.error(interaction, "You do not own this bot.")
+
+        self.bot.dispatch("bot_notification", notification)
+        e = Embed(title="Bot notification dispatched", description=notification)
+        e.set_thumbnail(url=self.bot.user.avatar.url)
+        await self.bot.reply(interaction, embed=e)
+
+    edit_bot = app_commands.Group(name="EditBot", description="Edit the bot profile")
+
+    @edit_bot.command()
+    @app_commands.describe(file='The file to upload', link="Provide a link")
+    @app_commands.guilds(250252535699341312)
+    async def avatar(self, interaction: Interaction, file: Optional[Attachment] = None, link: Optional[str] = None):
+        """Change the avatar of the bot"""
+        avatar = file if file else link
+
+        if avatar is None:
+            return await self.bot.error(interaction, "You need to provide either a link or an attachment.")
+
+        async with self.bot.session.get(avatar) as resp:
+            if resp.status != 200:
+                return await self.bot.reply(interaction, content=f"HTTP Error: Status Code {resp.status}")
+            new_avatar = await resp.read()  # Needs to be bytes.
+
+        await self.bot.user.edit(avatar=new_avatar)
+        e = Embed(title="Avatar Updated", colour=Colour.og_blurple())
+        e.set_image(url=new_avatar)
+        await self.bot.reply(interaction, embed=e)
+
+        # Presence Commands
+
+    status = app_commands.Group(name="status", description="Set bot activity", parent=edit_bot,
+                                guild_ids=[250252535699341312])
+
+    @status.command()
+    @app_commands.describe(status="What game is the bot playing")
+    async def playing(self, interaction: Interaction, status: str):
+        """Set bot status to playing {status}"""
+        await self.update_presence(interaction, Activity(type=0, name=status))
+
+    @status.command()
+    @app_commands.describe(status="What is the bot streaming")
+    async def streaming(self, interaction: Interaction, status: str):
+        """Change status to streaming {status}"""
+        await self.update_presence(interaction, Activity(type=1, name=status))
+
+    @status.command()
+    @app_commands.describe(status="What is the bot watching")
+    async def watching(self, interaction: Interaction, status: str):
+        """Change status to watching {status}"""
+        await self.update_presence(interaction, Activity(type=2, name=status))
+
+    @status.command()
+    @app_commands.describe(status="What is the bot listening to")
+    async def listening(self, interaction: Interaction, status: str):
+        """Change status to listening to {status}"""
+        await self.update_presence(interaction, Activity(type=3, name=status))
+
+    async def update_presence(self, interaction: Interaction, act: Activity):
+        """Pass the updated status."""
+        if interaction.user.id != self.bot.owner_id:
+            return await self.bot.error(interaction, "You do not own this bot.")
+        await self.bot.change_presence(activity=act)
+
+        e = Embed(title="Activity", colour=Colour.og_blurple())
+        e.description = f"Set status to {act.type} {act.name}"
+        await self.bot.reply(interaction, embed=e)
+
 
 def setup(bot):
     """Load the Administration cog into the Bot"""
     bot.add_cog(Admin(bot))
-
-
-def teardown(bot) -> None:
-    """Remove all commands from the tree"""
-    for x in cmd:
-        bot.tree.remove_command(x, guild=TB_GUILD)
