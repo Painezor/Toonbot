@@ -9,6 +9,7 @@ from typing import Dict, Optional, List
 
 import aiohttp
 import asyncpg
+from asyncpraw import Reddit
 from discord import Intents, Game, Colour, Embed, Interaction, Message, http, NotFound
 from discord.ext import commands
 # Loading of commands.
@@ -71,12 +72,23 @@ class Bot(commands.Bot, ABC):
         # QuoteDB
         self.quote_blacklist: List[int] = []
 
+        # Reminders
+        self.reminders: List[Task] = []
+
         # RSS
         self.eu_news: Task | None = None
         self.dev_blog: Task | None = None
         self.blog_cache: List[str] = []
         self.news_cached: bool = False
         self.dev_blog_cached: bool = False
+
+        # Sidebar
+        self.reddit_teams: List[asyncpg.Record] = []
+        self.sidebar: Task | None = None
+        self.reddit = Reddit(**self.credentials["Reddit"])
+
+        # Streams
+        self.streams: Dict[int, List] = defaultdict(list)
 
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
