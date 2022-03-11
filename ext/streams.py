@@ -32,7 +32,7 @@ class GuildStreams(commands.Cog):
 
     streams = app_commands.Group(name="streams", description="Stream list for your server")
 
-    @app_commands.command()
+    @streams.command()
     async def list(self, interaction: Interaction):
         """List all streams for the match added by users."""
         if interaction.guild is None:
@@ -46,7 +46,7 @@ class GuildStreams(commands.Cog):
         e = Embed(title="Streams", description="\n".join([str(i) for i in guild_streams]))
         await self.bot.reply(interaction, embed=e)
 
-    @app_commands.command()
+    @streams.command()
     @app_commands.describe(name="Enter a name for the stream", link="Enter the link oF the stream")
     async def add(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
@@ -64,7 +64,7 @@ class GuildStreams(commands.Cog):
         e = Embed(title="Streams", description="\n".join([str(i) for i in guild_streams]))
         await self.bot.reply(interaction, content=f"Added <{stream.link}> to stream list.", embed=e)
 
-    @app_commands.command()
+    @streams.command()
     async def clear(self, interaction: Interaction):
         """Remove all streams from guild stream list"""
         if interaction.guild is None:
@@ -77,7 +77,7 @@ class GuildStreams(commands.Cog):
         self.bot.streams[interaction.guild.id] = []
         await self.bot.reply(interaction, content=f"{interaction.guild.name} stream list cleared.")
 
-    @app_commands.command()
+    @streams.command()
     @app_commands.autocomplete(stream=streams)
     async def delete(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""
