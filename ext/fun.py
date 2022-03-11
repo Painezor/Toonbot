@@ -107,11 +107,20 @@ class PollModal(Modal, title="Make a Decision"):
         await interaction.client.reply(interaction, embed=e)
 
 
+# Context Menu commands must be free floating.
+@app_commands.context_menu(name="MoCk")
+async def mock(interaction: Interaction, message: Message):
+    """AlTeRnAtInG cApS"""
+    content = ''.join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
+    await interaction.client.reply(interaction, content=content)
+
+
 class Fun(commands.Cog):
     """Various Toys for you to play with."""
 
     def __init__(self, bot):
         self.bot = bot
+        self.bot.tree.add_command(mock)  # Must be free floating.
 
     @app_commands.command(name="8ball")
     @app_commands.describe(question="enter a question")
@@ -330,12 +339,6 @@ class Fun(commands.Cog):
             e.description += f"\n**Total: {total}**"
 
         await interaction.client.reply(interaction, embed=e)
-
-    @app_commands.context_menu(name="MoCk")
-    async def mock(self, interaction: Interaction, message: Message):
-        """AlTeRnAtInG cApS"""
-        content = ''.join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
-        await interaction.client.reply(interaction, content=content)
 
     @app_commands.command()
     async def choose(self, interaction: Interaction):
