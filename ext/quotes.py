@@ -186,8 +186,8 @@ class QuotesView(View):
         await self.wait()
 
 
-OPTIN = "You are currently opted out of quotes, opting back in will allow " \
-        "others to add quotes from you to the database. Are you sure?"
+OPT_IN = "You are currently opted out of quotes, opting back in will allow " \
+         "others to add quotes from you to the database. Are you sure?"
 
 
 async def get_quote(interaction: Interaction, quote_id=None, qry=None, rand=False, last=False):
@@ -213,114 +213,9 @@ async def get_quote(interaction: Interaction, quote_id=None, qry=None, rand=Fals
     await view.update()
 
 
-class Quotes(app_commands.Group):
-    """Interact with the Quote Database"""
-
-    @app_commands.command()
-    async def random(self, interaction):
-        """Get a random quote."""
-        if interaction.user.id in interaction.client.quote_blacklist:
-            return await interaction.client.error(interaction, "You have opted out of quotes.")
-
-        await get_quote(interaction, rand=True)
-
-    @app_commands.command()
-    async def optout(self, interaction: Interaction):
-        """Remove all quotes about, or added by you, and prevent future quotes being added."""
-        if interaction.user.id in interaction.client.quote_blacklist:
-            #   Opt Back In confirmation Dialogue
-            v = view_utils.Confirmation(interaction, label_a="Opt In", colour_a=ButtonStyle.green, label_b="Cancel")
-            v.message = await interaction.client.reply(interaction, content=OPTIN)
-            await v.wait()
-
-            if v.value:  # User has chosen to opt in.
-                connection = await interaction.client.db.acquire()
-                try:
-                    await connection.execute("""DELETE FROM quotes_optout WHERE userid = $1""", interaction.user.id)
-                finally:
-                    await interaction.client.db.release(connection)
-                await v.message.edit(content="You have opted back into the Quotes Database.", view=None)
-            else:
-                await v.message.edit(content="Opt in cancelled, quotes cannot be added about you.", view=None)
-        else:
-            sql = """SELECT (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
-                            (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
-                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
-                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
-            escaped = [interaction.user.id, interaction.guild.id]
-
-            connection = await interaction.client.db.acquire()
-            try:
-                async with connection.transaction():
-                    r = await connection.fetchrow(sql, *escaped)
-            finally:
-                await interaction.client.db.release(connection)
-
-            # Warn about quotes that will be deleted.
-            if not all(v == 0 for v in [r['auth'], r['auth_g'], r['sub'], r['sub_g']]):
-                auth = f"You have been quoted {r['auth']} times" if r['auth'] else ""
-                if interaction.guild is not None:
-                    auth += f" ({r['auth_g']} times on {interaction.guild.name})" if r['auth_g'] else ""
-
-                sub = f"You have submitted {r['sub']} quotes" if r['sub'] else ""
-                if interaction.guild is not None:
-                    sub += f" ({r['sub_g']} times on {interaction.guild.name})" if r['sub_g'] else ""
-
-                msg = ("\n".join([i for i in [auth, sub] if i]) +
-                       "\n\n**ALL of these quotes will be deleted if you opt out.**")
-
-                e = Embed(colour=Colour.red(), title="Your quotes will be deleted if you opt out.", description=msg)
-            else:
-                e = None
-
-            v = view_utils.Confirmation(interaction, label_a="Opt out", colour_a=ButtonStyle.red, label_b="Cancel")
-            v.message = await interaction.client.reply(interaction, content="Opt out of QuoteDB?", embed=e, view=v)
-
-            if not v.value:
-                return await v.message.edit(content="Optout cancelled, you can still quote and be quoted", view=None)
-            else:
-                if e is not None:
-                    connection = await interaction.client.db.acquire()
-                    try:
-                        async with connection.transaction():
-                            sql = """DELETE FROM quotes WHERE author_user_id = $1 OR submitter_user_id = $2"""
-                            r = await connection.execute(sql, interaction.user.id, interaction.user.id)
-                    finally:
-                        await interaction.client.db.release(connection)
-                    e.description = r.split(' ')[-1] + " quotes were deleted."
-
-            await v.message.edit(content=f"You were opted out of the quote DB", embed=e)
-
-    @app_commands.command()
-    @app_commands.describe(quote_id="Enter quote ID#")
-    async def id(self, interaction: Interaction, quote_id: int):
-        """Get a quote by its ID Number"""
-        if interaction.user.id in interaction.client.quote_blacklist:
-            return await interaction.client.error(interaction, "You have opted out of quotes.")
-
-        await get_quote(interaction, quote_id=quote_id)
-
-    @app_commands.command()
-    async def last(self, interaction):
-        """Get the most recent quote"""
-        if interaction.user.id in interaction.client.quote_blacklist:
-            return await interaction.client.error(interaction, "You have opted out of quotes.")
-
-        await get_quote(interaction, last=True)
-
-    @app_commands.command()
-    @app_commands.describe(text="Search by quote text")
-    async def search(self, interaction: Interaction, text: str):
-        """Search for a quote by quote text"""
-        if interaction.user.id in interaction.client.quote_blacklist:
-            return await interaction.client.error(interaction, "You have opted out of quotes.")
-
-        await get_quote(interaction, qry=text)
-
-
 # MESSAGE COMMAND, (right click message -> Add quote)
 @app_commands.context_menu(name="Add to QuoteDB")
-async def quote_add(interaction: Interaction, message: Message):
+async def quote_add(interaction, message: Message):
     """Add a quote, either by message ID or grabs the last message a user sent"""
     if interaction.user.id in interaction.client.quote_blacklist:
         return await interaction.client.error(interaction, "You have opted out of quotes.")
@@ -361,7 +256,7 @@ async def quote_add(interaction: Interaction, message: Message):
 
 # USER COMMANDS: right click user
 @app_commands.context_menu(name="QuoteDB: Get Quotes")
-async def u_quote(interaction: Interaction, usr: Member):
+async def u_quote(interaction, usr: Member):
     """Get a random quote from this user."""
     if interaction.user.id in interaction.client.quote_blacklist:
         return await interaction.client.error(interaction, "You have opted out of quotes.")
@@ -380,7 +275,7 @@ async def u_quote(interaction: Interaction, usr: Member):
 
 
 @app_commands.context_menu(name="QuoteDB: Get Stats")
-async def quote_stats(interaction: Interaction, member: Member):
+async def quote_stats(interaction, member: Member):
     """See quote stats for a user"""
     if interaction.user.id in interaction.client.quote_blacklist:
         return await interaction.client.error(interaction, "You have opted out of quotes.")
@@ -411,11 +306,112 @@ class QuoteDB(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.bot.loop.create_task(self.opt_outs())
-        self.bot.quote_blacklist = []
-        self.bot.tree.add_command(Quotes())
         self.bot.tree.add_command(quote_add)
         self.bot.tree.add_command(quote_stats)
         self.bot.tree.add_command(u_quote)
+
+    quotes = app_commands.Group(name="quotes", description="Get or add quotes to the quote database")
+
+    @quotes.command()
+    async def random(self, interaction):
+        """Get a random quote."""
+        if interaction.user.id in interaction.client.quote_blacklist:
+            return await interaction.client.error(interaction, "You have opted out of quotes.")
+
+        await get_quote(interaction, rand=True)
+
+    @quotes.command()
+    async def last(self, interaction):
+        """Get the most recent quote"""
+        if interaction.user.id in self.bot.quote_blacklist:
+            return await self.bot.error(interaction, "You have opted out of quotes.")
+
+        await get_quote(interaction, last=True)
+
+    @quotes.command()
+    @app_commands.describe(text="Search by quote text")
+    async def search(self, interaction: Interaction, text: str):
+        """Search for a quote by quote text"""
+        if interaction.user.id in self.bot.quote_blacklist:
+            return await self.bot.error(interaction, "You have opted out of quotes.")
+
+        await get_quote(interaction, qry=text)
+
+    @quotes.command()
+    @app_commands.describe(quote_id="Enter quote ID#")
+    async def id(self, interaction: Interaction, quote_id: int):
+        """Get a quote by its ID Number"""
+        if interaction.user.id in self.bot.quote_blacklist:
+            return await self.bot.error(interaction, "You have opted out of quotes.")
+
+        await get_quote(interaction, quote_id=quote_id)
+
+    @quotes.command()
+    async def opt_out(self, interaction: Interaction):
+        """Remove all quotes about, or added by you, and prevent future quotes being added."""
+        if interaction.user.id in self.bot.quote_blacklist:
+            #   Opt Back In confirmation Dialogue
+            v = view_utils.Confirmation(interaction, label_a="Opt In", colour_a=ButtonStyle.green, label_b="Cancel")
+            v.message = await self.bot.reply(interaction, content=OPT_IN)
+            await v.wait()
+
+            if v.value:  # User has chosen to opt in.
+                connection = await self.bot.db.acquire()
+                try:
+                    await connection.execute("""DELETE FROM quotes_optout WHERE userid = $1""", interaction.user.id)
+                finally:
+                    await self.bot.db.release(connection)
+                await v.message.edit(content="You have opted back into the Quotes Database.", view=None)
+            else:
+                await v.message.edit(content="Opt in cancelled, quotes cannot be added about you.", view=None)
+        else:
+            sql = """SELECT (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
+                            (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
+                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
+                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
+            escaped = [interaction.user.id, interaction.guild.id]
+
+            connection = await self.bot.db.acquire()
+            try:
+                async with connection.transaction():
+                    r = await connection.fetchrow(sql, *escaped)
+            finally:
+                await self.bot.db.release(connection)
+
+            # Warn about quotes that will be deleted.
+            if not all(v == 0 for v in [r['auth'], r['auth_g'], r['sub'], r['sub_g']]):
+                auth = f"You have been quoted {r['auth']} times" if r['auth'] else ""
+                if interaction.guild is not None:
+                    auth += f" ({r['auth_g']} times on {interaction.guild.name})" if r['auth_g'] else ""
+
+                sub = f"You have submitted {r['sub']} quotes" if r['sub'] else ""
+                if interaction.guild is not None:
+                    sub += f" ({r['sub_g']} times on {interaction.guild.name})" if r['sub_g'] else ""
+
+                msg = ("\n".join([i for i in [auth, sub] if i]) +
+                       "\n\n**ALL of these quotes will be deleted if you opt out.**")
+
+                e = Embed(colour=Colour.red(), title="Your quotes will be deleted if you opt out.", description=msg)
+            else:
+                e = None
+
+            v = view_utils.Confirmation(interaction, label_a="Opt out", colour_a=ButtonStyle.red, label_b="Cancel")
+            v.message = await interaction.client.reply(interaction, content="Opt out of QuoteDB?", embed=e, view=v)
+
+            if not v.value:
+                return await v.message.edit(content="Opt out cancelled, you can still quote and be quoted", view=None)
+            else:
+                if e is not None:
+                    connection = await interaction.client.db.acquire()
+                    try:
+                        async with connection.transaction():
+                            sql = """DELETE FROM quotes WHERE author_user_id = $1 OR submitter_user_id = $2"""
+                            r = await connection.execute(sql, interaction.user.id, interaction.user.id)
+                    finally:
+                        await interaction.client.db.release(connection)
+                    e.description = r.split(' ')[-1] + " quotes were deleted."
+
+            await v.message.edit(content=f"You were opted out of the quote DB", embed=e)
 
     async def opt_outs(self):
         """Cache the list of users who have opted out of the quote DB"""
