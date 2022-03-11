@@ -67,7 +67,7 @@ class Admin(commands.Cog):
         else:
             guild = Object(int(guild))
             await self.bot.tree.sync(guild)
-        await self.bot.reply(interaction, "Asked discord to sync, please wait up to 1 hour.")
+        await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")
 
     cogs = app_commands.Group(name="cogs", description="Load and unload modules", guild_ids=[250252535699341312])
 
@@ -181,7 +181,7 @@ class Admin(commands.Cog):
         e.set_thumbnail(url=self.bot.user.avatar.url)
         await self.bot.reply(interaction, embed=e)
 
-    edit_bot = app_commands.Group(name="editbot", description="Edit the bot profile", guild_ids=[250252535699341312])
+    edit_bot = app_commands.Group(name="bot", description="Edit the bot profile", guild_ids=[250252535699341312])
 
     @edit_bot.command()
     @app_commands.describe(file='The file to upload', link="Provide a link")
