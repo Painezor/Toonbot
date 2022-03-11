@@ -56,9 +56,6 @@ class Bot(commands.Bot, ABC):
         self.initialised_at = datetime.utcnow()
         self.invite: str = INVITE_URL
 
-        # Notifications
-        self.notifications_cache: List[asyncpg.Record] = []
-
         # Livescores
         self.games: Dict[str, Fixture] = dict()
         self.teams: Dict[str, Team] = dict()
@@ -68,6 +65,19 @@ class Bot(commands.Bot, ABC):
         self.scores_messages: dict = defaultdict(dict)
         self.score_loop: Task | None = None
         self.fs_score_loop: Task | None = None
+
+        # Notifications
+        self.notifications_cache: List[asyncpg.Record] = []
+
+        # QuoteDB
+        self.quote_blacklist: List[int] = []
+
+        # RSS
+        self.eu_news: Task | None = None
+        self.dev_blog: Task | None = None
+        self.blog_cache: List[str] = []
+        self.news_cached: bool = False
+        self.dev_blog_cached: bool = False
 
         # Hack-job for reloading. Remove later.
         self.tree.add_command(LiveScores())
