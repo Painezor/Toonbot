@@ -69,18 +69,6 @@ qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2
 qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 
 
-@app_commands.command()
-async def logs(interaction):
-    """Create moderator logs in this channel."""
-    if interaction.guild is None:
-        return await interaction.client.error(interaction, "This command cannot be ran in DMs")
-    elif not interaction.permissions.manage_messages:
-        err = "You need manage_messages permissions to view and set mod logs"
-        return await interaction.client.error(interaction, err)
-
-    await ConfigView(interaction).update()
-
-
 class ConfigView(View):
     """Generic Config View"""
 
@@ -137,9 +125,18 @@ class Logs(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.bot.notifications_cache = []
         self.bot.loop.create_task(self.update_cache())
-        self.bot.tree.add_command(logs)
+
+    @app_commands.command()
+    async def logs(self, interaction):
+        """Create moderator logs in this channel."""
+        if interaction.guild is None:
+            return await self.bot.error(interaction, "This command cannot be ran in DMs")
+        elif not interaction.permissions.manage_messages:
+            err = "You need manage_messages permissions to view and set mod logs"
+            return await self.bot.error(interaction, err)
+
+        await ConfigView(interaction).update()
 
     # We don't need to db call every single time an event happens, just when config is updated
     # So we cache everything and store it in memory instead for performance and sanity reasons.
@@ -277,7 +274,7 @@ class Logs(commands.Cog):
 
         if not before.is_timed_out():
             e = Embed(title="User Timed Out")
-            end_time = after.communication_disabled_until
+            end_time = after.timed_out_until
             diff = end_time - datetime.datetime.now(datetime.timezone.utc)
             target_time = timed_events.Timestamp(end_time).day_time
             e.description = f"{after.mention} was timed out for {diff}\nTimeout ends: {target_time}"
@@ -306,7 +303,7 @@ class Logs(commands.Cog):
                 if emoji.managed:
                     e.set_author(name="Twitch Integration", icon_url=TWITCH_LOGO)
                     if emoji.roles:
-                        e.add_field(name='Available to roles', value="".join([i.mention for i in emoji.roles]))
+                        e.add_field(name='Available to roles', value=''.join([i.mention for i in emoji.roles]))
 
                 e.title = f"New {'animated ' if emoji.animated else ''}emote: {emoji.name}"
                 e.set_image(url=emoji.url)
