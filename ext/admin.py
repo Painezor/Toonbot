@@ -6,7 +6,7 @@ import traceback
 from os import system
 from typing import Optional
 
-from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, app_commands, Message
+from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, app_commands, Message, Object
 from discord.app_commands import Choice
 from discord.ext import commands
 from discord.ui import View, Button
@@ -25,7 +25,8 @@ def error_to_codeblock(error):
 # AutoComplete
 choices = [Choice(name=i, value=i) for i in
            ['errors', 'session', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
-            'logs', 'lookup', 'mod', 'nufc', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships', 'testing']]
+            'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
+            'testing']]
 
 
 class Admin(commands.Cog):
@@ -56,6 +57,17 @@ class Admin(commands.Cog):
             view.add_item(Button(style=ButtonStyle.url, url=self.bot.invite_url, label="Invite me to your server"))
             e.add_field(name="Discord changes", value=NO_SLASH_COMM)
             return await message.reply(embed=e, view=view)
+
+    @app_commands.command()
+    @app_commands.describe(guild="enter guild ID to sync")
+    async def sync(self, interaction: Interaction, guild: Optional[str] = None):
+        """Sync the command tree with discord"""
+        if guild is None:
+            await self.bot.tree.sync()
+        else:
+            guild = Object(int(guild))
+            await self.bot.tree.sync(guild)
+        await self.bot.reply(interaction, "Asked discord to sync, please wait up to 1 hour.")
 
     cogs = app_commands.Group(name="cogs", description="Load and unload modules", guild_ids=[250252535699341312])
 
