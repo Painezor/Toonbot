@@ -1,9 +1,7 @@
 """Private world of warships related commands"""
 import datetime
-import os
 
-from PIL import Image
-from discord import Embed, ActivityType, Colour, app_commands, Interaction, Object
+from discord import Embed, ActivityType, Colour, app_commands, Interaction
 from discord.ext import commands
 
 targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1", "DobbyM8",
@@ -16,46 +14,32 @@ targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "dark
 # TODO: Permissions Pass.
 
 
-def make_bauble(img):
-    """Make a single bauble"""
-    # Open Avatar file.
-    avatar = Image.open(r"F:/Logos/" + img).convert(mode="RGBA")
-
-    # Create Canvas & Paste Avatar
-    canvas = Image.new("RGBA", (300, 350), (0, 0, 0, 255))
-    canvas.paste(avatar, (0, 50))
-
-    # Apply Bauble mask.
-    msk = Image.open("images/Bauble_MASK.png").convert('L')
-    canvas.putalpha(msk)
-
-    # Apply bauble top overlay
-    bauble_top = Image.open("images/BaubleTop.png").convert(mode="RGBA")
-    canvas.paste(bauble_top, mask=bauble_top)
-
-    output_loc = r"F:/Logo-Output/" + img.split('.')[0]
-    canvas.save(output_loc + ".png")
-
-
-def bulk_image():
-    """Batch Export Baubles"""
-    directory = r'F:\Logos'
-    for img in os.listdir(directory):
-        make_bauble(img)
-
-
-@app_commands.command()
-@app_commands.describe(code_list="Enter a list of codes")
-async def codes(interaction: Interaction, code_list: str):
-    """Strip codes for world of warships"""
-    if interaction.user.id != interaction.client.owner_id:
-        return await interaction.client.error(interaction, "You do not own this bot.")
-
-    code_list = code_list.replace(';', '')
-    code_list = code_list.split('|')
-    code_list = "\n".join([i.strip() for i in code_list if i])
-
-    await interaction.client.reply(interaction, content=f"```\n{code_list}```")
+# def make_bauble(img):
+#     """Make a single bauble"""
+#     # Open Avatar file.
+#     avatar = Image.open(r"F:/Logos/" + img).convert(mode="RGBA")
+#
+#     # Create Canvas & Paste Avatar
+#     canvas = Image.new("RGBA", (300, 350), (0, 0, 0, 255))
+#     canvas.paste(avatar, (0, 50))
+#
+#     # Apply Bauble mask.
+#     msk = Image.open("images/Bauble_MASK.png").convert('L')
+#     canvas.putalpha(msk)
+#
+#     # Apply bauble top overlay
+#     bauble_top = Image.open("images/BaubleTop.png").convert(mode="RGBA")
+#     canvas.paste(bauble_top, mask=bauble_top)
+#
+#     output_loc = r"F:/Logo-Output/" + img.split('.')[0]
+#     canvas.save(output_loc + ".png")
+#
+#
+# def bulk_image():
+#     """Batch Export Baubles"""
+#     directory = r'F:\Logos'
+#     for img in os.listdir(directory):
+#         make_bauble(img)
 
 
 class Warships(commands.Cog):
@@ -64,7 +48,6 @@ class Warships(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.now_live_cache = {}
-        self.bot.tree.add_command(codes, guild=Object(id=250252535699341312))
 
     async def on_presence_update(self, before, after):
         """Apply hoisted role to streamers when they go live."""
@@ -115,6 +98,20 @@ class Warships(commands.Cog):
         e.set_thumbnail(url=after.display_avatar.url)
 
         await ch.send(embed=e)
+
+    @app_commands.command()
+    @app_commands.describe(code_list="Enter a list of codes")
+    @app_commands.guilds(250252535699341312)
+    async def codes(self, interaction: Interaction, code_list: str):
+        """Strip codes for world of warships"""
+        if interaction.user.id != self.bot.owner_id:
+            return await self.bot.error(interaction, "You do not own this bot.")
+
+        code_list = code_list.replace(';', '')
+        code_list = code_list.split('|')
+        code_list = "\n".join([i.strip() for i in code_list if i])
+
+        await self.bot.reply(interaction, content=f"```\n{code_list}```")
 
     # @commands.command()
     # async def twitch(self, interaction):
