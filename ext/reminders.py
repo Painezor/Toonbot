@@ -128,24 +128,45 @@ class ReminderView(View):
         await self.message.edit(view=self)
 
 
-class Reminder(app_commands.Group):
-    """Set reminders for yourself"""
+@app_commands.context_menu(name="Create reminder")
+async def add_reminder(interaction: Interaction, message: Message):
+    """Create a reminder with a link to a message."""
+    modal = RemindModal(title="Remind me about this message", message=message)
+    await interaction.response.send_modal(modal)
 
-    @app_commands.command()
+
+class Reminders(commands.Cog):
+    """Set yourself reminders"""
+
+    def __init__(self, bot):
+        self.bot = bot
+        self.bot.reminders = []  # A list of tasks.
+        self.bot.loop.create_task(self.spool_initial())
+        self.bot.tree.add_command(add_reminder)
+        reload(timed_events)
+        reload(embed_utils)
+
+    def cog_unload(self):
+        """Cancel all active tasks on cog reload"""
+        for i in self.bot.reminders:
+            i.cancel()
+
+    reminder = app_commands.Group(name="reminder", description="Set Reminders for yourself")
+
+    @reminder.command()
     async def add(self, interaction: Interaction):
         """Remind you of something at a specified time."""
-        modal = RemindModal(title="Create a reminder")
-        await interaction.response.send_modal(modal)
+        await interaction.response.send_modal(RemindModal(title="Create a reminder"))
 
-    @app_commands.command()
+    @reminder.command()
     async def list(self, interaction: Interaction):
         """Check your active reminders"""
-        connection = await interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 records = await connection.fetch("""SELECT * FROM reminders WHERE user_id = $1""", interaction.user.id)
         finally:
-            await interaction.client.db.release(connection)
+            await self.bot.db.release(connection)
 
         def short(r: asyncpg.Record):
             """Get oneline version of reminder"""
@@ -161,31 +182,6 @@ class Reminder(app_commands.Group):
 
         view = view_utils.Paginator(interaction, embeds)
         await view.update()
-
-
-@app_commands.context_menu(name="Create reminder")
-async def add_reminder(interaction: Interaction, message: Message):
-    """Create a reminder with a link to a message."""
-    modal = RemindModal(title="Remind me about this message", message=message)
-    await interaction.response.send_modal(modal)
-
-
-class Reminders(commands.Cog):
-    """Set yourself reminders"""
-
-    def __init__(self, bot):
-        self.bot = bot
-        self.bot.reminders = []  # A list of tasks.
-        self.bot.loop.create_task(self.spool_initial())
-        self.bot.tree.add_command(Reminder())
-        self.bot.tree.add_command(add_reminder)
-        reload(timed_events)
-        reload(embed_utils)
-
-    def cog_unload(self):
-        """Cancel all active tasks on cog reload"""
-        for i in self.bot.reminders:
-            i.cancel()
 
     async def spool_initial(self):
         """Queue all active reminders"""
