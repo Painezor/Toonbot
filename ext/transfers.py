@@ -5,6 +5,7 @@ from discord.ui import View, Button, Select
 from lxml import html
 
 from ext.utils import transfer_tools, embed_utils, view_utils
+from ext.utils.transfer_tools import Competition
 
 LG = [(":england: Premier League", "https://www.transfermarkt.co.uk/premier-league/startseite/wettbewerb/GB1"),
       (":england: Championship", "https://www.transfermarkt.co.uk/championship/startseite/wettbewerb/GB2"),
@@ -207,10 +208,7 @@ class TransfersCog(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.parsed = []
         self.bot.transfers = self.transfers_loop.start()
-        self.warn_once = []
-        self.bot.tree.add_command(TransferTicker())
 
     def cog_unload(self):
         """Cancel transfers task on Cog Unload."""
@@ -222,8 +220,8 @@ class TransfersCog(commands.Cog):
             src = await resp.text()
 
         tree = html.fromstring(src)
-        name = "".join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/text()')).strip()
-        link = "".join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/@href'))
+        name = ''.join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/text()')).strip()
+        link = ''.join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/@href'))
 
         link = TF + link if link else ""
         return name, link
@@ -238,15 +236,15 @@ class TransfersCog(commands.Cog):
                 return
             tree = html.fromstring(await resp.text())
 
-        skip_output = True if not self.parsed else False
+        skip_output = True if not self.bot.parsed_transfers else False
         for i in tree.xpath('.//div[@class="responsive-table"]/div/table/tbody/tr'):
-            name = "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/text()')).strip()
-            link = TF + "".join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
+            name = ''.join(i.xpath('.//td[1]//tr[1]/td[2]/a/text()')).strip()
+            link = TF + ''.join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
 
-            if not name or name in self.parsed:
+            if not name or name in self.bot.parsed_transfers:
                 continue  # skip when duplicate / void.
             else:
-                self.parsed.append(name)
+                self.bot.parsed_transfers.append(name)
                 player = transfer_tools.Player(name, link)
 
             # We don't need to output when populating after a restart.
@@ -254,30 +252,33 @@ class TransfersCog(commands.Cog):
                 continue
 
             # Player Info
-            player.age = "".join(i.xpath('./td[2]//text()')).strip()
-            player.position = "".join(i.xpath('./td[1]//tr[2]/td/text()'))
+            player.age = ''.join(i.xpath('./td[2]//text()')).strip()
+            player.position = ''.join(i.xpath('./td[1]//tr[2]/td/text()'))
             player.country = i.xpath('.//td[3]/img/@title')
-            player.picture = "".join(i.xpath('.//td[1]//tr[1]/td[1]/img/@src'))
+            player.picture = ''.join(i.xpath('.//td[1]//tr[1]/td[1]/img/@src'))
 
             # Leagues & Fee
-            new_team = "".join(i.xpath('.//td[5]//td[2]/a/text()')).strip()
-            new_team_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
-            new_team = transfer_tools.Team(new_team, new_team_link)
-            new_team.country = "".join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
-            new_team.league, new_team.league_link = await self._get_team_league(new_team_link)
+            team = ''.join(i.xpath('.//td[5]//td[2]/a/text()')).strip()
+            team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
+
+            lg, lg_link = await self._get_team_league(team_link)
+            league = Competition(name=lg, link=lg_link)
+
+            new_team = transfer_tools.Team(team, team_link, league)
+            team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
 
             player.team = new_team
-            player.team_link = new_team_link
 
-            old_team = "".join(i.xpath('.//td[4]//td[2]/a/text()')).strip()
-            old_team_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[4]//td[2]/a/@href')).strip()
+            team = ''.join(i.xpath('.//td[4]//td[2]/a/text()')).strip()
+            team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[4]//td[2]/a/@href')).strip()
 
-            old_team = transfer_tools.Team(old_team, old_team_link)
-            old_team.country = "".join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
-            old_team.league, old_team.league_link = await self._get_team_league(old_team_link)
+            lg, lg_link = await self._get_team_league(team_link)
+            league = Competition(name=lg, link=lg_link)
+            old_team = transfer_tools.Team(team, team_link, league)
+            old_team.country = ''.join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
 
-            fee = "".join(i.xpath('.//td[6]//a/text()'))
-            fee_link = "https://www.transfermarkt.co.uk" + "".join(i.xpath('.//td[6]//a/@href'))
+            fee = ''.join(i.xpath('.//td[6]//a/text()'))
+            fee_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[6]//a/@href'))
 
             transfer = transfer_tools.Transfer(player)
             transfer.old_team = old_team
@@ -293,7 +294,7 @@ class TransfersCog(commands.Cog):
                     FROM transfers_channels LEFT OUTER JOIN transfers_leagues
                     ON transfers_channels.channel_id = transfers_leagues.channel_id
                     WHERE item in ($1, $2)
-                    """, old_team.league_link, new_team.league_link)
+                    """, old_team.league.link, new_team.league.link)
             finally:
                 await self.bot.db.release(connection)
 
@@ -301,6 +302,7 @@ class TransfersCog(commands.Cog):
                 ch = self.bot.get_channel(r['channel_id'])
                 if ch is None:
                     continue
+
                 try:
                     await ch.send(embed=transfer.embed)
                 except HTTPException:
@@ -322,37 +324,30 @@ class TransfersCog(commands.Cog):
             await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
         await self.bot.db.release(connection)
 
+    tf = app_commands.Group(name="transfer_ticker", description="Create or manage a Transfer Ticker")
 
-def setup(bot):
-    """Load the transfer ticker cog into the bot"""
-    bot.add_cog(TransfersCog(bot))
-
-
-class TransferTicker(app_commands.Group):
-    """Create or manage a Transfer Ticker"""
-
-    @app_commands.command()
+    @tf.command()
     async def manage(self, interaction):
         """View the config of this channel's transfer ticker"""
         if interaction.guild is None:
-            return await interaction.client.error(interaction, "This command cannot be ran in DMs")
+            return await self.bot.error(interaction, "This command cannot be ran in DMs")
 
         if not interaction.permissions.manage_messages:
-            return await interaction.client.error(interaction, "You need manage messages permissions to edit a ticker")
+            return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
 
         await ConfigView(interaction).update()
 
-    @app_commands.command()
+    @tf.command()
     @app_commands.describe(league_name="Search for a league name")
     async def add(self, interaction: Interaction, league_name: str):
         """Add a league to your transfer ticker channel(s)"""
         if interaction.guild is None:
-            return await interaction.client.error(interaction, "This command cannot be ran in DMs")
+            return await self.bot.error(interaction, "This command cannot be ran in DMs")
 
         if not interaction.permissions.manage_messages:
-            return await interaction.client.error(interaction, "You need manage messages permissions to edit a ticker")
+            return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
 
-        connection = await interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """SELECT * FROM transfers_channels WHERE channel_id = $1"""
             r = await connection.fetchrow(q, interaction.channel.id)
@@ -360,7 +355,7 @@ class TransferTicker(app_commands.Group):
 
         if r is None or r['channel_id'] is None:
             err = "This channel does not have a transfer ticker set. Please make one first."
-            return await interaction.client.error(interaction, err)
+            return await self.bot.error(interaction, err)
 
         view = transfer_tools.SearchView(interaction, league_name, category="Competitions", fetch=True)
         await view.update()
@@ -376,10 +371,15 @@ class TransferTicker(app_commands.Group):
 
         alias = f"{result.flag} {result.name}"
 
-        connection = await interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""INSERT INTO transfers_leagues (channel_id, item, alias)
-                                        VALUES ($1, $2, $3)
-                                        ON CONFLICT DO NOTHING""", interaction.channel.id, result.link, alias)
-        await interaction.client.db.release(connection)
+                                         VALUES ($1, $2, $3)
+                                         ON CONFLICT DO NOTHING""", interaction.channel.id, result.link, alias)
+        await self.bot.db.release(connection)
         await view.message.edit(content=f"✅ {alias} added to {interaction.channel.mention} tracker", view=None)
+
+
+def setup(bot):
+    """Load the transfer ticker cog into the bot"""
+    bot.add_cog(TransfersCog(bot))
