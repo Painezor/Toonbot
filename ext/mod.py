@@ -189,7 +189,7 @@ class Mod(commands.Cog):
         if not interaction.permissions.view_audit_log:
             return await self.bot.error(interaction, "You need view_audit_log permissions to view the ban list.")
 
-        ban_lines = [f"{x.id} | {x.user.name}#{x.user.discriminator}"
+        ban_lines = [f"{x.user.id} | {x.user.name}#{x.user.discriminator}"
                      f"```yaml\n{x.reason}```" for x in await interaction.guild.bans()]
 
         if not ban_lines:
