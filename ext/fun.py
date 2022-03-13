@@ -3,13 +3,16 @@ import collections
 import random
 import re
 from copy import deepcopy
-from typing import List
+from typing import List, TYPE_CHECKING
 
 from discord import ButtonStyle, Colour, Embed, Interaction, app_commands, TextStyle, Message
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 
 from ext.utils import view_utils, embed_utils
+
+if TYPE_CHECKING:
+    from core import Bot
 
 EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" \
                   "thumbs/120/samsung/265/pool-8-ball_1f3b1.png"
@@ -32,7 +35,7 @@ class CoinView(View):
         for x in range(count):
             self.results.append(random.choice(['Heads', 'Tails']))
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Clear view"""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
@@ -42,7 +45,7 @@ class CoinView(View):
         """Verify clicker is owner of interaction"""
         return self.interaction.user.id == interaction.user.id
 
-    async def update(self, content=""):
+    async def update(self, content="") -> View:
         """Update embed and push to view"""
         e = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(), description=f"**{self.results[-1]}**\n\n")
         e.set_thumbnail(url=COIN_IMAGE)
@@ -56,7 +59,7 @@ class CoinView(View):
             e.description += ', '.join([f'*{i}*' for i in self.results[-200:]])
 
         await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
-        await self.wait()
+        return self
 
 
 class FlipButton(Button):
@@ -66,12 +69,12 @@ class FlipButton(Button):
         super().__init__(label=label, emoji="🪙", style=ButtonStyle.primary)
         self.count: int = count
 
-    async def callback(self, interaction):
+    async def callback(self, interaction) -> View:
         """When clicked roll"""
         await interaction.response.defer()
         for x in range(self.count):
             self.view.results.append(random.choice(['Heads', 'Tails']))
-        await self.view.update()
+        return await self.view.update()
 
 
 class PollModal(Modal, title="Make a Decision"):
@@ -79,7 +82,7 @@ class PollModal(Modal, title="Make a Decision"):
     question = TextInput(label="Enter a question", placeholder="What should I do?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
 
-    async def on_submit(self, interaction: Interaction):
+    async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
         e = Embed(colour=interaction.user.colour, title=self.question)
         e.set_author(icon_url=interaction.user.display_avatar.url, name=f'Choose')
@@ -93,27 +96,27 @@ class PollModal(Modal, title="Make a Decision"):
             e.description += ' ,'.join([f"*{i}*" for i in choices])
         except IndexError:
             pass
-        await interaction.client.reply(interaction, embed=e)
+        return await interaction.client.reply(interaction, embed=e)
 
 
 # Context Menu commands must be free floating.
 @app_commands.context_menu(name="MoCk")
-async def mock(interaction: Interaction, message: Message):
+async def mock(interaction: Interaction, message: Message) -> Message:
     """AlTeRnAtInG cApS"""
     content = ''.join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
-    await interaction.client.reply(interaction, content=content)
+    return await interaction.client.reply(interaction, content=content)
 
 
 class Fun(commands.Cog):
     """Various Toys for you to play with."""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         self.bot.tree.add_command(mock)  # Must be free floating.
 
     @app_commands.command(name="8ball")
     @app_commands.describe(question="enter a question")
-    async def eight_ball(self, interaction: Interaction, question: str):
+    async def eight_ball(self, interaction: Interaction, question: str) -> Message:
         """Magic Geordie 8ball"""
         res = ["probably", "Aye", "aye mate", "wey aye.", "aye trust is pal.",
                "Deffo m8", "fuckin aye.", "fucking rights", "think so", "absofuckinlutely",
@@ -127,37 +130,37 @@ class Fun(commands.Cog):
 
         e = Embed(title=question, colour=0x000001, description=random.choice(res))
         e.set_author(icon_url=self.bot.user.display_avatar.url, name=f'🎱 8 Ball')
-        await self.bot.reply(interaction, embed=e)
+        return await self.bot.reply(interaction, embed=e)
 
     @app_commands.command()
-    async def lenny(self, interaction):
+    async def lenny(self, interaction) -> Message:
         """( ͡° ͜ʖ ͡°)"""
         lennys = ['( ͡° ͜ʖ ͡°)', '(ᴗ ͜ʖ ᴗ)', '(⟃ ͜ʖ ⟄) ', '(͠≖ ͜ʖ͠≖)', 'ʕ ͡° ʖ̯ ͡°ʔ', '( ͠° ͟ʖ ͡°)', '( ͡~ ͜ʖ ͡°)',
                   '( ͡◉ ͜ʖ ͡◉)', '( ͡° ͜V ͡°)', '( ͡ᵔ ͜ʖ ͡ᵔ )',
                   '(☭ ͜ʖ ☭)', '( ° ͜ʖ °)', '( ‾ ʖ̫ ‾)', '( ͡° ʖ̯ ͡°)', '( ͡° ل͜ ͡°)', '( ͠° ͟ʖ ͠°)', '( ͡o ͜ʖ ͡o)',
                   '( ͡☉ ͜ʖ ͡☉)', 'ʕ ͡° ͜ʖ ͡°ʔ', '( ͡° ͜ʖ ͡ °)']
-        await self.bot.reply(interaction, content=random.choice(lennys))
+        return await self.bot.reply(interaction, content=random.choice(lennys))
 
     @app_commands.command()
-    async def thatsthejoke(self, interaction):
+    async def thatsthejoke(self, interaction: Interaction) -> Message:
         """That's the joke"""
-        await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=xECUrlnXCqk")
+        return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=xECUrlnXCqk")
 
     @app_commands.command()
-    async def helmet(self, interaction: Interaction):
+    async def helmet(self, interaction: Interaction) -> Message:
         """Helmet"""
-        await self.bot.reply(interaction, file=embed_utils.make_file(image="Images/helmet.jpg"))
+        return await self.bot.reply(interaction, file=embed_utils.make_file(image="Images/helmet.jpg"))
 
     @app_commands.command()
-    async def dead(self, interaction):
+    async def dead(self, interaction: Interaction) -> Message:
         """STOP, STOP HE'S ALREADY DEAD"""
-        await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
+        return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
 
     @app_commands.command()
-    async def coin(self, interaction: Interaction, count: int = 1):
+    async def coin(self, interaction: Interaction, count: int = 1) -> Message | View:
         """Flip a coin"""
         if count > 10000:
-            return await self.bot.reply(interaction, content='Too many coins.')
+            return await self.bot.error(interaction, 'Too many coins.')
 
         view = CoinView(interaction, count=count)
         view.add_item(FlipButton())
@@ -165,11 +168,11 @@ class Fun(commands.Cog):
         for _ in [5, 10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
         view.add_item(view_utils.StopButton(row=1))
-        await view.update()
+        return await view.update()
 
     @app_commands.command()
     @app_commands.describe(query="enter a search term")
-    async def urban(self, interaction: Interaction, *, query: str):
+    async def urban(self, interaction: Interaction, query: str) -> Message | View:
         """Lookup a definition from urban dictionary"""
         url = f"http://api.urbandictionary.com/v0/define?term={query}"
         async with self.bot.session.get(url) as resp:
@@ -219,11 +222,11 @@ class Fun(commands.Cog):
             embeds = [e]
 
         view = view_utils.Paginator(interaction, embeds=embeds)
-        await view.update()
+        return await view.update()
 
     @app_commands.command()
     @app_commands.describe(dice="enter a roll (format: 1d20+3)")
-    async def roll(self, interaction: Interaction, dice: str = "d20"):
+    async def roll(self, interaction: Interaction, dice: str = "d20") -> Message:
         """Roll a set of dice in the format XdY+Z. Use 'adv' or 'dis' for (dis)advantage"""
         advantage = True if dice.startswith("adv") else False
         disadvantage = True if dice.startswith("dis") else False
@@ -327,19 +330,19 @@ class Fun(commands.Cog):
         if len(roll_list) > 1:
             e.description += f"\n**Total: {total}**"
 
-        await interaction.client.reply(interaction, embed=e)
+        return await self.bot.reply(interaction, embed=e)
 
     @app_commands.command()
-    async def choose(self, interaction: Interaction):
+    async def choose(self, interaction: Interaction) -> PollModal:
         """Make a decision for you (separate choices with new lines)"""
-        await interaction.response.send_modal(PollModal())
+        return await interaction.response.send_modal(PollModal())
 
     @app_commands.command(name="f")
-    async def press_f(self, interaction):
+    async def press_f(self, interaction) -> Message:
         """Press F to pay respects"""
-        await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
+        return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
 
 
-def setup(bot):
+def setup(bot: 'Bot') -> None:
     """Load the Fun cog into the bot"""
-    bot.add_cog(Fun(bot))
+    return bot.add_cog(Fun(bot))
