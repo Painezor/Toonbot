@@ -3,14 +3,17 @@ import json
 import random
 import textwrap
 from io import BytesIO
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
-from discord import Embed, Colour, Member, Attachment, Interaction, app_commands, User
+from discord import Embed, Colour, Member, Attachment, Interaction, app_commands, User, Message
 from discord.ext import commands
 from discord.ui import View
 
 from ext.utils import embed_utils
+
+if TYPE_CHECKING:
+    from core import Bot
 
 KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_TV_%28Hungary%29.svg" \
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
@@ -81,10 +84,10 @@ def get_target(interaction: Interaction, user: User | Member = None, link: str =
 class ImageView(View):
     """Holder View for Image Manipulation functions."""
 
-    def __init__(self, interaction, target: str):
+    def __init__(self, interaction: Interaction, target: str) -> None:
         self.interaction: Interaction = interaction
         self.coordinates: dict = {}
-        self.image = None
+        self.image: bytes | None = None
         self.target_url: str = target
         super().__init__()
 
@@ -237,16 +240,16 @@ class ImageView(View):
         e.add_field(name="Source Image", value=self.target_url)
         await embed_utils.embed_image(self.interaction, e, image, filename="bob.png")
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Push latest version to view"""
-        await self.interaction.client.reply(self.interaction, content=content)
+        return await self.interaction.client.reply(self.interaction, content=content)
 
 
 class Images(commands.Cog):
     """Image manipulation commands"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
     @app_commands.command()
     @app_commands.describe(user="pick a user", link="provide a link", file="upload a file")
@@ -307,7 +310,7 @@ class Images(commands.Cog):
         await view.push_bob()
 
     @app_commands.command()
-    async def tinder(self, interaction: Interaction):
+    async def tinder(self, interaction: Interaction) -> Message:
         """Try to Find your next date."""
         if interaction.guild is None:
             return await self.bot.error(interaction, "This command cannot be used in DMs")
@@ -367,14 +370,14 @@ class Images(commands.Cog):
         output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
         if match.id == interaction.user.id:
             caption = f"{interaction.user.mention} matched with themself, How pathetic."
-        elif match.id == self.bot.user_id:
+        elif match.id == self.bot.user.id:
             caption = f"{interaction.user.mention} Fancy a shag?"
         else:
             caption = f"{interaction.user.mention} matched with {match.mention}"
         icon = "https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/512/tinder-512.png"
         e = Embed(description=caption, colour=0xFD297B)
         e.set_author(name="Tinder", icon_url=icon)
-        await embed_utils.embed_image(interaction, e, output, filename="Tinder.png")
+        return await embed_utils.embed_image(interaction, e, output, filename="Tinder.png")
 
     @app_commands.command()
     @app_commands.describe(quote="enter quote text", target="pick a user")
@@ -451,6 +454,6 @@ class Images(commands.Cog):
         await embed_utils.embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
 
 
-def setup(bot):
+def setup(bot: 'Bot'):
     """Load the Images Cog into the bot"""
     bot.add_cog(Images(bot))

@@ -15,7 +15,7 @@ from ext.utils import view_utils
 class DeleteButton(Button):
     """Button to spawn a new view to delete a quote."""
 
-    def __init__(self, row=None):
+    def __init__(self, row=None) -> None:
         super().__init__(style=ButtonStyle.red, label="Delete", emoji="🗑️", row=row)
 
     async def callback(self, interaction):
@@ -52,7 +52,7 @@ class DeleteButton(Button):
 class GlobalButton(Button):
     """Toggle This Server Only or Global"""
 
-    def __init__(self, label, style, row=3):
+    def __init__(self, label, style, row=3) -> None:
         super().__init__(label=label, style=style, row=row, emoji="🌍")
 
     async def callback(self, interaction: Interaction):
@@ -69,7 +69,7 @@ class GlobalButton(Button):
 class RandButton(Button):
     """Push a random quote to the view."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(row=1, label="Random", emoji="🎲")
 
     async def callback(self, interaction: Interaction):
@@ -85,7 +85,7 @@ class RandButton(Button):
 class QuotesView(View):
     """Generic Paginator that returns nothing."""
 
-    def __init__(self, interaction: Interaction, quotes: List[asyncpg.Record], rand=False, last=False):
+    def __init__(self, interaction: Interaction, quotes: List[asyncpg.Record], rand=False, last=False) -> None:
         super().__init__()
         self.index: int = 0
         self.all: List[asyncpg.Record] = quotes
@@ -100,7 +100,7 @@ class QuotesView(View):
 
         self.all_guilds = False
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
@@ -150,7 +150,7 @@ class QuotesView(View):
         e.timestamp = quote["timestamp"]
         return e
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
         self.add_item(view_utils.FirstButton(disabled=True if self.index == 0 else False))
@@ -174,7 +174,6 @@ class QuotesView(View):
 
         e = self.embed_quote(q)
         await self.interaction.client.reply(self.interaction, contnet=content, embed=e, view=self)
-        await self.wait()
 
 
 OPT_IN = "You are currently opted out of quotes, opting back in will allow " \

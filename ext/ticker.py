@@ -137,7 +137,7 @@ class ToggleButton(Button):
 class ResetLeagues(Button):
     """Button to reset a ticker back to its default leagues"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
     async def callback(self, interaction: Interaction):
@@ -155,7 +155,7 @@ class ResetLeagues(Button):
 class DeleteTicker(Button):
     """Button to delete a ticker entirely"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(label="Delete ticker", style=ButtonStyle.red)
 
     async def callback(self, interaction: Interaction):
@@ -205,7 +205,7 @@ class TickerConfig(View):
         self.settings = None
         self.value = None
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
@@ -253,7 +253,7 @@ class TickerConfig(View):
         finally:
             await self.interaction.client.db.release(connection)
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Regenerate view and push to message"""
         self.clear_items()
 
@@ -361,8 +361,8 @@ class TickerEvent:
         elif self.mode in ["goal", "var_goal", "red_card", "var_red_card"]:
             h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
             h, a = ('**', '**') if self.home is None else (h, a)
-            home = f"{h}{self.fixture.home} {self.fixture.score_home}{h}"
-            away = f"{a}{self.fixture.score_away} {self.fixture.away}{a}"
+            home = f"{h}{self.fixture.home.name} {self.fixture.score_home}{h}"
+            away = f"{a}{self.fixture.score_away} {self.fixture.away.name}{a}"
             e.description = f"**{m}** | [{home} - {away}]({self.fixture.url})\n"
 
         if self.mode == "penalties_begin":
@@ -371,8 +371,8 @@ class TickerEvent:
         elif self.mode == "penalty_results":
             try:
                 h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
-                home = f"{h}{self.fixture.home} {self.fixture.penalties_home}{h}"
-                away = f"{a}{self.fixture.penalties_away} {self.fixture.away}{a}"
+                home = f"{h}{self.fixture.home.name} {self.fixture.penalties_home}{h}"
+                away = f"{a}{self.fixture.penalties_away} {self.fixture.away.name}{a}"
                 e.description = f"**Penalty Shootout Results** | [{home} - {away}]({self.fixture.url})\n"
             except (TypeError, AttributeError):  # If penalties_home / penalties_away are NoneType or not found.
                 e.description = f"**Penalty Shootout Results** | [{self.fixture.bold_score}]({self.fixture.url})\n"

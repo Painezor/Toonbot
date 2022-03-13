@@ -81,7 +81,8 @@ class MatchThread:
         c = self.bot.get_channel(self.settings['notify_channel'])
         if c:
             e = self.base_embed
-            e.title = f"r/{self.settings['subreddit']} Pre-Match Thread: {self.fixture.home} vs {self.fixture.away}"
+            teams = f"{self.fixture.home.name} vs {self.fixture.away.name}"
+            e.title = f"r/{self.settings['subreddit']} Pre-Match Thread: {teams}"
             e.url = pre.url
             e.description = f"[Flashscore Link]({self.fixture.url})"
             await c.send(embed=e)
@@ -176,8 +177,8 @@ class MatchThread:
     async def pre_match(self):
         """Create a pre-match thread"""
         # Alias for easy replacing.
-        home = self.fixture.home
-        away = self.fixture.away
+        home = self.fixture.home.name
+        away = self.fixture.away.name
 
         # Grab DB data
         try:
@@ -254,7 +255,7 @@ class MatchThread:
         await self.fixture.refresh(self.page)
 
         # Alias for easy replacing.
-        home = self.fixture.home
+        home = self.fixture.home.name
         away = self.fixture.away
         score = self.fixture.score
 
@@ -414,7 +415,7 @@ class MatchThreadCommands(commands.Cog):
                 print(f'Not spooling duplicate thread: {sub} {f.url}.')
                 return
 
-        print(f'Spooling thread: {f.home} vs {f.away}')
+        print(f'Spooling thread: {f.home.name} vs {f.away.name}')
 
         con = await self.bot.db.acquire()
         async with con.transaction():

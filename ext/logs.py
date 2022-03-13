@@ -39,7 +39,7 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 class ToggleButton(Button):
     """A Button to toggle the notifications settings."""
 
-    def __init__(self, db_key, value, row=0):
+    def __init__(self, db_key, value, row=0) -> None:
         self.value = value
         self.db_key = db_key
 
@@ -74,18 +74,18 @@ qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 class LogsConfig(View):
     """Generic Config View"""
 
-    def __init__(self, interaction: Interaction, channel: TextChannel):
+    def __init__(self, interaction: Interaction, channel: TextChannel) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.channel = channel
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         self.clear_items()
         self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Regenerate view and push to message"""
         self.clear_items()
 

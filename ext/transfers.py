@@ -28,7 +28,7 @@ LOOP_URL = f'{TF}/transfers/neuestetransfers/statistik?minMarktwert={MIN_MARKET_
 class ResetLeagues(Button):
     """Button to reset a transfer ticker back to its default leagues"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
     async def callback(self, interaction: Interaction):
@@ -47,7 +47,7 @@ class ResetLeagues(Button):
 class DeleteTicker(Button):
     """Button to delete a ticker entirely"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(label="Delete ticker", style=ButtonStyle.red)
 
     async def callback(self, interaction: Interaction):
@@ -136,13 +136,13 @@ class TransfersConfig(View):
             await self.interaction.client.error(self.interaction, err)
             self.stop()
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Push the latest version of the embed to view."""
         self.clear_items()
 

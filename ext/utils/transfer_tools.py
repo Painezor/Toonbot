@@ -370,7 +370,7 @@ class TeamView(View):
         self.index: int = 0
         self.pages: List[Embed] = []
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Clean up"""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
@@ -380,7 +380,7 @@ class TeamView(View):
         """Verify user of view is correct user."""
         return interaction.user.id == self.interaction.user.id
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Send the latest version of the view"""
         self.clear_items()
 
@@ -635,7 +635,7 @@ class CompetitionView(View):
         self.index: int = 0
         self.pages: List[Embed] = []
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Clean up"""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
@@ -645,7 +645,7 @@ class CompetitionView(View):
         """Verify user of view is correct user."""
         return interaction.user.id == self.interaction.user.id
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Send the latest version of the view"""
         self.clear_items()
 
@@ -701,7 +701,7 @@ class Agent(TransferResult):
 class CategorySelect(Select):
     """Dropdown to specify what user is searching for."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(placeholder="What are you trying to search for...?")
 
     async def callback(self, interaction: Interaction):
@@ -715,7 +715,7 @@ class CategorySelect(Select):
 class HomeButton(Button):
     """Reset Search view to not have a category."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(emoji="⬆", label="Back")
 
     async def callback(self, interaction: Interaction):
@@ -791,12 +791,12 @@ class SearchView(View):
         print(interaction)
         raise error
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Cleanup."""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, embed=self.pages[self.index], view=self, followup=False)
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Populate Initial Results"""
         self.clear_items()
         url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
@@ -856,8 +856,7 @@ class SearchView(View):
             else:
                 self.clear_items()
                 self.add_item(select)
-                await self.interaction.client.reply(self.interaction, content=content, view=self, embed=ce)
-                return await self.wait()
+                return await self.interaction.client.reply(self.interaction, content=content, view=self, embed=ce)
 
         qs, ms, parser = self.settings
         p = {"query": self.query, qs: self.index}
@@ -898,7 +897,7 @@ class SearchView(View):
         if self.fetch and results:
             self.add_item(SearchSelect(objects=results))
 
-        await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
+        return await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 
 def parse_players(rows) -> List[Player]:

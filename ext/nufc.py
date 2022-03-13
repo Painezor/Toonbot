@@ -192,7 +192,7 @@ MBEMBA = [
 class MbembaView(View):
     """Generic View for the Mbemba Generator."""
 
-    def __init__(self, interaction: Interaction):
+    def __init__(self, interaction: Interaction) -> None:
         self.interaction: Interaction = interaction
         super().__init__()
 
@@ -200,7 +200,7 @@ class MbembaView(View):
         """Assure only person invoking the command can re-roll it."""
         return interaction.user.id == self.interaction.user.id
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Regenerate the embed and push to view."""
         self.clear_items()
         self.add_item(MbembaButton())
@@ -213,7 +213,7 @@ class MbembaView(View):
 class MbembaButton(Button):
     """Re-roll button"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(label="Mbemba Again", style=ButtonStyle.blurple, emoji="<:mbemba:332196308825931777>")
 
     async def callback(self, interaction: Interaction):

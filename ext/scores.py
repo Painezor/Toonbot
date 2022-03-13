@@ -3,7 +3,7 @@
 import datetime
 from collections import defaultdict
 from itertools import zip_longest
-from typing import List, Optional, Union, Dict
+from typing import List, Optional, Union, Dict, TYPE_CHECKING
 
 from asyncpg import UniqueViolationError, ForeignKeyViolationError
 from discord import ButtonStyle, Interaction, Colour, Embed, NotFound, HTTPException, PermissionOverwrite, Forbidden, \
@@ -16,6 +16,9 @@ from lxml.etree import ParserError
 
 from ext.utils import football, embed_utils, view_utils
 from ext.utils.football import Team, GameTime, Fixture, Competition
+
+if TYPE_CHECKING:
+    pass
 
 # from pyppeteer.errors import ElementHandleError
 
@@ -63,7 +66,7 @@ WORLD_CUP_LEAGUES = [
 class ResetLeagues(Button):
     """Button to reset a live score channel back to it's default leagues"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
     async def callback(self, interaction: Interaction):
@@ -99,7 +102,7 @@ class ScoresConfig(View):
         self.index: int = 0
         self.pages: List[Embed] = []
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
@@ -120,7 +123,7 @@ class ScoresConfig(View):
         leagues = [r['league'] for r in leagues]
         return leagues
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Push the newest version of view to message"""
         self.clear_items()
         leagues = await self.get_leagues()
@@ -422,8 +425,8 @@ class Scores(commands.Cog, name="LiveScores"):
                 self.bot.games[match_id] = Fixture(url=url, id=match_id)
 
                 self.bot.games[match_id].competition = competition
-                self.bot.games[match_id].home = teams[0]
-                self.bot.games[match_id].away = teams[1]
+                self.bot.games[match_id].home = Team(name=teams[0])
+                self.bot.games[match_id].away = Team(name=teams[1])
 
             # Get match score
             score_line = ''.join(tree.xpath('.//a/text()')).split(':')

@@ -1,11 +1,14 @@
 """User Created Polls"""
 from collections import Counter
-from typing import List
+from typing import List, TYPE_CHECKING
 
-from discord import ButtonStyle, Embed, Colour, app_commands, Interaction, TextStyle
+from discord import ButtonStyle, Embed, Colour, app_commands, TextStyle
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 
+if TYPE_CHECKING:
+    from core import Bot
+    from discord import Interaction, Message
 
 # TODO: Timers, /end poll command, database entry, persistent view.
 
@@ -41,13 +44,13 @@ class PollView(View):
             row = x // 5
             self.add_item(PollButton(emoji=y[0], label=y[1], row=row))
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
         await self.update(final=True)
         self.stop()
 
-    async def update(self, content="", final=False):
+    async def update(self, content: str = "", final: bool = False) -> Message:
         """Refresh the view and send to user"""
         e = Embed(colour=Colour.og_blurple() if not final else Colour.green())
         e.set_author(name=f"{self.interaction.user.name} asks...", icon_url=self.interaction.user.display_avatar.url)
@@ -71,8 +74,7 @@ class PollView(View):
         votes = f"{len(self.answers)} responses"
         state = "Voting in Progress" if not final else "Final Results"
         e.set_footer(text=f"{state} | {votes}")
-
-        await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
+        return await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
 
 
 class PollModal(Modal, title="Create a poll"):
@@ -80,7 +82,7 @@ class PollModal(Modal, title="Create a poll"):
     question = TextInput(label="Enter a question", placeholder="What is your favourite colour?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Red\nBlue\nYellow")
 
-    async def on_submit(self, interaction: Interaction):
+    async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
         question = self.question.value
         answers = self.answers.value.split('\n')
@@ -88,21 +90,21 @@ class PollModal(Modal, title="Create a poll"):
         if len(answers) > 25:
             i = interaction
             return await i.client.error(i, 'Too many answers provided. 25 is more than enough thanks.')
-        await PollView(interaction, question=question, answers=answers).update()
+        return await PollView(interaction, question=question, answers=answers).update()
 
 
 class Poll(commands.Cog):
     """User Created Polls"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
     @app_commands.command()
-    async def poll(self, interaction):
+    async def poll(self, interaction: Interaction) -> PollModal:
         """Create a poll with multiple answers. Polls end after 1 hour of no responses."""
-        await interaction.response.send_modal(PollModal())
+        return await interaction.response.send_modal(PollModal())
 
 
-def setup(bot):
+def setup(bot: 'Bot') -> None:
     """Add the Poll cog to the Bot"""
     bot.add_cog(Poll(bot))

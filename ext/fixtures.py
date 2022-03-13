@@ -10,7 +10,7 @@ from discord.ui import View
 
 # Custom Utils
 from ext.utils import timed_events, football, view_utils
-from ext.utils.football import Competition, Team, FlashScoreItem, TeamView
+from ext.utils.football import Competition, Team, FlashScoreItem, TeamView, Stadium
 
 if TYPE_CHECKING:
     from core import Bot
@@ -426,7 +426,7 @@ class Fixtures(commands.Cog):
         page = await self.bot.browser.newPage()
         try:
             fsr = await fsr.pick_recent_game(interaction, page)
-            if fsr is None:
+            if isinstance(fsr, Message):
                 await page.close()
                 return
         except AttributeError:
@@ -452,7 +452,7 @@ class Fixtures(commands.Cog):
         page = await self.bot.browser.newPage()
         try:
             fsr = await fsr.pick_recent_game(interaction, page)
-            if fsr is None:
+            if isinstance(fsr, Message):
                 await page.close()
                 return
         except AttributeError:
@@ -477,9 +477,9 @@ class Fixtures(commands.Cog):
 
         page = await self.bot.browser.newPage()
         try:
-            fsr = await fsr.pick_recent_game(interaction, page)
-            if fsr is None:
-                return await page.close()
+            if isinstance(fsr, Message):
+                await page.close()
+                return
         except AttributeError:
             pass
 
@@ -493,7 +493,7 @@ class Fixtures(commands.Cog):
         """Lookup information about a team's stadiums"""
         await interaction.response.defer(thinking=True)
 
-        stadiums = await football.get_stadiums(query)
+        stadiums: List[Stadium] = await football.get_stadiums(query)
         if not stadiums:
             return await self.bot.error(interaction, f"🚫 No stadiums found matching `{query}`")
 

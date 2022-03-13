@@ -1,3 +1,4 @@
+"""Code I need to save for later."""
 # import discord
 # from ext.utils import embed_utils
 #
@@ -10,7 +11,7 @@
 #         self.message = None
 #         super().__init__()
 #
-#     async def update(self):
+#     async def update(self) -> Message:
 #         """Create a dice tray to roll in"""
 #         e = discord.Embed()
 #         e.title = "🎲 Dice Tray"

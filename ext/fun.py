@@ -28,7 +28,7 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 class CoinView(View):
     """A View with a counter for 2 results"""
 
-    def __init__(self, interaction: Interaction, count: int = 1):
+    def __init__(self, interaction: Interaction, count: int = 1) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.results: List[str] = []
@@ -45,7 +45,7 @@ class CoinView(View):
         """Verify clicker is owner of interaction"""
         return self.interaction.user.id == interaction.user.id
 
-    async def update(self, content="") -> View:
+    async def update(self, content: str = "") -> Message:
         """Update embed and push to view"""
         e = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(), description=f"**{self.results[-1]}**\n\n")
         e.set_thumbnail(url=COIN_IMAGE)
@@ -57,15 +57,13 @@ class CoinView(View):
 
             e.description += "\n" + f"{'...' if len(self.results) > 200 else ''}"
             e.description += ', '.join([f'*{i}*' for i in self.results[-200:]])
-
-        await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
-        return self
+        return await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
 
 
 class FlipButton(Button):
     """Flip a coin and pass the result to the view"""
 
-    def __init__(self, label="Flip a Coin", count=1):
+    def __init__(self, label="Flip a Coin", count=1) -> None:
         super().__init__(label=label, emoji="🪙", style=ButtonStyle.primary)
         self.count: int = count
 

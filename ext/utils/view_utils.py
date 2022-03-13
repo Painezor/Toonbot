@@ -164,7 +164,7 @@ class ObjectSelectView(View):
         e.description = "\n".join([i[1] for i in self.pages[self.index]])
         return e
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Send new version of view to user"""
         self.clear_items()
 
@@ -180,7 +180,7 @@ class ObjectSelectView(View):
         self.add_item(StopButton(row=1))
         await self.interaction.client.reply(self.interaction, content=content, view=self, embed=self.embed)
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Cleanup"""
         self.clear_items()
         e = Embed(colour=Colour.red(), description="Timed out waiting for you to select a match.")
@@ -248,7 +248,7 @@ class Paginator(View):
         self.pages = embeds
         self.interaction = interaction
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
         await self.interaction.client.reply(self.interaction, view=self, followup=False)
@@ -258,7 +258,7 @@ class Paginator(View):
         """Verify clicker is owner of interaction"""
         return self.interaction.user.id == interaction.user.id
 
-    async def update(self, content=""):
+    async def update(self, content: str = "") -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
 

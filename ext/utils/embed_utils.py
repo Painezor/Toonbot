@@ -8,16 +8,17 @@ import aiohttp
 import discord
 from PIL import UnidentifiedImageError
 from colorthief import ColorThief
+from discord import Message
 
 PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
 
 
-async def embed_image(interaction, e, image, filename=None, message=None):
+async def embed_image(interaction, e, image, filename=None, message=None) -> Message:
     """Utility / Shortcut to upload image & set it within an embed."""
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     e.set_image(url=f"attachment://{filename}")
     file = make_file(image=image, name=filename)
-    await interaction.client.reply(interaction, file=file, embed=e, message=message)
+    return await interaction.client.reply(interaction, file=file, embed=e, message=message)
 
 
 async def get_colour(url=None):
