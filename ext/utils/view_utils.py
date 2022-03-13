@@ -96,7 +96,7 @@ class StopButton(Button):
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
         try:
-            await self.view.intreaction.delete_original_message()
+            await self.view.interaction.delete_original_message()
         except NotFound:
             pass
 
