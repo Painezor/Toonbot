@@ -2,26 +2,28 @@
 from copy import deepcopy
 from typing import List, Optional, TYPE_CHECKING
 
-# D.py
+# Type hinting
 from discord import Embed, Colour, app_commands, Interaction, Message
+# D.py
 from discord.ext import commands
-# Custom Utils
 from discord.ui import View
 
+# Custom Utils
 from ext.utils import timed_events, football, view_utils
-# Type hinting
 from ext.utils.football import Competition, Team, FlashScoreItem, TeamView
 
 if TYPE_CHECKING:
     from core import Bot
 
 
-# todo: News https://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/news/
+# TODO: News https://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/news/
 # TODO: Permissions Pass.
 # TODO: Grouped Commands pass | Fixture / Team / Competition
 # TODO: Autocomplete fetch for team/competition
-# Maybe Todo: League.archive -> https://www.flashscore.com/football/england/premier-league/archive/
-# Maybe todo: League.Form table.
+# TODO: League.archive -> https://www.flashscore.com/football/england/premier-league/archive/
+# TODO: League.Form table.
+
+# TODO: Defaults to ID in Bot.competitions | Bot.teams
 
 
 class Fixtures(commands.Cog):
