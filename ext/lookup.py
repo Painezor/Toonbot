@@ -29,7 +29,7 @@ async def attendance(interaction: Interaction, query: str):
 class Lookups(commands.Cog):
     """Transfer market lookups"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         reload(transfer_tools)
 

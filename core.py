@@ -1,6 +1,8 @@
 """Master file for toonbot."""
 import asyncio
 import json
+# Logging
+import logging
 from asyncio import Task
 from collections import defaultdict
 from datetime import datetime
@@ -11,11 +13,16 @@ import asyncpg
 from asyncpraw import Reddit
 from discord import Intents, Game, Colour, Embed, Interaction, Message, http, NotFound
 from discord.ext import commands
-# Loading of commands.
+# Typehinting
 from pyppeteer.browser import Browser
 
-# MESSAGE INTENTS
 from ext.utils.football import Fixture, Competition, Team
+
+logger = logging.getLogger('discord')
+logger.setLevel(logging.DEBUG)
+handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
+handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
+logger.addHandler(handler)
 
 http._set_api_version(9)
 

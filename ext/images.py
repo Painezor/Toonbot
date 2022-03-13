@@ -245,7 +245,7 @@ class ImageView(View):
 class Images(commands.Cog):
     """Image manipulation commands"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
 
     @app_commands.command()

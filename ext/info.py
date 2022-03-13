@@ -84,7 +84,7 @@ async def u_info(interaction: Interaction, member: Member):
 class Info(commands.Cog):
     """Get information about users or servers."""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.tree.add_command(u_info)
 

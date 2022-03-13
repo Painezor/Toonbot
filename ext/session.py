@@ -128,7 +128,7 @@ async def fetch(page, url, xpath, screenshot=False, max_retry=3, **kwargs) -> (U
 class Browser(commands.Cog):
     """(Re)-Initialise an aiohttp ClientSession"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.loop.create_task(self.spawn_session())
         if self.bot.browser is None:

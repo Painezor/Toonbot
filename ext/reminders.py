@@ -132,7 +132,7 @@ async def add_reminder(interaction: Interaction, message: Message):
 class Reminders(commands.Cog):
     """Set yourself reminders"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.reminders = []  # A list of tasks.
         self.bot.loop.create_task(self.spool_initial())

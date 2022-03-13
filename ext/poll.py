@@ -94,7 +94,7 @@ class PollModal(Modal, title="Create a poll"):
 class Poll(commands.Cog):
     """User Created Polls"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
 
     @app_commands.command()

@@ -198,7 +198,7 @@ class TransfersConfig(View):
 class TransfersCog(commands.Cog):
     """Create and configure Transfer Ticker channels"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.transfers = self.transfers_loop.start()
 

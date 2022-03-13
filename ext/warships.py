@@ -1,7 +1,7 @@
 """Private world of warships related commands"""
 import datetime
 
-from discord import Embed, ActivityType, Colour, app_commands, Interaction
+from discord import Embed, ActivityType, Colour, app_commands, Interaction, Member
 from discord.ext import commands
 
 targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1", "DobbyM8",
@@ -45,11 +45,11 @@ targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "dark
 class Warships(commands.Cog):
     """World of Warships related commands"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.now_live_cache = {}
 
-    async def on_presence_update(self, before, after):
+    async def on_presence_update(self, before: Member, after: Member) -> None:
         """Apply hoisted role to streamers when they go live."""
         # Check if this guild is tracking streaming status changes, grab row.:
         try:
@@ -70,10 +70,10 @@ class Warships(commands.Cog):
 
         # If User is no longer live, de-hoist them.
         if before.activity == ActivityType.streaming:
-            return await after.remove_roles([now_live_role])
+            return await after.remove_roles(now_live_role)
 
         # Else If user is GOING live.
-        await after.add_roles([now_live_role])
+        await after.add_roles(now_live_role)
         ch = self.bot.get_channel(row['announcement_channel'])
 
         # Only output if channel exists.
@@ -102,7 +102,7 @@ class Warships(commands.Cog):
     @app_commands.command()
     @app_commands.describe(code_list="Enter a list of codes")
     @app_commands.guilds(250252535699341312)
-    async def codes(self, interaction: Interaction, code_list: str):
+    async def codes(self, interaction: Interaction, code_list: str) -> None:
         """Strip codes for world of warships"""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")

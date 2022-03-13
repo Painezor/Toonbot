@@ -19,7 +19,7 @@ from ext.utils import embed_utils, view_utils, timed_events
 class Mod(commands.Cog):
     """Guild Moderation Commands"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
 
     @app_commands.command()

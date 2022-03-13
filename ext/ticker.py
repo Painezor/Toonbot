@@ -563,19 +563,18 @@ class TickerEvent:
                 await self.send_messages()
 
 
-# Autocomplete
-async def lg_ac(interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
-    """Return list of live leagues"""
-    comps = list(set([i.competition.name for i in interaction.client.games.values()]))
-    return [app_commands.Choice(name=item, value=item) for item in comps if current.lower() in item.lower()][:25]
-
-
 class TickerCog(commands.Cog, name="Ticker"):
     """Get updates whenever match events occur"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         [reload(_) for _ in [football, view_utils]]
+
+    # Autocomplete
+    async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
+        """Autocomplete from list of stored leagues"""
+        lgs = self.bot.competitions.values()
+        return [app_commands.Choice(name=i.name, value=i.url) for i in lgs if current.lower() in i.name.lower()][:25]
 
     @commands.Cog.listener()  # TODO: Make Mode an Enum
     async def on_fixture_event(self, mode: str, f: Fixture, home: bool = True):

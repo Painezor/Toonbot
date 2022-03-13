@@ -45,7 +45,7 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
 class NUFCSidebar(commands.Cog):
     """Edit the r/NUFC sidebar"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
         reload(football)

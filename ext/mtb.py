@@ -370,7 +370,7 @@ class MatchThread:
 class MatchThreadCommands(commands.Cog):
     """MatchThread Commands and Spooler."""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.active_threads = []
         self.scheduler_task = self.schedule_threads.start()

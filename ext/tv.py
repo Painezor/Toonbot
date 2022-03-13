@@ -20,13 +20,13 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
 class Tv(commands.Cog):
     """Search for live TV matches"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         with open('tv.json') as f:
             self.bot.tv = json.load(f)
 
-    async def tm_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
-        """Return list of live leagues"""
+    async def tv_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
+        """Return list of live teams"""
         matches = []
         for x in self.bot.tv:
             if current.lower() in x.lower():
@@ -35,7 +35,7 @@ class Tv(commands.Cog):
 
     @app_commands.command()
     @app_commands.describe(name="Search for a team")
-    @app_commands.autocomplete(name=tm_ac)
+    @app_commands.autocomplete(name=tv_ac)
     async def tv(self, interaction: Interaction, name: Optional[str] = None):
         """Lookup next televised games for a team"""
         await interaction.response.defer(thinking=True)

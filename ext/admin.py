@@ -4,12 +4,15 @@ import inspect
 import sys
 import traceback
 from os import system
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, app_commands, Message, Object
 from discord.app_commands import Choice
 from discord.ext import commands
 from discord.ui import View, Button
+
+if TYPE_CHECKING:
+    from core import Bot
 
 NO_SLASH_COMM = ("Due to changes with discord, Toonbot will soon be unable to parse messages to find commands\n"
                  "All commands have been moved to use the new /slashcommands system, bots must be re-invited to servers"
@@ -23,7 +26,6 @@ def error_to_codeblock(error):
 
 
 # AutoComplete
-
 COGS = ['errors', 'session', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
         'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
         'testing']
@@ -37,10 +39,10 @@ async def cg_ac(_: Interaction, value: str, __):
 class Admin(commands.Cog):
     """Code debug & loading of modules"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
-    async def on_message(self, message) -> Message:
+    async def on_message(self, message: Message) -> Message:
         """Slash commands warning system."""
         me = message.channel.me
         if me in message.mentions or message.startswith(".tb"):
@@ -59,27 +61,27 @@ class Admin(commands.Cog):
                                      "the link below."
 
             view = View()
-            view.add_item(Button(style=ButtonStyle.url, url=self.bot.invite_url, label="Invite me to your server"))
+            view.add_item(Button(style=ButtonStyle.url, url=self.bot.invite, label="Invite me to your server"))
             e.add_field(name="Discord changes", value=NO_SLASH_COMM)
             return await message.reply(embed=e, view=view)
 
     @app_commands.command()
     @app_commands.describe(guild="enter guild ID to sync")
-    async def sync(self, interaction: Interaction, guild: Optional[str] = None):
+    async def sync(self, interaction: Interaction, guild: Optional[str] = None) -> Message:
         """Sync the command tree with discord"""
         if guild is None:
             await self.bot.tree.sync()
-            await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")
+            return await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")
         else:
             await self.bot.tree.sync(guild=Object(int(guild)))
-            await self.bot.reply(interaction, content="Guild synced")
+            return await self.bot.reply(interaction, content="Guild synced")
 
     cogs = app_commands.Group(name="cogs", description="Load and unload modules", guild_ids=[250252535699341312])
 
     @cogs.command()
     @app_commands.describe(cog="pick a cog to reload")
     @app_commands.autocomplete(cog=cg_ac)
-    async def reload(self, interaction: Interaction, cog: str):
+    async def reload(self, interaction: Interaction, cog: str) -> Message:
         """Reloads a module."""
         try:
             self.bot.reload_extension(f'ext.{cog}')
@@ -91,7 +93,7 @@ class Admin(commands.Cog):
     @cogs.command()
     @app_commands.describe(cog="pick a cog to load")
     @app_commands.autocomplete(cog=cg_ac)
-    async def load(self, interaction: Interaction, cog: str):
+    async def load(self, interaction: Interaction, cog: str) -> Message:
         """Loads a module."""
         try:
             self.bot.load_extension('ext.' + cog)
@@ -103,7 +105,7 @@ class Admin(commands.Cog):
 
     @cogs.command()
     @app_commands.autocomplete(cog=cg_ac)
-    async def unload(self, interaction: Interaction, cog: str):
+    async def unload(self, interaction: Interaction, cog: str) -> Message:
         """Unloads a module."""
         try:
             self.bot.unload_extension('ext.' + cog)
@@ -114,7 +116,7 @@ class Admin(commands.Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @cogs.command()
-    async def list(self, interaction: Interaction):
+    async def list(self, interaction: Interaction) -> Message:
         """List all currently loaded modules"""
         loaded = sorted([i for i in self.bot.cogs])
         e = Embed(title="Currently loaded Cogs", colour=Colour.og_blurple(), description="\n".join(loaded))
@@ -122,7 +124,7 @@ class Admin(commands.Cog):
 
     @app_commands.command(name="print")
     @app_commands.guilds(250252535699341312)
-    async def _print(self, interaction: Interaction, to_print: str):
+    async def _print(self, interaction: Interaction, to_print: str) -> Message:
         """Print something to console."""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
@@ -133,7 +135,7 @@ class Admin(commands.Cog):
 
     @app_commands.command()
     @app_commands.guilds(250252535699341312)
-    async def cc(self, interaction):
+    async def cc(self, interaction: Interaction) -> Message:
         """Clear the command window."""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
@@ -148,7 +150,7 @@ class Admin(commands.Cog):
     @app_commands.command()
     @app_commands.describe(code=">>> Code Go Here")
     @app_commands.guilds(250252535699341312)
-    async def debug(self, interaction: Interaction, code: str):
+    async def debug(self, interaction: Interaction, code: str) -> Message:
         """Evaluates code."""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
@@ -171,12 +173,12 @@ class Admin(commands.Cog):
         if len(e.description) > 4000:
             print(e.description)
             e.description = 'Too long for discord, output sent to console.'
-        await self.bot.reply(interaction, embed=e)
+        return await self.bot.reply(interaction, embed=e)
 
     @app_commands.command()
     @app_commands.describe(notification="Message to send to aLL servers.")
     @app_commands.guilds(250252535699341312)
-    async def notify(self, interaction: Interaction, notification: str):
+    async def notify(self, interaction: Interaction, notification: str) -> Message:
         """Send a global notification to channels that track it."""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
@@ -184,13 +186,15 @@ class Admin(commands.Cog):
         self.bot.dispatch("bot_notification", notification)
         e = Embed(title="Bot notification dispatched", description=notification)
         e.set_thumbnail(url=self.bot.user.avatar.url)
-        await self.bot.reply(interaction, embed=e)
+        return await self.bot.reply(interaction, embed=e)
 
     edit_bot = app_commands.Group(name="bot", description="Edit the bot profile", guild_ids=[250252535699341312])
 
     @edit_bot.command()
     @app_commands.describe(file='The file to upload', link="Provide a link")
-    async def avatar(self, interaction: Interaction, file: Optional[Attachment] = None, link: Optional[str] = None):
+    async def avatar(self, interaction: Interaction,
+                     file: Optional[Attachment] = None,
+                     link: Optional[str] = None) -> Message:
         """Change the avatar of the bot"""
         avatar = file if file else link
 
@@ -200,41 +204,42 @@ class Admin(commands.Cog):
         async with self.bot.session.get(avatar) as resp:
             if resp.status != 200:
                 return await self.bot.reply(interaction, content=f"HTTP Error: Status Code {resp.status}")
+
             new_avatar = await resp.read()  # Needs to be bytes.
 
         await self.bot.user.edit(avatar=new_avatar)
         e = Embed(title="Avatar Updated", colour=Colour.og_blurple())
-        e.set_image(url=new_avatar)
-        await self.bot.reply(interaction, embed=e)
+        e.set_image(url=self.bot.user.avatar.url)
+        return await self.bot.reply(interaction, embed=e)
 
     # Presence Commands
     status = app_commands.Group(name="status", description="Set bot activity", parent=edit_bot)
 
     @status.command()
     @app_commands.describe(status="What game is the bot playing")
-    async def playing(self, interaction: Interaction, status: str):
+    async def playing(self, interaction: Interaction, status: str) -> Message:
         """Set bot status to playing {status}"""
-        await self.update_presence(interaction, Activity(type=0, name=status))
+        return await self.update_presence(interaction, Activity(type=0, name=status))
 
     @status.command()
     @app_commands.describe(status="What is the bot streaming")
-    async def streaming(self, interaction: Interaction, status: str):
+    async def streaming(self, interaction: Interaction, status: str) -> Message:
         """Change status to streaming {status}"""
-        await self.update_presence(interaction, Activity(type=1, name=status))
+        return await self.update_presence(interaction, Activity(type=1, name=status))
 
     @status.command()
     @app_commands.describe(status="What is the bot watching")
-    async def watching(self, interaction: Interaction, status: str):
+    async def watching(self, interaction: Interaction, status: str) -> Message:
         """Change status to watching {status}"""
-        await self.update_presence(interaction, Activity(type=2, name=status))
+        return await self.update_presence(interaction, Activity(type=2, name=status))
 
     @status.command()
     @app_commands.describe(status="What is the bot listening to")
-    async def listening(self, interaction: Interaction, status: str):
+    async def listening(self, interaction: Interaction, status: str) -> Message:
         """Change status to listening to {status}"""
-        await self.update_presence(interaction, Activity(type=3, name=status))
+        return await self.update_presence(interaction, Activity(type=3, name=status))
 
-    async def update_presence(self, interaction: Interaction, act: Activity):
+    async def update_presence(self, interaction: Interaction, act: Activity) -> Message:
         """Pass the updated status."""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
@@ -242,9 +247,9 @@ class Admin(commands.Cog):
 
         e = Embed(title="Activity", colour=Colour.og_blurple())
         e.description = f"Set status to {act.type} {act.name}"
-        await self.bot.reply(interaction, embed=e)
+        return await self.bot.reply(interaction, embed=e)
 
 
-def setup(bot):
+def setup(bot: 'Bot') -> None:
     """Load the Administration cog into the Bot"""
     bot.add_cog(Admin(bot))

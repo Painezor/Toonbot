@@ -107,7 +107,7 @@ async def mock(interaction: Interaction, message: Message):
 class Fun(commands.Cog):
     """Various Toys for you to play with."""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.tree.add_command(mock)  # Must be free floating.
 

@@ -8,7 +8,7 @@ from discord.ext import commands
 class Test(commands.Cog):
     """Various testing functions"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
 
     @app_commands.command()

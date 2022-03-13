@@ -293,7 +293,7 @@ async def quote_stats(interaction, member: Member):
 class QuoteDB(commands.Cog):
     """Quote Database module"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.loop.create_task(self.opt_outs())
         self.bot.tree.add_command(quote_add)

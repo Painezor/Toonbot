@@ -122,7 +122,7 @@ class LogsConfig(View):
 class Logs(commands.Cog):
     """Set up Server Logs"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.loop.create_task(self.update_cache())
 

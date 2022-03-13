@@ -17,7 +17,7 @@ DEV_BLOG_CHANNEL = 849412392651587614
 class RSS(commands.Cog):
     """RSS Commands"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.eu_news = self.eu_news.start()
         self.bot.dev_blog = self.blog_loop.start()

@@ -18,7 +18,7 @@ class Stream:
 
 
 async def st_ac(interaction: Interaction, current: str, namespace) -> List[app_commands.Choice[str]]:
-    """Return list of live leagues"""
+    """Return List of Guild Streams"""
     guild_streams = interaction.client.streams[interaction.guild.id]
     matches = [i.name for i in guild_streams if current.lower() in i.name.lower() + i.link.lower()]
     return [app_commands.Choice(name=item, value=item) for item in matches if current.lower() in item.lower()]
@@ -27,7 +27,7 @@ async def st_ac(interaction: Interaction, current: str, namespace) -> List[app_c
 class GuildStreams(commands.Cog):
     """Guild specific stream listings."""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
 
     streams = app_commands.Group(name="streams", description="Stream list for your server")

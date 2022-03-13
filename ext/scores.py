@@ -187,17 +187,10 @@ class ScoresConfig(View):
         await self.update(content=f"Tracked leagues for {self.channel.mention} reset")
 
 
-# Autocomplete
-async def lg_ac(interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
-    """Return list of live leagues"""
-    comps = list(set([i.competition.title for i in interaction.client.games.values()]))
-    return [app_commands.Choice(name=item, value=item.link) for item in comps if current.lower() in item.lower()][:25]
-
-
 class Scores(commands.Cog, name="LiveScores"):
     """Live Scores channel module"""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
         self.page = None
         self.iterations = 0
@@ -517,11 +510,11 @@ class Scores(commands.Cog, name="LiveScores"):
 
         for c in comps:
             comp = Competition(id=c['id'], url=c['url'], name=c['name'], country=c['country'], logo_url=c['logo_url'])
-            self.bot.competitions[comp.link] = comp
+            self.bot.competitions[comp.url] = comp
 
         for t in teams:
             team = Team(id=t['id'], url=t['url'], name=t['name'], logo_url=t['logo_url'])
-            self.bot.teams[team.link] = team
+            self.bot.teams[team.url] = team
 
         # Repopulate.
         for r in records:
@@ -721,6 +714,12 @@ class Scores(commands.Cog, name="LiveScores"):
 
         cache = await self.get_cache()
         await self.update_channel(channel.id, cache)
+
+    # Autocomplete
+    async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
+        """Autocomplete from list of stored leagues"""
+        lgs = self.bot.competitions.values()
+        return [app_commands.Choice(name=i.name, value=i.url) for i in lgs if current.lower() in i.name.lower()][:25]
 
     @livescores.command()
     @app_commands.describe(league_name="league name to search for", channel="Target Channel")

@@ -1,15 +1,18 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
 from copy import deepcopy
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 # D.py
 from discord import Embed, Colour, app_commands, Interaction
 from discord.ext import commands
 
 # Custom Utils
-from ext.utils import timed_events, football, embed_utils, view_utils
+from ext.utils import timed_events, football, view_utils
 # Type hinting
-from ext.utils.football import Competition, Team, FlashScoreItem
+from ext.utils.football import Competition, Team, FlashScoreItem, TeamView
+
+if TYPE_CHECKING:
+    pass
 
 
 # todo: News https://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/news/
@@ -23,11 +26,11 @@ from ext.utils.football import Competition, Team, FlashScoreItem
 class Fixtures(commands.Cog):
     """Lookups for past, present and future football matches."""
 
-    def __init__(self, bot):
+    def __init__(self, bot) -> None:
         self.bot = bot
 
     # Selection View/Filter/Pickers.
-    async def search(self, interaction: Interaction, qry, mode=None, include_fs=False) -> FlashScoreItem | None:
+    async def search(self, interaction: Interaction, qry: str, mode=None, include_fs=False) -> FlashScoreItem | None:
         """Get Matches from Live Games & FlashScore Search Results"""
         # Handle Server Defaults
         if qry == "default":
@@ -70,9 +73,14 @@ class Fixtures(commands.Cog):
         if include_fs:
             search_results = await football.get_fs_results(self.bot, qry)
 
-            print(search_results)
+            match mode:
+                case "league":
+                    cls = Competition
+                case "team":
+                    cls = Team
+                case _:
+                    cls = None
 
-            cls = Competition if mode == "league" else Team if mode == "team" else None  # Mode is a hard override.
             if cls is not None:
                 search_results = [i for i in search_results if isinstance(i, cls)]  # Check for specifics.
 
@@ -100,24 +108,12 @@ class Fixtures(commands.Cog):
     async def tm_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored teams"""
         teams = self.bot.teams.values()
-
-        matches = []
-        for t in teams:
-            if current.lower() not in t.name.lower():
-                continue
-            matches.append(app_commands.Choice(name=t.name, value=t.link))
-        return matches[:25]
+        return [app_commands.Choice(name=t.name, value=t.url) for t in teams if current.lower() in t.name.lower()][:25]
 
     async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
-        leagues = self.bot.competitions.values()
-
-        matches = []
-        for lg in leagues:
-            if current.lower() not in lg.name.lower():
-                continue
-            matches.append(app_commands.Choice(name=lg.name, value=lg.link))
-        return matches[:25]
+        lgs = self.bot.competitions.values()
+        return [app_commands.Choice(name=i.name, value=i.url) for i in lgs if current.lower() in i.name.lower()][:25]
 
     async def fx_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Check if user's typing is in list of live games"""
@@ -125,11 +121,11 @@ class Fixtures(commands.Cog):
 
         matches = []
         for g in games:
-            if current.lower() not in [g.home.lower() + g.away.lower() + g.competition.name.lower()]:
+            if current.lower() not in f"{g.home.name.lower()} {g.away.name.lower()} {g.competition.name.lower()}":
                 continue
 
-            out = f":soccer: {g.home} {g.score} {g.away} ({g.competition.title()})"
-            matches.append(app_commands.Choice(name=out, value=g.link))
+            out = f":soccer: {g.home} {g.score} {g.away} ({g.competition.title})"
+            matches.append(app_commands.Choice(name=out, value=g.url))
         return matches[:25]
 
     default = app_commands.Group(name="default", description="Set Server Defaults for team or league searches")
@@ -162,11 +158,8 @@ class Fixtures(commands.Cog):
         finally:
             await self.bot.db.release(connection)
 
-        e = Embed(description=f'Your Fixtures commands will now use {fsr.markdown} as a default team')
-        if fsr.logo_url is not None:
-            logo = "http://www.flashscore.com/res/image/data/" + fsr.logo_url
-            e.colour = await embed_utils.get_colour(logo)
-            e.set_thumbnail(url=logo)
+        e = await fsr.base_embed()
+        e.description = f'Your Fixtures commands will now use {fsr.markdown} as a default team'
         await self.bot.reply(interaction, embed=e)
 
     @default.command()
@@ -224,8 +217,7 @@ class Fixtures(commands.Cog):
                 return
 
         # Spawn Browser & Go.
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction, await self.bot.browser.newPage())
         await view.push_fixtures()
 
     @app_commands.command()
@@ -251,8 +243,7 @@ class Fixtures(commands.Cog):
                 return
 
         # Spawn Browser & Go.
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction, await self.bot.browser.newPage())
         await view.push_results()
 
     @app_commands.command()
@@ -278,12 +269,11 @@ class Fixtures(commands.Cog):
                 return
 
         # Spawn Browser & Go.
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction, await self.bot.browser.newPage())
 
-        try:  # Only work for Team.
+        if isinstance(view, TeamView):
             await view.select_table()
-        except AttributeError:
+        else:
             await view.push_table()
 
     @app_commands.command()
@@ -309,8 +299,7 @@ class Fixtures(commands.Cog):
                 return
 
         # Spawn Browser & Go.
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction, await self.bot.browser.newPage())
         await view.push_scorers()
 
     # LEAGUE only
@@ -335,7 +324,7 @@ class Fixtures(commands.Cog):
                 err += f" matching search query `{query}`"
             return await self.bot.error(interaction, err)
 
-        matches = [(str(i.competition), i.live_score_text) for i in matches]
+        matches = [(i.competition.title, i.live_score_text) for i in matches]
         _ = None
         header = f'Scores as of: {timed_events.Timestamp().long}\n'
         e = Embed(color=Colour.og_blurple(), title="Current scores", description=header)
@@ -376,8 +365,7 @@ class Fixtures(commands.Cog):
                 return  # Rip
 
         # Spawn Browser & Go.
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction, await self.bot.browser.newPage())
         await view.push_injuries()
 
     @app_commands.command(description="Fetch the squad for a team")
@@ -397,8 +385,7 @@ class Fixtures(commands.Cog):
                 return  # Rip
 
         # Spawn Browser & Go.
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction, await self.bot.browser.newPage())
         await view.push_squad()
 
     # FIXTURE commands
@@ -416,9 +403,7 @@ class Fixtures(commands.Cog):
             if fsr is None:
                 return  # Rip
 
-        page = await self.bot.browser.newPage()
-
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction, await self.bot.browser.newPage())
         await view.push_stats()
 
     @app_commands.command(description="Fetch the formations for a fixture")

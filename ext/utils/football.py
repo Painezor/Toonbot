@@ -2089,7 +2089,7 @@ async def get_fs_results(bot, query) -> List[FlashScoreItem]:
             comp.logo_url = i['logo_url']
             comp.name = i['title']
 
-            if comp.name not in bot.competitions:
+            if comp.url not in bot.competitions:
                 bot.competitions[comp.url] = comp
                 connection = await bot.db.acquire()
                 try:
