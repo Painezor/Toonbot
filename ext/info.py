@@ -17,6 +17,8 @@ INV = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&per
 async def u_info(interaction: Interaction, member: Member):
     """Show info about this member."""
     # Embed 1: Generic Info
+    await interaction.response.defer(thinking=True)
+
     e = Embed(colour=member.colour)
     e.set_author(name=member)
     if member.avatar:
@@ -76,7 +78,6 @@ async def u_info(interaction: Interaction, member: Member):
     embeds = embed_utils.rows_to_embeds(sh, matches, 20, header=f"User found on {len(matches)} servers.")
 
     view = view_utils.Paginator(interaction, [e, perm_embed, av] + embeds)
-    view.message = await interaction.client.reply(interaction, content=f"Fetching info for {member}...", view=view)
     await view.update()
 
 

@@ -1,11 +1,10 @@
 """Master file for toonbot."""
 import asyncio
 import json
-from abc import ABC
 from asyncio import Task
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, Optional, List
+from typing import Dict, List
 
 import aiohttp
 import asyncpg
@@ -36,7 +35,7 @@ INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=250051254783311
              "&scope=bot%20applications.commands"
 
 
-class Bot(commands.Bot, ABC):
+class Bot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
     def __init__(self, **kwargs):
@@ -61,8 +60,8 @@ class Bot(commands.Bot, ABC):
         self.teams: Dict[str, Team] = dict()
         self.competitions: Dict[str, Competition] = dict()
         self.fs_games: Dict[str, Fixture] = dict()
-        self.scores_embeds: dict = {}
-        self.scores_messages: dict = defaultdict(dict)
+        self.scores_embeds: Dict[str | Competition, List[Embed]] = {}
+        self.scores_messages: Dict[int, Dict[Message, List[Embed]]] = defaultdict(dict)
         self.score_loop: Task | None = None
         self.fs_score_loop: Task | None = None
 
@@ -107,11 +106,9 @@ class Bot(commands.Bot, ABC):
             else:
                 print(f"Loaded extension {c}")
 
-    async def error(self, i: Interaction, e: str, message: Message = None, ephemeral: bool = True) -> Optional[Message]:
+    async def error(self, i: Interaction, e: str, message: Message = None, ephemeral: bool = True) -> Message:
         """Send a Generic Error Embed"""
-        if self.is_closed():
-            return None
-        e = Embed(colour=Colour.red(), description=e)
+        e = Embed(title="An Error occurred.", colour=Colour.red(), description=e)
 
         if message is not None:
             try:
@@ -120,24 +117,31 @@ class Bot(commands.Bot, ABC):
                 pass
 
         if i.response.is_done():  # If we need to do a followup.
-            return await i.followup.send(embed=e, ephemeral=ephemeral)
+            try:
+                return await i.edit_original_message(embed=e)
+            except NotFound:
+                return await i.followup.send(embed=e, ephemeral=ephemeral)  # Return the message.
         else:
-            return await i.response.send_message(embed=e, ephemeral=ephemeral)
+            await i.response.send_message(embed=e, ephemeral=ephemeral)
+            return await i.original_message()
 
-    async def reply(self, i: Interaction, message: Message = None, **kwargs) -> Message | None:
+    async def reply(self, i: Interaction, message: Message = None, followup: bool = False, **kwargs) -> Message:
         """Send a Generic Interaction Reply"""
-        if self.is_closed():
-            return
-
         if message is not None:
             try:
                 return await message.edit(**kwargs)
             except NotFound:
                 pass
+
         if i.response.is_done():  # If we need to do a followup.
-            return await i.followup.send(**kwargs)
+            try:
+                return await i.edit_original_message(**kwargs)
+            except NotFound:
+                if followup:  # Don't send messages if the message has previously been deleted.
+                    return await i.followup.send(**kwargs, wait=True)  # Return the message.
         else:
-            return await i.response.send_message(**kwargs)
+            await i.response.send_message(**kwargs)
+            return await i.original_message()
 
 
 async def run():

@@ -14,10 +14,7 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
                          'Chrome/75.0.3770.100 Safari/537.36'}
 
 
-async def team(interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
-    """Return list of live leagues"""
-    matches = [x for x in interaction.client.tv if current.lower() in x.lower()]
-    return [app_commands.Choice(name=item, value=item) for item in matches if current.lower() in item.lower()]
+# TODO: Team / League Split
 
 
 class Tv(commands.Cog):
@@ -28,12 +25,21 @@ class Tv(commands.Cog):
         with open('tv.json') as f:
             self.bot.tv = json.load(f)
 
+    async def tm_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
+        """Return list of live leagues"""
+        matches = []
+        for x in self.bot.tv:
+            if current.lower() in x.lower():
+                matches.append(app_commands.Choice(name=x, value=x))
+        return matches[:25]
+
     @app_commands.command()
     @app_commands.describe(name="Search for a team")
-    @app_commands.autocomplete(name=team)
+    @app_commands.autocomplete(name=tm_ac)
     async def tv(self, interaction: Interaction, name: Optional[str] = None):
         """Lookup next televised games for a team"""
         await interaction.response.defer(thinking=True)
+
         e = Embed(colour=0x034f76)
         e.set_author(name="LiveSoccerTV.com")
 
@@ -50,7 +56,6 @@ class Tv(commands.Cog):
                 view = view_utils.ObjectSelectView(interaction, objects=_, timeout=30)
                 e.description = '⏬ Multiple results found, choose from the dropdown.'
                 message = await self.bot.reply(interaction, embed=e, view=view)
-                view.message = message
                 await view.update()
                 await view.wait()
 
@@ -73,7 +78,8 @@ class Tv(commands.Cog):
                 return await self.bot.error(interaction, f"{e.url} returned a HTTP {resp.status} error.")
             tree = html.fromstring(await resp.text())
 
-        match_column = 3 if not team else 5
+        # match_column = 3 if not team else 5
+        match_column = 3
         for i in tree.xpath(".//table[@class='schedules'][1]//tr"):
             # Discard finished games.
             complete = ''.join(i.xpath('.//td[@class="livecell"]//span/@class')).strip()

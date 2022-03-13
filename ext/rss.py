@@ -129,11 +129,14 @@ class RSS(commands.Cog):
                 except AttributeError:
                     out += "\n"
             elif node.tag == "span":
-                if "ship" in node.attrib['class']:
-                    try:
-                        out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
-                    except AttributeError:
-                        out = f"**{txt}**\n"
+                if 'class' in node.attrib:
+                    if "ship" in node.attrib['class']:
+                        try:
+                            out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
+                        except AttributeError:
+                            out = f"**{txt}**\n"
+                    else:
+                        out = txt
                 else:
                     out = txt
             elif node.tag == "ul":
@@ -216,6 +219,9 @@ class RSS(commands.Cog):
     @tasks.loop(seconds=60)
     async def eu_news(self):
         """Loop to get the latest EU news articles"""
+        if self.bot.session is None:
+            return
+
         async with self.bot.session.get('https://worldofwarships.eu/en/rss/news/') as resp:
             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
 
@@ -239,6 +245,9 @@ class RSS(commands.Cog):
     @tasks.loop(seconds=60)
     async def blog_loop(self):
         """Loop to get the latest dev blog articles"""
+        if self.bot.session is None:
+            return
+
         async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
 

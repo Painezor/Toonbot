@@ -176,6 +176,8 @@ class Mod(commands.Cog):
         else:
             target = await self.bot.fetch_user(user_id)
             await self.bot.reply(interaction, content=f"{user} | {target} was unbanned")
+            e = Embed(title="Unbanned", description=f"You have been unbanned from {interaction.guild.name}")
+            await target.send(embed=e)
 
     # TODO: Banlist as View
     @app_commands.command()
@@ -200,7 +202,6 @@ class Mod(commands.Cog):
 
         embeds = embed_utils.rows_to_embeds(e, ban_lines)
         view = view_utils.Paginator(interaction, embeds)
-        view.message = await self.bot.reply(interaction, content="Fetching banlist...", view=view)
         await view.update()
 
     @app_commands.command()
@@ -218,8 +219,8 @@ class Mod(commands.Cog):
         number = 10 if number is None else number
 
         deleted = await interaction.channel.purge(limit=number, check=is_me)
-        await self.bot.reply(interaction, delete_after=5,
-                             content=f'♻ Deleted {len(deleted)} bot message{"s" if len(deleted) > 1 else ""}')
+        c = f'♻ Deleted {len(deleted)} bot message{"s" if len(deleted) > 1 else ""}'
+        await self.bot.reply(interaction, content=c, ephemeral=True)
 
     @app_commands.command()
     @app_commands.describe(minutes="number of minutes to timeout for", hours="number of hours to timeout for",

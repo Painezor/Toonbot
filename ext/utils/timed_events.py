@@ -1,84 +1,72 @@
 """Utilities for working with future events"""
-import datetime
+import datetime as dt
 
 
 # Time Formats:
 
 
 class Timestamp:
-	"""A Utility class for quick timezone conversion"""
+    """A Utility class for quick timezone conversion"""
 
-	def __init__(self, time: datetime.datetime = None):
-		if time is None:
-			time = datetime.datetime.now()
-		self.time = str(time.timestamp()).split('.')[0]
+    def __init__(self, time: dt.datetime = None):
+        if time is None:
+            time = dt.datetime.now()
+        self.time = str(time.timestamp()).split('.')[0]
 
-	def __str__(self):
-		return f"<t:{self.time}:t>"  # <t:1628343360:t>  14:36
+    def __str__(self):
+        return f"<t:{self.time}:t>"  # <t:1628343360:t>  14:36
 
-	@property
-	def long(self):
-		"""Return string in form '7 August 2021 14:36 (a few seconds ago)'"""
-		return f"<t:{self.time}:f> (<t:{self.time}:R>)"
+    @property
+    def long(self) -> str:
+        """Return string in form '7 August 2021 14:36 (a few seconds ago)'"""
+        return f"<t:{self.time}:f> (<t:{self.time}:R>)"
 
-	@property
-	def date_relative(self):
-		"""Return string in form '07/08/2021 (a few seconds ago)'"""
-		return f"<t:{self.time}:d> (<t:{self.time}:R>)"
+    @property
+    def relative(self) -> str:
+        """Return string in form (a few seconds ago)'"""
+        return f"<t:{self.time}:R>"
 
-	@property
-	def time_hour(self):
-		"""Return string in form '14:36'"""
-		return f"<t:{self.time}:t>"
+    @property
+    def date_relative(self) -> str:
+        """Return string in form '07/08/2021 (a few seconds ago)'"""
+        return f"<t:{self.time}:d> (<t:{self.time}:R>)"
 
-	@property
-	def time_seconds(self):
-		"""Return string in form '14:36:00'"""
-		return f"<t:{self.time}:T>"
+    @property
+    def time_hour(self) -> str:
+        """Return string in form '14:36'"""
+        return f"<t:{self.time}:t>"
 
-	@property
-	def time_relative(self):
-		"""Return string in form '14:36 (a few seconds ago)'"""
-		return f"<t:{self.time}:t> (<t:{self.time}:R>)"
+    @property
+    def time_seconds(self):
+        """Return string in form '14:36:00'"""
+        return f"<t:{self.time}:T>"
 
-	@property
-	def countdown(self):
-		"""Return string in form 'a few seconds ago'"""
-		return f"<t:{self.time}:R>"
+    @property
+    def time_relative(self) -> str:
+        """Return string in form '14:36 (a few seconds ago)'"""
+        return f"<t:{self.time}:t> (<t:{self.time}:R>)"
 
-	@property
-	def date(self):
-		"""Return string in form '07/08/2021'"""
-		return f"<t:{self.time}:d>"  # <t:1628343360:d>  07/08/2021
+    @property
+    def countdown(self) -> str:
+        """Return string in form 'a few seconds ago'"""
+        return f"<t:{self.time}:R>"
 
-	def date_long(self):
-		"""Return string in form '7 August 2021'"""
-		return f"<t:{self.time}:D>"
+    @property
+    def date(self) -> str:
+        """Return string in form '07/08/2021'"""
+        return f"<t:{self.time}:d>"  # <t:1628343360:d>  07/08/2021
 
-	@property
-	def datetime(self):
-		"""Return string in form '7 August 2021 14:36'"""
-		return f"<t:{self.time}:f>"
+    @property
+    def date_long(self) -> str:
+        """Return string in form '7 August 2021'"""
+        return f"<t:{self.time}:D>"
 
-	@property
-	def day_time(self):
-		"""Return string in form 'Saturday, 7 August 2021 14:36'"""
-		return f"<t:{self.time}:F>"
+    @property
+    def datetime(self) -> str:
+        """Return string in form '7 August 2021 14:36'"""
+        return f"<t:{self.time}:f>"
 
-
-async def parse_time(time):
-	"""Parse a 1d2dh3m4s formatted time string."""
-	delta = datetime.timedelta()
-	if "d" in time:
-		d, time = time.split("d")
-		delta += datetime.timedelta(days=int(d))
-	if "h" in time:
-		h, time = time.split("h")
-		delta += datetime.timedelta(hours=int(h))
-	if "m" in time:
-		m, time = time.split("m")
-		delta += datetime.timedelta(minutes=int(m))
-	if "s" in time:
-		s = time.split("s")[0]
-		delta += datetime.timedelta(seconds=int(s))
-	return delta
+    @property
+    def day_time(self) -> str:
+        """Return string in form 'Saturday, 7 August 2021 14:36'"""
+        return f"<t:{self.time}:F>"

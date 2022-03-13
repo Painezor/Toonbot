@@ -1,5 +1,6 @@
 """User Created Polls"""
 from collections import Counter
+from typing import List
 
 from discord import ButtonStyle, Embed, Colour, app_commands, Interaction, TextStyle
 from discord.ext import commands
@@ -29,9 +30,8 @@ class PollButton(Button):
 class PollView(View):
     """View for a poll commands"""
 
-    def __init__(self, interaction: Interaction, question, answers):
-        self.interaction = interaction
-        self.message = None
+    def __init__(self, interaction: Interaction, question: str, answers: List[str]):
+        self.interaction: Interaction = interaction
         self.answers = {}
         self.question = question
         super().__init__(timeout=3600)
@@ -49,11 +49,10 @@ class PollView(View):
 
     async def update(self, content="", final=False):
         """Refresh the view and send to user"""
-        e = Embed()
+        e = Embed(colour=Colour.og_blurple() if not final else Colour.green())
         e.set_author(name=f"{self.interaction.user.name} asks...", icon_url=self.interaction.user.display_avatar.url)
-        e.colour = Colour.og_blurple() if not final else Colour.green()
-        if self.question:
-            e.title = self.question + "?"
+
+        e.title = self.question + "?"
 
         e.description = ""
         counter = Counter(self.answers.values())
@@ -73,14 +72,7 @@ class PollView(View):
         state = "Voting in Progress" if not final else "Final Results"
         e.set_footer(text=f"{state} | {votes}")
 
-        if self.message is None:
-            i = self.interaction
-            self.message = await i.client.reply(i, content=content, view=self, embed=e)
-        else:
-            await self.message.edit(content=content, view=self, embed=e)
-
-        if not final:
-            await self.wait()
+        await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
 
 
 class PollModal(Modal, title="Create a poll"):
@@ -96,7 +88,6 @@ class PollModal(Modal, title="Create a poll"):
         if len(answers) > 25:
             i = interaction
             return await i.client.error(i, 'Too many answers provided. 25 is more than enough thanks.')
-
         await PollView(interaction, question=question, answers=answers).update()
 
 
@@ -109,7 +100,7 @@ class Poll(commands.Cog):
     @app_commands.command()
     async def poll(self, interaction):
         """Create a poll with multiple answers. Polls end after 1 hour of no responses."""
-        await interaction.response.send_modal(PollModal)
+        await interaction.response.send_modal(PollModal())
 
 
 def setup(bot):

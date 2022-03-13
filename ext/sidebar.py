@@ -47,7 +47,6 @@ class NUFCSidebar(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
-        self.bot.reddit_teams = []
         self.bot.sidebar = self.sidebar_loop.start()
         reload(football)
     
@@ -70,6 +69,9 @@ class NUFCSidebar(commands.Cog):
         async with connection.transaction():
             self.bot.reddit_teams = await connection.fetch("""SELECT * FROM team_data""")
         await self.bot.db.release(connection)
+
+        # Session / Browser will not be initialised
+        await self.bot.wait_until_ready()
 
     async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
         """Build the sidebar markdown"""
@@ -208,7 +210,7 @@ class NUFCSidebar(commands.Cog):
             header = "\n* Upcoming fixtures"
             th = "\n\n Date & Time | Match\n--:|:--\n"
 
-            mdl = [f"{i.time.reddit_time} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in fixtures]
+            mdl = [f"{i.kickoff} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in fixtures]
             fx_markdown = header + rows_to_md_table(th, mdl)  # Show all fixtures.
         else:
             fx_markdown = ""
@@ -226,7 +228,7 @@ class NUFCSidebar(commands.Cog):
             markdown += header
             th = "\n Date | Result\n--:|:--\n"
 
-            mdl = [f"{i.time.reddit_time} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in results]
+            mdl = [f"{i.kickoff} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in results]
             rx_markdown = rows_to_md_table(th, mdl, max_length=10240 - len(markdown + footer))
             markdown += rx_markdown
 

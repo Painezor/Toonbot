@@ -192,9 +192,8 @@ MBEMBA = [
 class MbembaView(View):
     """Generic View for the Mbemba Generator."""
 
-    def __init__(self, interaction):
-        self.interaction = interaction
-        self.message = None
+    def __init__(self, interaction: Interaction):
+        self.interaction: Interaction = interaction
         super().__init__()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -208,11 +207,7 @@ class MbembaView(View):
 
         this = random.choice(MBEMBA)
         e = Embed(title="Mbemba when...", colour=Colour.purple(), description=f"<:mbemba:332196308825931777> {this}")
-
-        if self.message is None:
-            self.message = await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
-        else:
-            await self.message.edit(content=content, embed=e, view=self)
+        await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 
 class MbembaButton(Button):
@@ -234,20 +229,21 @@ class NUFC(commands.Cog):
         self.bot = bot
 
     @app_commands.command()
+    @app_commands.guilds(332159889587699712)
     async def mbemba(self, interaction):
         """Mbemba When..."""
         await MbembaView(interaction).update()
 
     @app_commands.command()
     @app_commands.describe(hex_code="Enter a colour #hexcode")
+    @app_commands.guilds(332159889587699712)
     async def colour(self, interaction: Interaction, hex_code: str):
         """Gives you a colour"""
         # Get user's old colours.
         remove_list: List[Role] = [i for i in interaction.user.roles if i.name.startswith('#')]
 
         e = Embed(description=f"Your colour has been updated.")
-        hex_code.strip('#')
-        clr = hex_code.replace('0x', "").upper()
+        clr = hex_code.strip('#').replace('0x', "").upper()
 
         try:
             d_colo = Colour(int(clr, 16))
@@ -274,16 +270,19 @@ class NUFC(commands.Cog):
         await interaction.client.reply(interaction, embed=e, ephemeral=True)
 
     @app_commands.command()
+    @app_commands.guilds(332159889587699712)
     async def shake(self, interaction):
         """Well to start off with..."""
         await self.bot.reply(interaction, content=SHAKE)
 
     @app_commands.command()
+    @app_commands.guilds(332159889587699712)
     async def gherkin(self, interaction):
         """DON'T LET ME GOOOOOO AGAIN"""
         await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
 
     @app_commands.command()
+    @app_commands.guilds(332159889587699712)
     async def radio(self, interaction):
         """Sends a link to the NUFC radio channel"""
         await self.bot.reply(interaction, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")

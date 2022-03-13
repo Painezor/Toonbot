@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List
 
 import pycountry
-from discord import Interaction, Embed, Colour, HTTPException
+from discord import Interaction, Embed, Colour
 from discord.ui import View, Select, Button
 from lxml import html
 
@@ -365,20 +365,15 @@ class TeamView(View):
 
     def __init__(self, interaction: Interaction, team: Team):
         super().__init__()
-        self.team = team
-
-        self.message = None
-        self.interaction = interaction
-        self.index = 0
-        self.pages = []
+        self.team: Team = team
+        self.interaction: Interaction = interaction
+        self.index: int = 0
+        self.pages: List[Embed] = []
 
     async def on_timeout(self):
         """Clean up"""
         self.clear_items()
-        try:
-            await self.message.edit(view=self)
-        except HTTPException:
-            pass
+        await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -405,11 +400,7 @@ class TeamView(View):
         for _ in buttons:
             self.add_item(_)
 
-        if self.message is None:
-            i = self.interaction
-            self.message = await i.client.reply(i, content=content, embed=self.pages[self.index], view=self)
-        else:
-            await self.message.edit(content=content, embed=self.pages[self.index], view=self)
+        await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
     async def push_transfers(self):
         """Push transfers to View"""
@@ -423,8 +414,8 @@ class TeamView(View):
         # p = {"w_s": period}
         async with self.interaction.client.session.get(url) as resp:  # , params=p
             if resp.status != 200:
-                r = self.interaction
-                return await r.client.error(r, f"Error {resp.status} connecting to {resp.url}", message=self.message)
+                err = f"Error {resp.status} connecting to {resp.url}"
+                return await self.interaction.client.error(self.interaction, err)
             tree = html.fromstring(await resp.text())
 
         def parse(rows, out=False) -> List[Transfer]:
@@ -519,8 +510,8 @@ class TeamView(View):
         target = self.team.link.replace('startseite', 'geruechte')
         async with self.interaction.client.session.get(target) as resp:
             if resp.status != 200:
-                e.description = f"Error {resp.status} connecting to {resp.url}"
-                return await self.message.edit(embed=e, view=self)
+                err = f"Error {resp.status} connecting to {resp.url}"
+                return await self.interaction.client.error(err, view=self)
             tree = html.fromstring(await resp.text())
             e.url = target
 
@@ -590,8 +581,8 @@ class TeamView(View):
 
         async with self.interaction.client.session.get(target) as resp:
             if resp.status != 200:
-                e.description = f"Error {resp.status} connecting to {resp.url}"
-                return await self.message.edit(embed=e, view=self)
+                err = f"Error {resp.status} connecting to {resp.url}"
+                return await self.interaction.client.error(self.interaction, err, view=self)
             tree = html.fromstring(await resp.text())
             e.url = target
 
@@ -639,16 +630,15 @@ class CompetitionView(View):
 
     def __init__(self, interaction: Interaction, comp: Competition):
         super().__init__()
-        self.comp = comp
-        self.message = None
-        self.interaction = interaction
-        self.index = 0
-        self.pages = []
+        self.comp: Competition = comp
+        self.interaction: Interaction = interaction
+        self.index: int = 0
+        self.pages: List[Embed] = []
 
     async def on_timeout(self):
         """Clean up"""
         self.clear_items()
-        await self.message.edit(view=self)
+        await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -679,11 +669,8 @@ class CompetitionView(View):
 
         for _ in buttons:
             self.add_item(_)
-        if self.message is None:
-            i = self.interaction
-            self.message = i.client.reply(i, content=content, embed=self.pages[self.index], view=self)
-        else:
-            await self.message.edit(content=content, embed=self.pages[self.index], view=self)
+
+        self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
     async def push_attendance(self):
         """Fetch attendances for league's stadiums."""
@@ -762,38 +749,38 @@ class SearchSelect(Select):
 class SearchView(View):
     """A TransferMarkt Search in View Form"""
 
-    def __init__(self, interaction: Interaction, query, category=None, fetch=False):
+    def __init__(self, interaction: Interaction, query: str, category: str = None, fetch: bool = False):
         super().__init__()
-        self.index = 1
+        self.index: int = 1
         self.value = None
-        self.pages = []
+        self.pages: List[Embed] = []
 
-        self.query = query
-        self.category = category
-        self.fetch = fetch
-        self.interaction = interaction
-        self.message = None
+        self.query: str = query
+        self.category: str = category
+        self.fetch: bool = fetch
+        self.interaction: Interaction = interaction
 
-        self.url = None
+        self.url: str | None = None
 
     @property
     def settings(self):
         """Parser Settings"""
-        if self.category == "Players":
-            return "Spieler_page", 'for players', parse_players
-        elif self.category == "Clubs":
-            return "Verein_page", 'results: Clubs', parse_teams
-        elif self.category == "Referees":
-            return "Schiedsrichter_page", 'for referees', parse_referees
-        elif self.category == "Managers":
-            return "Trainer_page", 'Managers', parse_staff
-        elif self.category == "Agents":
-            return "page", 'for agents', parse_agents
-        elif self.category == "Competitions":
-            return "Wettbewerb_page", 'competitions', parse_competitions
-        else:
-            print(f'WARNING NO QUERY STRING FOUND FOR {self.category}')
-            return "page"
+        match self.category:
+            case "Players":
+                return "Spieler_page", 'for players', parse_players
+            case "Clubs":
+                return "Verein_page", 'results: Clubs', parse_teams
+            case "Referees":
+                return "Schiedsrichter_page", 'for referees', parse_referees
+            case "Managers":
+                return "Trainer_page", 'Managers', parse_staff
+            case "Agents":
+                return "page", 'for agents', parse_agents
+            case "Competitions":
+                return "Wettbewerb_page", 'competitions', parse_competitions
+            case _:
+                print(f'WARNING NO QUERY STRING FOUND FOR {self.category}')
+                return "page"
 
     async def on_error(self, error, item, interaction):
         """Error handling & logging."""
@@ -807,10 +794,7 @@ class SearchView(View):
     async def on_timeout(self):
         """Cleanup."""
         self.clear_items()
-        try:
-            await self.message.edit(content="", embed=self.message.embed, view=self)
-        except AttributeError:
-            pass
+        await self.interaction.client.reply(self.interaction, embed=self.pages[self.index], view=self, followup=False)
 
     async def update(self, content=""):
         """Populate Initial Results"""
@@ -864,8 +848,7 @@ class SearchView(View):
                     ce.description += f"Competitions: {length} Result{s}\n"
 
             if not select.options:
-                i = self.interaction
-                return await i.client.error(i, f'No results found for query {self.query}', message=self.message)
+                return await self.interaction.client.error(self.interaction, f'No results found for query {self.query}')
 
             elif len(select.options) == 1:
                 self.category = select.options[0].label
@@ -873,7 +856,7 @@ class SearchView(View):
             else:
                 self.clear_items()
                 self.add_item(select)
-                await self.message.edit(content=content, view=self, embed=ce)
+                await self.interaction.client.reply(self.interaction, content=content, view=self, embed=ce)
                 return await self.wait()
 
         qs, ms, parser = self.settings
@@ -915,11 +898,7 @@ class SearchView(View):
         if self.fetch and results:
             self.add_item(SearchSelect(objects=results))
 
-        if self.message is None:
-            i = self.interaction
-            self.message = await i.client.reply(i, content=content, embed=e, view=self)
-        else:
-            await self.message.edit(content=content, embed=e, view=self)
+        await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 
 def parse_players(rows) -> List[Player]:

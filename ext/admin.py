@@ -23,10 +23,15 @@ def error_to_codeblock(error):
 
 
 # AutoComplete
-choices = [Choice(name=i, value=i) for i in
-           ['errors', 'session', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
-            'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
-            'testing']]
+
+COGS = ['errors', 'session', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
+        'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
+        'testing']
+
+
+async def cg_ac(_: Interaction, value: str, __):
+    """Autocomplete from list of cogs"""
+    return [Choice(name=c, value=c) for c in COGS if value.lower() in c.lower()]
 
 
 class Admin(commands.Cog):
@@ -64,16 +69,16 @@ class Admin(commands.Cog):
         """Sync the command tree with discord"""
         if guild is None:
             await self.bot.tree.sync()
+            await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")
         else:
-            guild = Object(int(guild))
-            await self.bot.tree.sync(guild)
-        await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")
+            await self.bot.tree.sync(guild=Object(int(guild)))
+            await self.bot.reply(interaction, content="Guild synced")
 
     cogs = app_commands.Group(name="cogs", description="Load and unload modules", guild_ids=[250252535699341312])
 
     @cogs.command()
     @app_commands.describe(cog="pick a cog to reload")
-    @app_commands.choices(cog=choices)
+    @app_commands.autocomplete(cog=cg_ac)
     async def reload(self, interaction: Interaction, cog: str):
         """Reloads a module."""
         try:
@@ -85,7 +90,7 @@ class Admin(commands.Cog):
 
     @cogs.command()
     @app_commands.describe(cog="pick a cog to load")
-    @app_commands.choices(cog=choices)
+    @app_commands.autocomplete(cog=cg_ac)
     async def load(self, interaction: Interaction, cog: str):
         """Loads a module."""
         try:
@@ -97,7 +102,7 @@ class Admin(commands.Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @cogs.command()
-    @app_commands.choices(cog=choices)
+    @app_commands.autocomplete(cog=cg_ac)
     async def unload(self, interaction: Interaction, cog: str):
         """Unloads a module."""
         try:

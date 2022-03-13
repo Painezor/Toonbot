@@ -3,8 +3,9 @@ import collections
 import random
 import re
 from copy import deepcopy
+from typing import List
 
-from discord import ButtonStyle, HTTPException, Colour, Embed, Interaction, app_commands, TextStyle, Message
+from discord import ButtonStyle, Colour, Embed, Interaction, app_commands, TextStyle, Message
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 
@@ -26,21 +27,16 @@ class CoinView(View):
 
     def __init__(self, interaction: Interaction, count: int = 1):
         super().__init__()
-        self.interaction = interaction
-        self.message = None
-        self.results = []
+        self.interaction: Interaction = interaction
+        self.results: List[str] = []
         for x in range(count):
             self.results.append(random.choice(['Heads', 'Tails']))
 
     async def on_timeout(self):
         """Clear view"""
         self.clear_items()
-        try:
-            await self.message.edit(view=self)
-        except HTTPException:
-            return
-        finally:
-            self.stop()
+        await self.interaction.client.reply(self.interaction, view=self, followup=False)
+        self.stop()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
@@ -59,11 +55,7 @@ class CoinView(View):
             e.description += "\n" + f"{'...' if len(self.results) > 200 else ''}"
             e.description += ', '.join([f'*{i}*' for i in self.results[-200:]])
 
-        if self.message is None:
-            i = self.interaction
-            self.message = await i.client.reply(i, content=content, view=self, embed=e)
-        else:
-            await self.message.edit(content=content, view=self, embed=e)
+        await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
         await self.wait()
 
 
@@ -71,11 +63,8 @@ class FlipButton(Button):
     """Flip a coin and pass the result to the view"""
 
     def __init__(self, label="Flip a Coin", count=1):
-        super().__init__()
-        self.label = label
-        self.emoji = "🪙"
-        self.count = count
-        self.style = ButtonStyle.primary
+        super().__init__(label=label, emoji="🪙", style=ButtonStyle.primary)
+        self.count: int = count
 
     async def callback(self, interaction):
         """When clicked roll"""
@@ -343,7 +332,7 @@ class Fun(commands.Cog):
     @app_commands.command()
     async def choose(self, interaction: Interaction):
         """Make a decision for you (separate choices with new lines)"""
-        await interaction.response.send_modal(PollModal)
+        await interaction.response.send_modal(PollModal())
 
     @app_commands.command(name="f")
     async def press_f(self, interaction):

@@ -1,9 +1,9 @@
 """Notify server moderators about specific events"""
 import datetime
-from typing import List, Sequence
+from typing import List, Sequence, Optional
 
 from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, app_commands, Member, User, \
-    Message, Guild, Emoji, GuildSticker
+    Message, Guild, Emoji, GuildSticker, TextChannel
 from discord.ext import commands
 from discord.ui import Button, View
 
@@ -58,7 +58,7 @@ class ToggleButton(Button):
         try:
             async with connection.transaction():
                 q = f"""UPDATE notifications_settings SET {self.db_key} = $1 WHERE channel_id = $2"""
-                await connection.execute(q, new_value, self.view.interaction.channel.id)
+                await connection.execute(q, new_value, self.view.channel.id)
         finally:
             await self.view.interaction.client.db.release(connection)
         await self.view.interaction.client.get_cog("Logs").update_cache()
@@ -71,17 +71,18 @@ qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2
 qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 
 
-class ConfigView(View):
+class LogsConfig(View):
     """Generic Config View"""
 
-    def __init__(self, interaction):
+    def __init__(self, interaction: Interaction, channel: TextChannel):
         super().__init__()
-        self.interaction = interaction
-        self.message = None
+        self.interaction: Interaction = interaction
+        self.channel = channel
 
     async def on_timeout(self):
         """Hide menu on timeout."""
         self.clear_items()
+        self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     async def update(self, content=""):
@@ -91,10 +92,10 @@ class ConfigView(View):
         connection = await self.interaction.client.db.acquire()
         try:
             async with connection.transaction():
-                stg = await connection.fetchrow(q_stg, self.interaction.channel.id)
+                stg = await connection.fetchrow(q_stg, self.channel.id)
             if not stg:
-                await connection.execute(qq, self.interaction.guild.id, self.interaction.channel.id)
-                await connection.execute(qqq, self.interaction.channel.id)
+                await connection.execute(qq, self.interaction.guild.id, self.channel.id)
+                await connection.execute(qqq, self.channel.id)
                 return await self.update()
         finally:
             await self.interaction.client.db.release(connection)
@@ -115,11 +116,7 @@ class ConfigView(View):
 
             self.add_item(ToggleButton(db_key=k, value=v, row=row))
         self.add_item(view_utils.StopButton(row=4))
-
-        if self.message is None:
-            self.message = await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
-        else:
-            await self.message.edit(content=content, embed=e, view=self)
+        await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 
 class Logs(commands.Cog):
@@ -130,7 +127,7 @@ class Logs(commands.Cog):
         self.bot.loop.create_task(self.update_cache())
 
     @app_commands.command()
-    async def logs(self, interaction):
+    async def logs(self, interaction: Interaction, channel: Optional[TextChannel]):
         """Create moderator logs in this channel."""
         if interaction.guild is None:
             return await self.bot.error(interaction, "This command cannot be ran in DMs")
@@ -138,7 +135,9 @@ class Logs(commands.Cog):
             err = "You need manage_messages permissions to view and set mod logs"
             return await self.bot.error(interaction, err)
 
-        await ConfigView(interaction).update()
+        channel = interaction.channel if channel is None else channel
+
+        await LogsConfig(interaction, channel).update()
 
     # We don't need to db call every single time an event happens, just when config is updated
     # So we cache everything and store it in memory instead for performance and sanity reasons.
@@ -193,9 +192,6 @@ class Logs(commands.Cog):
                 await ch.send(embed=e)
             except (AttributeError, HTTPException):
                 continue
-
-        e = Embed(title="Unbanned", description=f"You have been unbanned from {guild.name}")
-        await user.send(embed=e)
 
     @commands.Cog.listener()
     async def on_bulk_message_delete(self, messages: List[Message]):

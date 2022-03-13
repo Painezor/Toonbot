@@ -40,11 +40,9 @@
 #     """A button to roll a dice"""
 #
 #     def __init__(self, sides, row=3):
-#         super().__init__()
-#         self.row = row
-#         self.label = f"d{sides}"
-#         self.results = []
-#         self.sides = sides
+#         super().__init__(label = f"d{sides}", row = row)
+#         self.results: List = []
+#         self.sides: int = sides
 #
 #     async def callback(self, interaction):
 #         """Do the rolling"""
@@ -62,39 +60,4 @@
 #             row = num // 5
 #             view.add_item(DiceButton(x, row=row))
 #         view.add_item(StopButton(row=2))
-#
-#         view.message = await interaction.client.reply(interaction, content="Generating Dice Tray...", view=view)
 #         await view.update()
-#
-#     # OLD PICK_CHANNELS FROM TICKER.PY
-#     async def _pick_channels(self, interaction: Interaction,channels):
-#         # Assure guild has goal ticker channel.
-#         channels = [channels] if isinstance(channels, discord.TextChannel) else channels
-#
-#         if interaction.guild.id not in [i[0] for i in self.cache]:
-#             await interaction.client.reply(interaction, content=f'{interaction.guild.name} does not have any tickers.')
-#             channels = []
-#
-#         if channels:
-#             # Verify selected channels are actually in the database.
-#             checked = []
-#             for i in channels:
-#                 if i.id not in [c[1] for c in self.cache]:
-#                     await interaction.client.reply(interaction, content=f"{i.mention} does not have any tickers.")
-#                 else:
-#                     checked.append(i)
-#             channels = checked
-#
-#         if not channels:
-#             channels = [self.bot.get_channel(i[1]) for i in self.cache if i[0] == interaction.guild.id]
-#             # Filter out NoneTypes caused by deleted channels.
-#             channels = [i for i in channels if i is not None]
-#
-#         channel_links = [i.mention for i in channels]
-#
-#         index = await embed_utils.page_selector(ctx, channel_links, choice_text="For which channel?")
-#
-#         if index == "cancelled" or index == -1 or index is None:
-#             return None  # Cancelled or timed out.
-#         channel = channels[index]
-#         return channel

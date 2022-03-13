@@ -82,11 +82,10 @@ class ImageView(View):
     """Holder View for Image Manipulation functions."""
 
     def __init__(self, interaction, target: str):
-        self.interaction = interaction
-        self.message = None
-        self.coordinates = None
+        self.interaction: Interaction = interaction
+        self.coordinates: dict = {}
         self.image = None
-        self.target_url = target
+        self.target_url: str = target
         super().__init__()
 
     async def get_faces(self):
@@ -101,16 +100,20 @@ class ImageView(View):
 
         # Get Project Oxford reply
         async with self.interaction.client.session.post(url, params=p, headers=h, data=d) as resp:
-            if resp.status == 400:
-                return await self.error(await resp.json())
-            elif resp.status != 200:
-                return await self.error(f"HTTP Error {resp.status} accessing facial recognition API.")
-            self.coordinates = await resp.json()
+            match resp.status:
+                case 200:
+                    self.coordinates = await resp.json()
+                case 400:
+                    return await self.interaction.client.error(self.interaction, await resp.json())
+                case _:
+                    err = f"HTTP Error {resp.status} accessing facial recognition API."
+                    return await self.interaction.client.error(self.interaction, err)
 
         # Get target image as file
         async with self.interaction.client.session.get(self.target_url) as resp:
             if resp.status != 200:
-                return await self.error(f"HTTP Error {resp.status} opening {self.target_url}.")
+                err = f"HTTP Error {resp.status} opening {self.target_url}."
+                return await self.interaction.client.error(self.interaction, err)
             self.image = await resp.content.read()
 
     async def push_eyes(self):
@@ -166,7 +169,7 @@ class ImageView(View):
 
         e = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
-        await embed_utils.embed_image(self.interaction, e, image, filename="eyes.png", message=self.message)
+        await embed_utils.embed_image(self.interaction, e, image, filename="eyes.png")
 
     async def push_knob(self):
         """Push the bob ross image to View"""
@@ -198,7 +201,7 @@ class ImageView(View):
 
         e = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
-        await embed_utils.embed_image(self.interaction, e, image, filename="knob.png", message=self.message)
+        await embed_utils.embed_image(self.interaction, e, image, filename="knob.png")
 
     async def push_bob(self):
         """Push the bob ross image to View"""
@@ -232,15 +235,11 @@ class ImageView(View):
 
         e = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
-        await embed_utils.embed_image(self.interaction, e, image, filename="bob.png", message=self.message)
-
-    async def error(self, err):
-        """Handle Image Errors"""
-        self.message = await self.interaction.response.error(self.interaction, err, message=self.message)
+        await embed_utils.embed_image(self.interaction, e, image, filename="bob.png")
 
     async def update(self, content=""):
         """Push latest version to view"""
-        self.message = await self.interaction.response.reply(self.interaction, content=content, message=self.message)
+        await self.interaction.client.reply(self.interaction, content=content)
 
 
 class Images(commands.Cog):

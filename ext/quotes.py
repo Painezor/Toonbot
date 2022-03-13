@@ -1,10 +1,10 @@
 """Commands related to the Quote Database Functionality"""
 import random
-import typing
+from typing import List
 
 import asyncpg
 from asyncpg import UniqueViolationError
-from discord import app_commands, Embed, ButtonStyle, Interaction, Colour, HTTPException, Message, Member
+from discord import app_commands, Embed, ButtonStyle, Interaction, Colour, Message, Member
 from discord.ext import commands
 from discord.ui import Button, View
 
@@ -28,12 +28,10 @@ class DeleteButton(Button):
                 return await self.view.update(f"You can't delete other servers quotes.")
 
         _ = self.view.interaction.user.id in [r["author_user_id"], r["submitter_user_id"]]
-        if _ or self.view.interaction.channel.permissions_for(self.view.interaction.user).manage_messages:
+        if _ or interaction.permissions.manage_messages:
             view = view_utils.Confirmation(self.view.interaction, label_a="Delete", colour_a=ButtonStyle.red,
                                            label_b="Cancel")
-            m = await self.view.message.edit(content="Delete this quote?", view=view)
-            view.message = m
-
+            await self.view.interaction.client.reply(content="Delete this quote?", view=view)
             await view.wait()
 
             if view.value:
@@ -87,14 +85,13 @@ class RandButton(Button):
 class QuotesView(View):
     """Generic Paginator that returns nothing."""
 
-    def __init__(self, interaction: Interaction, quotes: typing.List[asyncpg.Record], rand=False, last=False):
+    def __init__(self, interaction: Interaction, quotes: List[asyncpg.Record], rand=False, last=False):
         super().__init__()
-        self.index = 0
-        self.all = quotes
+        self.index: int = 0
+        self.all: List[asyncpg.Record] = quotes
         self.filtered = list(filter(lambda x: x['guild_id'] == interaction.guild.id, quotes))
         self.pages = self.filtered
         self.interaction = interaction
-        self.message = None
 
         if rand:
             self.index = random.randrange(len(self.pages) - 1)
@@ -106,11 +103,8 @@ class QuotesView(View):
     async def on_timeout(self):
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
+        await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
-        try:
-            await self.message.edit(view=self)
-        except HTTPException:
-            pass
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
@@ -178,11 +172,8 @@ class QuotesView(View):
         except IndexError:
             q = None
 
-        if self.message is None:
-            i = self.interaction
-            self.message = await i.client.reply(i, content=content, embed=self.embed_quote(q), view=self)
-        else:
-            await self.message.edit(content=content, embed=self.embed_quote(q), view=self)
+        e = self.embed_quote(q)
+        await self.interaction.client.reply(self.interaction, contnet=content, embed=e, view=self)
         await self.wait()
 
 
@@ -223,7 +214,7 @@ async def quote_add(interaction, message: Message):
     elif message.author.id in interaction.client.quote_blacklist:
         return await interaction.client.error(interaction, "That user has opted out of quotes, quote cannot be added.")
 
-    await message.interaction.response.defer(thinking=True)
+    await interaction.response.defer(thinking=True)
 
     if interaction.guild is None:
         return await interaction.client.error(interaction, "This cannot be used in DMs")
@@ -270,7 +261,6 @@ async def u_quote(interaction, usr: Member):
         await interaction.client.db.release(connection)
 
     view = QuotesView(interaction, r)
-    view.message = await interaction.client.reply(interaction, content=f"Grabbing quotes.", view=view)
     await view.update()
 
 

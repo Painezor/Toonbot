@@ -1,5 +1,7 @@
 """Automated fetching of the latest football transfer information from transfermarkt"""
-from discord import ButtonStyle, Interaction, Embed, Colour, NotFound, HTTPException, app_commands
+from typing import Optional
+
+from discord import ButtonStyle, Interaction, Embed, Colour, HTTPException, app_commands, TextChannel
 from discord.ext import commands, tasks
 from discord.ui import View, Button, Select
 from lxml import html
@@ -17,6 +19,7 @@ LG = [(":england: Premier League", "https://www.transfermarkt.co.uk/premier-leag
       ("🇺🇸 Major League Soccer", "https://www.transfermarkt.co.uk/major-league-soccer/startseite/wettbewerb/MLS1")]
 TF = "https://www.transfermarkt.co.uk"
 MIN_MARKET_VALUE = "200.000"
+LOOP_URL = f'{TF}/transfers/neuestetransfers/statistik?minMarktwert={MIN_MARKET_VALUE}'
 
 
 # TODO: Permissions Pass.
@@ -36,9 +39,9 @@ class ResetLeagues(Button):
             for alias, link in LG:
                 await connection.execute("""INSERT INTO transfers_leagues (channel_id, item, alias)
                                             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
-                                         self.view.interaction.channel.id, link, alias)
+                                         self.view.channel.id, link, alias)
         await self.view.interaction.client.db.release(connection)
-        await self.view.update(content=f"The tracked transfers for {self.view.interaction.channel.mention} were reset")
+        await self.view.update(content=f"The tracked transfers for {self.view.channel.mention} were reset")
 
 
 class DeleteTicker(Button):
@@ -53,9 +56,9 @@ class DeleteTicker(Button):
         connection = await self.view.interaction.client.db.acquire()
         async with connection.transaction():
             q = """DELETE FROM transfers_channels WHERE channel_id = $1"""
-            await connection.execute(q, self.view.interaction.channel.id)
+            await connection.execute(q, self.view.channel.id)
         await self.view.interaction.client.db.release(connection)
-        await self.view.update(content=f"The transfer ticker for {self.view.interaction.channel.mention} was deleted.")
+        await self.view.update(content=f"The transfer ticker for {self.view.channel.mention} was deleted.")
 
 
 class RemoveLeague(Select):
@@ -81,18 +84,18 @@ class RemoveLeague(Select):
         async with connection.transaction():
             q = """DELETE from transfers_leagues WHERE (channel_id, item) = ($1, $2)"""
             for x in self.values:
-                await connection.execute(q, self.view.interaction.channel.id, x)
+                await connection.execute(q, self.view.channel.id, x)
         await self.view.interaction.client.db.release(connection)
         await self.view.update()
 
 
-class ConfigView(View):
+class TransfersConfig(View):
     """View for configuring Transfer Tickers"""
 
-    def __init__(self, interaction):
-        self.index = 0
-        self.interaction = interaction
-        self.message = None
+    def __init__(self, interaction: Interaction, channel: TextChannel):
+        self.index: int = 0
+        self.interaction: Interaction = interaction
+        self.channel: TextChannel = channel
         self.pages = None
         self.settings = None
         super().__init__()
@@ -106,43 +109,37 @@ class ConfigView(View):
         self.clear_items()
         view = view_utils.Confirmation(self.interaction, colour_a=ButtonStyle.green,
                                        label_a=f"Create ticker", label_b="Cancel")
-        _ = f"{self.interaction.channel.mention} does not have a ticker, would you like to create one?"
-        if self.message is None:
-            self.message = await self.interaction.client.reply(self.interaction, content=_, view=view)
-        else:
-            await self.message.edit(content=_, view=view)
+        _ = f"{self.channel.mention} does not have a ticker, would you like to create one?"
+        await self.interaction.client.reply(self.interaction, content=_, view=view)
         await view.wait()
 
         if view.value:
             connection = await self.interaction.client.db.acquire()
+            q = """INSERT INTO transfers_leagues (channel_id, item, alias) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
+            qq = """INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1,$2)"""
             try:
                 async with connection.transaction():
-                    await connection.execute("""INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1,$2)""",
-                                             self.interaction.guild.id, self.interaction.channel.id)
+                    await connection.execute(qq, self.interaction.guild.id, self.channel.id)
+                # TODO: Executemany
                 async with connection.transaction():
                     for alias, link in LG:
-                        await connection.execute("""INSERT INTO transfers_leagues (channel_id, item, alias)
-                                                    VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
-                                                 self.interaction.channel.id, link, alias)
+                        await connection.execute(q, self.channel.id, link, alias)
             except Exception as err:
-                txt = f"Error occurred creating {self.interaction.channel.mention} ticker"
-                await self.interaction.client.error(self.interaction, txt, message=self.message)
+                txt = f"Error occurred creating {self.channel.mention} ticker"
+                await self.interaction.client.error(self.interaction, txt)
                 raise err
             finally:
                 await self.interaction.client.db.release(connection)
-            await self.update(content=f"A ticker was created for {self.interaction.channel.mention}")
+            await self.update(content=f"A ticker was created for {self.channel.mention}")
         else:
-            err = f"Cancelled ticker creation for {self.interaction.channel.mention}"
-            await self.interaction.client.error(self.interaction, err, message=self.message)
+            err = f"Cancelled ticker creation for {self.channel.mention}"
+            await self.interaction.client.error(self.interaction, err)
             self.stop()
 
     async def on_timeout(self):
         """Hide menu on timeout."""
         self.clear_items()
-        try:
-            await self.message.edit(view=self)
-        except NotFound:
-            pass
+        await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     async def update(self, content=""):
@@ -153,9 +150,9 @@ class ConfigView(View):
         try:
             async with connection.transaction():
                 q = """SELECT * FROM transfers_channels WHERE channel_id = $1"""
-                channel = await connection.fetchrow(q, self.interaction.channel.id)
+                channel = await connection.fetchrow(q, self.channel.id)
                 qq = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
-                records = await connection.fetch(qq, self.interaction.channel.id)
+                records = await connection.fetch(qq, self.channel.id)
         finally:
             await self.interaction.client.db.release(connection)
 
@@ -167,11 +164,11 @@ class ConfigView(View):
             self.add_item(ResetLeagues())
             self.add_item(DeleteTicker())
             e = Embed(title="Transfers Ticker config", color=Colour.dark_blue())
-            e.description = f"{self.interaction.channel.mention} has no tracked leagues."
+            e.description = f"{self.channel.mention} has no tracked leagues."
         else:
             e = Embed(title="Toonbot Transfer Ticker config", color=Colour.dark_teal())
             e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
-            header = f'Tracked leagues for {self.interaction.channel.mention}\n'
+            header = f'Tracked leagues for {self.channel.mention}\n'
             embeds = embed_utils.rows_to_embeds(e, sorted(links), header=header, rows_per=25)
             self.pages = embeds
 
@@ -195,12 +192,7 @@ class ConfigView(View):
         if channel is None:
             return await self.creation_dialogue()
 
-        else:
-            if self.message is None:
-                i = self.interaction
-                self.message = await i.client.reply(i, content=content, embed=e, view=self)
-            else:
-                await self.message.edit(content=content, embed=e, view=self)
+        await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 
 class TransfersCog(commands.Cog):
@@ -229,8 +221,10 @@ class TransfersCog(commands.Cog):
     @tasks.loop(seconds=60)
     async def transfers_loop(self):
         """Core transfer ticker loop - refresh every x seconds and get all new transfers from transfermarkt"""
-        _ = f'https://www.transfermarkt.co.uk/transfers/neuestetransfers/statistik?minMarktwert={MIN_MARKET_VALUE}'
-        async with self.bot.session.get(_) as resp:
+        if self.bot.session is None:
+            return
+
+        async with self.bot.session.get(LOOP_URL) as resp:
             if resp.status != 200:
                 print(f'Transfers: received bad status: {resp.status}')
                 return
@@ -265,7 +259,7 @@ class TransfersCog(commands.Cog):
             league = Competition(name=lg, link=lg_link)
 
             new_team = transfer_tools.Team(team, team_link, league)
-            team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
+            new_team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
 
             player.team = new_team
 
@@ -327,7 +321,7 @@ class TransfersCog(commands.Cog):
     tf = app_commands.Group(name="transfer_ticker", description="Create or manage a Transfer Ticker")
 
     @tf.command()
-    async def manage(self, interaction):
+    async def manage(self, interaction, channel: Optional[TextChannel] = None):
         """View the config of this channel's transfer ticker"""
         if interaction.guild is None:
             return await self.bot.error(interaction, "This command cannot be ran in DMs")
@@ -335,12 +329,19 @@ class TransfersCog(commands.Cog):
         if not interaction.permissions.manage_messages:
             return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
 
-        await ConfigView(interaction).update()
+        channel = interaction.channel if channel is None else channel
 
+        await TransfersConfig(interaction, channel).update()
+
+    # TODO: Creation Dialogue from within add.
     @tf.command()
     @app_commands.describe(league_name="Search for a league name")
-    async def add(self, interaction: Interaction, league_name: str):
+    async def add(self, interaction: Interaction, league_name: str, channel: Optional[TextChannel] = None):
         """Add a league to your transfer ticker channel(s)"""
+        await interaction.response.defer(thinking=True)
+
+        channel = interaction.channel if channel is None else channel
+
         if interaction.guild is None:
             return await self.bot.error(interaction, "This command cannot be ran in DMs")
 
@@ -350,11 +351,11 @@ class TransfersCog(commands.Cog):
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """SELECT * FROM transfers_channels WHERE channel_id = $1"""
-            r = await connection.fetchrow(q, interaction.channel.id)
+            r = await connection.fetchrow(q, channel.id)
         await self.bot.db.release(connection)
 
         if r is None or r['channel_id'] is None:
-            err = "This channel does not have a transfer ticker set. Please make one first."
+            err = f"{channel.mention} does not have a transfer ticker set. Please make one first."
             return await self.bot.error(interaction, err)
 
         view = transfer_tools.SearchView(interaction, league_name, category="Competitions", fetch=True)
@@ -363,11 +364,7 @@ class TransfersCog(commands.Cog):
         result = view.value
 
         if result is None:
-            try:
-                await view.message.delete()
-            except HTTPException:
-                pass
-            return
+            return await self.bot.error(interaction, f'No results found for {league_name}')
 
         alias = f"{result.flag} {result.name}"
 
@@ -375,9 +372,9 @@ class TransfersCog(commands.Cog):
         async with connection.transaction():
             await connection.execute("""INSERT INTO transfers_leagues (channel_id, item, alias)
                                          VALUES ($1, $2, $3)
-                                         ON CONFLICT DO NOTHING""", interaction.channel.id, result.link, alias)
+                                         ON CONFLICT DO NOTHING""", channel.id, result.link, alias)
         await self.bot.db.release(connection)
-        await view.message.edit(content=f"✅ {alias} added to {interaction.channel.mention} tracker", view=None)
+        await self.bot.reply(interaction, content=f"✅ {alias} added to {channel.mention} tracker", view=None)
 
 
 def setup(bot):

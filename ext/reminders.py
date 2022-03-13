@@ -31,9 +31,9 @@ class RemindModal(Modal):
     minutes = TextInput(label="Number of minutes", default="0", placeholder="1", max_length=2, required=False)
     description = TextInput(label="Reminder Description", placeholder="Remind me about...", style=TextStyle.paragraph)
 
-    def __init__(self, title: str, message: Message = None):
+    def __init__(self, title: str, target_message: Message = None):
         super().__init__(title=title)
-        self.message = message
+        self.target_message = target_message
         self.interaction = None
 
     async def on_submit(self, interaction: Interaction):
@@ -48,13 +48,12 @@ class RemindModal(Modal):
 
         hours = get_value(self.hours)
         minutes = get_value(self.minutes)
-
         delta = relativedelta(minutes=minutes, hours=hours, days=get_value(self.days), months=get_value(self.months))
 
         remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
         connection = await interaction.client.db.acquire()
 
-        msg_id = None if self.message is None else self.message.id
+        msg_id = None if self.target_message is None else self.target_message.id
         ch_id = interaction.channel.id
 
         try:
@@ -63,7 +62,7 @@ class RemindModal(Modal):
             async with connection.transaction():
                 record = await connection.fetchrow("""INSERT INTO reminders
                 (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""", msg_id, ch_id, gid, self.description,
+                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""", msg_id, ch_id, gid, self.description.value,
                                                    time, remind_at, interaction.user.id)
         finally:
             await interaction.client.db.release(connection)
@@ -83,8 +82,7 @@ class ReminderView(View):
     def __init__(self, bot, r: asyncpg.Record):
         super().__init__(timeout=None)
         self.bot = bot
-        self.record = r
-        self.message = None
+        self.record: asyncpg.Record = r
 
     async def dispatch(self):
         """Send message to appropriate destination"""
@@ -104,12 +102,13 @@ class ReminderView(View):
         self.add_item(view_utils.StopButton(row=0))
 
         try:
-            self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self, ephemeral=True)
+            await channel.send(f"<@{r['user_id']}>", embed=e, view=self, ephemeral=True)
         except HTTPException:
-            try:
-                self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
-            except HTTPException:
-                pass
+            pass
+        try:
+            await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
+        except HTTPException:
+            pass
 
         connection = await self.bot.db.acquire()
         try:
@@ -122,16 +121,11 @@ class ReminderView(View):
         """Only reminder owner can interact to hide or snooze"""
         return interaction.user.id == self.record['user_id']
 
-    async def on_timeout(self):
-        """Delete the record"""
-        self.clear_items()
-        await self.message.edit(view=self)
-
 
 @app_commands.context_menu(name="Create reminder")
 async def add_reminder(interaction: Interaction, message: Message):
     """Create a reminder with a link to a message."""
-    modal = RemindModal(title="Remind me about this message", message=message)
+    modal = RemindModal(title="Remind me about this message", target_message=message)
     await interaction.response.send_modal(modal)
 
 
@@ -148,6 +142,7 @@ class Reminders(commands.Cog):
 
     def cog_unload(self):
         """Cancel all active tasks on cog reload"""
+        self.bot.tree.remove_command(add_reminder)
         for i in self.bot.reminders:
             i.cancel()
 

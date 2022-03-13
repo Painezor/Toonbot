@@ -43,7 +43,11 @@ class Fixtures(commands.Cog):
             finally:
                 await self.bot.db.release(connection)
 
-            default = r["default_team"] if mode == "team" else r["default_league"]
+            if r is None:
+                default = None
+            else:
+                default = r["default_team"] if mode == "team" else r["default_league"]
+
             if default is None:
                 if interaction.permissions.manage_guild:
                     err = f"Your server does not have a default {mode} set.\nUse `/default_{mode}`"
@@ -93,22 +97,40 @@ class Fixtures(commands.Cog):
         return None if view.value is None else items[int(view.value)]
 
     # Autocompletes
-    async def tm_ac(self, interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
+    async def tm_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored teams"""
         teams = self.bot.teams.values()
-        return [app_commands.Choice(name=t.name, value=t.name) for t in teams if current.lower() in t.name.lower()]
 
-    async def lg_ac(self, interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
+        matches = []
+        for t in teams:
+            if current.lower() not in t.name.lower():
+                continue
+            matches.append(app_commands.Choice(name=t.name, value=t.link))
+        return matches[:25]
+
+    async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
         leagues = self.bot.competitions.values()
-        return [app_commands.Choice(name=lg.name, value=lg.name) for lg in leagues if
-                current.lower() in lg.name.lower()]
 
-    async def fx_ac(self, interaction: Interaction, current: str, _) -> List[app_commands.Choice[str]]:
+        matches = []
+        for lg in leagues:
+            if current.lower() not in lg.name.lower():
+                continue
+            matches.append(app_commands.Choice(name=lg.name, value=lg.link))
+        return matches[:25]
+
+    async def fx_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Check if user's typing is in list of live games"""
         games = self.bot.games.values()
-        return [app_commands.Choice(name=f'⚽ {i.home} v {i.away}', value=i.id)
-                for i in games if current.lower() in f'⚽ {i.home} {i.score} {i.away}: {i.competition.name}'.lower()]
+
+        matches = []
+        for g in games:
+            if current.lower() not in [g.home.lower() + g.away.lower() + g.competition.name.lower()]:
+                continue
+
+            out = f":soccer: {g.home} {g.score} {g.away} ({g.competition.title()})"
+            matches.append(app_commands.Choice(name=out, value=g.link))
+        return matches[:25]
 
     default = app_commands.Group(name="default", description="Set Server Defaults for team or league searches")
 
@@ -174,7 +196,7 @@ class Fixtures(commands.Cog):
         finally:
             await self.bot.db.release(connection)
 
-        e = fsr.base_embed
+        e = await fsr.base_embed()
         e.description = f'Your Fixtures commands will now use {fsr.markdown} as a default league'
         await self.bot.reply(interaction, embed=e)
 
@@ -495,7 +517,7 @@ class Fixtures(commands.Cog):
             return None
 
         embed = await stadiums[view.value].to_embed
-        await self.bot.reply(interaction, embed=embed, view=None)
+        await self.bot.reply(interaction, embed=embed)
 
 
 def setup(bot):

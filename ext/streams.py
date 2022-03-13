@@ -17,7 +17,7 @@ class Stream:
         return f"[{self.link if self.name is None else self.name}]({self.link}) added by {self.added_by.mention}"
 
 
-async def streams(interaction: Interaction, current: str, namespace) -> List[app_commands.Choice[str]]:
+async def st_ac(interaction: Interaction, current: str, namespace) -> List[app_commands.Choice[str]]:
     """Return list of live leagues"""
     guild_streams = interaction.client.streams[interaction.guild.id]
     matches = [i.name for i in guild_streams if current.lower() in i.name.lower() + i.link.lower()]
@@ -78,7 +78,7 @@ class GuildStreams(commands.Cog):
         await self.bot.reply(interaction, content=f"{interaction.guild.name} stream list cleared.")
 
     @streams.command()
-    @app_commands.autocomplete(stream=streams)
+    @app_commands.autocomplete(stream=st_ac)
     async def delete(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""
         if interaction.guild is None:

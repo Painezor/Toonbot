@@ -148,10 +148,8 @@ class Browser(commands.Cog):
 
     async def spawn_session(self):
         """Create a ClientSession object and attach to the bot."""
-        try:
+        if self.bot.session is not None:
             await self.bot.session.close()
-        except TypeError:  # NoneType.
-            pass
 
         self.bot.session = aiohttp.ClientSession(loop=self.bot.loop, connector=aiohttp.TCPConnector(ssl=False))
 

@@ -3,7 +3,7 @@
 import typing
 from typing import Iterable, List, Callable, Tuple
 
-from discord import Interaction, ButtonStyle, SelectOption, HTTPException, NotFound, Embed, Colour
+from discord import Interaction, ButtonStyle, SelectOption, NotFound, Embed, Colour
 from discord.ui import Button, Select, Modal, View, TextInput
 
 
@@ -11,11 +11,7 @@ class FirstButton(Button):
     """Previous Button for Pagination Views"""
 
     def __init__(self, disabled=False, row=0):
-        super().__init__()
-        self.label = "First"
-        self.emoji = "⏮"
-        self.row = row
-        self.disabled = disabled
+        super().__init__(label="First", emoji="⏮", row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
@@ -46,6 +42,7 @@ class PageButton(Button):
     async def callback(self, interaction: Interaction):
         """The pages button."""
         await interaction.response.defer()
+
         if len(self.view.pages) < 25:
             sliced = self.view.pages
         else:
@@ -61,10 +58,7 @@ class PageButton(Button):
         self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row))
         self.disabled = True
 
-        try:
-            await self.view.message.edit(view=self.view)
-        except HTTPException:
-            pass
+        await self.view.interaction.client.reply(self.view.interaction, view=self.view)
 
 
 class NextButton(Button):
@@ -102,13 +96,13 @@ class StopButton(Button):
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
         try:
-            await self.view.message.delete()
+            await self.view.intreaction.delete_original_message()
         except NotFound:
             pass
 
-        self.view.stop()
         if hasattr(self.view, "page"):
             await self.view.page.close()
+        self.view.stop()
 
 
 # Dropdowns
@@ -150,11 +144,10 @@ class ObjectSelectView(View):
     """Generic Object Select and return"""
 
     def __init__(self, interaction: Interaction, objects: list, timeout=180):
-        self.interaction = interaction
+        self.interaction: Interaction = interaction
         self.value = None  # As Yet Unset
-        self.index = 0
-        self.message = None
-        self.objects = objects
+        self.index: int = 0
+        self.objects: list = objects
 
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(timeout=timeout)
@@ -185,21 +178,13 @@ class ObjectSelectView(View):
         self.add_item(_)
 
         self.add_item(StopButton(row=1))
-        if self.message is None:
-            i = self.interaction
-            self.message = await i.client.reply(i, content=content, view=self, embed=self.embed)
-        else:
-            await self.message.edit(content=content, view=self, embed=self.embed)
+        await self.interaction.client.reply(self.interaction, content=content, view=self, embed=self.embed)
 
     async def on_timeout(self):
         """Cleanup"""
         self.clear_items()
         e = Embed(colour=Colour.red(), description="Timed out waiting for you to select a match.")
-
-        try:
-            await self.message.edit(content="", embed=e, view=None)
-        except NotFound:
-            pass
+        await self.interaction.client.error(self.interaction, embed=e, view=None, followup=False)
         self.stop()
 
 
@@ -235,13 +220,8 @@ class ItemSelect(Select):
 
     async def callback(self, interaction):
         """Response object for view"""
-        try:
-            await interaction.response.defer()
-        except NotFound:
-            pass
-
+        await interaction.response.defer()
         self.view.value = self.view.index * 25 + int(self.values[0])
-        await self.view.message.delete()  # Respond further with followup.
         self.view.stop()
 
 
@@ -267,15 +247,11 @@ class Paginator(View):
         self.index = 0
         self.pages = embeds
         self.interaction = interaction
-        self.message = None
 
     async def on_timeout(self):
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
-        try:
-            await self.message.edit(view=self)
-        except HTTPException:
-            pass
+        await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -292,21 +268,15 @@ class Paginator(View):
         self.add_item(NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
         self.add_item(StopButton(row=0))
 
-        if self.message is None:
-            i = self.interaction
-            self.message = await i.client.reply(i, content=content, embed=self.pages[self.index], view=self)
-        else:
-            await self.message.edit(content=content, embed=self.pages[self.index], view=self)
+        await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
 
 class Confirmation(View):
     """Ask the user if they wish to confirm an option."""
 
-    def __init__(self, interaction,
-                 label_a: str = "Yes", colour_a: ButtonStyle = None,
-                 label_b: str = "No", colour_b: ButtonStyle = None):
+    def __init__(self, interaction: Interaction, label_a: str = "Yes", label_b: str = "No",
+                 colour_a: ButtonStyle = None, colour_b: ButtonStyle = None):
         super().__init__()
-        self.message = None
         self.interaction = interaction
         self.add_item(BoolButton(label=label_a, colour=colour_a))
         self.add_item(BoolButton(label=label_b, colour=colour_b, value=False))
@@ -325,7 +295,7 @@ class BoolButton(Button):
         super().__init__(label=label, style=colour)
         self.value = value
 
-    async def callback(self, interaction):
+    async def callback(self, interaction: Interaction):
         """On Click Event"""
         self.view.value = self.value
         self.view.stop()
