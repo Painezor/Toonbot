@@ -69,6 +69,9 @@ class Mod(commands.Cog):
         if not interaction.permissions.manage_channels:
             return await self.bot.error(interaction, "You need manage_channels permissions to pin a message.")
 
+        if not interaction.channel.permissions_for(interaction.channel.guild.me).manage_channels:
+            return await self.bot.error(interaction, "I don't have manage_channels permissions to pin messages.")
+
         message = await self.bot.reply(interaction, content=message)
         await message.pin()
 
