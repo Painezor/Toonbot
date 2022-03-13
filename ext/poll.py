@@ -2,13 +2,12 @@
 from collections import Counter
 from typing import List, TYPE_CHECKING
 
-from discord import ButtonStyle, Embed, Colour, app_commands, TextStyle
+from discord import ButtonStyle, Embed, Colour, app_commands, TextStyle, Interaction, Message
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 
 if TYPE_CHECKING:
     from core import Bot
-    from discord import Interaction, Message
 
 # TODO: Timers, /end poll command, database entry, persistent view.
 

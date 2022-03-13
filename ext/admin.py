@@ -69,6 +69,8 @@ class Admin(commands.Cog):
     @app_commands.describe(guild="enter guild ID to sync")
     async def sync(self, interaction: Interaction, guild: Optional[str] = None) -> Message:
         """Sync the command tree with discord"""
+        await interaction.response.defer(thinking=True)
+
         if guild is None:
             await self.bot.tree.sync()
             return await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")

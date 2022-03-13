@@ -2,6 +2,7 @@
 import json
 import random
 import textwrap
+from asyncio import to_thread
 from io import BytesIO
 from typing import Optional, TYPE_CHECKING
 
@@ -72,7 +73,7 @@ def get_target(interaction: Interaction, user: User | Member = None, link: str =
 #     if response is None or response is False:
 #         return await interaction.client.reply(interaction, content="🚫 No faces were detected in your image.")
 #
-#     image = await self.bot.loop.run_in_executor(None, draw_knob, image, response)
+#     image = await to_thread(draw_knob, image, response)
 #
 #     base_embed = discord.Embed()
 #     base_embed.colour = 0xff66cc
@@ -87,13 +88,13 @@ class ImageView(View):
     def __init__(self, interaction: Interaction, target: str) -> None:
         self.interaction: Interaction = interaction
         self.coordinates: dict = {}
+        self.embed: Embed | None = None
         self.image: bytes | None = None
         self.target_url: str = target
         super().__init__()
 
-    async def get_faces(self):
+    async def get_faces(self) -> None:
         """Retrieve face features from Project Oxford"""
-
         # Prepare POST
         h = {"Content-Type": "application/json",
              "Ocp-Apim-Subscription-Key": self.interaction.client.credentials['Oxford']['OxfordKey']}
@@ -124,9 +125,9 @@ class ImageView(View):
         if self.image is None:
             await self.get_faces()
 
-        def draw_eyes():
+        def draw_eyes() -> BytesIO:
             """Draws the eyes"""
-            im = Image.open(BytesIO(self.image))
+            im: Image = Image.open(BytesIO(self.image))
             for i in self.coordinates:
                 # Get eye bounds
                 lix = int(i["faceLandmarks"]["eyeLeftInner"]["x"])
@@ -166,9 +167,10 @@ class ImageView(View):
             output = BytesIO()
             im.save(output, "PNG")
             output.seek(0)
+            im.close()
             return output
 
-        image = await self.interaction.client.loop.run_in_executor(None, draw_eyes)
+        image = await to_thread(draw_eyes)
 
         e = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
@@ -200,7 +202,7 @@ class ImageView(View):
             output.seek(0)
             return output
 
-        image = await self.interaction.client.loop.run_in_executor(None, draw_knob)
+        image = await to_thread(draw_knob)
 
         e = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
@@ -234,15 +236,15 @@ class ImageView(View):
             output.seek(0)
             return output
 
-        image = await self.interaction.client.loop.run_in_executor(None, draw_bob)
+        self.image = await to_thread(draw_bob)
 
         e = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
-        await embed_utils.embed_image(self.interaction, e, image, filename="bob.png")
+        self.embed = e
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self) -> Message:
         """Push latest version to view"""
-        return await self.interaction.client.reply(self.interaction, content=content)
+        return await embed_utils.embed_image(self.interaction, self.embed, self.image, filename="bob.png")
 
 
 class Images(commands.Cog):
@@ -293,7 +295,7 @@ class Images(commands.Cog):
             base.close()
             return output
 
-        image = await interaction.client.loop.run_in_executor(None, ruin, image)
+        image = await to_thread(ruin, image)
         e = Embed(color=Colour.blue())
         return await embed_utils.embed_image(interaction, e, image, filename=f"ruins_everything.png")
 
@@ -367,7 +369,7 @@ class Images(commands.Cog):
             out.seek(0)
             return out
 
-        output = await self.bot.loop.run_in_executor(None, draw_tinder, target, av, name)
+        output = await to_thread(draw_tinder, target, av, name)
         if match.id == interaction.user.id:
             caption = f"{interaction.user.mention} matched with themself, How pathetic."
         elif match.id == self.bot.user.id:
@@ -381,7 +383,7 @@ class Images(commands.Cog):
 
     @app_commands.command()
     @app_commands.describe(quote="enter quote text", target="pick a user")
-    async def tard(self, interaction: Interaction, quote: str, target: Optional[User | Member] = None):
+    async def tard(self, interaction: Interaction, quote: str, target: Optional[User | Member] = None) -> Message:
         """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
         await interaction.response.defer(thinking=True)
 
@@ -450,8 +452,8 @@ class Images(commands.Cog):
             img.close()
             return output
 
-        image = await self.bot.loop.run_in_executor(None, draw_tard, image, quote)
-        await embed_utils.embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
+        image = await to_thread(draw_tard, image, quote)
+        return await embed_utils.embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
 
 
 def setup(bot: 'Bot'):

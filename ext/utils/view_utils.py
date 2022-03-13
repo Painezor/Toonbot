@@ -3,7 +3,7 @@
 import typing
 from typing import Iterable, List, Callable, Tuple
 
-from discord import Interaction, ButtonStyle, SelectOption, NotFound, Embed, Colour
+from discord import Interaction, ButtonStyle, SelectOption, NotFound, Embed, Message
 from discord.ui import Button, Select, Modal, View, TextInput
 
 
@@ -183,8 +183,8 @@ class ObjectSelectView(View):
     async def on_timeout(self) -> None:
         """Cleanup"""
         self.clear_items()
-        e = Embed(colour=Colour.red(), description="Timed out waiting for you to select a match.")
-        await self.interaction.client.error(self.interaction, embed=e, view=None, followup=False)
+        err = "Timed out waiting for you to select a match."
+        await self.interaction.client.error(self.interaction, err, followup=False)
         self.stop()
 
 

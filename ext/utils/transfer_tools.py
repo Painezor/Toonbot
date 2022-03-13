@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List
 
 import pycountry
-from discord import Interaction, Embed, Colour
+from discord import Interaction, Embed, Colour, Message
 from discord.ui import View, Select, Button
 from lxml import html
 
@@ -187,7 +187,7 @@ class Team(TransferResult):
         return f"https://tmssl.akamaized.net/images/wappen/head/{number}.png"
 
     @property
-    def base_embed(self):
+    def base_embed(self) -> Embed:
         """Return a discord embed object representing a team"""
         e = super().base_embed
         e.set_thumbnail(url=self.badge)

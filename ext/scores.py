@@ -3,7 +3,7 @@
 import datetime
 from collections import defaultdict
 from itertools import zip_longest
-from typing import List, Optional, Union, Dict, TYPE_CHECKING
+from typing import List, Optional, Union, Dict, TYPE_CHECKING, Set
 
 from asyncpg import UniqueViolationError, ForeignKeyViolationError
 from discord import ButtonStyle, Interaction, Colour, Embed, NotFound, HTTPException, PermissionOverwrite, Forbidden, \
@@ -18,7 +18,7 @@ from ext.utils import football, embed_utils, view_utils
 from ext.utils.football import Team, GameTime, Fixture, Competition
 
 if TYPE_CHECKING:
-    pass
+    from core import Bot
 
 # from pyppeteer.errors import ElementHandleError
 
@@ -158,7 +158,7 @@ class ScoresConfig(View):
             embed = None
             content = f"You have no tracked leagues for {self.channel.mention}, would you like to reset it?"
 
-        await self.interaction.client.reply(self.interaction, content=content, embed=embed, view=self)
+        return await self.interaction.client.reply(self.interaction, content=content, embed=embed, view=self)
 
     async def remove_leagues(self, leagues):
         """Bulk remove leagues from a live scores channel"""
@@ -193,10 +193,9 @@ class ScoresConfig(View):
 class Scores(commands.Cog, name="LiveScores"):
     """Live Scores channel module"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         self.page = None
-        self.iterations = 0
 
         # Score loops.
         self.bot.score_loop = self.score_loop.start()
@@ -217,7 +216,7 @@ class Scores(commands.Cog, name="LiveScores"):
     @tasks.loop(minutes=1)
     async def score_loop(self):
         """Score Checker Loop"""
-        cache = await self.get_cache()
+        await self.update_cache()
         await self.fetch_games()
 
         games: dict[Competition, List[Fixture]] = dict()
@@ -225,10 +224,9 @@ class Scores(commands.Cog, name="LiveScores"):
         for i in self.bot.games.values():
             games.setdefault(i.competition, []).append(i)
 
-        self.bot.scores_embeds = {}
+        self.bot.scores_embeds = defaultdict(set)
 
         for comp, fixtures in games.items():
-            self.bot.scores_embeds[comp] = []
             e = await comp.base_embed()
             e.description = ""
 
@@ -236,17 +234,14 @@ class Scores(commands.Cog, name="LiveScores"):
                 if len(e) + len(f.live_score_text + "\n") < 4096:
                     e.description += f.live_score_text + "\n"
                 else:
-                    self.bot.scores_embeds[comp].append(e)
+                    self.bot.scores_embeds[comp].add(e)
                     e = await comp.base_embed()
                     e.description = f.live_score_text + "\n"
-            self.bot.scores_embeds[comp].append(e)
+            if e.description:
+                self.bot.scores_embeds[comp].add(e)
 
-        # Iterate: Check vs each server's individual config settings
-        # Every 5 minutes
-        if self.iterations % 5 == 0:
-            for i in cache.copy():  # Error if dict changes sizes during iteration.
-                await self.update_channel(i, cache)
-        self.iterations += 1
+        for channel_id, leagues in self.bot.scores_cache.items():  # Error if dict changes sizes during iteration.
+            await self.update_channel(channel_id, leagues)
 
     # async def get_games(self) -> List[Fixture]:
     #     """Grab current scores from flashscore using Pyppeteer"""
@@ -325,6 +320,7 @@ class Scores(commands.Cog, name="LiveScores"):
     async def fetch_games(self):
         """Grab current scores from flashscore using aiohttp"""
         if self.bot.session is None:
+            print("fetch_games [WARNING] bot.session is None.")
             return
 
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
@@ -381,24 +377,15 @@ class Scores(commands.Cog, name="LiveScores"):
             state = ''.join(tree.xpath('./a/@class')).strip()
             stage = tree.xpath('.//span/text() | .//div[@class="event__stage--block"]/text()')
 
-            time: str
+            time = stage.pop(0)
 
             if stage:
-                if len(stage) == 1:
-                    time = stage[0]
-                elif len(stage) == 2:
-                    state = stage[1]
-                    if state in ['Postponed', 'Cancelled', 'Delayed']:
-                        time = stage[0]
-                    else:
-                        print("Unhandled 2 length stage found", stage)
-                else:
+                state = stage.pop(0)
+                if state not in ['Postponed', 'Cancelled', 'Delayed', 'Interrupted']:
+                    print("Unhandled state", state)
+                if stage:
                     print("Unhandled", len(stage), "Length stage found", stage)
                     continue
-            else:
-                # print(f"Could not find stage for fixture {match_id}")
-                # WHen there's some AWAITING bullshit going on there's a <br> tag that breaks shit.
-                continue
 
             # Set & forget: Competition, Teams
             if match_id not in self.bot.games:
@@ -435,8 +422,10 @@ class Scores(commands.Cog, name="LiveScores"):
 
                 if a_score.endswith('aet'):
                     a_score = a_score.replace('aet', '')
+                    state = "AET"
                 elif a_score.endswith('pen'):
                     a_score = a_score.replace('pen', '')
+                    state = "After Pens"
 
                 # Replace with set_score
                 ns = None if h_score == "-" else int(h_score)
@@ -447,22 +436,21 @@ class Scores(commands.Cog, name="LiveScores"):
                 print(f'Could not split {score_line} into h, a')
             except ValueError:
                 print(f'Could not convert {score_line} into ints')
+
             cancelled = tree.xpath('./span/@class')
             if cancelled and cancelled != ['live']:
                 print('Found cancelled text', cancelled)
 
             match state:
+                case 'live':
+                    self.bot.games[match_id].set_time(self.bot, GameTime(time))
+                case 'AET' | 'After Pens' | 'Postponed' | 'Cancelled' | 'Delayed' | 'Abandoned' | 'Interrupted':
+                    self.bot.games[match_id].set_time(self.bot, GameTime(state))
                 case 'sched' | 'fin':
-                    # FS.mobi is 1 hour+
-                    if state == 'fin':
-                        if score_line[-1].endswith("pen"):
-                            self.bot.games[match_id].set_time(self.bot, GameTime("After Pens"))
-                        elif score_line[-1].endswith("aet"):
-                            self.bot.games[match_id].set_time(self.bot, GameTime("AET"))
-                        else:
-                            self.bot.games[match_id].set_time(self.bot, GameTime("Full Time"))
-                    else:
+                    if state == 'sched':
                         self.bot.games[match_id].set_time(self.bot, GameTime("scheduled"))
+                    else:
+                        self.bot.games[match_id].set_time(self.bot, GameTime("Full Time"))
 
                     if self.bot.games[match_id].kickoff is None:
                         ko = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
@@ -475,10 +463,6 @@ class Scores(commands.Cog, name="LiveScores"):
                         expiry = ko + datetime.timedelta(days=1)
                         self.bot.games[match_id].kickoff = ko
                         self.bot.games[match_id].expires = expiry.day
-                case 'live':
-                    self.bot.games[match_id].set_time(self.bot, GameTime(time))
-                case 'Postponed' | 'Cancelled' | 'Delayed' | 'Abandoned':
-                    self.bot.games[match_id].set_time(self.bot, GameTime(state))
                 case _:
                     print(f"State not handled {state} | {time}")
 
@@ -496,10 +480,8 @@ class Scores(commands.Cog, name="LiveScores"):
                 self.bot.games[match_id].set_cards(self.bot, card_home)
                 self.bot.games[match_id].set_cards(self.bot, card_away, home=False)
 
-    async def get_cache(self):
+    async def update_cache(self) -> None:
         """Grab the most recent data for all channel configurations"""
-        cache = defaultdict(set)
-
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
@@ -521,12 +503,21 @@ class Scores(commands.Cog, name="LiveScores"):
 
         # Repopulate.
         for r in records:
-            if self.bot.get_channel(r['channel_id']) is not None:
-                cache[r["channel_id"]].add(r["league"])
-        return cache
+            self.bot.scores_cache[r["channel_id"]].add(r["league"])
 
-    async def update_channel(self, channel_id: int, cache: dict):
+        for ch in self.bot.scores_cache.copy().keys():
+            channel = self.bot.get_channel(ch)
+            if channel is None or channel.is_news():
+                self.bot.scores_cache.pop(ch)
+                continue
+
+    async def update_channel(self, channel_id: int, leagues: Set[str]):
         """Edit a live-score channel to have the latest scores"""
+        logging = True if channel_id == 924709355872464997 else False
+        # logging = False
+        if logging:
+            print("Logging toonbot update_channel")
+
         channel: TextChannel = self.bot.get_channel(channel_id)
         if channel is None:
             return
@@ -537,7 +528,7 @@ class Scores(commands.Cog, name="LiveScores"):
 
         guild_embeds: List[Embed] = []
         for comp, embeds in self.bot.scores_embeds.items():
-            for tracked in cache[channel_id]:
+            for tracked in leagues:
                 if tracked == comp.title:
                     guild_embeds += embeds
                     break
@@ -560,6 +551,9 @@ class Scores(commands.Cog, name="LiveScores"):
         if channel.is_news():
             guild_embeds = [Embed(description=NO_NEWS, colour=Color.red())]
 
+        if logging:
+            print("Got Guild embeds", guild_embeds)
+
         # Paginate into maxsize 6000 / max number 10 chunks.
 
         for x in guild_embeds:
@@ -574,11 +568,14 @@ class Scores(commands.Cog, name="LiveScores"):
                 count = 1
         new_embeds_paged.append(new_embeds)
 
+        if logging:
+            print("Got new_embeds_paged", new_embeds_paged)
+
         # Copy so we don't fucking nuke it.
         try:
             messages = self.bot.scores_messages.pop(channel_id)
             msg_list, old_embeds_paged = zip(*messages.items())
-        except KeyError:
+        except (KeyError, ValueError):
             msg_list, old_embeds_paged = [], []
 
         # Unpack Lists to Variables.
@@ -586,6 +583,8 @@ class Scores(commands.Cog, name="LiveScores"):
         if None in tuples[0]:
             # we need a new message
             try:
+                if channel.id == 900091291331878912:
+                    print("Firing purge event for channel 900091291331878912")
                 if not channel.is_news():
                     await channel.purge()
             except HTTPException:
@@ -594,27 +593,46 @@ class Scores(commands.Cog, name="LiveScores"):
         self.bot.scores_messages[channel_id]: Dict[Message, List[Embed]] = defaultdict(list)
 
         for message, old_embeds, new_embeds in tuples:
+            if logging:
+                print(f"Got | Message: {type(message)} | old: {type(old_embeds)} | new: {type(old_embeds)}")
             if message is None:  # No message exists in cache, or we need an additional message.
+                if logging:
+                    print("[TOONBOT SCORES] Message is None, sending new message.")
                 try:
+                    if channel.id == 900091291331878912:
+                        print("Sending messages to channel 900091291331878912")
                     message = await channel.send(embeds=new_embeds)
                 except HTTPException:
                     message = None
 
             elif new_embeds is None:
+                if logging:
+                    print("[TOONBOT SCORES] new_embeds is None, deleting a messagee.")
                 await message.delete()  # Shorter than old message list, we do not need this message any more.
                 continue
 
             elif not set([i.description for i in new_embeds]) == set([i.description for i in old_embeds]):
-                if channel.is_news():  # Fuck you, you don't get updates.
-                    continue
-
+                if logging:
+                    print("[TOONBOT SCORES] new_embeds is None, deleting a messagee.")
                 # We now have a Message, a list of old_embeds, and a list of new_embeds
                 try:
                     await message.edit(embeds=new_embeds)
                 except NotFound:
                     continue
-
+            else:
+                if logging:
+                    print("[TOONBOT SCORES] embeds are identical.")
+                    for x, y in zip(old_embeds, new_embeds):
+                        print("================================")
+                        print(x.description == y.description)
+                        print(x.description)
+                        print(y.description)
+                        print("================================")
+            if logging:
+                print("Inserted message into channel_id", channel_id)
             self.bot.scores_messages[channel_id][message] = new_embeds
+            if logging:
+                print(self.bot.scores_messages[channel_id])
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
@@ -700,29 +718,28 @@ class Scores(commands.Cog, name="LiveScores"):
         try:
             async with connection.transaction():
                 q = """INSERT INTO scores_channels (guild_id, channel_id) VALUES ($1, $2)"""
-                try:
-                    await connection.execute(q, channel.guild.id, channel.id)
-                except ForeignKeyViolationError:
-                    cog = self.bot.get_cog("Mod")
-                    await cog.create_guild(channel.guild.id)
-                    await connection.execute(q, channel.guild.id, channel.id)
+                await connection.execute(q, channel.guild.id, channel.id)
 
                 qq = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 for i in DEFAULT_LEAGUES:
                     await connection.execute(qq, channel.id, i)
+        except ForeignKeyViolationError:
+            await self.bot.error(interaction, "The database entry for your server was not found... somehow.")
+            raise ForeignKeyViolationError
         finally:
             await self.bot.db.release(connection)
 
         await self.bot.reply(interaction, content=f"The {channel.mention} channel was created")
 
-        cache = await self.get_cache()
-        await self.update_channel(channel.id, cache)
+        await self.update_cache()
+        leagues = self.bot.scores_cache[channel.id]
+        await self.update_channel(channel.id, leagues)
 
     # Autocomplete
     async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.name, value=i.url) for i in lgs if current.lower() in i.name.lower()][:25]
+        return [app_commands.Choice(name=i.title, value=i.url) for i in lgs if current.lower() in i.title.lower()][:25]
 
     @livescores.command()
     @app_commands.describe(league_name="league name to search for", channel="Target Channel")
@@ -816,14 +833,14 @@ class Scores(commands.Cog, name="LiveScores"):
 
     @app_commands.command()
     @app_commands.guilds(250252535699341312)
-    async def livescore_clear(self, interaction):
+    async def livescore_clear(self, interaction) -> Message:
         """ ADMIN: Force a cache refresh of the live scores"""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
 
         self.bot.games = defaultdict(dict)
         e = Embed(colour=Colour.og_blurple(), description="[ADMIN] Cleared global games cache.")
-        await self.bot.reply(interaction, embed=e)
+        return await self.bot.reply(interaction, embed=e)
 
     async def on_guild_channel_update(self, before: TextChannel, after: TextChannel):
         """Warn on stupidity."""
@@ -834,6 +851,6 @@ class Scores(commands.Cog, name="LiveScores"):
             await after.send("You have set this channel as a 'news' channel, live scores will no longer work.")
 
 
-def setup(bot):
+def setup(bot: 'Bot'):
     """Load the cog into the bot"""
     bot.add_cog(Scores(bot))

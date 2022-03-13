@@ -1,6 +1,7 @@
 """Custom Utilities revolving around the usage of Discord Embeds"""
 import asyncio
 import typing
+from asyncio import to_thread
 from copy import deepcopy
 from io import BytesIO
 
@@ -31,7 +32,7 @@ async def get_colour(url=None):
             f = BytesIO(r)
             try:
                 loop = asyncio.get_running_loop()
-                c = await loop.run_in_executor(None, ColorThief(f).get_color)
+                c = await to_thread(ColorThief(f).get_color)
                 # Convert to base 16 int.
                 return int('%02x%02x%02x' % c, 16)
             except UnidentifiedImageError:

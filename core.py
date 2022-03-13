@@ -1,12 +1,11 @@
 """Master file for toonbot."""
 import asyncio
 import json
-# Logging
 import logging
 from asyncio import Task
 from collections import defaultdict
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Set
 
 import aiohttp
 import asyncpg
@@ -18,11 +17,7 @@ from pyppeteer.browser import Browser
 
 from ext.utils.football import Fixture, Competition, Team
 
-logger = logging.getLogger('discord')
-logger.setLevel(logging.DEBUG)
-handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
-handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(message)s'))
-logger.addHandler(handler)
+logging.basicConfig(level=logging.INFO)
 
 http._set_api_version(9)
 
@@ -69,6 +64,7 @@ class Bot(commands.AutoShardedBot):
         self.fs_games: Dict[str, Fixture] = dict()
         self.scores_embeds: Dict[str | Competition, List[Embed]] = {}
         self.scores_messages: Dict[int, Dict[Message, List[Embed]]] = defaultdict(dict)
+        self.scores_cache: Dict[int, Set[str]] = defaultdict(set)
         self.score_loop: Task | None = None
         self.fs_score_loop: Task | None = None
 

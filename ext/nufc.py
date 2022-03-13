@@ -3,7 +3,7 @@ import datetime
 import random
 from typing import List
 
-from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, app_commands, Role
+from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, app_commands, Role, Message
 from discord.ext import commands
 from discord.ui import Button, View
 

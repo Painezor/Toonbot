@@ -5,6 +5,7 @@ import datetime
 import asyncpg
 import asyncpraw
 import discord
+from discord import Embed
 from discord.ext import commands
 from discord.ext import tasks
 from lxml import html
@@ -36,7 +37,7 @@ class MatchThread:
         self.stop = False
 
     @property
-    def base_embed(self):
+    def base_embed(self) -> Embed:
         """Generic Embed for MTB notifications"""
         e = discord.Embed(color=0xff4500)
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"

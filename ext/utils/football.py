@@ -7,7 +7,7 @@ import json
 import sys
 import traceback
 import urllib.parse
-from asyncio import Semaphore, get_running_loop
+from asyncio import Semaphore, to_thread
 from dataclasses import dataclass, field
 from io import BytesIO
 from json import JSONDecodeError
@@ -178,6 +178,9 @@ class GameTime:
     def __repr__(self):
         return f"GameTime({self.value} | {self.state})"
 
+    def __eq__(self, other):
+        return self.value != other.value
+
     @property
     def state(self) -> str:
         """Return the state of the game."""
@@ -319,7 +322,7 @@ class FlashScoreItem:
                 pass
 
         if self.logo_url is not None:
-            logo = "http://www.flashscore.com/res/image/data" + self.logo_url.replace("'", "")  # Erroneous '
+            logo = "http://www.flashscore.com/res/image/data/" + self.logo_url.replace("'", "")  # Erroneous '
             e.colour = await embed_utils.get_colour(logo)
             e.set_thumbnail(url=logo)
             e.set_footer(text=f"[DEBUG]")
@@ -764,7 +767,7 @@ class Fixture:
             return self.url == other.url
 
     def __str__(self):
-        time = self.ko_relative if self.time is None else self.time
+        time = self.ko_relative if self.time == "scheduled" else self.time
         return f"{time}: [{self.bold_score}]({self.link})"
 
     def set_cards(self, bot, new_value: int, home=True) -> None:
@@ -797,11 +800,8 @@ class Fixture:
 
     def set_time(self, bot, game_time: GameTime):
         """Update the time of the event"""
-        if game_time == self.time:
-            return self.time
-
-        if self.time is None:
-            self.time = game_time
+        if self.time is None or game_time.state == self.time.state:
+            self.time = game_time  # Update the time and be done with it.
             return  # Initial setting.
 
         # Cache old versions
@@ -824,7 +824,7 @@ class Fixture:
             case ("AET", _):
                 return bot.dispatch("fixture_event", "score_after_extra_time", self)
             case ("Penalties", _):
-                return bot.disaptch("fixture_event", "penalties_begin", self)
+                return bot.dispatch("fixture_event", "penalties_begin", self)
             case ("After Pens", _):
                 return bot.dispatch("fixture_event", "penalty_results", self)
             case ("Interrupted" | "Postponed" | "Cancelled" | "Delayed" | "Abandoned", _):
@@ -853,7 +853,7 @@ class Fixture:
                 return bot.dispatch("fixture_event", event, self)
             case ("Break Time", "Extra Time"):
                 return bot.dispatch("fixture_event", "end_of_extra_time", self)
-            case ("Extra Time", "Break Time"):
+            case ("Extra Time", "Break Time" | "Live" | "Stoppage Time"):
                 return bot.dispatch("fixture_event", "extra_time_begins", self)
             case ("Extra Time", "Half Time"):
                 return bot.dispatch("fixture_event", "ht_et_end", self)
@@ -877,7 +877,7 @@ class Fixture:
         if isinstance(self.time, datetime.datetime):
             if self.time > datetime.datetime.now():
                 e.description = f"Kickoff: {timed_events.Timestamp(self.time).time_relative}"
-        elif self.time == "Postponed":
+        elif self.time is not None and self.time.state == "Postponed":
             e.description = "This match has been postponed."
         else:
             if not isinstance(self.time, datetime.datetime):
@@ -931,7 +931,7 @@ class Fixture:
     @property
     def bold_score(self) -> str:
         """Embolden the winning team of a fixture"""
-        if self.score_home is None or self.score_away is None:
+        if self.score_home is None or self.score_away is None or self.time.state == "scheduled":
             return f"{self.home.name} vs {self.away.name}"
 
         hb, ab = ('**', '') if self.score_home > self.score_away else ('', '**')
@@ -946,7 +946,7 @@ class Fixture:
     @property
     def live_score_text(self) -> str:
         """Return a preformatted string showing the score and any red cards of the fixture"""
-        if str(self.time) == "scheduled":
+        if self.state is not None and self.time.state == "scheduled":
             ts = timed_events.Timestamp(self.kickoff).time_hour
             return f"{self.time.emote} {ts} [{self.home.name} vs {self.away.name}]({self.link})"
 
@@ -992,8 +992,7 @@ class Fixture:
         if not valid_images:
             return None
 
-        loop = get_running_loop()
-        return await loop.run_in_executor(None, image_utils.stitch_vertical, valid_images)
+        return await to_thread(image_utils.stitch_vertical, valid_images)
 
     async def get_summary(self, page) -> BytesIO or None:
         """Fetch the summary of a Fixture"""
@@ -1916,27 +1915,25 @@ class LeagueTableSelect(Select):
         await self.view.push_table(self.objects[int(self.values[0])])
 
 
+@dataclass
 class Stadium:
     """An object representing a football Stadium from football ground map.com"""
+    url: str
+    name: str
+    team: str
+    league: str
+    country: str
+    team_badge: str
 
-    def __init__(self, url, name, team, league, country, team_badge):
-        self.url = url
-        self.name = name.title()
-        self.team = team
-        self.league = league
-        self.country = country
-        self.team_badge = team_badge
-
-        # These will be created if fetch_more is triggered
-        self.image = None
-        self.current_home = None
-        self.former_home = None
-        self.map_link = None
-        self.address = None
-        self.capacity = None
-        self.cost = None
-        self.website = None
-        self.attendance_record = None
+    image: str = ""
+    current_home: List[str] = field(default_factory=list)
+    former_home: List[str] = field(default_factory=list)
+    map_link: str | None = None
+    address: str = "Link to map"
+    capacity: str = ""
+    cost: str = ""
+    website: str = ""
+    attendance_record: str = ""
 
     async def fetch_more(self):
         """Fetch more data about a target stadium"""
@@ -1976,44 +1973,41 @@ class Stadium:
     @property
     async def to_embed(self) -> Embed:
         """Create a discord Embed object representing the information about a football stadium"""
-        e = Embed()
+        e = Embed(title=self.name, url=self.url)
         e.set_footer(text="FootballGroundMap.com")
-        e.title = self.name
-        e.url = self.url
 
         await self.fetch_more()
-        try:  # Check not ""
+        if self.team_badge:
             e.colour = await embed_utils.get_colour(self.team_badge)
-        except AttributeError:
-            pass
+            e.set_thumbnail(url=self.team_badge)
 
-        if self.image is not None:
+        if self.image:
             e.set_image(url=self.image.replace(' ', '%20'))
 
-        if self.current_home is not None:
+        if self.current_home:
             e.add_field(name="Home to", value=", ".join(self.current_home), inline=False)
 
-        if self.former_home is not None:
+        if self.former_home:
             e.add_field(name="Former home to", value=", ".join(self.former_home), inline=False)
 
         # Location
-        address = self.address if self.address else "Link to map"
-        if self.map_link is not None:
-            e.add_field(name="Location", value=f"[{address}]({self.map_link})", inline=False)
-        elif self.address:
-            e.add_field(name="Location", value=address, inline=False)
+        if self.map_link:
+            e.add_field(name="Location", value=f"[{self.address}]({self.map_link})", inline=False)
+        elif self.address != "Link to map":
+            e.add_field(name="Location", value=self.address, inline=False)
 
         # Misc Data.
-        e.description = f"Capacity: {self.capacity}\n" if self.capacity else ""
-        e.description += f"Record Attendance: {self.attendance_record}\n" if self.attendance_record else ""
-        e.description += f"Cost: {self.cost}\n" if self.cost else ""
-        e.description += f"Website: {self.website}\n" if self.website else ""
+        e.description = ""
+        for x, y in [("Capacity", self.capacity), ("Record Attendance", self.attendance_record),
+                     ("Cost", self.cost), ("Website", self.website)]:
+            if x:
+                e.description += f"{x}: {y}\n"
         return e
 
 
-async def get_stadiums(query) -> List[Stadium]:
+async def get_stadiums(query: str) -> List[Stadium]:
     """Fetch a list of Stadium objects matching a user query"""
-    qry = urllib.parse.quote_plus(query)
+    qry: str = urllib.parse.quote_plus(query)
 
     async with aiohttp.ClientSession() as cs:
         async with cs.get(f'https://www.footballgroundmap.com/search/{qry}') as resp:
@@ -2021,7 +2015,7 @@ async def get_stadiums(query) -> List[Stadium]:
 
     results = tree.xpath(".//div[@class='using-grid'][1]/div[@class='grid']/div")
 
-    stadiums = []
+    stadiums: List[Stadium] = []
 
     for i in results:
         team = ''.join(i.xpath('.//small/preceding-sibling::a//text()')).title()
@@ -2092,7 +2086,9 @@ async def get_fs_results(bot, query) -> List[FlashScoreItem]:
             comp.id = i['id']
             comp.url = i['url']
             comp.logo_url = i['logo_url']
-            comp.name = i['title']
+            name = i['title'].split(': ')
+            name.pop(0)
+            comp.name = name[0]
 
             if comp.url not in bot.competitions:
                 bot.competitions[comp.url] = comp

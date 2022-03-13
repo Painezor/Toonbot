@@ -85,7 +85,14 @@ class Fixtures(commands.Cog):
             if cls is not None:
                 search_results = [i for i in search_results if isinstance(i, cls)]  # Check for specifics.
 
-            fs_options = [(i.emoji, i.name, i.url) for i in search_results]
+            fs_options = []
+            for x in search_results:
+                if cls is not None:
+                    if not isinstance(x, cls):
+                        continue
+
+                name = x.title if isinstance(cls, Competition) else x.name
+                fs_options.append((x.emoji, name, x.url))
         else:
             fs_options = search_results = []
 
@@ -113,7 +120,7 @@ class Fixtures(commands.Cog):
     async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.name, value=i.url) for i in lgs if current.lower() in i.name.lower()][:25]
+        return [app_commands.Choice(name=i.title, value=i.url) for i in lgs if current.lower() in i.title.lower()][:25]
 
     async def fx_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Check if user's typing is in list of live games"""

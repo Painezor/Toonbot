@@ -1,7 +1,7 @@
 """Automated fetching of the latest football transfer information from transfermarkt"""
 from typing import Optional
 
-from discord import ButtonStyle, Interaction, Embed, Colour, HTTPException, app_commands, TextChannel
+from discord import ButtonStyle, Interaction, Embed, Colour, HTTPException, app_commands, TextChannel, Message
 from discord.ext import commands, tasks
 from discord.ui import View, Button, Select
 from lxml import html

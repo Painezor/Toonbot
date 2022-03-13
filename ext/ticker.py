@@ -74,8 +74,6 @@ edict = {
     "penalty_results": Colour.teal()
 }
 # Refresh a maximum of x fixtures at a time
-max_pages = asyncio.Semaphore(5)
-
 
 # TODO: Permissions Pass.
 # TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
@@ -212,11 +210,11 @@ class TickerConfig(View):
         self.stop()
 
     @property
-    def base_embed(self):
+    def base_embed(self) -> Embed:
         """Generic Embed for Config Views"""
         return Embed(colour=Colour.dark_teal(), title="Match Event Ticker config")
 
-    async def creation_dialogue(self):
+    async def creation_dialogue(self) -> Message:
         """Send a dialogue to check if the user wishes to create a new ticker."""
         self.clear_items()
         view = view_utils.Confirmation(self.interaction, colour_a=ButtonStyle.green, label_b="Cancel",
@@ -227,8 +225,8 @@ class TickerConfig(View):
 
         if not view.value:
             txt = f"Cancelled ticker creation for {self.channel.mention}"
-            await self.interaction.client.error(self.interaction, txt)
-            return self.stop()
+            self.stop()
+            return await self.interaction.client.error(self.interaction, txt)
 
         connection = await self.interaction.client.db.acquire()
         try:
@@ -244,11 +242,11 @@ class TickerConfig(View):
                 qqq = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2)"""
                 for x in DEFAULT_LEAGUES:
                     await connection.execute(qqq, self.channel.id, x)
-            await self.update(content=f"A ticker was created for {self.channel.mention}")
+            return await self.update(content=f"A ticker was created for {self.channel.mention}")
         except Exception as err:
             _ = f"An error occurred while creating a ticker for {self.channel.mention}"
-            await self.interaction.client.error(self.interaction, _)
             self.stop()
+            await self.interaction.client.error(self.interaction, _)
             raise err
         finally:
             await self.interaction.client.db.release(connection)
@@ -270,8 +268,7 @@ class TickerConfig(View):
             await self.interaction.client.db.release(connection)
 
         if channel is None:
-            await self.creation_dialogue()
-            return
+            return await self.creation_dialogue()
 
         leagues = [r['league'] for r in leagues]
 
@@ -491,7 +488,8 @@ class TickerEvent:
                 continue
 
             try:
-                await message.edit(embed=embed)
+                if message.embed.description != embed.description:
+                    await message.edit(embed=embed)
             except HTTPException:
                 continue
 
@@ -504,19 +502,17 @@ class TickerEvent:
 
         while self.needs_refresh:
             # Fallback, Wait 2 minutes extra pre refresh
-            _ = 120 * self.retry if self.retry in range(5) else False
-            if _ is False:
-                await self.bulk_edit()
-                return
-            else:
+            _ = 120 * self.retry if self.retry < 5 else False
+            if _:
                 await asyncio.sleep(_)
+            else:
+                return await self.bulk_edit()
 
             page = await self.bot.browser.newPage()
-            async with max_pages:
-                try:
-                    await self.fixture.refresh(page)
-                finally:  # ALWAYS close the browser after refreshing to avoid Memory leak
-                    await page.close()
+            try:
+                await self.fixture.refresh(page)
+            finally:  # ALWAYS close the browser after refreshing to avoid Memory leak
+                await page.close()
 
             self.retry += 1
 
@@ -574,7 +570,7 @@ class TickerCog(commands.Cog, name="Ticker"):
     async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.name, value=i.url) for i in lgs if current.lower() in i.name.lower()][:25]
+        return [app_commands.Choice(name=i.title, value=i.url) for i in lgs if current.lower() in i.title.lower()][:25]
 
     @commands.Cog.listener()  # TODO: Make Mode an Enum
     async def on_fixture_event(self, mode: str, f: Fixture, home: bool = True):
@@ -596,6 +592,9 @@ class TickerCog(commands.Cog, name="Ticker"):
                 columns = ["full_time"]
             case "penalties_begin" | "penalty_results":
                 columns = ["penalties"]
+            case "scheduled":
+                print("How the fuck did you get a scheduled state?")
+                return
             case mode if "start_of_period" in mode:
                 columns = ["second_half_begin"]
             case mode if "end_of_period" in mode:
