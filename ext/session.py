@@ -1,6 +1,5 @@
 """Bot browser Session"""
 from io import BytesIO
-from typing import Union
 
 import aiohttp
 import pyppeteer
@@ -11,54 +10,8 @@ from pyppeteer.browser import Browser
 from pyppeteer.errors import TimeoutError as _TimeoutError
 
 
-async def make_browser(bot) -> Browser:
-    """Spawn an instance of Pyppeteer"""
-    options = {"args": [
-        '--autoplay-policy=user-gesture-required',
-        '--disable-accelerated-2d-canvas',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-background-timer-throttling',
-        '--disable-breakpad',
-        '--disable-client-side-phishing-detection',
-        '--disable-component-extensions-with-background-pages',
-        '--disable-component-update',
-        '--disable-default-apps',
-        '--disable-dev-shm-usage',
-        '--disable-extensions',
-        '--disable-features=BlinkGenPropertyTrees',
-        '--disable-ipc-flooding-protection',
-        '--disable-infobars',
-        '--disable-notifications',
-        '--disable-renderer-backgrounding',
-        '--disable-setuid-sandbox',
-        '--disable-sync',
-        '--disable-translate',
-
-        '--enable-features=NetworkService,NetworkServiceInProcess',
-        '--force-color-profile=srgb',
-
-        '--hide-scrollbars',
-
-        '--ignore-certificate-errors',
-        '--ignore-certificate-errors-skip-list',
-
-        '--metrics-recording-only',
-        '--mute-audio',
-        '--no-default-browser-check',
-        '--no-first-run',
-        '--no-zygote',
-
-        '--window-position=0,0'
-    ]}
-
-    bot.browser = await pyppeteer.launch(options=options)
-    bot.browser.fetch = fetch
-    bot.browser.bot = bot
-    return bot.browser
-
-
 # TODO: Figure out how to overload this.
-async def fetch(page, url, xpath, screenshot=False, max_retry=3, **kwargs) -> (Union[str, BytesIO] or None):
+async def fetch(page, url, xpath, screenshot=False, max_retry=3, **kwargs) -> str | BytesIO | None:
     """Fetch a webpage's source code or an image"""
     assert url.startswith("http"), f"BROWSER - FETCH: {url} does not appear to be a valid url."
 
@@ -125,24 +78,72 @@ async def fetch(page, url, xpath, screenshot=False, max_retry=3, **kwargs) -> (U
     return output
 
 
-class Browser(commands.Cog):
+class BrowserCog(commands.Cog, name="Browser"):
     """(Re)-Initialise an aiohttp ClientSession"""
 
     def __init__(self, bot) -> None:
         self.bot = bot
-        self.bot.loop.create_task(self.spawn_session())
-        if self.bot.browser is None:
-            self.bot.loop.create_task(make_browser(self.bot))
+
+    async def cog_load(self):
+        """When the cog loads..."""
+        await self.spawn_session()
+        await self.make_browser()
+
+    async def make_browser(self) -> Browser:
+        """Spawn an instance of Pyppeteer"""
+        options = {"args": [
+            '--autoplay-policy=user-gesture-required',
+            '--disable-accelerated-2d-canvas',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-background-timer-throttling',
+            '--disable-breakpad',
+            '--disable-client-side-phishing-detection',
+            '--disable-component-extensions-with-background-pages',
+            '--disable-component-update',
+            '--disable-default-apps',
+            '--disable-dev-shm-usage',
+            '--disable-extensions',
+            '--disable-features=BlinkGenPropertyTrees',
+            '--disable-ipc-flooding-protection',
+            '--disable-infobars',
+            '--disable-notifications',
+            '--disable-renderer-backgrounding',
+            '--disable-setuid-sandbox',
+            '--disable-sync',
+            '--disable-translate',
+
+            '--enable-features=NetworkService,NetworkServiceInProcess',
+            '--force-color-profile=srgb',
+
+            '--hide-scrollbars',
+
+            '--ignore-certificate-errors',
+            '--ignore-certificate-errors-skip-list',
+
+            '--metrics-recording-only',
+            '--mute-audio',
+            '--no-default-browser-check',
+            '--no-first-run',
+            '--no-zygote',
+
+            '--window-position=0,0'
+        ]}
+
+        self.bot.browser = await pyppeteer.launch(options=options)
+        self.bot.browser.fetch = fetch
+        self.bot.browser.bot = self.bot
+        return self.bot.browser
 
     @app_commands.command()
     @app_commands.guilds(250252535699341312)
     async def kill_browser(self, interaction):
         """ Restart browser when you potato."""
+        await interaction.response.defer(thinking=True)
         if interaction.user.id != interaction.client.owner_id:
             return await interaction.client.error(interaction, "You do not own this bot.")
         if interaction.client.browser is not None:
             await interaction.client.browser.close()
-        await make_browser(interaction.client)
+        await self.make_browser()
         e = Embed(description=":gear: Restarting Browser.", colour=Colour.og_blurple())
         await interaction.client.reply(interaction, embed=e)
 
@@ -154,6 +155,6 @@ class Browser(commands.Cog):
         self.bot.session = aiohttp.ClientSession(loop=self.bot.loop, connector=aiohttp.TCPConnector(ssl=False))
 
 
-def setup(bot):
+async def setup(bot):
     """Load into bot"""
-    bot.add_cog(Browser(bot))
+    await bot.add_cog(BrowserCog(bot))

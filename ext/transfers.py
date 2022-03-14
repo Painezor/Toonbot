@@ -202,7 +202,7 @@ class TransfersCog(commands.Cog):
         self.bot = bot
         self.bot.transfers = self.transfers_loop.start()
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Cancel transfers task on Cog Unload."""
         self.bot.transfers.cancel()
 
@@ -377,6 +377,6 @@ class TransfersCog(commands.Cog):
         await self.bot.reply(interaction, content=f"✅ {alias} added to {channel.mention} tracker", view=None)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the transfer ticker cog into the bot"""
-    bot.add_cog(TransfersCog(bot))
+    await bot.add_cog(TransfersCog(bot))

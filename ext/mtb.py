@@ -45,7 +45,7 @@ class MatchThread:
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         return e
 
-    async def start(self):
+    async def start(self) -> None:
         """The core loop for the match thread bot."""
         print(f"Match Thread Loop Started: {self.fixture} | {self.settings['subreddit']}")
         # Gather initial data
@@ -82,8 +82,7 @@ class MatchThread:
         c = self.bot.get_channel(self.settings['notify_channel'])
         if c:
             e = self.base_embed
-            teams = f"{self.fixture.home.name} vs {self.fixture.away.name}"
-            e.title = f"r/{self.settings['subreddit']} Pre-Match Thread: {teams}"
+            e.title = f"r/{self.settings['subreddit']} Pre-Match Thread: {self.fixture.bold_score}"
             e.url = pre.url
             e.description = f"[Flashscore Link]({self.fixture.url})"
             await c.send(embed=e)
@@ -127,7 +126,7 @@ class MatchThread:
                 await match.edit(markdown)
                 self.old_markdown = markdown
 
-            if self.fixture.state == "fin":
+            if self.fixture.time.state == "fin":
                 break
 
             await asyncio.sleep(60)
@@ -203,7 +202,7 @@ class MatchThread:
         markdown = f"# {home_icon}[{home}]({home_link}) vs [{away}]({away_link}){away_icon}\n\n"
         markdown += f"#### {self.fixture.kickoff} | {self.fixture.competition} | *Pre* | *Match* | *Post*\n\n"
 
-        title = f"Pre-Match Thread: {home} vs {away}"
+        title = f"Pre-Match Thread: {self.fixture.bold_score}"
         markdown += await self.fixture.get_preview(self.page)
         return title, markdown
 
@@ -377,7 +376,7 @@ class MatchThreadCommands(commands.Cog):
         self.active_threads = []
         self.scheduler_task = self.schedule_threads.start()
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Cancel all current match threads."""
         self.scheduler_task.cancel()
         for i in self.active_threads:
@@ -434,6 +433,6 @@ class MatchThreadCommands(commands.Cog):
         await _.start()
 
 
-def setup(bot):
+async def setup(bot):
     """Load the match thread cog into the bot"""
-    bot.add_cog(MatchThreadCommands(bot))
+    await bot.add_cog(MatchThreadCommands(bot))

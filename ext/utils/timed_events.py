@@ -13,7 +13,7 @@ class Timestamp:
             time = dt.datetime.now()
         self.time = str(time.timestamp()).split('.')[0]
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"<t:{self.time}:t>"  # <t:1628343360:t>  14:36
 
     @property
@@ -37,7 +37,7 @@ class Timestamp:
         return f"<t:{self.time}:t>"
 
     @property
-    def time_seconds(self):
+    def time_seconds(self) -> str:
         """Return string in form '14:36:00'"""
         return f"<t:{self.time}:T>"
 

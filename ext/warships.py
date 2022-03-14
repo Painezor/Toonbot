@@ -133,6 +133,6 @@ class Warships(commands.Cog):
     #     await interaction.client.reply(interaction, tw, embed=e)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the cog into the bot"""
-    bot.add_cog(Warships(bot))
+    await bot.add_cog(Warships(bot))

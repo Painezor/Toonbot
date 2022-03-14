@@ -2,8 +2,9 @@
 # Misc
 import datetime
 from collections import defaultdict
+from copy import deepcopy
 from itertools import zip_longest
-from typing import List, Optional, Union, Dict, TYPE_CHECKING, Set
+from typing import List, Optional, Dict, TYPE_CHECKING, Set
 
 from asyncpg import UniqueViolationError, ForeignKeyViolationError
 from discord import ButtonStyle, Interaction, Colour, Embed, NotFound, HTTPException, PermissionOverwrite, Forbidden, \
@@ -202,7 +203,7 @@ class Scores(commands.Cog, name="LiveScores"):
         # Don't bother with this just yet...
         # self.bot.fs_score_loop = self.fs_score_loop.start()
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Cancel the live scores loop when cog is unloaded."""
         self.bot.score_loop.cancel()
         # self.bot.fs_score_loop.cancel()
@@ -227,7 +228,8 @@ class Scores(commands.Cog, name="LiveScores"):
         self.bot.scores_embeds = defaultdict(set)
 
         for comp, fixtures in games.items():
-            e = await comp.base_embed()
+            _ = await comp.live_score_embed
+            e = deepcopy(_)
             e.description = ""
 
             for f in fixtures:
@@ -235,13 +237,17 @@ class Scores(commands.Cog, name="LiveScores"):
                     e.description += f.live_score_text + "\n"
                 else:
                     self.bot.scores_embeds[comp].add(e)
-                    e = await comp.base_embed()
+                    e = deepcopy(_)
                     e.description = f.live_score_text + "\n"
             if e.description:
                 self.bot.scores_embeds[comp].add(e)
 
         for channel_id, leagues in self.bot.scores_cache.items():  # Error if dict changes sizes during iteration.
             await self.update_channel(channel_id, leagues)
+
+    @score_loop.before_loop
+    async def wait_for_ready(self) -> None:
+        await self.bot.wait_until_ready()  # Do not dispatch yet.
 
     # async def get_games(self) -> List[Fixture]:
     #     """Grab current scores from flashscore using Pyppeteer"""
@@ -333,16 +339,6 @@ class Scores(commands.Cog, name="LiveScores"):
         byt: bytes = etree.tostring(inner_html)
         string: str = byt.decode('utf8')
         chunks = str(string).split('<br/>')
-
-        # Type Hinting
-        teams: List[str]
-        cards: List[str]
-        kickoff: str
-        ko: datetime.datetime
-        h_score: str
-        a_score: str
-        card_home: Union[int, None]
-        card_away: Union[int, None]
         competition: Competition = Competition()
         for game in chunks:
             try:
@@ -371,22 +367,6 @@ class Scores(commands.Cog, name="LiveScores"):
             except IndexError:
                 continue
 
-            url = "http://www.flashscore.com" + lnk
-
-            # Game Time Logic.
-            state = ''.join(tree.xpath('./a/@class')).strip()
-            stage = tree.xpath('.//span/text() | .//div[@class="event__stage--block"]/text()')
-
-            time = stage.pop(0)
-
-            if stage:
-                state = stage.pop(0)
-                if state not in ['Postponed', 'Cancelled', 'Delayed', 'Interrupted']:
-                    print("Unhandled state", state)
-                if stage:
-                    print("Unhandled", len(stage), "Length stage found", stage)
-                    continue
-
             # Set & forget: Competition, Teams
             if match_id not in self.bot.games:
                 # These values never need to be updated.
@@ -405,17 +385,34 @@ class Scores(commands.Cog, name="LiveScores"):
                         if y in teams:
                             teams = [teams[0], teams[-2]] if teams[1] == y else [teams[0:2], teams[-1]]
 
+                url = "http://www.flashscore.com" + lnk
+
                 if len(teams) != 2:
                     print("[mobi rewrite] Found erroneous number of teams in fixture", url, teams)
                     continue
 
                 self.bot.games[match_id] = Fixture(url=url, id=match_id)
-
-                self.bot.games[match_id].competition = competition
                 self.bot.games[match_id].home = Team(name=teams[0])
                 self.bot.games[match_id].away = Team(name=teams[1])
 
-            # Get match score
+            # Get the latest version of the competition because we edit it with stuff.
+            self.bot.games[match_id].competition = competition
+
+            # Game Time Logic.
+            state = ''.join(tree.xpath('./a/@class')).strip()
+            stage = tree.xpath('.//span/text() | .//div[@class="event__stage--block"]/text()')
+
+            time = stage.pop(0)
+
+            if stage:
+                state = stage.pop(0)
+                if state not in ['Postponed', 'Cancelled', 'Delayed', 'Interrupted']:
+                    print("Unhandled state", state)
+                if stage:
+                    print("Unhandled", len(stage), "Length stage found", stage)
+                    continue
+
+            # Get match score, and parse additional states.
             score_line = ''.join(tree.xpath('.//a/text()')).split(':')
             try:
                 h_score, a_score = score_line
@@ -428,19 +425,20 @@ class Scores(commands.Cog, name="LiveScores"):
                     state = "After Pens"
 
                 # Replace with set_score
-                ns = None if h_score == "-" else int(h_score)
-                self.bot.games[match_id].set_score(self.bot, ns)
-                ns = None if a_score == "-" else int(a_score)
-                self.bot.games[match_id].set_score(self.bot, ns, home=False)
+                sh = None if h_score == "-" else int(h_score)
+                sa = None if a_score == "-" else int(a_score)
             except IndexError:
+                sh = sa = None
                 print(f'Could not split {score_line} into h, a')
             except ValueError:
+                sh = sa = None
                 print(f'Could not convert {score_line} into ints')
 
             cancelled = tree.xpath('./span/@class')
             if cancelled and cancelled != ['live']:
                 print('Found cancelled text', cancelled)
 
+            # State must be set before Score
             match state:
                 case 'live':
                     self.bot.games[match_id].set_time(self.bot, GameTime(time))
@@ -466,19 +464,24 @@ class Scores(commands.Cog, name="LiveScores"):
                 case _:
                     print(f"State not handled {state} | {time}")
 
+            await self.bot.games[match_id].set_score(self.bot, sh)
+            await self.bot.games[match_id].set_score(self.bot, sa, home=False)
+
+            # Get Red Card Data
             cards = [i.replace('rcard-', '') for i in tree.xpath('./img/@class')]
             if cards:
-                teams = [i.strip() for i in tree.xpath('./text()') if i.strip()]
                 if len(cards) == 2:
-                    card_home, card_away = [int(card) for card in cards]
+                    home_cards, away_cards = [int(card) for card in cards]
                 else:
-                    if len(teams) == 2:
-                        card_home, card_away = int(cards[0]), None
+                    if len(tree.xpath('./text()')) == 2:
+                        home_cards, away_cards = int(cards[0]), None
                     else:
-                        card_home, card_away = None, int(cards[0])
+                        home_cards, away_cards = None, int(cards[0])
 
-                self.bot.games[match_id].set_cards(self.bot, card_home)
-                self.bot.games[match_id].set_cards(self.bot, card_away, home=False)
+                if home_cards != self.bot.games[match_id].home_cards:
+                    self.bot.games[match_id].set_cards(self.bot, home_cards)
+                if away_cards != self.bot.games[match_id].away_cards:
+                    self.bot.games[match_id].set_cards(self.bot, away_cards, home=False)
 
     async def update_cache(self) -> None:
         """Grab the most recent data for all channel configurations"""
@@ -495,7 +498,7 @@ class Scores(commands.Cog, name="LiveScores"):
 
         for c in comps:
             comp = Competition(id=c['id'], url=c['url'], name=c['name'], country=c['country'], logo_url=c['logo_url'])
-            self.bot.competitions[comp.url] = comp
+            self.bot.competitions[comp.id] = comp
 
         for t in teams:
             team = Team(id=t['id'], url=t['url'], name=t['name'], logo_url=t['logo_url'])
@@ -513,8 +516,8 @@ class Scores(commands.Cog, name="LiveScores"):
 
     async def update_channel(self, channel_id: int, leagues: Set[str]):
         """Edit a live-score channel to have the latest scores"""
-        logging = True if channel_id == 924709355872464997 else False
-        # logging = False
+        # logging = True if channel_id == 924709355872464997 else False
+        logging = False
         if logging:
             print("Logging toonbot update_channel")
 
@@ -606,8 +609,6 @@ class Scores(commands.Cog, name="LiveScores"):
                     message = None
 
             elif new_embeds is None:
-                if logging:
-                    print("[TOONBOT SCORES] new_embeds is None, deleting a messagee.")
                 await message.delete()  # Shorter than old message list, we do not need this message any more.
                 continue
 
@@ -739,7 +740,7 @@ class Scores(commands.Cog, name="LiveScores"):
     async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.title, value=i.url) for i in lgs if current.lower() in i.title.lower()][:25]
+        return [app_commands.Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     @livescores.command()
     @app_commands.describe(league_name="league name to search for", channel="Target Channel")
@@ -851,6 +852,6 @@ class Scores(commands.Cog, name="LiveScores"):
             await after.send("You have set this channel as a 'news' channel, live scores will no longer work.")
 
 
-def setup(bot: 'Bot'):
+async def setup(bot: 'Bot'):
     """Load the cog into the bot"""
-    bot.add_cog(Scores(bot))
+    await bot.add_cog(Scores(bot))

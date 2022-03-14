@@ -86,7 +86,7 @@ class Admin(commands.Cog):
     async def reload(self, interaction: Interaction, cog: str) -> Message:
         """Reloads a module."""
         try:
-            self.bot.reload_extension(f'ext.{cog}')
+            await self.bot.reload_extension(f'ext.{cog}')
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
         e = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Reloaded {cog}')
@@ -98,7 +98,7 @@ class Admin(commands.Cog):
     async def load(self, interaction: Interaction, cog: str) -> Message:
         """Loads a module."""
         try:
-            self.bot.load_extension('ext.' + cog)
+            await self.bot.load_extension('ext.' + cog)
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
@@ -110,7 +110,7 @@ class Admin(commands.Cog):
     async def unload(self, interaction: Interaction, cog: str) -> Message:
         """Unloads a module."""
         try:
-            self.bot.unload_extension('ext.' + cog)
+            await self.bot.unload_extension('ext.' + cog)
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
@@ -252,6 +252,6 @@ class Admin(commands.Cog):
         return await self.bot.reply(interaction, embed=e)
 
 
-def setup(bot: 'Bot') -> None:
+async def setup(bot: 'Bot') -> None:
     """Load the Administration cog into the Bot"""
-    bot.add_cog(Admin(bot))
+    await bot.add_cog(Admin(bot))

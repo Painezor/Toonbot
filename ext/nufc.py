@@ -3,11 +3,9 @@ import datetime
 import random
 from typing import List
 
-from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, app_commands, Role, Message
+from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, app_commands, Role, Message, File
 from discord.ext import commands
 from discord.ui import Button, View
-
-from ext.utils import embed_utils
 
 # Shake meme
 SHAKE = ("""Well to start off with anyone who thinks you can trick women into sleeping with you, don't understand game, 
@@ -311,13 +309,13 @@ class NUFC(commands.Cog):
     @app_commands.guilds(332159889587699712)
     async def goala(self, interaction):
         """Party on Garth"""
-        await self.bot.reply(interaction, file=embed_utils.make_file(image='Images/goala.gif'))
+        await self.bot.reply(interaction, file=File(fp='Images/goala.gif'))
 
     @app_commands.command()
     @app_commands.guilds(332159889587699712)
     async def ructions(self, interaction: Interaction):
         """WEW. RUCTIONS."""
-        await self.bot.reply(interaction, file=embed_utils.make_file(image="Images/ructions.png"))
+        await self.bot.reply(interaction, file=File(fp="Images/ructions.png"))
 
     @app_commands.command()
     @app_commands.guilds(332159889587699712)
@@ -334,6 +332,6 @@ class NUFC(commands.Cog):
             await self.bot.reply(interaction, content="Click.")
 
 
-def setup(bot):
+async def setup(bot):
     """Load the NUFC Cog into the bot"""
-    bot.add_cog(NUFC(bot))
+    await bot.add_cog(NUFC(bot))

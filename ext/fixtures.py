@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 # TODO: News https://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/news/
 # TODO: Permissions Pass.
 # TODO: Grouped Commands pass | Fixture / Team / Competition
-# TODO: Autocomplete fetch for team/competition
 # TODO: League.archive -> https://www.flashscore.com/football/england/premier-league/archive/
 # TODO: League.Form table.
 
@@ -60,15 +59,8 @@ class Fixtures(commands.Cog):
                     err = f"You need to specify a search query, or ask the server mods to use " \
                           f"`/default_{mode}` to set a server default {mode}."
                 return await self.bot.error(interaction, err)
-
-            page = await self.bot.browser.newPage()
-            try:
-                if mode == "team":
-                    return await football.Team.by_id(default.split('/')[-1], page)
-                else:
-                    return await football.Competition.by_link(default, page)
-            finally:
-                await page.close()
+            else:
+                return self.bot.teams[default] if mode == default else self.bot.competitions[default]
 
         # Gather Other Search Results
         if include_fs:
@@ -115,12 +107,12 @@ class Fixtures(commands.Cog):
     async def tm_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored teams"""
         teams = self.bot.teams.values()
-        return [app_commands.Choice(name=t.name, value=t.url) for t in teams if current.lower() in t.name.lower()][:25]
+        return [app_commands.Choice(name=t.name, value=t.id) for t in teams if current.lower() in t.name.lower()][:25]
 
     async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.title, value=i.url) for i in lgs if current.lower() in i.title.lower()][:25]
+        return [app_commands.Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     async def fx_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Check if user's typing is in list of live games"""
@@ -152,20 +144,19 @@ class Fixtures(commands.Cog):
             fsr = self.bot.teams[query]
         else:
             fsr = await self.search(interaction, query, include_fs=True, mode="team")
-            if isinstance(fsr, Message | None):
+            if isinstance(fsr, Message):
                 return  # Rip
 
-        url = fsr.url
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 await connection.execute(f"""INSERT INTO fixtures_defaults (guild_id, default_team) VALUES ($1,$2)
                       ON CONFLICT (guild_id) DO UPDATE SET default_team = $2 WHERE excluded.guild_id = $1
-                """, interaction.guild.id, url)
+                """, interaction.guild.id, fsr.id)
         finally:
             await self.bot.db.release(connection)
 
-        e = await fsr.base_embed()
+        e = await fsr.base_embed
         e.description = f'Your Fixtures commands will now use {fsr.markdown} as a default team'
         return await self.bot.reply(interaction, embed=e)
 
@@ -184,7 +175,7 @@ class Fixtures(commands.Cog):
             fsr = self.bot.competitions[query]
         else:
             fsr = await self.search(interaction, query, include_fs=True, mode="league")
-            if isinstance(fsr, Message | None):
+            if isinstance(fsr, Message):
                 return  # Rip
 
         c = await self.bot.db.acquire()
@@ -195,11 +186,11 @@ class Fixtures(commands.Cog):
                                     ON CONFLICT (guild_id) 
                                     DO UPDATE SET default_league = $2 
                                     WHERE excluded.guild_id = $1""",
-                                interaction.guild.id, fsr.url)
+                                interaction.guild.id, fsr.id)
         finally:
             await self.bot.db.release(c)
 
-        e = await fsr.base_embed()
+        e = await fsr.base_embed
         e.description = f'Your Fixtures commands will now use {fsr.markdown} as a default league'
         return await self.bot.reply(interaction, embed=e)
 
@@ -223,7 +214,7 @@ class Fixtures(commands.Cog):
             fsr = self.bot.teams[query]
         else:
             fsr = await self.search(interaction, query, include_fs=True)
-            if isinstance(fsr, Message | None):
+            if isinstance(fsr, Message):
                 return  # Rip
 
         # Spawn Browser & Go.
@@ -249,7 +240,7 @@ class Fixtures(commands.Cog):
             fsr = self.bot.teams[query]
         else:
             fsr = await self.search(interaction, query, include_fs=True)
-            if isinstance(fsr, Message | None):
+            if isinstance(fsr, Message):
                 return  # Rip
 
         # Spawn Browser & Go.
@@ -275,12 +266,11 @@ class Fixtures(commands.Cog):
             fsr = self.bot.teams[query]
         else:
             fsr = await self.search(interaction, query, include_fs=True)
-            if isinstance(fsr, Message | None):
+            if isinstance(fsr, Message):
                 return  # Rip
 
         # Spawn Browser & Go.
         view = fsr.view(interaction, await self.bot.browser.newPage())
-
         if isinstance(view, TeamView):
             return await view.select_table()
         else:
@@ -517,6 +507,6 @@ class Fixtures(commands.Cog):
         return await self.bot.reply(interaction, embed=embed)
 
 
-def setup(bot: 'Bot'):
+async def setup(bot: 'Bot'):
     """Load the fixtures Cog into the bot"""
-    bot.add_cog(Fixtures(bot))
+    await bot.add_cog(Fixtures(bot))

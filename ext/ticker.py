@@ -570,7 +570,7 @@ class TickerCog(commands.Cog, name="Ticker"):
     async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.title, value=i.url) for i in lgs if current.lower() in i.title.lower()][:25]
+        return [app_commands.Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     @commands.Cog.listener()  # TODO: Make Mode an Enum
     async def on_fixture_event(self, mode: str, f: Fixture, home: bool = True):
@@ -761,6 +761,6 @@ class TickerCog(commands.Cog, name="Ticker"):
         await self.bot.reply(interaction, content=msg)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the goal tracker cog into the bot."""
-    bot.add_cog(TickerCog(bot))
+    await bot.add_cog(TickerCog(bot))

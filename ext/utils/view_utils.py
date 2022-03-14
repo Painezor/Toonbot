@@ -10,7 +10,7 @@ from discord.ui import Button, Select, Modal, View, TextInput
 class FirstButton(Button):
     """Previous Button for Pagination Views"""
 
-    def __init__(self, disabled=False, row=0):
+    def __init__(self, disabled=False, row=0) -> None:
         super().__init__(label="First", emoji="⏮", row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction):
@@ -178,7 +178,7 @@ class ObjectSelectView(View):
         self.add_item(_)
 
         self.add_item(StopButton(row=1))
-        await self.interaction.client.reply(self.interaction, content=content, view=self, embed=self.embed)
+        return await self.interaction.client.reply(self.interaction, content=content, view=self, embed=self.embed)
 
     async def on_timeout(self) -> None:
         """Cleanup"""
@@ -268,7 +268,8 @@ class Paginator(View):
         self.add_item(NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
         self.add_item(StopButton(row=0))
 
-        await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
+        return await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index],
+                                                   view=self)
 
 
 class Confirmation(View):

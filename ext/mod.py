@@ -2,7 +2,8 @@
 import datetime
 from typing import Optional, Literal
 
-from discord import Interaction, Member, app_commands, Colour, Embed, TextChannel, HTTPException, Forbidden, Object
+from discord import Interaction, Member, app_commands, Colour, Embed, TextChannel, HTTPException, Forbidden, Object, \
+    Message
 from discord.ext import commands
 
 from ext.utils import embed_utils, view_utils, timed_events
@@ -24,7 +25,7 @@ class Mod(commands.Cog):
 
     @app_commands.command()
     @app_commands.describe(message="text to send", destination="target channel")
-    async def say(self, interaction: Interaction, message: str, destination: Optional[TextChannel] = None):
+    async def say(self, interaction: Interaction, message: str, destination: Optional[TextChannel] = None) -> Message:
         """Say something as the bot in specified channel"""
         if not interaction.guild:
             return await self.bot.error(interaction, "This command cannot be used in DMs")
@@ -306,6 +307,6 @@ class Mod(commands.Cog):
             await self.bot.db.release(connection)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the mod cog into the bot"""
-    bot.add_cog(Mod(bot))
+    await bot.add_cog(Mod(bot))

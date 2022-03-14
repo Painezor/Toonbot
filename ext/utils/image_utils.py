@@ -1,18 +1,19 @@
 """Utilities for Image manipulation"""
 from io import BytesIO
-from typing import List
+from typing import List, TYPE_CHECKING
 
-import discord
 from PIL import Image
+from discord import File
+
+if TYPE_CHECKING:
+    from discord import Client
 
 
 # Dump Image Util
-async def dump_image(interaction: discord.Interaction, img):
-    """Dump an image to discord so it's URL can be used in an embed"""
-    if img is None:
-        return None
-    ch = interaction.client.get_channel(874655045633843240)
-    img_msg = await ch.send(file=discord.File(fp=img, filename="embed_image.png"))
+async def dump_image(bot: 'Client', img: BytesIO):
+    """Dump an image to discord & return its URL to be used in embeds"""
+    ch = bot.get_channel(874655045633843240)
+    img_msg = await ch.send(file=File(fp=img, filename="embed_image.png"))
     url = img_msg.attachments[0].url
     return None if url == "none" else url
 
@@ -34,11 +35,8 @@ def stitch(images: List[Image.Image]) -> BytesIO:
     return output
 
 
-def stitch_vertical(images) -> BytesIO or None:
+def stitch_vertical(images: List[BytesIO]) -> BytesIO:
     """Stitch Images Vertically"""
-    if not images:
-        return None
-
     if len(images) == 1:
         return images[0]
 

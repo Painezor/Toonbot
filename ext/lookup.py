@@ -130,6 +130,6 @@ class Lookups(commands.Cog):
         await view.push_trophies()
 
 
-def setup(bot):
+async def setup(bot):
     """Load the lookup cog into the bot"""
-    bot.add_cog(Lookups(bot))
+    await bot.add_cog(Lookups(bot))

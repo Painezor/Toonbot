@@ -25,7 +25,7 @@ class RSS(commands.Cog):
         self.bot.news_cached = False
         self.bot.dev_blog_cached = False
 
-    def cog_unload(self):
+    async def cog_unload(self):
         """Stop previous runs of tickers upon Cog Reload"""
         self.bot.eu_news.cancel()
         self.bot.dev_blog.cancel()
@@ -276,6 +276,6 @@ class RSS(commands.Cog):
         self.bot.dev_blog_cached = True
 
 
-def setup(bot):
+async def setup(bot):
     """Load the rss Cog into the bot."""
-    bot.add_cog(RSS(bot))
+    await bot.add_cog(RSS(bot))

@@ -173,7 +173,7 @@ class QuotesView(View):
             q = None
 
         e = self.embed_quote(q)
-        await self.interaction.client.reply(self.interaction, contnet=content, embed=e, view=self)
+        return await self.interaction.client.reply(self.interaction, contnet=content, embed=e, view=self)
 
 
 OPT_IN = "You are currently opted out of quotes, opting back in will allow " \
@@ -294,10 +294,13 @@ class QuoteDB(commands.Cog):
 
     def __init__(self, bot) -> None:
         self.bot = bot
-        self.bot.loop.create_task(self.opt_outs())
         self.bot.tree.add_command(quote_add)
         self.bot.tree.add_command(quote_stats)
         self.bot.tree.add_command(u_quote)
+
+    async def cog_load(self):
+        """When the cog loads..."""
+        await self.opt_outs()
 
     quotes = app_commands.Group(name="quotes", description="Get or add quotes to the quote database")
 
@@ -413,6 +416,6 @@ class QuoteDB(commands.Cog):
             await self.bot.db.release(connection)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the quote database module into the bot"""
-    bot.add_cog(QuoteDB(bot))
+    await bot.add_cog(QuoteDB(bot))

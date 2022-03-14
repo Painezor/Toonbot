@@ -10,9 +10,10 @@ from typing import Dict, List, Set
 import aiohttp
 import asyncpg
 from asyncpraw import Reddit
-from discord import Intents, Game, Colour, Embed, Interaction, Message, http, NotFound
+from discord import Intents, Game, Colour, Embed, Interaction, Message, http, NotFound, ButtonStyle
 from discord.ext import commands
 # Typehinting
+from discord.ui import View, Button
 from pyppeteer.browser import Browser
 
 from ext.utils.football import Fixture, Competition, Team
@@ -101,9 +102,11 @@ class Bot(commands.AutoShardedBot):
 
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
+    async def setup_hook(self):
+        """Load Cogs asynchronously"""
         for c in COGS:
             try:
-                self.load_extension('ext.' + c)
+                await self.load_extension('ext.' + c)
             except Exception as e:
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
             else:
@@ -112,6 +115,12 @@ class Bot(commands.AutoShardedBot):
     async def error(self, i: Interaction, e: str, message: Message = None, ephemeral: bool = True) -> Message:
         """Send a Generic Error Embed"""
         e = Embed(title="An Error occurred.", colour=Colour.red(), description=e)
+
+        view = View()
+        b = Button(emoji="<:Toonbot:952717855474991126>", url="http://www.discord.gg/a5NHvPx")
+        b.style = ButtonStyle.url
+        b.label = "Join Support Server"
+        view.add_item(b)
 
         if message is not None:
             try:
@@ -155,7 +164,7 @@ async def run():
         await bot.start(credentials['bot']['token'])
     except KeyboardInterrupt:
         for i in bot.cogs:
-            bot.unload_extension(i.name)
+            await bot.unload_extension(i.name)
         await db.close()
         await bot.close()
 

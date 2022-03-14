@@ -135,12 +135,20 @@ class Reminders(commands.Cog):
     def __init__(self, bot) -> None:
         self.bot = bot
         self.bot.reminders = []  # A list of tasks.
-        self.bot.loop.create_task(self.spool_initial())
         self.bot.tree.add_command(add_reminder)
         reload(timed_events)
         reload(embed_utils)
 
-    def cog_unload(self):
+    async def cog_load(self):
+        """Do when the cog loads"""
+        connection = await self.bot.db.acquire()
+        records = await connection.fetch("""SELECT * FROM reminders""")
+        async with connection.transaction():
+            for r in records:
+                self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, r)))
+        await self.bot.db.release(connection)
+
+    async def cog_unload(self):
         """Cancel all active tasks on cog reload"""
         self.bot.tree.remove_command(add_reminder)
         for i in self.bot.reminders:
@@ -178,16 +186,7 @@ class Reminders(commands.Cog):
         view = view_utils.Paginator(interaction, embeds)
         await view.update()
 
-    async def spool_initial(self):
-        """Queue all active reminders"""
-        connection = await self.bot.db.acquire()
-        records = await connection.fetch("""SELECT * FROM reminders""")
-        async with connection.transaction():
-            for r in records:
-                self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, r)))
-        await self.bot.db.release(connection)
 
-
-def setup(bot):
+async def setup(bot):
     """Load the reminders Cog into the bot"""
-    bot.add_cog(Reminders(bot))
+    await bot.add_cog(Reminders(bot))

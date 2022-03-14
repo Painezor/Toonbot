@@ -216,7 +216,6 @@ class Team(TransferResult):
 
         e.title = f"Expiring contracts for {e.title}"
         e.set_author(name="Transfermarkt", url=str(resp.url))
-        e.set_footer(text=Embed.Empty)
 
         rows = []
 

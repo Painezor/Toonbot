@@ -5,11 +5,11 @@ import re
 from copy import deepcopy
 from typing import List, TYPE_CHECKING
 
-from discord import ButtonStyle, Colour, Embed, Interaction, app_commands, TextStyle, Message
+from discord import ButtonStyle, Colour, Embed, Interaction, app_commands, TextStyle, Message, File
 from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput
 
-from ext.utils import view_utils, embed_utils
+from ext.utils import view_utils
 
 if TYPE_CHECKING:
     from core import Bot
@@ -147,7 +147,7 @@ class Fun(commands.Cog):
     @app_commands.command()
     async def helmet(self, interaction: Interaction) -> Message:
         """Helmet"""
-        return await self.bot.reply(interaction, file=embed_utils.make_file(image="Images/helmet.jpg"))
+        return await self.bot.reply(interaction, file=File(fp="Images/helmet.jpg"))
 
     @app_commands.command()
     async def dead(self, interaction: Interaction) -> Message:
@@ -341,6 +341,6 @@ class Fun(commands.Cog):
         return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
 
 
-def setup(bot: 'Bot') -> None:
+async def setup(bot: 'Bot') -> None:
     """Load the Fun cog into the bot"""
-    return bot.add_cog(Fun(bot))
+    return await bot.add_cog(Fun(bot))

@@ -19,6 +19,6 @@ class Test(commands.Cog):
         await interaction.edit_original_message(content=f"Hi yes it's been 10 seconds, here is {stuff}.")
 
 
-def setup(bot):
+async def setup(bot):
     """Add the testing cog to the bot"""
-    bot.add_cog(Test(bot))
+    await bot.add_cog(Test(bot))

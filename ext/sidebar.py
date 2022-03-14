@@ -1,6 +1,7 @@
 """Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
 import datetime
 import math
+import pathlib
 import re
 from importlib import reload
 from typing import Optional
@@ -49,8 +50,8 @@ class NUFCSidebar(commands.Cog):
         self.bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
         reload(football)
-    
-    def cog_unload(self):
+
+    async def cog_unload(self):
         """Cancel the sidebar task when Cog is unloaded."""
         self.bot.sidebar.cancel()
 
@@ -80,87 +81,75 @@ class NUFCSidebar(commands.Cog):
         _ = await _.wiki.get_page('sidebar')
         top = _.content_md
 
+        fsr = self.bot.teams[team_id]
+
         page = await self.bot.browser.newPage()
         try:
-            fsr = await football.Team.by_id(team_id, page)
             fixtures = await fsr.get_fixtures(page, "/fixtures")
             results = await fsr.get_fixtures(page, "/results")
         finally:
             await page.close()
 
-        async def table():
-            """Get the latest premier league table from the BBC website for formatting"""
-            async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
-                if resp.status != 200:
-                    return "Retry"
-                tree = html.fromstring(await resp.text())
+        async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
+            if resp.status != 200:
+                return "Retry"
+            tree = html.fromstring(await resp.text())
 
-            parsed = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{'|:--:' * 6}\n"
-            for i in tree.xpath('.//table[contains(@class,"gs-o-table")]//tbody/tr')[:20]:
-                p = i.xpath('.//td//text()')
-                rank = p[0].strip()  # Ranking
-                movement = p[1].strip()
-                if "hasn't" in movement:
-                    movement = ''
-                elif "up" in movement:
-                    movement = '🔺'
-                elif "down" in movement:
-                    movement = '🔻'
+        table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{'|:--:' * 6}\n"
+        for i in tree.xpath('.//table[contains(@class,"gs-o-table")]//tbody/tr')[:20]:
+            p = i.xpath('.//td//text()')
+            rank = p[0].strip()  # Ranking
+            movement = p[1].strip()
+
+            match movement:
+                case "hasn't moved":
+                    table += f'{rank}'
+                case 'moving up':
+                    table += f'🔺 {rank}'
+                case 'moving down':
+                    table += f'🔻 {rank}'
+                case _:
+                    print("Invalid movement for team detected", movement)
+                    table += f"? {rank}"
+            team = p[2].strip()
+            try:
+                # Insert subreddit link from db
+                team = [i for i in self.bot.reddit_teams if i['name'] == team][0]
+                if team:
+                    team = f"[{team['name']}]({team['subreddit']})"
                 else:
-                    movement = "?"
-                team = p[2].strip()
-                try:
-                    # Insert subreddit link from db
-                    team = [i for i in self.bot.reddit_teams if i['name'] == team][0]
-                    if team:
-                        team = f"[{team['name']}]({team['subreddit']})"
-                    else:
-                        print("Sidebar, error, team is ", team)
-                except IndexError:
-                    print(team, "Not found in", [i['name'] for i in self.bot.reddit_teams])
-                played, won, drew, lost = p[3:7]
-                goal_diff, points = p[9:11]
-
-                if qry.lower() in team.lower():
-                    parsed += f"{movement} {rank} | **{team}** | **{played}** | **{won}** | **{drew}** | **{lost}** | " \
-                              f"**{goal_diff}** | **{points}**\n"
-                else:
-                    parsed += f"{movement} {rank} | {team} | {played} | {won} | {drew} | {lost} | " \
-                              f"{goal_diff} | {points}\n"
-            return parsed
-
-        table = await table()
+                    print("Sidebar, error, team is ", team)
+            except IndexError:
+                print(team, "Not found in", [i['name'] for i in self.bot.reddit_teams])
+            cols = [team] + p[3:7] + p[9:11]  # [t] [p, w, d, l] [gd, pts]
+            table += " | ".join([f"**{col}**" if qry.lower() in team.lower() else col for col in cols]) + "\n"
 
         # Get match threads
-        async def get_match_threads():
-            """Search the subreddit for all recent match threads for pattern matching"""
-            last_opponent = qry.split(" ")[0]
-            sub = await self.bot.reddit.subreddit("NUFC")
-            async for i in sub.search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
-                if last_opponent in i.title:
-                    pre = f"[Pre]({i.url.split('?ref=')[0]})"
-                    break
-            else:
-                pre = "Pre"
-            async for i in sub.search('flair:"Match thread"', sort="new", syntax="lucene"):
-                if not i.title.startswith("Match"):
-                    continue
-                if last_opponent in i.title:
-                    match = f"[Match]({i.url.split('?ref=')[0]})"
-                    break
-            else:
-                match = "Match"
+        last_opponent = qry.split(" ")[0]
+        sub = await self.bot.reddit.subreddit("NUFC")
+        async for i in sub.search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
+            if last_opponent in i.title:
+                pre = f"[Pre]({i.url.split('?ref=')[0]})"
+                break
+        else:
+            pre = "Pre"
+        async for i in sub.search('flair:"Match thread"', sort="new", syntax="lucene"):
+            if not i.title.startswith("Match"):
+                continue
+            if last_opponent in i.title:
+                match = f"[Match]({i.url.split('?ref=')[0]})"
+                break
+        else:
+            match = "Match"
 
-            async for i in sub.search('flair:"Post-match thread"', sort="new", syntax="lucene"):
-                if last_opponent in i.title:
-                    post = f"[Post]({i.url.split('?ref=')[0]})"
-                    break
-            else:
-                post = "Post"
+        async for i in sub.search('flair:"Post-match thread"', sort="new", syntax="lucene"):
+            if last_opponent in i.title:
+                post = f"[Post]({i.url.split('?ref=')[0]})"
+                break
+        else:
+            post = "Post"
 
-            return f"\n\n### {pre} - {match} - {post}"
-
-        match_threads = await get_match_threads()
+        match_threads = f"\n\n### {pre} - {match} - {post}"
 
         # Insert team badges
         for x in fixtures + results:
@@ -188,7 +177,7 @@ class NUFCSidebar(commands.Cog):
         # Start with "last match" bar at the top.
         lm = results[0]
 
-        # CHeck if we need to upload a temporary badge.
+        # Check if we need to upload a temporary badge.
         if not lm.home_icon or not lm.away_icon:
             which_team = "home" if not lm.home_icon else "away"
             page = await self.bot.browser.newPage()
@@ -261,13 +250,13 @@ class NUFCSidebar(commands.Cog):
             e.description = f"Set caption to: {caption}"
 
         if image:
-            await image.save('temp.png')  # TODO: Validate that this actually works.
+            await image.save(pathlib.Path('sidebar'))
             s: Subreddit = await interaction.client.reddit.subreddit("NUFC")
-            image = await s.stylesheet.upload("sidebar", 'temp.png')
+            await s.stylesheet.upload("sidebar", 'sidebar')
             style = await s.stylesheet()
             await s.stylesheet.update(style.stylesheet, reason=f"Sidebar image by {interaction.user} via discord")
 
-            e.set_image(url=image)
+            e.set_image(url=image.url)
             file = File(fp="sidebar.png", filename="sidebar.png")
 
         # Build
@@ -277,6 +266,6 @@ class NUFCSidebar(commands.Cog):
         await interaction.client.reply(interaction, embed=e, file=file)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the Sidebar Updater Cog into the bot"""
-    bot.add_cog(NUFCSidebar(bot))
+    await bot.add_cog(NUFCSidebar(bot))

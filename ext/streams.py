@@ -104,6 +104,6 @@ class GuildStreams(commands.Cog):
         await self.bot.reply(interaction, content=msg, embed=e)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the streams cog into the bot"""
-    bot.add_cog(GuildStreams(bot))
+    await bot.add_cog(GuildStreams(bot))

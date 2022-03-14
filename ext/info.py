@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Optional
 
 from discord import Member, Embed, Colour, TextChannel, ButtonStyle, Forbidden, User, app_commands, Interaction
+from discord.app_commands import CommandAlreadyRegistered
 from discord.ext import commands
 from discord.ui import View, Button
 
@@ -86,7 +87,10 @@ class Info(commands.Cog):
 
     def __init__(self, bot) -> None:
         self.bot = bot
-        self.bot.tree.add_command(u_info)
+        try:
+            self.bot.tree.add_command(u_info)
+        except CommandAlreadyRegistered:
+            pass
 
     @app_commands.command()
     async def server_info(self, interaction: Interaction):
@@ -191,14 +195,14 @@ class Info(commands.Cog):
         e.description = f"I do football lookup related things.\n I have {members}"
 
         view = View()
-        s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx")
-        i = ("Invite me to your server", INV)
-        d = ("Donate", "https://paypal.me/Toonbot")
-        for label, link in [s, i, d]:
-            view.add_item(Button(style=ButtonStyle.url, url=link, label=label))
+        s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx", "<:Toonbot:952717855474991126>")
+        i = ("Invite me to your server", INV, None)
+        d = ("Donate", "https://paypal.me/Toonbot", None)
+        for label, link, emoji in [s, i, d]:
+            view.add_item(Button(url=link, label=label, emoji=emoji))
         await self.bot.reply(interaction, embed=e, view=view)
 
 
-def setup(bot):
+async def setup(bot):
     """Load the Info cog into the bot"""
-    bot.add_cog(Info(bot))
+    await bot.add_cog(Info(bot))

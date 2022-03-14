@@ -121,6 +121,6 @@ class Tv(commands.Cog):
         await view.update()
 
 
-def setup(bot):
+async def setup(bot) -> None:
     """Load TV Lookup Module into the bot."""
-    bot.add_cog(Tv(bot))
+    await bot.add_cog(Tv(bot))

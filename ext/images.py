@@ -456,6 +456,6 @@ class Images(commands.Cog):
         return await embed_utils.embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
 
 
-def setup(bot: 'Bot'):
+async def setup(bot: 'Bot'):
     """Load the Images Cog into the bot"""
-    bot.add_cog(Images(bot))
+    await bot.add_cog(Images(bot))

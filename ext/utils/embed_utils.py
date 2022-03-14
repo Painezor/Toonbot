@@ -1,45 +1,44 @@
 """Custom Utilities revolving around the usage of Discord Embeds"""
-import asyncio
-import typing
 from asyncio import to_thread
 from copy import deepcopy
 from io import BytesIO
+from typing import List
 
 import aiohttp
-import discord
 from PIL import UnidentifiedImageError
 from colorthief import ColorThief
-from discord import Message
-
-PAGINATION_FOOTER_ICON = "http://pix.iemoji.com/twit33/0056.png"
+from discord import Message, File, Colour, Embed, Interaction
 
 
-async def embed_image(interaction, e, image, filename=None, message=None) -> Message:
+async def embed_image(interaction: Interaction, e: Embed, image: BytesIO | bytes, filename: str = None,
+                      message: Message = None) -> Message:
     """Utility / Shortcut to upload image & set it within an embed."""
+    if isinstance(image, bytes):
+        image = BytesIO(image)
+
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     e.set_image(url=f"attachment://{filename}")
-    file = make_file(image=image, name=filename)
+    file = File(fp=image, filename=filename)
     return await interaction.client.reply(interaction, file=file, embed=e, message=message)
 
 
-async def get_colour(url=None):
+async def get_colour(url: str) -> Colour | int:
     """Use colour thief to grab a sampled colour from an image for an Embed"""
-    if url is None or url == discord.Embed.Empty:
-        return discord.Colour.og_blurple()
+    if url is None:
+        return Colour.og_blurple()
     async with aiohttp.ClientSession() as cs:
         async with cs.get(url) as resp:
             r = await resp.read()
             f = BytesIO(r)
             try:
-                loop = asyncio.get_running_loop()
                 c = await to_thread(ColorThief(f).get_color)
                 # Convert to base 16 int.
                 return int('%02x%02x%02x' % c, 16)
             except UnidentifiedImageError:
-                return discord.Colour.og_blurple()
+                return Colour.og_blurple()
 
 
-def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typing.List[discord.Embed]:
+def rows_to_embeds(e: Embed, rows: List[str], rows_per: int = 10, header: str = "", footer: str = "") -> List[Embed]:
     """Create evenly distributed rows of text from a list of data"""
     desc, count = header + "\n", 0
     embeds = []
@@ -49,19 +48,11 @@ def rows_to_embeds(base_embed, rows, rows_per=10, header="", footer="") -> typin
             count += 1
         else:
             desc += footer
-            base_embed.description = desc
-            embeds.append(deepcopy(base_embed))
+            e.description = desc
+            embeds.append(deepcopy(e))
             desc, count = f"{header}\n{row}\n", 0
 
     desc += footer
-    base_embed.description = desc
-    embeds.append(deepcopy(base_embed))
+    e.description = desc
+    embeds.append(deepcopy(e))
     return embeds
-
-
-def make_file(image=None, name=None):
-    """Create a discord File object for sending images"""
-    if image is None:
-        return None
-
-    return discord.File(fp=image, filename=name) if name is not None else discord.File(image)

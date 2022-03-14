@@ -124,7 +124,10 @@ class Logs(commands.Cog):
 
     def __init__(self, bot) -> None:
         self.bot = bot
-        self.bot.loop.create_task(self.update_cache())
+
+    async def cog_load(self) -> None:
+        """When the cog loads"""
+        await self.update_cache()
 
     @app_commands.command()
     async def logs(self, interaction: Interaction, channel: Optional[TextChannel]):
@@ -372,6 +375,6 @@ class Logs(commands.Cog):
                 continue
 
 
-def setup(bot):
+async def setup(bot):
     """Loads the notifications cog into the bot"""
-    bot.add_cog(Logs(bot))
+    await bot.add_cog(Logs(bot))

@@ -104,6 +104,6 @@ class Poll(commands.Cog):
         return await interaction.response.send_modal(PollModal())
 
 
-def setup(bot: 'Bot') -> None:
+async def setup(bot: 'Bot') -> None:
     """Add the Poll cog to the Bot"""
-    bot.add_cog(Poll(bot))
+    await bot.add_cog(Poll(bot))

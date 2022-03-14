@@ -29,6 +29,6 @@ class Errors(commands.Cog):
         return
 
 
-def setup(bot: 'Bot') -> None:
+async def setup(bot: 'Bot') -> None:
     """Load the error handling Cog into the bot"""
-    bot.add_cog(Errors(bot))
+    await bot.add_cog(Errors(bot))
