@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 # Constants.
 NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
-                 "\n\nYou can add more leagues with `/live-scores add" \
+                 "\n\nYou can add more leagues with `/livescores add`" \
                  "\nTo find out which leagues currently have games, use `/scores`"
 
 NO_NEWS = "Could not send livescores to this channel. Do not set livescores channels as 'announcement' channels."
@@ -217,7 +217,15 @@ class Scores(commands.Cog, name="LiveScores"):
     @tasks.loop(minutes=1)
     async def score_loop(self):
         """Score Checker Loop"""
+        if self.bot.db is None:
+            print("[INF] Bot.db is None in scores loop.")
+            return
+
         await self.update_cache()
+        if self.bot.session is None:
+            print("[INF] Bot.session is None in scores loop.")
+            return
+
         await self.fetch_games()
 
         games: dict[Competition, List[Fixture]] = dict()
@@ -244,10 +252,6 @@ class Scores(commands.Cog, name="LiveScores"):
 
         for channel_id, leagues in self.bot.scores_cache.items():  # Error if dict changes sizes during iteration.
             await self.update_channel(channel_id, leagues)
-
-    @score_loop.before_loop
-    async def wait_for_ready(self) -> None:
-        await self.bot.wait_until_ready()  # Do not dispatch yet.
 
     # async def get_games(self) -> List[Fixture]:
     #     """Grab current scores from flashscore using Pyppeteer"""
@@ -323,16 +327,12 @@ class Scores(commands.Cog, name="LiveScores"):
     #         self.bot.fs_games[url].away_cards = len(row.xpath('.//div[contains(@class, "participant--away")]//svg'))
     #     return self.bot.fs_games
 
-    async def fetch_games(self):
+    async def fetch_games(self) -> None:
         """Grab current scores from flashscore using aiohttp"""
-        if self.bot.session is None:
-            print("fetch_games [WARNING] bot.session is None.")
-            return
-
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             if resp.status != 200:
-                print(f'{datetime.datetime.utcnow()} | Scores error {resp.status} ({resp.reason}) during fetch_games')
-                return self.bot.games
+                print(f'[ERR] Scores error {resp.status} ({resp.reason}) during fetch_games')
+                return
             tree = html.fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
 
         inner_html = tree.xpath('.//div[@id="score-data"]')[0]
@@ -402,7 +402,11 @@ class Scores(commands.Cog, name="LiveScores"):
             state = ''.join(tree.xpath('./a/@class')).strip()
             stage = tree.xpath('.//span/text() | .//div[@class="event__stage--block"]/text()')
 
-            time = stage.pop(0)
+            if stage:
+                time = stage.pop(0)
+            else:
+                print(f"No stage found in {self.bot.games[match_id].url}")
+                continue
 
             if stage:
                 state = stage.pop(0)
@@ -502,7 +506,7 @@ class Scores(commands.Cog, name="LiveScores"):
 
         for t in teams:
             team = Team(id=t['id'], url=t['url'], name=t['name'], logo_url=t['logo_url'])
-            self.bot.teams[team.url] = team
+            self.bot.teams[team.id] = team
 
         # Repopulate.
         for r in records:
