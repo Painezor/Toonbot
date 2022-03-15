@@ -112,7 +112,10 @@ class Bot(commands.AutoShardedBot):
             else:
                 print(f"Loaded extension {c}")
 
-    async def error(self, i: Interaction, e: str, message: Message = None, ephemeral: bool = True) -> Message:
+    async def error(self, i: Interaction, e: str,
+                    message: Message = None,
+                    ephemeral: bool = True,
+                    followup=False) -> Message:
         """Send a Generic Error Embed"""
         e = Embed(title="An Error occurred.", colour=Colour.red(), description=e)
 
