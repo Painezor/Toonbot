@@ -60,5 +60,5 @@
 #         for num, x in enumerate([4, 6, 8, 10, 12, 20]):
 #             row = num // 5
 #             view.add_item(DiceButton(x, row=row))
-#         view.add_item(StopButton(row=2))
+#         view.add_item(Stop(row=2))
 #         await view.update()

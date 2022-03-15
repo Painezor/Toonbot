@@ -386,10 +386,10 @@ class TeamView(View):
         if len(self.pages) > 1:
             if len(self.pages) > 2:
                 self.add_item(view_utils.FirstButton(disabled=True if self.index == 0 else False))
-            self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
+            self.add_item(view_utils.Previous(disabled=True if self.index == 0 else False))
             if len(self.pages) > 2:
                 self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}"))
-            self.add_item(view_utils.NextButton(disabled=True if self.index + 1 == len(self.pages) else False))
+            self.add_item(view_utils.Next(disabled=True if self.index + 1 == len(self.pages) else False))
             if len(self.pages) > 2:
                 self.add_item(view_utils.LastButton(disabled=True if self.index + 1 == len(self.pages) else False))
 
@@ -397,7 +397,7 @@ class TeamView(View):
                    view_utils.FuncButton(label="Rumours", func=self.push_rumours, emoji='🕵'),
                    view_utils.FuncButton(label="Trophies", func=self.push_trophies, emoji='🏆'),
                    view_utils.FuncButton(label="Contracts", func=self.push_contracts, emoji='📝'),
-                   view_utils.StopButton(row=0)
+                   view_utils.Stop(row=0)
                    ]
 
         for _ in buttons:
@@ -654,7 +654,7 @@ class CompetitionView(View):
         self.clear_items()
 
         if len(self.pages) > 1:
-            _ = view_utils.PreviousButton()
+            _ = view_utils.Previous()
             _.disabled = True if self.index == 0 else False
             self.add_item(_)
 
@@ -663,12 +663,12 @@ class CompetitionView(View):
                 _.label = f"Page {self.index + 1} of {len(self.pages)}"
                 self.add_item(_)
 
-            _ = view_utils.NextButton()
+            _ = view_utils.Next()
             _.disabled = True if self.index + 1 == len(self.pages) else False
             self.add_item(_)
 
         buttons = [view_utils.FuncButton(label="Attendances", func=self.push_attendance, emoji='🏟️'),
-                   view_utils.StopButton(row=0)
+                   view_utils.Stop(row=0)
                    ]
 
         for _ in buttons:
@@ -893,11 +893,11 @@ class SearchView(View):
         self.add_item(HomeButton())
 
         if len(self.pages) > 1:
-            self.add_item(view_utils.PreviousButton(disabled=True if self.index == 1 else False))
+            self.add_item(view_utils.Previous(disabled=True if self.index == 1 else False))
             self.add_item(view_utils.PageButton(label=f"Page {self.index} of {len(self.pages)}"))
-            self.add_item(view_utils.NextButton(disabled=True if self.index == len(self.pages) else False))
+            self.add_item(view_utils.Next(disabled=True if self.index == len(self.pages) else False))
 
-        self.add_item(view_utils.StopButton(row=0))
+        self.add_item(view_utils.Stop(row=0))
 
         if self.fetch and results:
             self.add_item(SearchSelect(objects=results))

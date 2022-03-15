@@ -182,11 +182,13 @@ class NUFCSidebar(commands.Cog):
             which_team = "home" if not lm.home_icon else "away"
             page = await self.bot.browser.newPage()
             try:
-                badge = await lm.get_badge(page, which_team)
+                badge: str = await lm.get_badge(page, which_team)
             finally:
                 await page.close()
 
-            if badge is not None:
+            if badge:
+                # TODO: BOT.SESSION.GET
+                raise NotImplementedError
                 im = Image.open(badge)
                 im.save("TEMP_BADGE.png", "PNG")
                 s = await self.bot.reddit.subreddit("NUFC")

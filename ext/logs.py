@@ -115,7 +115,7 @@ class LogsConfig(View):
                 row += 1
 
             self.add_item(ToggleButton(db_key=k, value=v, row=row))
-        self.add_item(view_utils.StopButton(row=4))
+        self.add_item(view_utils.Stop(row=4))
         await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 

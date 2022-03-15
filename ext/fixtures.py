@@ -109,7 +109,7 @@ class Fixtures(commands.Cog):
 
         matches = []
         for g in games:
-            if current.lower() not in f"{g.home.name.lower()} {g.away.name.lower()} {g.competition.name.lower()}":
+            if current.lower() not in f"{g.home.name.lower()} {g.away.name.lower()} {g.competition.title.lower()}":
                 continue
 
             out = f":soccer: {g.home} {g.score} {g.away} ({g.competition.title})"
@@ -181,7 +181,7 @@ class Fixtures(commands.Cog):
     @app_commands.command()
     @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
     @app_commands.autocomplete(query=tm_lg_ac)
-    async def fixtures(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> View | None:
+    async def results(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> View | None:
         """Get past results for a team or league."""
         await i.response.defer(thinking=True)
 

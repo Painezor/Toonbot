@@ -5,17 +5,20 @@ import logging
 from asyncio import Task
 from collections import defaultdict
 from datetime import datetime
+from io import BytesIO
 from typing import Dict, List, Set
 
 import aiohttp
 import asyncpg
+from aiohttp import ClientSession
 from asyncpraw import Reddit
-from discord import Intents, Game, Colour, Embed, Interaction, Message, http, NotFound, ButtonStyle
+from discord import Intents, Game, Colour, Embed, Interaction, Message, http, NotFound, ButtonStyle, File
 from discord.ext import commands
-# Typehinting
+# Type hinting
 from discord.ui import View, Button
 from pyppeteer.browser import Browser
 
+from ext.session import make_browser
 from ext.utils.football import Fixture, Competition, Team
 
 logging.basicConfig(level=logging.INFO)
@@ -52,8 +55,6 @@ class Bot(commands.AutoShardedBot):
         )
 
         self.db: asyncpg.Pool = kwargs.pop("database")
-        self.browser: Browser | None = None
-        self.session: aiohttp.ClientSession | None = None
         self.credentials: dict = credentials
         self.initialised_at = datetime.utcnow()
         self.invite: str = INVITE_URL
@@ -85,6 +86,10 @@ class Bot(commands.AutoShardedBot):
         self.news_cached: bool = False
         self.dev_blog_cached: bool = False
 
+        # Session // Scraping
+        self.browser: Browser | None = None
+        self.session: ClientSession | None = None
+
         # Sidebar
         self.reddit_teams: List[asyncpg.Record] = []
         self.sidebar: Task | None = None
@@ -104,6 +109,9 @@ class Bot(commands.AutoShardedBot):
 
     async def setup_hook(self):
         """Load Cogs asynchronously"""
+        self.browser = await make_browser()
+        self.session = aiohttp.ClientSession(loop=self.loop, connector=aiohttp.TCPConnector(ssl=False))
+
         for c in COGS:
             try:
                 await self.load_extension('ext.' + c)
@@ -112,16 +120,20 @@ class Bot(commands.AutoShardedBot):
             else:
                 print(f"Loaded extension {c}")
 
-    async def error(self, i: Interaction, e: str,
-                    message: Message = None,
-                    ephemeral: bool = True,
-                    followup=False) -> Message:
+    async def dump_image(self, img: BytesIO) -> str | None:
+        """Dump an image to discord & return its URL to be used in embeds"""
+        ch = self.get_channel(874655045633843240)
+        img_msg = await ch.send(file=File(fp=img, filename="dumped_image.png"))
+        url = img_msg.attachments[0].url
+        return None if url == "none" else url
+
+    @staticmethod
+    async def error(i: Interaction, e: str, message: Message = None, ephemeral: bool = True, followup=True) -> Message:
         """Send a Generic Error Embed"""
         e = Embed(title="An Error occurred.", colour=Colour.red(), description=e)
 
         view = View()
-        b = Button(emoji="<:Toonbot:952717855474991126>", url="http://www.discord.gg/a5NHvPx")
-        b.style = ButtonStyle.url
+        b = Button(emoji="<:Toonbot:952717855474991126>", url="http://www.discord.gg/a5NHvPx", style=ButtonStyle.url)
         b.label = "Join Support Server"
         view.add_item(b)
 
@@ -135,12 +147,14 @@ class Bot(commands.AutoShardedBot):
             try:
                 return await i.edit_original_message(embed=e)
             except NotFound:
-                return await i.followup.send(embed=e, ephemeral=ephemeral)  # Return the message.
+                if followup:
+                    return await i.followup.send(embed=e, ephemeral=ephemeral)  # Return the message.
         else:
             await i.response.send_message(embed=e, ephemeral=ephemeral)
             return await i.original_message()
 
-    async def reply(self, i: Interaction, message: Message = None, followup: bool = False, **kwargs) -> Message:
+    @staticmethod
+    async def reply(i: Interaction, message: Message = None, followup: bool = True, **kwargs) -> Message:
         """Send a Generic Interaction Reply"""
         if message is not None:
             try:

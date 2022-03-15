@@ -165,7 +165,7 @@ class Fun(commands.Cog):
 
         for _ in [5, 10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
-        view.add_item(view_utils.StopButton(row=1))
+        view.add_item(view_utils.Stop(row=1))
         return await view.update()
 
     @app_commands.command()

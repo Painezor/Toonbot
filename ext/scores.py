@@ -140,11 +140,11 @@ class ScoresConfig(View):
 
             embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
             self.pages = embeds
-            self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
+            self.add_item(view_utils.Previous(disabled=True if self.index == 0 else False))
             self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
                                                 disabled=True if len(self.pages) == 1 else False))
-            self.add_item(view_utils.NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
-            self.add_item(view_utils.StopButton(row=0))
+            self.add_item(view_utils.Next(disabled=True if self.index == len(self.pages) - 1 else False))
+            self.add_item(view_utils.Stop(row=0))
 
             embed = self.pages[self.index]
 

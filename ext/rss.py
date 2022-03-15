@@ -1,10 +1,16 @@
 """Cog for outputting various RSS based information"""
 import datetime
 import re
+from typing import TYPE_CHECKING
 
 from discord import Embed, app_commands, Interaction
 from discord.ext import commands, tasks
+from discord.ui import View
 from lxml import html
+from pyppeteer.errors import TimeoutError
+
+if TYPE_CHECKING:
+    from core import Bot
 
 EU_NEWS_CHANNEL = 849418195021856768
 DEV_BLOG_CHANNEL = 849412392651587614
@@ -14,21 +20,43 @@ DEV_BLOG_CHANNEL = 849412392651587614
 # TODO: Dev Blog Browser View
 
 
+class DevBlogView(View):
+    """Browse Dev Blogs"""
+
+
 class RSS(commands.Cog):
     """RSS Commands"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         self.bot.eu_news = self.eu_news.start()
         self.bot.dev_blog = self.blog_loop.start()
         self.bot.blog_cache = []
         self.bot.news_cached = False
         self.bot.dev_blog_cached = False
 
+    async def cog_load(self):
+        """Do this on Cog Load"""
+        await self.get_blogs()
+
     async def cog_unload(self):
         """Stop previous runs of tickers upon Cog Reload"""
         self.bot.eu_news.cancel()
         self.bot.dev_blog.cancel()
+
+    async def get_blogs(self):
+        """Get a list of old dev blogs stored in DB"""
+
+    async def parse_all_blogs(self):
+        pass
+
+    async def get_inner_text(self, blog_id=296):  # 296 debug
+        async with self.bot.session.get(f'https://blog.worldofwarships.com/blog/{blog_id}') as resp:
+            src = await resp.text()
+
+        tree = html.fromstring(src)
+
+        inner = tree.xpath('.//div[@class="article__content"]')[0].inner_html
 
     @app_commands.command()
     @app_commands.describe(number="Enter Dev Blog Number")
@@ -56,9 +84,13 @@ class RSS(commands.Cog):
         """Handle dispatching of news article."""
         # Fetch Image from JS Heavy news page because it looks pretty.
         page = await self.bot.browser.newPage()
+
         try:
-            src = await self.bot.browser.fetch(page, link, xpath=".//div[@class='header__background']")
-            tree = html.fromstring(src)
+            await page.goto(link)
+            await page.waitForXPath(".//div[@class='header__background']", {"timeout": 5000})
+            tree = html.fromstring(await page.content())
+        except TimeoutError:
+            return
         finally:
             await page.close()
 
@@ -84,7 +116,7 @@ class RSS(commands.Cog):
 
         await ch.send(embed=e)
 
-    async def parse(self, url: str):
+    async def parse(self, url: str, store_only=False):
         """Get Embed from the Dev Blog page"""
         async with self.bot.session.get(url) as resp:
             tree = html.fromstring(await resp.text())
@@ -276,6 +308,6 @@ class RSS(commands.Cog):
         self.bot.dev_blog_cached = True
 
 
-async def setup(bot):
+async def setup(bot: 'Bot'):
     """Load the rss Cog into the bot."""
     await bot.add_cog(RSS(bot))

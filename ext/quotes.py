@@ -157,15 +157,15 @@ class QuotesView(View):
         """Refresh the view and send to user"""
         self.clear_items()
         self.add_item(view_utils.FirstButton(disabled=True if self.index == 0 else False))
-        self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
+        self.add_item(view_utils.Previous(disabled=True if self.index == 0 else False))
         self.add_item(view_utils.PageButton(disabled=True if len(self.pages) == 1 else False,
                                             label=f"Page {self.index + 1} of {len(self.pages)}"))
-        self.add_item(view_utils.NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
+        self.add_item(view_utils.Next(disabled=True if self.index == len(self.pages) - 1 else False))
         self.add_item(view_utils.LastButton(disabled=True if self.index == len(self.pages) - 1 else False))
         self.add_item(RandButton())
         self.add_item(GlobalButton(label="All" if not self.all_guilds else self.interaction.guild.name + " Only",
                                    style=ButtonStyle.blurple if not self.all_guilds else ButtonStyle.gray))
-        self.add_item(view_utils.StopButton())
+        self.add_item(view_utils.Stop())
 
         try:
             q = self.pages[self.index]

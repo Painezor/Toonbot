@@ -20,7 +20,7 @@ class FirstButton(Button):
         await self.view.update()
 
 
-class PreviousButton(Button):
+class Previous(Button):
     """Previous Button for Pagination Views"""
 
     def __init__(self, disabled=False, row=0):
@@ -61,7 +61,7 @@ class PageButton(Button):
         await self.view.interaction.client.reply(self.view.interaction, view=self.view)
 
 
-class NextButton(Button):
+class Next(Button):
     """Get next item in a view's pages"""
 
     def __init__(self, disabled=False, row=0):
@@ -87,7 +87,7 @@ class LastButton(Button):
         await self.view.update()
 
 
-class StopButton(Button):
+class Stop(Button):
     """A generic button to stop a View"""
 
     def __init__(self, row=3):
@@ -169,15 +169,15 @@ class ObjectSelectView(View):
         self.clear_items()
 
         if len(self.pages) != 1:
-            self.add_item(PreviousButton(row=1, disabled=True if self.index == 0 else False))
+            self.add_item(Previous(row=1, disabled=True if self.index == 0 else False))
             self.add_item(PageButton(row=1, label=f"Page {self.index + 1} of {len(self.pages)}"))
-            self.add_item(NextButton(row=1, disabled=True if self.index == len(self.pages) - 1 else False))
+            self.add_item(Next(row=1, disabled=True if self.index == len(self.pages) - 1 else False))
 
         _ = ItemSelect(placeholder="Select Matching Item...", options=self.pages[0])
         _.label = f"Page {self.index + 1} of {len(self.pages)}"
         self.add_item(_)
 
-        self.add_item(StopButton(row=1))
+        self.add_item(Stop(row=1))
         return await self.interaction.client.reply(self.interaction, content=content, view=self, embed=self.embed)
 
     async def on_timeout(self) -> None:
@@ -262,11 +262,11 @@ class Paginator(View):
         """Refresh the view and send to user"""
         self.clear_items()
 
-        self.add_item(PreviousButton(disabled=True if self.index == 0 else False))
+        self.add_item(Previous(disabled=True if self.index == 0 else False))
         self.add_item(PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
                                  disabled=True if len(self.pages) == 1 else False))
-        self.add_item(NextButton(disabled=True if self.index == len(self.pages) - 1 else False))
-        self.add_item(StopButton(row=0))
+        self.add_item(Next(disabled=True if self.index == len(self.pages) - 1 else False))
+        self.add_item(Stop(row=0))
 
         return await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index],
                                                    view=self)

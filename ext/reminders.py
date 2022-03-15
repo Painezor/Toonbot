@@ -99,7 +99,7 @@ class ReminderView(View):
         e.set_author(name="⏰ Reminder")
         e.description = timed_events.Timestamp(r['created_time']).date_relative
         e.description += f"\n\n> {r['reminder_content']}" if r['reminder_content'] is not None else ""
-        self.add_item(view_utils.StopButton(row=0))
+        self.add_item(view_utils.Stop(row=0))
 
         try:
             await channel.send(f"<@{r['user_id']}>", embed=e, view=self, ephemeral=True)

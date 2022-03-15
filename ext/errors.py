@@ -18,7 +18,7 @@ class Errors(commands.Cog):
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
 
-    @commands.Cog.listener()
+    @app_commands.tree.event()
     async def on_error(self, event, *args, **kwargs) -> Message | None:
         """Event listener for when commands raise exceptions"""
         print("==== START OF ERROR ====")
