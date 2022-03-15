@@ -1,7 +1,7 @@
 """Fetch the televised matches from livesoccertv.com"""
 import datetime
 import json
-from typing import Optional, List
+from typing import List
 
 from discord import Embed, app_commands, Interaction
 from discord.ext import commands
@@ -36,7 +36,7 @@ class Tv(commands.Cog):
     @app_commands.command()
     @app_commands.describe(name="Search for a team")
     @app_commands.autocomplete(name=tv_ac)
-    async def tv(self, interaction: Interaction, name: Optional[str] = None):
+    async def tv(self, interaction: Interaction, name: str = None):
         """Lookup next televised games for a team"""
         await interaction.response.defer(thinking=True)
 
