@@ -384,10 +384,14 @@ class TeamView(View):
         self.clear_items()
 
         if len(self.pages) > 1:
+            if len(self.pages) > 2:
+                self.add_item(view_utils.FirstButton(disabled=True if self.index == 0 else False))
             self.add_item(view_utils.PreviousButton(disabled=True if self.index == 0 else False))
             if len(self.pages) > 2:
                 self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}"))
             self.add_item(view_utils.NextButton(disabled=True if self.index + 1 == len(self.pages) else False))
+            if len(self.pages) > 2:
+                self.add_item(view_utils.LastButton(disabled=True if self.index + 1 == len(self.pages) else False))
 
         buttons = [view_utils.FuncButton(label="Transfers", func=self.push_transfers, emoji='🔄'),
                    view_utils.FuncButton(label="Rumours", func=self.push_rumours, emoji='🕵'),
@@ -399,7 +403,8 @@ class TeamView(View):
         for _ in buttons:
             self.add_item(_)
 
-        await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
+        e = self.pages[self.index]
+        return await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
     async def push_transfers(self):
         """Push transfers to View"""
@@ -669,7 +674,7 @@ class CompetitionView(View):
         for _ in buttons:
             self.add_item(_)
 
-        self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
+        return self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
     async def push_attendance(self):
         """Fetch attendances for league's stadiums."""
@@ -861,7 +866,8 @@ class SearchView(View):
         p = {"query": self.query, qs: self.index}
 
         async with self.interaction.client.session.post(url, params=p) as resp:
-            assert resp.status == 200, "Error Connecting to Transfermarkt"
+            if resp.status != 200:
+                return await self.interaction.client.error(self.interaction, "Error Connecting to Transfermarkt")
             self.url = str(resp.url)
             tree = html.fromstring(await resp.text())
 
