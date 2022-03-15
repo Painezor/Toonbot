@@ -1,12 +1,36 @@
 """Bot browser Session"""
-from typing import TYPE_CHECKING
+from io import BytesIO
+from typing import List, NoReturn
 
-import pyppeteer
-from discord.ext import commands
+from pyppeteer import launch
 from pyppeteer.browser import Browser
+from pyppeteer.errors import TimeoutError
 
-if TYPE_CHECKING:
-    from core import Bot
+
+async def click(page, xpath: List[str]) -> NoReturn:
+    """Click on all designated items"""
+    for selector in xpath:
+        try:
+            await page.waitForSelector(selector, {"timeout": 1000})
+        except TimeoutError:  # Nested exception.
+            continue
+
+        elements = await page.querySelectorAll(selector)
+        for e in elements:
+            await e.click()
+
+
+async def screenshot(page, xpath: str) -> BytesIO | None:
+    """Take a screenshot of the specified element"""
+    await page.setViewport({"width": 1900, "height": 1100})
+    elements = await page.xpath(xpath)
+
+    if elements:
+        bbox = await elements[0].boundingBox()
+        bbox['height'] *= len(elements)
+        return BytesIO(await page.screenshot(clip=bbox))
+    else:
+        return None
 
 
 async def make_browser() -> Browser:
@@ -49,16 +73,4 @@ async def make_browser() -> Browser:
         '--window-position=0,0'
     ]}
 
-    return await pyppeteer.launch(options=options)
-
-
-class BrowserCog(commands.Cog, name="Browser"):
-    """(Re)-Initialise an aiohttp ClientSession"""
-
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot = bot
-
-
-async def setup(bot):
-    """Load into bot"""
-    await bot.add_cog(BrowserCog(bot))
+    return await launch(options=options)

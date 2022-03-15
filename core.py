@@ -18,7 +18,7 @@ from discord.ext import commands
 from discord.ui import View, Button
 from pyppeteer.browser import Browser
 
-from ext.session import make_browser
+from ext.utils.browser_utils import make_browser
 from ext.utils.football import Fixture, Competition, Team
 
 logging.basicConfig(level=logging.INFO)

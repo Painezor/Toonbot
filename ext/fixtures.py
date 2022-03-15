@@ -434,7 +434,7 @@ class Fixtures(commands.Cog):
         """Lookup information about a team's stadiums"""
         await interaction.response.defer(thinking=True)
 
-        stadiums: List[Stadium] = await football.get_stadiums(query)
+        stadiums: List[Stadium] = await football.get_stadiums(self.bot, query)
         if not stadiums:
             return await self.bot.error(interaction, f"🚫 No stadiums found matching `{query}`")
 

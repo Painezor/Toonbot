@@ -2,7 +2,7 @@
 from pprint import pprint
 from typing import TYPE_CHECKING
 
-from discord import Message
+from discord import Message, app_commands
 from discord.ext import commands
 
 if TYPE_CHECKING:

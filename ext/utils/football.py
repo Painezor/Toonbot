@@ -9,7 +9,6 @@ import traceback
 import urllib.parse
 from asyncio import Semaphore, to_thread
 from dataclasses import dataclass, field
-from io import BytesIO
 from json import JSONDecodeError
 from typing import Union, List, TYPE_CHECKING, NoReturn, Dict
 
@@ -21,6 +20,7 @@ from pyppeteer.errors import TimeoutError, ElementHandleError
 from pyppeteer.page import Page
 
 from ext.utils import timed_events
+from ext.utils.browser_utils import click, screenshot
 from ext.utils.embed_utils import rows_to_embeds, get_colour
 from ext.utils.image_utils import stitch_vertical
 from ext.utils.transfer_tools import get_flag
@@ -58,32 +58,6 @@ async def delete_ads(page) -> NoReturn:
                 await page.evaluate("""(element) => element.parentNode.removeChild(element)""", element)
             except ElementHandleError:  # If no exist.
                 continue
-
-
-async def click(page, xpath: List[str]) -> NoReturn:
-    """Click on all designated items"""
-    for selector in xpath:
-        try:
-            await page.waitForSelector(selector, {"timeout": 1000})
-        except TimeoutError:  # Nested exception.
-            continue
-
-        elements = await page.querySelectorAll(selector)
-        for e in elements:
-            await e.click()
-
-
-async def screenshot(page, xpath: str) -> BytesIO | None:
-    """Take a screenshot of the specified element"""
-    await page.setViewport({"width": 1900, "height": 1100})
-    elements = await page.xpath(xpath)
-
-    if elements:
-        bbox = await elements[0].boundingBox()
-        bbox['height'] *= len(elements)
-        return BytesIO(await page.screenshot(clip=bbox))
-    else:
-        return None
 
 
 @dataclass
@@ -366,7 +340,7 @@ class FlashScoreItem:
         return e
 
     # TODO: Refactor to take Bot & drop page argument so we can check internal competition cache.
-    async def get_fixtures(self, page, subpage="") -> List[Fixture]:
+    async def get_fixtures(self, page: Page, subpage="") -> List[Fixture]:
         """Get all upcoming fixtures related to the Flashscore search result"""
         try:
             await page.goto(self.link + subpage)
@@ -455,7 +429,7 @@ class FlashScoreItem:
             fixtures.append(fixture)
         return fixtures
 
-    async def pick_recent_game(self, interaction: Interaction, page, upcoming=False) -> Fixture | Message:
+    async def pick_recent_game(self, interaction: Interaction, page: Page, upcoming=False) -> Fixture | Message:
         """Choose from recent games from FlashScore Object"""
         subpage = "/fixtures" if upcoming else "/results"
         items: List[Fixture] = await self.get_fixtures(page, subpage)
@@ -511,7 +485,7 @@ class Team(FlashScoreItem):
         except TimeoutError:
             raise
 
-    async def get_players(self, page) -> List[Player]:
+    async def get_players(self, page: Page) -> List[Player]:
         """Get a list of players for a Team"""
         try:
             await page.goto(self.link + "/squad")
@@ -568,7 +542,7 @@ class Team(FlashScoreItem):
             players.append(pl)
         return players
 
-    def view(self, interaction: Interaction, page) -> TeamView:
+    def view(self, interaction: Interaction, page: Page) -> TeamView:
         """Return a view representing this Team"""
         return TeamView(self.bot, interaction, self, page)
 
@@ -600,7 +574,7 @@ class Competition(FlashScoreItem):
         return f"{self.country.upper()}: {self.name}"
 
     @classmethod
-    async def by_id(cls, bot, comp_id, page):
+    async def by_id(cls, bot, comp_id, page: Page):
         """Create a Competition object based on the Flashscore ID of the competition"""
 
         await page.goto("http://flashscore.com/?r=2:" + comp_id)
@@ -651,7 +625,7 @@ class Competition(FlashScoreItem):
             return f"https://www.flashscore.com/soccer/{self.country.lower().replace(' ', '-')}/{self.url}"
 
     @classmethod
-    async def by_link(cls, bot, link, page) -> Competition:
+    async def by_link(cls, bot, link, page: Page) -> Competition:
         """Create a Competition Object from a flashscore url"""
         try:
             await page.goto(link)
@@ -680,7 +654,7 @@ class Competition(FlashScoreItem):
 
         return comp
 
-    async def get_table(self, page) -> str | None:
+    async def get_table(self, page: Page) -> str | None:
         """Fetch the table from a flashscore page and return it as a BytesIO object"""
         # TODO: Check Cache First
         try:
@@ -693,7 +667,7 @@ class Competition(FlashScoreItem):
         except TimeoutError:
             return None
 
-    async def get_scorers(self, page) -> List[Player]:
+    async def get_scorers(self, page: Page) -> List[Player]:
         """Fetch a list of scorers from a Flashscore Competition page returned as a list of Player Objects"""
         try:
             await page.goto(self.link + "/standings")
@@ -701,7 +675,7 @@ class Competition(FlashScoreItem):
             await click(page, ['a[href$="top_scorers"]', 'div[class^="showMore"]'])
             # Click to go to scorers tab, then showMore to expand all.
 
-            tree = html.fromstring(await page.content)
+            tree = html.fromstring(await page.content())
         except TimeoutError:
             return []
 
@@ -739,7 +713,7 @@ class Competition(FlashScoreItem):
                                   country=country, goals=int(goals), assists=int(assists)))
         return players
 
-    def view(self, interaction: Interaction, page) -> CompetitionView:
+    def view(self, interaction: Interaction, page: Page) -> CompetitionView:
         """Return a view representing this Competition"""
         return CompetitionView(self.bot, interaction, self, page)
 
@@ -933,7 +907,7 @@ class Fixture(FlashScoreItem):
         return e
 
     @classmethod
-    async def by_id(cls, bot, match_id, page) -> Fixture:
+    async def by_id(cls, bot, match_id, page: Page) -> Fixture:
         """Create a fixture object from the flashscore match ID"""
         fixture = cls(bot, id=match_id)
         url = "http://www.flashscore.com/match/" + match_id
@@ -1017,7 +991,7 @@ class Fixture(FlashScoreItem):
         a_c = f" `{self.away_cards * _}`" if self.away_cards is not None else ""
         return f"`{self.time.emote}` {self.time} {h_c}[{self.bold_score}]({self.link}){a_c}"
 
-    async def get_badge(self, page, team: str) -> str:
+    async def get_badge(self, page: Page, team: str) -> str:
         """Fetch an image of a Team's Logo or Badge as a BytesIO object"""
         try:
             await page.goto(self.link)
@@ -1031,7 +1005,7 @@ class Fixture(FlashScoreItem):
         print('GET_BADGE -> PRINT -> ', potential_badges)
         return potential_badges[0]
 
-    async def get_table(self, page) -> str | None:
+    async def get_table(self, page: Page) -> str | None:
         """Fetch an image of the league table appropriate to the fixture as a bytesIO object"""
         # TODO: Caching
         try:
@@ -1045,7 +1019,7 @@ class Fixture(FlashScoreItem):
         except TimeoutError:
             return None
 
-    async def get_stats(self, page) -> str | None:
+    async def get_stats(self, page: Page) -> str | None:
         """Get an image of a list of statistics pertaining to the fixture as a BytesIO object"""
         # TODO: Cache
         try:
@@ -1058,7 +1032,7 @@ class Fixture(FlashScoreItem):
         except TimeoutError:
             return None
 
-    async def get_formation(self, page) -> str | None:
+    async def get_formation(self, page: Page) -> str | None:
         """Get the formations used by both teams in the fixture"""
         # TODO: Cache
         try:
@@ -1077,7 +1051,7 @@ class Fixture(FlashScoreItem):
         except TimeoutError:
             return None
 
-    async def get_summary(self, page) -> str | None:
+    async def get_summary(self, page: Page) -> str | None:
         """Fetch the summary of a Fixture"""
         # TODO: Cache
         try:
@@ -1090,7 +1064,7 @@ class Fixture(FlashScoreItem):
         except TimeoutError:
             return None
 
-    async def head_to_head(self, page) -> dict:
+    async def head_to_head(self, page: Page) -> dict:
         """Get results of recent games related to the two teams in the fixture"""
         # TODO: Cache
         await page.goto(self.link + "/#h2h/overall")
@@ -1129,7 +1103,7 @@ class Fixture(FlashScoreItem):
 
         return games
 
-    async def get_preview(self, page) -> str:
+    async def get_preview(self, page: Page) -> str:
         """Fetch information about upcoming match from Flashscore"""
         # TODO: Cache
         try:
@@ -1216,7 +1190,7 @@ class Fixture(FlashScoreItem):
 
         return preview
 
-    async def refresh(self, page, max_retry=3) -> NoReturn:
+    async def refresh(self, page: Page, max_retry=3) -> NoReturn:
         """Perform an intensive full lookup for a fixture"""
         # TODO: Cache
         for i in range(max_retry):
@@ -1364,7 +1338,7 @@ class Fixture(FlashScoreItem):
         self.events = events
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
 
-    def view(self, interaction: Interaction, page) -> FixtureView:
+    def view(self, interaction: Interaction, page: Page) -> FixtureView:
         """Return a view representing this Fixture"""
         return FixtureView(self.bot, interaction, self, page)
 
@@ -1457,7 +1431,7 @@ class Player:
 class FixtureView(View):
     """The View sent to users about a fixture."""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, fixture: Fixture, page) -> NoReturn:
+    def __init__(self, bot: 'Bot', interaction: Interaction, fixture: Fixture, page: Page) -> NoReturn:
         self.fixture: Fixture = fixture
         self.interaction: Interaction = interaction
         self.bot = bot
@@ -1588,7 +1562,7 @@ class FixtureView(View):
 class CompetitionView(View):
     """The view sent to a user about a Competition"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, competition: Competition, page) -> NoReturn:
+    def __init__(self, bot: 'Bot', interaction: Interaction, competition: Competition, page: Page) -> NoReturn:
         super().__init__()
         self.page = page
         self.bot: Bot = bot
@@ -1788,7 +1762,7 @@ class CompetitionView(View):
 class TeamView(View):
     """The View sent to a user about a Team"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, team: Team, page):
+    def __init__(self, bot: 'Bot', interaction: Interaction, team: Team, page: Page):
         super().__init__()
         self.bot: Bot = bot
         self.page = page  # Browser Page
@@ -1998,6 +1972,7 @@ class LeagueTableSelect(Select):
 @dataclass
 class Stadium:
     """An object representing a football Stadium from football ground map.com"""
+    bot: 'Bot'
     url: str
     name: str
     team: str
@@ -2085,7 +2060,7 @@ class Stadium:
         return e
 
 
-async def get_stadiums(query: str) -> List[Stadium]:
+async def get_stadiums(bot: 'Bot', query: str) -> List[Stadium]:
     """Fetch a list of Stadium objects matching a user query"""
     qry: str = urllib.parse.quote_plus(query)
 
@@ -2120,7 +2095,7 @@ async def get_stadiums(query: str) -> List[Stadium]:
                 continue  # Filtering.
 
             if not any(c.name == name for c in stadiums) and not any(c.url == url for c in stadiums):
-                stadiums.append(Stadium(url=url, name=name, team=team, team_badge=team_badge,
+                stadiums.append(Stadium(bot, url=url, name=name, team=team, team_badge=team_badge,
                                         country=country, league=league))
 
     return stadiums
