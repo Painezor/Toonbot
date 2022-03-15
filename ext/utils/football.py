@@ -721,8 +721,8 @@ class Fixture:
 
     # Dynamic data
     time: GameTime = None
-    score_home: int = 0
-    score_away: int = 0
+    score_home: int = None
+    score_away: int = None
     home_cards: int = None
     away_cards: int = None
 
@@ -759,7 +759,14 @@ class Fixture:
             return self.url == other.url
 
     def __str__(self):
-        time = self.ko_relative if self.time is not None and self.time.state == "scheduled" else self.time
+        if self.time is None:
+            time = None
+        else:
+            match self.time.state:
+                case "scheduled" | "FT":
+                    time = self.ko_relative
+                case _:
+                    time = self.time.state
         return f"{time}: [{self.bold_score}]({self.link})"
 
     def set_cards(self, bot: Bot, new_value: int, home=True) -> NoReturn:

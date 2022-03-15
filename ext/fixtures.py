@@ -88,12 +88,12 @@ class Fixtures(commands.Cog):
     # Autocompletes
     async def tm_ac(self, _: Interaction, current: str, __: app_commands.Namespace) -> List[Choice[str]]:
         """Autocomplete from list of stored teams"""
-        teams = self.bot.teams.values()
+        teams = sorted(list(self.bot.teams.values()), key=lambda x: x.name)
         return [Choice(name=t.name, value=t.id) for t in teams if current.lower() in t.name.lower()][:25]
 
     async def lg_ac(self, _: Interaction, current: str, __: app_commands.Namespace) -> List[Choice[str]]:
         """Autocomplete from list of stored leagues"""
-        lgs = self.bot.competitions.values()
+        lgs = sorted(list(self.bot.competitions.values()), key=lambda x: x.title)
         return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     async def tm_lg_ac(self, _: Interaction, current: str, namespace: app_commands.Namespace) -> List[Choice[str]]:
@@ -248,7 +248,7 @@ class Fixtures(commands.Cog):
 
     # LEAGUE only
     @app_commands.command()
-    @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
+    @app_commands.describe(query="enter a search query")
     @app_commands.autocomplete(query=lg_ac)
     async def scores(self, interaction: Interaction, query: str = 'default') -> Message | View:
         """Fetch current scores for a specified league"""
@@ -293,7 +293,7 @@ class Fixtures(commands.Cog):
         return await view.update()
 
     @app_commands.command()
-    @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
+    @app_commands.describe(query="enter a search query")
     @app_commands.autocomplete(query=tm_ac)
     async def injuries(self, interaction: Interaction, query: str = 'default') -> View | None:
         """Get a team's current injuries"""
