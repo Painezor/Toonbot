@@ -79,11 +79,11 @@ class LogsConfig(View):
         self.interaction: Interaction = interaction
         self.channel = channel
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
         self.clear_items()
-        self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
+        return await self.interaction.client.reply(self.interaction, view=self, followup=False)
 
     async def update(self, content: str = "") -> Message:
         """Regenerate view and push to message"""
