@@ -11,6 +11,9 @@ from discord.ui import Button, View
 from ext.utils import view_utils
 
 
+# TODO: Store Bot.quotes
+# TODO: Autocomplete for quote Search
+
 # Delete quotes
 class DeleteButton(Button):
     """Button to spawn a new view to delete a quote."""
@@ -173,7 +176,7 @@ class QuotesView(View):
             q = None
 
         e = self.embed_quote(q)
-        return await self.interaction.client.reply(self.interaction, contnet=content, embed=e, view=self)
+        return await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 
 OPT_IN = "You are currently opted out of quotes, opting back in will allow " \
