@@ -13,9 +13,6 @@ from discord import Message, File, Colour, Embed, Interaction
 async def embed_image(interaction: Interaction, e: Embed, image: BytesIO | bytes, filename: str = None,
                       message: Message = None) -> Message:
     """Utility / Shortcut to upload image & set it within an embed."""
-    if isinstance(image, bytes):
-        image = BytesIO(image)
-
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     e.set_image(url=f"attachment://{filename}")
     file = File(fp=image, filename=filename)
