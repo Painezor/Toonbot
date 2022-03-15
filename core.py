@@ -28,7 +28,7 @@ http._set_api_version(9)
 with open('credentials.json') as f:
     credentials = json.load(f)
 
-COGS = ['errors', 'session',  # Utility Cogs
+COGS = ['errors',  # Utility Cogs
         # Slash commands.
         'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv', 'logs', 'lookup', 'mod',
         'nufc', 'poll', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',

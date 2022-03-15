@@ -2,7 +2,7 @@
 from pprint import pprint
 from typing import TYPE_CHECKING
 
-from discord import Message, app_commands
+from discord import Message
 from discord.ext import commands
 
 if TYPE_CHECKING:
@@ -18,7 +18,7 @@ class Errors(commands.Cog):
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
 
-    @app_commands.tree.event()
+    @commands.Cog.listener()
     async def on_error(self, event, *args, **kwargs) -> Message | None:
         """Event listener for when commands raise exceptions"""
         print("==== START OF ERROR ====")

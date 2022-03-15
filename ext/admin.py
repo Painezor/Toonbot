@@ -26,7 +26,7 @@ def error_to_codeblock(error):
 
 
 # AutoComplete
-COGS = ['errors', 'session', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
+COGS = ['errors', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
         'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
         'testing']
 
