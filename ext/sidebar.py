@@ -102,7 +102,7 @@ class NUFCSidebar(commands.Cog):
             movement = p[1].strip()
 
             match movement:
-                case "hasn't moved":
+                case "team hasn't moved":
                     table += f'{rank}'
                 case 'moving up':
                     table += f'🔺 {rank}'
