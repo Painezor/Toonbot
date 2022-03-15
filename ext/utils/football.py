@@ -1716,7 +1716,7 @@ class TeamView(View):
         self._current_mode = None
 
         # Specific Selection
-        self._currently_selecting = []
+        self._currently_selecting: bool = False
 
         # Fetch Once Objects
         self.players = None
@@ -1755,7 +1755,7 @@ class TeamView(View):
 
             if self._currently_selecting:
                 self.add_item(LeagueTableSelect(objects=self._currently_selecting))
-                self._currently_selecting = []
+                self._currently_selecting = False
             else:
                 if len(self.pages) > 0:
                     _ = view_utils.PreviousButton()
@@ -1902,12 +1902,13 @@ class LeagueTableSelect(Select):
         self.objects = objects
         super().__init__(placeholder="Select which league to get table from...")
         for num, _ in enumerate(objects):
-            self.add_option(label=str(_.competition), emoji='🏆', description=_.link, value=str(num))
+            self.add_option(label=_.competition.title, emoji='🏆', description=_.link, value=_.url)
 
-    async def callback(self, interaction):
+    async def callback(self, interaction: Interaction):
         """Upon Item Selection do this"""
+        v: TeamView = self.view
         await interaction.response.defer()
-        await self.view.push_table(self.objects[int(self.values[0])])
+        return await v.push_table(interaction.client.competitions[self.values[0]])
 
 
 @dataclass
