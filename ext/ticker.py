@@ -405,7 +405,7 @@ class TickerEvent:
         if self.fixture.infobox is not None:
             e.description += f"```yaml\n{self.fixture.infobox}```"
 
-        e.set_footer(text=self.fixture.title)
+        e.set_footer(text=self.fixture.time.state)
         return e
 
     @property
@@ -704,13 +704,7 @@ class TickerCog(commands.Cog, name="Ticker"):
             if "flashscore" not in query:
                 return await self.bot.error(interaction, '🚫 Invalid link provided')
 
-            page = await self.bot.browser.newPage()
-            try:
-                res = await Competition.by_link(query, page)
-            except IndexError:
-                return await self.bot.error(interaction, '🚫 Could not find competition data on that page')
-            finally:
-                await page.close()
+            res = await Competition.by_link(self.bot, query)
 
             if res is None:
                 return await self.bot.error(interaction, f"🚫 Failed to get league data from <{query}>.")

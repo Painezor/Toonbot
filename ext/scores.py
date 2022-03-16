@@ -339,7 +339,7 @@ class Scores(commands.Cog, name="LiveScores"):
         byt: bytes = etree.tostring(inner_html)
         string: str = byt.decode('utf8')
         chunks = str(string).split('<br/>')
-        competition: Competition = Competition()
+        competition: Competition = Competition(self.bot)
         for game in chunks:
             try:
                 tree = html.fromstring(game)
@@ -357,7 +357,7 @@ class Scores(commands.Cog, name="LiveScores"):
                         competition = c
                         break
                 else:
-                    competition = Competition(country=country.strip(), name=name.strip())
+                    competition = Competition(self.bot, country=country.strip(), name=name.strip())
                 continue  # Loop after making the competition.
 
             lnk = ''.join(tree.xpath('.//a/@href'))
@@ -391,9 +391,9 @@ class Scores(commands.Cog, name="LiveScores"):
                     print("[mobi rewrite] Found erroneous number of teams in fixture", url, teams)
                     continue
 
-                self.bot.games[match_id] = Fixture(url=url, id=match_id)
-                self.bot.games[match_id].home = Team(name=teams[0])
-                self.bot.games[match_id].away = Team(name=teams[1])
+                self.bot.games[match_id] = Fixture(self.bot, url=url, id=match_id)
+                self.bot.games[match_id].home = Team(self.bot, name=teams[0])
+                self.bot.games[match_id].away = Team(self.bot, name=teams[1])
 
             # Get the latest version of the competition because we edit it with stuff.
             self.bot.games[match_id].competition = competition
@@ -405,7 +405,7 @@ class Scores(commands.Cog, name="LiveScores"):
             if stage:
                 time = stage.pop(0)
             else:
-                print(f"No stage found in {self.bot.games[match_id].url}")
+                print(f"No stage found in {self.bot.games[match_id].live_score_text}")
                 continue
 
             if stage:
@@ -501,11 +501,12 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
         for c in comps:
-            comp = Competition(id=c['id'], url=c['url'], name=c['name'], country=c['country'], logo_url=c['logo_url'])
+            comp = Competition(self.bot, id=c['id'], url=c['url'], name=c['name'], country=c['country'],
+                               logo_url=c['logo_url'])
             self.bot.competitions[comp.id] = comp
 
         for t in teams:
-            team = Team(id=t['id'], url=t['url'], name=t['name'], logo_url=t['logo_url'])
+            team = Team(self.bot, id=t['id'], url=t['url'], name=t['name'], logo_url=t['logo_url'])
             self.bot.teams[team.id] = team
 
         # Repopulate.
@@ -618,7 +619,7 @@ class Scores(commands.Cog, name="LiveScores"):
 
             elif not set([i.description for i in new_embeds]) == set([i.description for i in old_embeds]):
                 if logging:
-                    print("[TOONBOT SCORES] new_embeds is None, deleting a messagee.")
+                    print("[TOONBOT SCORES] new_embeds is None, deleting a message.")
                 # We now have a Message, a list of old_embeds, and a list of new_embeds
                 try:
                     await message.edit(embeds=new_embeds)
@@ -782,11 +783,7 @@ class Scores(commands.Cog, name="LiveScores"):
                 return await self.bot.error(interaction, "Invalid link provided.")
 
             qry = str(league_name).strip('[]<>')  # idiots
-            page = await self.bot.browser.newPage()
-            try:
-                res = await football.Competition.by_link(qry, page)
-            finally:
-                await page.close()
+            res = await football.Competition.by_link(self.bot, qry)
 
             if res is None:
                 err = f"Failed to get data for {qry} channel not modified."

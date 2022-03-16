@@ -391,17 +391,21 @@ class MatchThreadCommands(commands.Cog):
         records = await connection.fetch("""SELECT * FROM mtb_schedule""")
         await self.bot.db.release(connection)
 
+        page = await self.bot.browser.newPage()
         for r in records:
             # Get upcoming games from flashscore.
-            page = await self.bot.browser.newPage()
-            try:
-                team = await football.Team.by_id(r["team_flashscore_id"], page=page)
-                fx = await team.get_fixtures(page=page, subpage='/fixtures')
-            finally:
-                await page.close()
+            if r["team_flashscore_id"] in self.bot.teams:
+                team = self.bot.teams[r['team_flashscore_id']]
+            else:
+                team = await football.Team.by_id(self.bot, r["team_flashscore_id"], page=page)
+                if team is None:
+                    continue
+
+            fx = await team.get_fixtures(page, subpage="/fixtures")
 
             for fixture in fx:
                 await self.spool_thread(fixture, r)
+        await page.close()
 
     async def spool_thread(self, f: football.Fixture, settings: asyncpg.Record):
         """Create match threads for all scheduled games."""
