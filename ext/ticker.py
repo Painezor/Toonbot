@@ -1,15 +1,20 @@
 """Handler Cog for dispatched Fixture events, and database handling for channels using it."""
-import asyncio
-from importlib import reload
-from typing import List, Tuple, Optional
+from asyncio import sleep
+from typing import List, Tuple, Optional, TYPE_CHECKING, Type
 
-from discord import Colour, ButtonStyle, Interaction, Embed, NotFound, \
-    HTTPException, app_commands, Forbidden, TextChannel, Guild, Message
-from discord.ext import commands
+from discord import Colour, ButtonStyle, Interaction, Embed, TextChannel, Guild, Message
+from discord import Forbidden, NotFound, HTTPException
+from discord.app_commands import Choice, Group, describe, autocomplete
+from discord.app_commands.checks import has_permissions
+from discord.ext.commands import Cog
 from discord.ui import Select, View, Button
 
-from ext.utils import embed_utils, view_utils, football
-from ext.utils.football import Substitution, Penalty, Goal, VAR, RedCard, Fixture, Competition
+from ext.utils.embed_utils import rows_to_embeds
+from ext.utils.football import Substitution, Penalty, Goal, VAR, RedCard, Fixture, Competition, MatchEvent, fs_search
+from ext.utils.view_utils import add_page_buttons, Confirmation
+
+if TYPE_CHECKING:
+    from core import Bot
 
 DEFAULT_LEAGUES = [
     "WORLD: Friendly international",
@@ -75,17 +80,16 @@ edict = {
 }
 # Refresh a maximum of x fixtures at a time
 
-# TODO: Permissions Pass.
 # TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
-# TODO: Change search to use FS Search Box.
 
 
 class ToggleButton(Button):
     """A Button to toggle the ticker settings."""
 
-    def __init__(self, db_key, value, row=0):
-        self.value = value
-        self.db_key = db_key
+    def __init__(self, bot: 'Bot', db_key: str, value: Optional[bool], row: int = 0):
+        self.value: Optional[bool] = value
+        self.db_key: str = db_key
+        self.bot: Bot = bot
 
         if value is None:
             emoji = '🔴'  # None (Off)
@@ -122,48 +126,50 @@ class ToggleButton(Button):
 
         await interaction.response.defer()
 
-        connection = await self.view.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 q = f"""UPDATE ticker_settings SET {self.db_key} = $1 WHERE channel_id = $2"""
                 await connection.execute(q, new_value, self.view.channel.id)
         finally:
-            await self.view.interaction.client.db.release(connection)
+            await self.bot.db.release(connection)
         await self.view.update()
 
 
 class ResetLeagues(Button):
     """Button to reset a ticker back to its default leagues"""
 
-    def __init__(self) -> None:
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
     async def callback(self, interaction: Interaction):
         """Click button reset leagues"""
         await interaction.response.defer()
-        connection = await self.view.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2)"""
             for x in DEFAULT_LEAGUES:
                 await connection.execute(q, self.view.channel.id, x)
-        await self.view.interaction.client.db.release(connection)
+        await self.bot.db.release(connection)
         await self.view.update(content=f"The tracked leagues for {self.view.channel.mention} were reset")
 
 
 class DeleteTicker(Button):
     """Button to delete a ticker entirely"""
 
-    def __init__(self) -> None:
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         super().__init__(label="Delete ticker", style=ButtonStyle.red)
 
     async def callback(self, interaction: Interaction):
         """Click button reset leagues"""
         await interaction.response.defer()
-        connection = await self.view.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """DELETE FROM ticker_channels WHERE channel_id = $1"""
             await connection.execute(q, self.view.channel.id)
-        await self.view.interaction.client.db.release(connection)
+        await self.bot.db.release(connection)
         txt = f"The match events ticker for {self.view.channel.mention} was deleted."
         await self.view.update(content=txt)
 
@@ -171,8 +177,9 @@ class DeleteTicker(Button):
 class RemoveLeague(Select):
     """Dropdown to remove leagues from a match event ticker."""
 
-    def __init__(self, leagues, row=2):
+    def __init__(self, bot: 'Bot', leagues: List[str], row: int = 2):
         super().__init__(placeholder="Remove tracked league(s)", row=row)
+        self.bot: Bot = bot
         self.max_values = len(leagues)
 
         for lg in sorted(leagues):
@@ -182,19 +189,19 @@ class RemoveLeague(Select):
         """When a league is selected"""
         await interaction.response.defer()
 
-        connection = await self.view.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """DELETE from ticker_leagues WHERE (channel_id, league) = ($1, $2)"""
             for x in self.values:
                 await connection.execute(q, self.view.channel.id, x)
-        await self.view.interaction.client.db.release(connection)
+        await self.bot.db.release(connection)
         await self.view.update()
 
 
 class TickerConfig(View):
     """Match Event Ticker View"""
 
-    def __init__(self, interaction: Interaction, channel: TextChannel):
+    def __init__(self, bot: 'Bot', interaction: Interaction, channel: TextChannel):
         super().__init__()
         self.interaction: Interaction = interaction
         self.channel: TextChannel = channel
@@ -203,10 +210,12 @@ class TickerConfig(View):
         self.settings = None
         self.value = None
 
+        self.bot = bot
+
     async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         self.clear_items()
-        await self.interaction.client.reply(self.interaction, view=self, followup=False)
+        await self.bot.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     @property
@@ -217,19 +226,30 @@ class TickerConfig(View):
     async def creation_dialogue(self) -> Message:
         """Send a dialogue to check if the user wishes to create a new ticker."""
         self.clear_items()
-        view = view_utils.Confirmation(self.interaction, colour_a=ButtonStyle.green, label_b="Cancel",
-                                       label_a=f"Create a ticker for #{self.channel.name}")
+
+        # Ticker Verify -- NOT A SCORES CHANNEL
+        if self.channel.id in self.bot.scores_cache:
+            return await self.bot.error(self.interaction, 'You cannot create a ticker in a livescores channel.')
+
+        view = Confirmation(self.interaction, colour_a=ButtonStyle.green, label_b="Cancel",
+                            label_a=f"Create a ticker for #{self.channel.name}")
         _ = f"{self.channel.mention} does not have a ticker, would you like to create one?"
-        await self.interaction.client.reply(self.interaction, content=_, view=view)
+        await self.bot.reply(self.interaction, content=_, view=view)
         await view.wait()
 
         if not view.value:
             txt = f"Cancelled ticker creation for {self.channel.mention}"
             self.stop()
-            return await self.interaction.client.error(self.interaction, txt)
+            return await self.bot.error(self.interaction, txt)
 
-        connection = await self.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         try:
+            async with connection.transaction():
+                q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
+                invalidate = await connection.fetchrow(q, self.channel.id)
+                if invalidate:
+                    return await self.bot.error(self.interaction, 'You cannot add a ticker to a livescores channel.')
+
             async with connection.transaction():
                 q = """INSERT INTO ticker_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, self.interaction.guild.id, self.channel.id)
@@ -246,16 +266,16 @@ class TickerConfig(View):
         except Exception as err:
             _ = f"An error occurred while creating a ticker for {self.channel.mention}"
             self.stop()
-            await self.interaction.client.error(self.interaction, _)
+            await self.bot.error(self.interaction, _)
             raise err
         finally:
-            await self.interaction.client.db.release(connection)
+            await self.bot.db.release(connection)
 
     async def update(self, content: str = "") -> Message:
         """Regenerate view and push to message"""
         self.clear_items()
 
-        connection = await self.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 q = """SELECT * FROM ticker_channels WHERE channel_id = $1"""
@@ -265,7 +285,7 @@ class TickerConfig(View):
                 qqq = """SELECT * FROM ticker_leagues WHERE channel_id = $1"""
                 leagues = await connection.fetch(qqq, self.channel.id)
         finally:
-            await self.interaction.client.db.release(connection)
+            await self.bot.db.release(connection)
 
         if channel is None:
             return await self.creation_dialogue()
@@ -273,22 +293,18 @@ class TickerConfig(View):
         leagues = [r['league'] for r in leagues]
 
         if not leagues:
-            self.add_item(ResetLeagues())
-            self.add_item(DeleteTicker())
+            self.add_item(ResetLeagues(self.bot))
+            self.add_item(DeleteTicker(self.bot))
             e = self.base_embed
             e.description = f"{self.channel.mention} has no tracked leagues."
         else:
-            e = Embed(colour=Colour.dark_teal(), title="Toonbot Match Event Ticker config")
+            e: Embed = Embed(colour=Colour.dark_teal(), title="Toonbot Match Event Ticker config")
             e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
             header = f'Tracked leagues for {self.channel.mention}```yaml\n'
-            embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
+            embeds = rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
             self.pages = embeds
 
-            self.add_item(view_utils.Previous(disabled=True if self.index == 0 else False))
-            self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
-                                                disabled=True if len(self.pages) == 1 else False))
-            self.add_item(view_utils.Next(disabled=True if self.index == len(self.pages) - 1 else False))
-            self.add_item(view_utils.Stop(row=0))
+            add_page_buttons(self)
 
             e = self.pages[self.index]
 
@@ -297,7 +313,7 @@ class TickerConfig(View):
                 if len(leagues) > 25:
                     leagues = leagues[:25]
 
-            self.add_item(RemoveLeague(leagues, row=1))
+            self.add_item(RemoveLeague(self.bot, leagues, row=1))
 
             count = 0
             row = 2
@@ -309,21 +325,21 @@ class TickerConfig(View):
                 if count % 5 == 0:
                     row += 1
 
-                self.add_item(ToggleButton(db_key=k, value=v, row=row))
+                self.add_item(ToggleButton(self.bot, db_key=k, value=v, row=row))
 
-        await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
+        await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
-# TODO: Typehint
 class TickerEvent:
     """Handles dispatching and editing messages for a fixture event."""
 
-    def __init__(self, bot, fixture, mode, channels: List[Tuple[int, bool]], home=False):
-        self.bot = bot
-        self.fixture = fixture
-        self.mode = mode
-        self.channels = channels
-        self.home = home
+    def __init__(self, bot: 'Bot', fixture: Fixture,
+                 mode: str, channels: List[Tuple[int, bool]], home: bool = False) -> None:
+        self.bot: Bot = bot
+        self.fixture: Fixture = fixture
+        self.mode: str = mode
+        self.channels: List[Tuple[int, bool]] = channels
+        self.home: bool = home
 
         # dynamic properties
         self.retry: int = 0
@@ -332,67 +348,63 @@ class TickerEvent:
         self.needs_extended: bool = True if any([i[1] for i in channels]) else False
 
         # For exact event.
-        self.event = None
-        self.event_index = None
+        # TODO: Typehint
+        self.event: Optional[MatchEvent] = None
+        self.event_index: Optional[int] = None
 
         # Begin loop on init
         bot.loop.create_task(self.event_loop())
 
     @property
-    async def embed(self):
+    async def embed(self) -> Embed:
         """The embed for the fixture event."""
         e = await self.fixture.base_embed()
         e.title = None
         e.remove_author()
 
-        m = self.mode.title().replace('_', ' ')
-        if self.mode == "Kick off":
-            e = await self.embed
-            e.description = f"**Kick Off** | [{self.fixture.bold_score}]({self.fixture.url})\n"
-            e.colour = Colour.lighter_gray()
+        match self.mode:
+            case "Kick off":
+                e.description = f"**Kick Off** | [{self.fixture.bold_score}]({self.fixture.url})\n"
+                e.colour = Colour.lighter_gray()
+            case "goal" | "var_goal" | "red_card" | "var_red_card":
+                h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
+                h, a = ('**', '**') if self.home is None else (h, a)
+                home = f"{h}{self.fixture.home.name} {self.fixture.score_home}{h}"
+                away = f"{a}{self.fixture.score_away} {self.fixture.away.name}{a}"
+                e.description = f"**{self.mode.title().replace('_', ' ')}** | [{home} - {away}]({self.fixture.url})\n"
+            case "penalties_begin":
+                e.description = f"**Penalties Begin** | [{self.fixture.bold_score}]({self.fixture.url})\n"
+            case "penalty_results":
+                try:
+                    h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
+                    home = f"{h}{self.fixture.home.name} {self.fixture.penalties_home}{h}"
+                    away = f"{a}{self.fixture.penalties_away} {self.fixture.away.name}{a}"
+                    e.description = f"**Penalty Shootout Results** | [{home} - {away}]({self.fixture.url})\n"
+                except (TypeError, AttributeError):  # If penalties_home / penalties_away are NoneType or not found.
+                    e.description = f"**Penalty Shootout Results** | [{self.fixture.bold_score}]({self.fixture.url})\n"
 
-        elif "ht_et" in self.mode:
-            temp_mode = "Half Time" if self.mode == "ht_et_begin" else "Second Half Begins"
-            e.description = f"Extra Time: {temp_mode} | [{self.fixture.bold_score}]({self.fixture.url})\n"
-
-        elif self.mode in ["goal", "var_goal", "red_card", "var_red_card"]:
-            h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
-            h, a = ('**', '**') if self.home is None else (h, a)
-            home = f"{h}{self.fixture.home.name} {self.fixture.score_home}{h}"
-            away = f"{a}{self.fixture.score_away} {self.fixture.away.name}{a}"
-            e.description = f"**{m}** | [{home} - {away}]({self.fixture.url})\n"
-
-        if self.mode == "penalties_begin":
-            e.description = f"**Penalties Begin** | [{self.fixture.bold_score}]({self.fixture.url})\n"
-
-        elif self.mode == "penalty_results":
-            try:
-                h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
-                home = f"{h}{self.fixture.home.name} {self.fixture.penalties_home}{h}"
-                away = f"{a}{self.fixture.penalties_away} {self.fixture.away.name}{a}"
-                e.description = f"**Penalty Shootout Results** | [{home} - {away}]({self.fixture.url})\n"
-            except (TypeError, AttributeError):  # If penalties_home / penalties_away are NoneType or not found.
-                e.description = f"**Penalty Shootout Results** | [{self.fixture.bold_score}]({self.fixture.url})\n"
-
-            shootout = [i for i in self.fixture.events if hasattr(i, "shootout") and i.shootout]
-            # iterate through everything after penalty header
-            for _ in [self.fixture.home, self.fixture.away]:
-                value = "\n".join([str(i) for i in shootout if i.team == _])
-                if value:
-                    e.add_field(name=_, value=value)
-
-        else:
-            e.description = f"**{m}** | [{self.fixture.bold_score}]({self.fixture.url})\n"
+                shootout = [i for i in self.fixture.events if hasattr(i, "shootout") and i.shootout]
+                # iterate through everything after penalty header
+                for _ in [self.fixture.home, self.fixture.away]:
+                    value = "\n".join([str(i) for i in shootout if i.team == _])
+                    if value:
+                        e.add_field(name=_, value=value)
+            case self.mode if "ht_et" in self.mode:
+                temp_mode = "Half Time" if self.mode == "ht_et_begin" else "Second Half Begins"
+                e.description = f"Extra Time: {temp_mode} | [{self.fixture.bold_score}]({self.fixture.url})\n"
+            case _:
+                m = self.mode.title().replace('_', ' ')
+                e.description = f"**{m}** | [{self.fixture.bold_score}]({self.fixture.url})\n"
 
         # Fetch Embed Colour
-        if "end_of_period" in self.mode:
-            e.colour = Colour.greyple()
-        elif "start_of_period" in self.mode:
-            e.colour = Colour.blurple()
-        else:
-            try:
-                e.colour = edict[self.mode]
-            except Exception as err:
+        try:
+            e.colour = edict[self.mode]
+        except Exception as err:
+            if "end_of_period" in self.mode:
+                e.colour = Colour.greyple()
+            elif "start_of_period" in self.mode:
+                e.colour = Colour.blurple()
+            else:
                 print(f"Ticker Embed Colour: edict error for mode {self.mode}", err)
 
         # Append our event
@@ -429,27 +441,28 @@ class TickerEvent:
 
     # TODO: Enum
     @property
-    def valid_events(self):
+    def valid_events(self) -> Tuple[Type[MatchEvent], ...]:
         """Valid events for ticker mode"""
         if self.mode == "goal":
-            return tuple([Goal, VAR])
+            return Goal, VAR
         elif self.mode == "red_card":
-            return RedCard
+            return RedCard,
         elif self.mode in ("var_goal", "var_red_card"):
-            return VAR
-        return None
+            return VAR,
+        return ()
 
     async def retract_event(self):
         """Handle corrections for erroneous events"""
-        if self.mode == "goal":
-            self.mode = "goal_overturned"
-            await self.bulk_edit()
-        elif self.mode == "red_card":
-            self.mode = "red_card_overturned"
-            await self.bulk_edit()
-        else:
-            print(f"Event Warning: {self.event}")
-            print(f'[WARNING] {self.fixture} Ticker: Attempted to retract event for missing mode: {self.mode}')
+        match self.mode:
+            case "goal":
+                self.mode = "goal_overturned"
+                await self.bulk_edit()
+            case "red_card":
+                self.mode = "red_card_overturned"
+                await self.bulk_edit()
+            case _:
+                print(f"Event Warning: {self.event}")
+                print(f'[WARNING] {self.fixture} Ticker: Attempted to retract event for missing mode: {self.mode}')
 
     async def send_messages(self):
         """Dispatch the latest event embed to all applicable channels"""
@@ -502,9 +515,9 @@ class TickerEvent:
 
         while self.needs_refresh:
             # Fallback, Wait 2 minutes extra pre refresh
-            _ = 120 * self.retry if self.retry < 5 else False
-            if _:
-                await asyncio.sleep(_)
+            retry_time = 120 * self.retry if self.retry < 5 else False
+            if retry_time:
+                await sleep(retry_time)
             else:
                 return await self.bulk_edit()
 
@@ -534,7 +547,7 @@ class TickerEvent:
 
             else:
                 if self.fixture.events:
-                    if self.valid_events is not None:
+                    if self.valid_events:
                         try:
                             events = [i for i in self.fixture.events if isinstance(i, self.valid_events)]
                             _ = self.fixture.home if self.home else self.fixture.away
@@ -549,8 +562,7 @@ class TickerEvent:
                                 if event.player:
                                     self.needs_refresh = False
                         except IndexError:
-                            self.event = None
-                            self.event_index = None
+                            pass
 
             if self.messages:
                 if not self.needs_refresh:
@@ -559,20 +571,19 @@ class TickerEvent:
                 await self.send_messages()
 
 
-class TickerCog(commands.Cog, name="Ticker"):
+class TickerCog(Cog, name="Ticker"):
     """Get updates whenever match events occur"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
-        [reload(_) for _ in [football, view_utils]]
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
     # Autocomplete
-    async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
+    async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
+        return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
-    @commands.Cog.listener()  # TODO: Make Mode an Enum
+    @Cog.listener()  # TODO: Make Mode an Enum
     async def on_fixture_event(self, mode: str, f: Fixture, home: bool = True):
         """Event handler for when something occurs during a fixture."""
         match mode:
@@ -626,6 +637,7 @@ class TickerCog(commands.Cog, name="Ticker"):
                 assert channel is not None
                 assert channel.permissions_for(channel.guild.me).send_messages
                 assert channel.permissions_for(channel.guild.me).embed_links
+                assert channel not in self.bot.scores_cache
                 assert not channel.is_news()
             except AssertionError:
                 records.remove(r)
@@ -639,7 +651,7 @@ class TickerCog(commands.Cog, name="Ticker"):
         TickerEvent(self.bot, channels=channels, fixture=f, mode=mode, home=home)
 
     # Event listeners for channel deletion or guild removal.
-    @commands.Cog.listener()
+    @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel):
         """Handle deletion of channel data from database upon channel deletion."""
         q = f"""DELETE FROM ticker_channels WHERE channel_id = $1"""
@@ -650,7 +662,7 @@ class TickerCog(commands.Cog, name="Ticker"):
         finally:
             await self.bot.db.release(connection)
 
-    @commands.Cog.listener()
+    @Cog.listener()
     async def on_guild_remove(self, guild: Guild):
         """Delete all data related to a guild from the database upon guild leave."""
         q = f"""DELETE FROM ticker_channels WHERE guild_id = $1"""
@@ -659,7 +671,7 @@ class TickerCog(commands.Cog, name="Ticker"):
             await connection.execute(q, guild.id)
         await self.bot.db.release(connection)
 
-    ticker = app_commands.Group(name="ticker", description="match event ticker")
+    ticker = Group(name="ticker", description="match event ticker")
 
     @ticker.command()
     async def manage(self, interaction: Interaction, channel: Optional[TextChannel]):
@@ -672,19 +684,16 @@ class TickerCog(commands.Cog, name="Ticker"):
 
         channel = interaction.channel if channel is None else channel
 
-        await TickerConfig(interaction, channel).update(content=f"Fetching config for {channel.mention}...")
+        await TickerConfig(self.bot, interaction, channel).update(content=f"Fetching config for {channel.mention}...")
 
     @ticker.command()
-    @app_commands.describe(query="League to search for")
-    @app_commands.autocomplete(query=lg_ac)
-    async def add(self, interaction: Interaction, query: str, channel: Optional[TextChannel]):
+    @describe(query="League to search for")
+    @autocomplete(query=lg_ac)
+    @has_permissions(manage_channels=True)
+    async def add(self, interaction: Interaction, query: str, channel: TextChannel = None):
         """Add a league to your Match Event Ticker"""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-        elif not interaction.permissions.manage_messages:
-            return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
-
-        channel = interaction.channel if channel is None else channel
+        if channel is None:
+            channel = interaction.channel
 
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -694,12 +703,14 @@ class TickerCog(commands.Cog, name="Ticker"):
 
         if not row:
             # If we cannot add, send to creation dialogue.
-            return await TickerConfig(interaction, channel).update(content=f"Fetching config for {channel.mention}...")
+            return await TickerConfig(self.bot, interaction, channel).update(f"Fetching config for {channel.mention}")
 
-        if "http" not in query:
-            res = await football.fs_search(interaction, query)
-            if res is None:
-                return await self.bot.error(interaction, f"No matching competitions found for {query}")
+        if query in self.bot.competitions:
+            res = self.bot.competitions[query]
+        elif "http" not in query:
+            res = await fs_search(self.bot, interaction, query, competitions=True)
+            if isinstance(res, Message):
+                return
         else:
             if "flashscore" not in query:
                 return await self.bot.error(interaction, '🚫 Invalid link provided')
@@ -717,17 +728,14 @@ class TickerCog(commands.Cog, name="Ticker"):
         finally:
             await self.bot.db.release(connection)
 
-        await TickerConfig(interaction, channel).update(content=f"Added {res} tracked leagues for {channel.mention}")
+        await TickerConfig(self.bot, interaction, channel).update(f"Added {res} tracked leagues for {channel.mention}")
 
     @ticker.command()
-    async def add_world_cup(self, interaction: Interaction, channel: Optional[TextChannel]):
+    @has_permissions(manage_channels=True)
+    async def add_world_cup(self, interaction: Interaction, channel: TextChannel = None):
         """Add the qualifying tournaments for the World Cup to a channel's ticker"""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-        if not interaction.permissions.manage_messages:
-            return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
-
-        channel = interaction.channel if channel is None else channel
+        if channel is None:
+            channel = interaction.channel
 
         # Validate.
         c = await self.bot.db.acquire()
@@ -739,7 +747,7 @@ class TickerCog(commands.Cog, name="Ticker"):
             await self.bot.db.release(c)
 
         if not row:
-            return await TickerConfig(interaction, channel).update(content=f"Fetching config for {channel.mention}...")
+            return await TickerConfig(self.bot, interaction, channel).update(f"Fetching config for {channel.mention}")
 
         connection = await self.bot.db.acquire()
         try:

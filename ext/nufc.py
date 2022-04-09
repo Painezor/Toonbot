@@ -1,11 +1,15 @@
 """Commands specific to the r/NUFC discord"""
 import datetime
 import random
-from typing import List
+from typing import List, TYPE_CHECKING
 
-from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, app_commands, Role, Message, File
-from discord.ext import commands
+from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, Role, Message, File
+from discord.app_commands import command, guilds, describe
+from discord.ext.commands import Cog
 from discord.ui import Button, View
+
+if TYPE_CHECKING:
+    from core import Bot
 
 # Shake meme
 SHAKE = ("""Well to start off with anyone who thinks you can trick women into sleeping with you, don't understand game, 
@@ -203,9 +207,9 @@ class MbembaView(View):
         self.clear_items()
         self.add_item(MbembaButton())
 
-        this = random.choice(MBEMBA)
-        e = Embed(title="Mbemba when...", colour=Colour.purple(), description=f"<:mbemba:332196308825931777> {this}")
-        await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
+        t = random.choice(MBEMBA)
+        e: Embed = Embed(title="Mbemba when", colour=Colour.purple(), description=f"<:mbemba:332196308825931777> {t}")
+        return await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
 
 
 class MbembaButton(Button):
@@ -220,27 +224,27 @@ class MbembaButton(Button):
         await self.view.update()
 
 
-class NUFC(commands.Cog):
+class NUFC(Cog):
     """r/NUFC discord commands"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def mbemba(self, interaction):
         """Mbemba When..."""
         await MbembaView(interaction).update()
 
-    @app_commands.command()
-    @app_commands.describe(hex_code="Enter a colour #hexcode")
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @describe(hex_code="Enter a colour #hexcode")
+    @guilds(332159889587699712)
     async def colour(self, interaction: Interaction, hex_code: str):
         """Gives you a colour"""
         # Get user's old colours.
         remove_list: List[Role] = [i for i in interaction.user.roles if i.name.startswith('#')]
 
-        e = Embed(description=f"Your colour has been updated.")
+        e: Embed = Embed(description=f"Your colour has been updated.")
         clr = hex_code.strip('#').replace('0x', "").upper()
 
         try:
@@ -267,71 +271,76 @@ class NUFC(commands.Cog):
         [await i.delete() for i in remove_list if not i.members]
         await interaction.client.reply(interaction, embed=e, ephemeral=True)
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def shake(self, interaction):
         """Well to start off with..."""
         await self.bot.reply(interaction, content=SHAKE)
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def gherkin(self, interaction):
         """DON'T LET ME GOOOOOO AGAIN"""
         await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def radio(self, interaction):
         """Sends a link to the NUFC radio channel"""
         await self.bot.reply(interaction, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def downrafa(self, interaction):
         """Adds a downvote reaction to the last 10 messages"""
         async for message in interaction.channel.history(limit=10):
             await message.add_reaction(":downvote:332196251959427073")
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def uprafa(self, interaction):
         """Adds an upvote reaction to the last 10 messages"""
         async for message in interaction.channel.history(limit=10):
             await message.add_reaction(":upvote:332196220460072970")
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def toon_toon(self, interaction):
         """Toon. Toon, black & white army"""
         await self.bot.reply(interaction, content="**BLACK AND WHITE ARMY**")
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def goala(self, interaction):
         """Party on Garth"""
         await self.bot.reply(interaction, file=File(fp='Images/goala.gif'))
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def ructions(self, interaction: Interaction):
         """WEW. RUCTIONS."""
         await self.bot.reply(interaction, file=File(fp="Images/ructions.png"))
 
-    @app_commands.command()
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @guilds(332159889587699712)
     async def roulette(self, interaction: Interaction):
         """Russian Roulette"""
-        x: List[bool] = [False * 5, True]
-        if random.choice(x):
+        e = Embed()
+        if random.choice([False * 5, True]):
+            e.colour = Colour.red()
+            e.title = "Bang"
+            e.description = "Timed out for 1 minute."
             try:
-                await self.bot.reply(interaction, embed=Embed(title="Timed out for 1 minute."))
                 await interaction.user.timeout(datetime.timedelta(minutes=1), reason="Roulette")
+                await self.bot.reply(interaction, embed=e)
             except Forbidden:
-                await self.bot.reply(interaction, content="The bullet bounced off your thick fucking skull.")
+                e.description = "The bullet bounced off your thick fucking skull."
+                await self.bot.reply(interaction, embed=e)
         else:
-            await self.bot.reply(interaction, content="Click.")
+            e.colour = Colour.green()
+            await self.bot.reply(interaction, emebd=e)
 
 
-async def setup(bot):
+async def setup(bot: 'Bot'):
     """Load the NUFC Cog into the bot"""
     await bot.add_cog(NUFC(bot))

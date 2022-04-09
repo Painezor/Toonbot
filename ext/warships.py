@@ -10,9 +10,7 @@ targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "dark
            "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend", "Xairen", "Yuzral"]
 
 
-# TODO: Apply for intents
-# TODO: Permissions Pass.
-
+# TODO: Go Live Tracker
 
 # def make_bauble(img):
 #     """Make a single bauble"""
@@ -83,7 +81,7 @@ class Warships(commands.Cog):
         activity = after.activity
 
         # Build embeds.
-        e = Embed()
+        e: Embed = Embed()
         if activity.platform.lower() == "twitch":
             name = f"Twitch: {activity.twitch_name}"
             e.colour = 0x6441A4
@@ -118,7 +116,7 @@ class Warships(commands.Cog):
     #     """Test command for twitch embeds"""
     #     if interaction.user.id != self.bot.owner_id:
     #         return await interaction.client.error(interaction, "You do not own this bot.")
-    #     e = Embed()
+    #     e: Embed = Embed()
     #     e.title = "World of Warships"
     #     e.set_author(name="Twitch: Painezor", url="http://www.twitch.tv/Painezor")
     #     e.colour = 0x6441A4

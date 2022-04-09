@@ -1,26 +1,31 @@
 """Commands about the meta-state of the bot and information about users and servers"""
 import datetime
 from copy import deepcopy
-from typing import Optional
+from re import findall
+from typing import TYPE_CHECKING, List
 
-from discord import Member, Embed, Colour, TextChannel, ButtonStyle, Forbidden, User, app_commands, Interaction
-from discord.app_commands import CommandAlreadyRegistered
-from discord.ext import commands
+from discord import Member, Embed, Colour, TextChannel, ButtonStyle, Forbidden, User, Interaction, PartialEmoji
+from discord.app_commands import CommandAlreadyRegistered, context_menu, command, describe
+from discord.ext.commands import Cog
 from discord.ui import View, Button
 
 from ext.utils import timed_events, embed_utils, view_utils
+from ext.utils.embed_utils import get_colour
+
+if TYPE_CHECKING:
+    from core import Bot
 
 INV = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
       "&scope=bot%20applications.commands"
 
 
-@app_commands.context_menu(name="Get User Info")
+@context_menu(name="Get User Info")
 async def u_info(interaction: Interaction, member: Member):
     """Show info about this member."""
     # Embed 1: Generic Info
     await interaction.response.defer(thinking=True)
 
-    e = Embed(colour=member.colour)
+    e: Embed = Embed(colour=member.colour)
     e.set_author(name=member)
     if member.avatar:
         e.set_thumbnail(url=member.display_avatar.url)
@@ -82,23 +87,44 @@ async def u_info(interaction: Interaction, member: Member):
     await view.update()
 
 
-class Info(commands.Cog):
+class Info(Cog):
     """Get information about users or servers."""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         try:
             self.bot.tree.add_command(u_info)
         except CommandAlreadyRegistered:
             pass
 
-    @app_commands.command()
+    @staticmethod
+    def get_message_emojis(s: str) -> List[PartialEmoji]:
+        """ Returns a list of custom emojis in a message. """
+        emojis = findall('<(?P<animated>a?):(?P<name>[a-zA-Z0-9_]{2,32}):(?P<id>[0-9]{18,22})>', s)
+        return [PartialEmoji(animated=bool(animated), name=name, id=e_id) for animated, name, e_id in emojis]
+
+    @command()
+    @describe(emoji="Enter an emote an emote")
+    async def emote(self, interaction: Interaction, emoji: str):
+        """View a bigger version of an Emoji"""
+        emoji = self.get_message_emojis(emoji)[0]
+
+        e: Embed = Embed(title=emoji.name)
+        if emoji.animated:
+            e.description = "This is an animated emoji."
+
+        e.colour = await get_colour(emoji.url)
+        e.set_image(url=emoji.url)
+        e.set_footer(text=emoji.url)
+        await self.bot.reply(interaction, embed=e)
+
+    @command()
     async def server_info(self, interaction: Interaction):
         """Shows information about the server"""
         if interaction.guild is None:
             return await self.bot.error(interaction, "This command cannot be ran in DMs.")
 
-        e = Embed(title=interaction.guild.name)
+        e: Embed = Embed(title=interaction.guild.name)
         e.description = interaction.guild.description if interaction.guild.description is not None else ""
         e.description += f"Guild ID: {interaction.guild.id}"
         try:
@@ -155,33 +181,33 @@ class Info(commands.Cog):
         e.add_field(name="Creation Date", value=timed_events.Timestamp(interaction.guild.created_at).date_relative)
         await self.bot.reply(interaction, embed=e)
 
-    @app_commands.command()
-    async def avatar(self, interaction: Interaction, user: Optional[User | Member]):
+    @command()
+    async def avatar(self, interaction: Interaction, user: User | Member = None):
         """Shows a member's avatar"""
         user = interaction.user if user is None else user
 
         try:
-            e = Embed(colour=user.color, description=f"{user.mention}'s avatar")
+            e: Embed = Embed(colour=user.color, description=f"{user.mention}'s avatar")
         except AttributeError:
-            e = Embed(description=f"{user}'s avatar")
+            e: Embed = Embed(description=f"{user}'s avatar")
 
         e.set_footer(text=user.display_avatar.url)
         e.set_image(url=user.display_avatar.url)
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         await self.bot.reply(interaction, embed=e)
 
-    @app_commands.command()
+    @command()
     async def invite(self, interaction: Interaction):
         """Get the bots invite link"""
         view = View()
         view.add_item(Button(style=ButtonStyle.url, url=INV, label="Invite me to your server"))
-        e = Embed(description="Use the button below to invite me to your server.")
+        e: Embed = Embed(description="Use the button below to invite me to your server.")
         await self.bot.reply(interaction, embed=e, view=view, ephemeral=True)
 
-    @app_commands.command()
+    @command()
     async def about(self, interaction: Interaction):
         """Tells you information about the bot itself."""
-        e = Embed(colour=0x2ecc71, timestamp=interaction.client.user.created_at)
+        e: Embed = Embed(colour=0x2ecc71, timestamp=interaction.client.user.created_at)
         e.set_footer(text=f"Toonbot is coded by Painezor and was created on ")
 
         me = self.bot.user
@@ -203,6 +229,6 @@ class Info(commands.Cog):
         await self.bot.reply(interaction, embed=e, view=view)
 
 
-async def setup(bot):
+async def setup(bot: 'Bot'):
     """Load the Info cog into the bot"""
     await bot.add_cog(Info(bot))

@@ -1,38 +1,37 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
 from copy import deepcopy
+# Type hinting
 from typing import List, TYPE_CHECKING, Literal
 
-# Type hinting
-from discord import Embed, Colour, app_commands, Interaction, Message
-from discord.app_commands import Choice
+from discord import Embed, Colour, Interaction, Message
 # D.py
-from discord.ext import commands
+from discord.app_commands import Choice, command, describe, autocomplete
+from discord.app_commands.checks import has_permissions
+from discord.ext.commands import Cog
 from discord.ui import View
 
 # Custom Utils
-from ext.utils import timed_events, football, view_utils
-from ext.utils.football import Competition, Team, TeamView, Stadium, Fixture, HasFixtures
-from ext.utils.view_utils import ObjectSelectView
+from ext.utils.football import Competition, Team, Stadium, Fixture, fs_search, get_stadiums
+from ext.utils.timed_events import Timestamp
+from ext.utils.view_utils import ObjectSelectView, Paginator
 
 if TYPE_CHECKING:
     from core import Bot
 
 
-# TODO: Permissions Pass for default command
-# TODO: News https://www.flashscore.com/team/newcastle-utd/p6ahwuwJ/news/
-# TODO: Grouped Commands pass | Fixture / Team / Competition
 # TODO: League.archive -> https://www.flashscore.com/football/england/premier-league/archive/
 # TODO: League.Form table.
 
 
-class Fixtures(commands.Cog):
+class Fixtures(Cog):
     """Lookups for past, present and future football matches."""
 
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
 
     # Selection View/Filter/Pickers.
-    async def search(self, interaction: Interaction, qry: str, mode=None) -> Competition | Fixture | Team | Message:
+    async def search(self, interaction: Interaction, qry: str, mode: Literal['team', 'league'] = None) \
+            -> Competition | Fixture | Team | Message:
         """Get Matches from Live Games & FlashScore Search Results"""
         # Handle Server Defaults
         if qry == "default":
@@ -60,34 +59,13 @@ class Fixtures(commands.Cog):
                           f"`/default_{mode}` to set a server default {mode}."
                 return await self.bot.error(interaction, err)
             else:
-                return self.bot.teams[default] if mode == default else self.bot.competitions[default]
+                return self.bot.teams[default] if mode == "team" else self.bot.competitions[default]
 
         # Gather Other Search Results
-        items = await football.get_fs_results(self.bot, qry)
-
-        match mode:
-            case "league":
-                cls = Competition
-            case "team":
-                cls = Team
-            case _:
-                cls = Team | Competition
-
-        items = [i for i in items if isinstance(i, cls)]  # Check for specifics.
-        if not items:
-            return await self.bot.error(interaction, f"🚫 No results found for {qry}")
-        elif len(items) == 1:
-            return items[0]
-
-        markers = [(x.emoji, x.title if isinstance(cls, Competition) else x.name, x.url) for x in items]
-
-        view = view_utils.ObjectSelectView(interaction, objects=markers, timeout=30)
-        await view.update()
-        await view.wait()
-        return None if view.value is None else items[int(view.value)]
+        return await fs_search(self.bot, interaction, qry, competitions=mode == "league", teams=mode == "team")
 
     # Get Recent Game
-    async def pick_recent_game(self, i: Interaction, fsr: HasFixtures) -> Fixture | Message:
+    async def pick_recent_game(self, i: Interaction, fsr: Competition | Team) -> Fixture | Message:
         """Choose from recent games from FlashScore Object"""
         items: List[Fixture] = await fsr.get_fixtures(subpage="/results")
 
@@ -96,7 +74,7 @@ class Fixtures(commands.Cog):
         if not _:
             return await self.bot.error(i, f"No recent games found")
 
-        view = ObjectSelectView(i, objects=_, timeout=30)
+        view = ObjectSelectView(self.bot, i, objects=_, timeout=30)
         await view.update(content=f'⏬ Please choose a recent game.')
         await view.wait()
 
@@ -106,50 +84,49 @@ class Fixtures(commands.Cog):
         return items[view.value]
 
     # Autocompletes
-    async def tm_ac(self, _: Interaction, current: str, __: app_commands.Namespace) -> List[Choice[str]]:
+    async def tm_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
         """Autocomplete from list of stored teams"""
         teams = sorted(list(self.bot.teams.values()), key=lambda x: x.name)
         return [Choice(name=t.name, value=t.id) for t in teams if current.lower() in t.name.lower()][:25]
 
-    async def lg_ac(self, _: Interaction, current: str, __: app_commands.Namespace) -> List[Choice[str]]:
+    async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = sorted(list(self.bot.competitions.values()), key=lambda x: x.title)
         return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
-    async def tm_lg_ac(self, _: Interaction, current: str, namespace: app_commands.Namespace) -> List[Choice[str]]:
+    async def tm_lg_ac(self, interaction: Interaction, current: str) -> List[Choice[str]]:
         """An Autocomplete that checks whether team or league is selected, then return appropriate autocompletes"""
-        if namespace.mode == "team":
-            return await self.tm_ac(_, current, namespace)
-        elif namespace.mode == "league":
-            return await self.lg_ac(_, current, namespace)
+        if interaction.namespace.mode == "team":
+            return await self.tm_ac(interaction, current)
+        elif interaction.namespace.mode == "league":
+            return await self.lg_ac(interaction, current)
+        else:
+            return []
 
-    async def fx_ac(self, _: Interaction, current: str, __) -> List[Choice[str]]:
+    async def fx_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
         """Check if user's typing is in list of live games"""
         games = self.bot.games.values()
 
         matches = []
         for g in games:
-            if current.lower() not in f"{g.home.name.lower()} {g.away.name.lower()} {g.competition.title.lower()}":
+            try:
+                if current.lower() not in f"{g.home.name.lower()} {g.away.name.lower()} {g.competition.title.lower()}":
+                    continue
+            except AttributeError:
+                print(f'DEBUG Could not find lower for: {g.home.name} | {g.away.name} | {g.competition.title}')
                 continue
 
             out = f"⚽ {g.home} {g.score} {g.away} ({g.competition.title})"
             matches.append(Choice(name=out, value=g.id))
         return matches[:25]
 
-    default = app_commands.Group(name="default", description="Set Server Defaults for team or league searches")
-
-    @app_commands.command()
-    @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
-    @app_commands.autocomplete(query=tm_lg_ac)
-    async def default(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> Message:
+    @command()
+    @describe(mode="search for a team or a league?", query="enter a search query")
+    @autocomplete(query=tm_lg_ac)
+    @has_permissions(manage_guild=True)
+    async def default(self, i: Interaction, mode: Literal["team", "league"], query: str) -> Message:
         """Set a default team or league for your flashscore lookups"""
         await i.response.defer(thinking=True)
-
-        if i.guild is None:
-            return await self.bot.error(i, "This command cannot be ran in DMs")
-        if not i.permissions.manage_guild:
-            err = "You need manage messages permissions to set a defaults."
-            return await self.bot.error(i, err)
 
         # Receive Autocomplete.
         if query in self.bot.competitions:
@@ -177,9 +154,9 @@ class Fixtures(commands.Cog):
         return await self.bot.reply(i, embed=e)
 
     # TEAM or LEAGUE commands
-    @app_commands.command()
-    @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
-    @app_commands.autocomplete(query=tm_lg_ac)
+    @command()
+    @describe(mode="search for a team or a league?", query="enter a search query")
+    @autocomplete(query=tm_lg_ac)
     async def fixtures(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> Message:
         """Fetch upcoming fixtures for a team or league."""
         await i.response.defer(thinking=True)
@@ -198,9 +175,9 @@ class Fixtures(commands.Cog):
         view = fsr.view(i, await self.bot.browser.newPage())
         return await view.push_fixtures()
 
-    @app_commands.command()
-    @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
-    @app_commands.autocomplete(query=tm_lg_ac)
+    @command()
+    @describe(mode="search for a team or a league?", query="enter a search query")
+    @autocomplete(query=tm_lg_ac)
     async def results(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> Message:
         """Get past results for a team or league."""
         await i.response.defer(thinking=True)
@@ -219,10 +196,10 @@ class Fixtures(commands.Cog):
         view = fsr.view(i, await self.bot.browser.newPage())
         return await view.push_results()
 
-    @app_commands.command()
-    @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
-    @app_commands.autocomplete(query=tm_lg_ac)
-    async def table(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> Message:
+    @command()
+    @describe(mode="search for a team or a league?", query="enter a search query")
+    @autocomplete(query=tm_lg_ac)
+    async def table(self, i: Interaction, mode: Literal["team", "league"], *, query: str = 'default') -> Message:
         """Get table for a league"""
         await i.response.defer(thinking=True)
 
@@ -238,14 +215,14 @@ class Fixtures(commands.Cog):
 
         # Spawn Browser & Go.
         view = fsr.view(i, await self.bot.browser.newPage())
-        if isinstance(view, TeamView):
+        try:
             return await view.select_table()
-        else:
+        except AttributeError:
             return await view.push_table()
 
-    @app_commands.command()
-    @app_commands.describe(mode="search for a team or a league?", query="enter a search query")
-    @app_commands.autocomplete(query=tm_lg_ac)
+    @command()
+    @describe(mode="search for a team or a league?", query="enter a search query")
+    @autocomplete(query=tm_lg_ac)
     async def scorers(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> Message:
         """Get top scorers from a league, or search for a team and get their top scorers in a league."""
         await i.response.defer(thinking=True)
@@ -265,9 +242,9 @@ class Fixtures(commands.Cog):
         return await view.push_scorers()
 
     # LEAGUE only
-    @app_commands.command()
-    @app_commands.describe(query="enter a search query")
-    @app_commands.autocomplete(query=lg_ac)
+    @command()
+    @describe(query="enter a search query")
+    @autocomplete(query=lg_ac)
     async def scores(self, interaction: Interaction, query: str = 'default') -> Message | View:
         """Fetch current scores for a specified league"""
         await interaction.response.defer(thinking=True)
@@ -288,8 +265,8 @@ class Fixtures(commands.Cog):
 
         matches = [(i.competition.title, i.live_score_text) for i in matches]
         _ = None
-        header = f'Scores as of: {timed_events.Timestamp().long}\n'
-        e = Embed(color=Colour.og_blurple(), title="Current scores", description=header)
+        header = f'Scores as of: {Timestamp().long}\n'
+        e: Embed = Embed(color=Colour.og_blurple(), title="Current scores", description=header)
 
         embeds = []
         for x, y in matches:
@@ -307,12 +284,31 @@ class Fixtures(commands.Cog):
         else:
             embeds.append(deepcopy(e))
 
-        view = view_utils.Paginator(interaction, embeds)
+        view = Paginator(interaction, embeds)
         return await view.update()
 
-    @app_commands.command()
-    @app_commands.describe(query="enter a search query")
-    @app_commands.autocomplete(query=tm_ac)
+    # TEAM only
+    @command()
+    @describe(query="enter a search query")
+    @autocomplete(query=tm_ac)
+    async def news(self, interaction: Interaction, query: str = 'default') -> Message:
+        """Get the latest news for a team"""
+        await interaction.response.defer(thinking=True)
+
+        if query in self.bot.teams:
+            fsr = self.bot.teams[query]
+        else:
+            fsr = await self.search(interaction, query, mode="team")
+            if isinstance(fsr, Message | None):
+                return fsr
+
+        # Spawn Browser & Go.
+        view = fsr.view(interaction, await self.bot.browser.newPage())
+        return await view.push_news()
+
+    @command()
+    @describe(query="enter a search query")
+    @autocomplete(query=tm_ac)
     async def injuries(self, interaction: Interaction, query: str = 'default') -> Message:
         """Get a team's current injuries"""
         await interaction.response.defer(thinking=True)
@@ -320,8 +316,6 @@ class Fixtures(commands.Cog):
         if query in self.bot.teams:
             fsr = self.bot.teams[query]
         else:
-            if query is None:
-                query = "default"
             fsr = await self.search(interaction, query, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
@@ -330,9 +324,9 @@ class Fixtures(commands.Cog):
         view = fsr.view(interaction, await self.bot.browser.newPage())
         return await view.push_injuries()
 
-    @app_commands.command(description="Fetch the squad for a team")
-    @app_commands.describe(query="team name to search for")
-    @app_commands.autocomplete(query=tm_ac)
+    @command(description="Fetch the squad for a team")
+    @describe(query="team name to search for")
+    @autocomplete(query=tm_ac)
     async def squad(self, interaction: Interaction, query: str = 'default') -> Message:
         """Lookup a team's squad members"""
         await interaction.response.defer(thinking=True)
@@ -340,8 +334,6 @@ class Fixtures(commands.Cog):
         if query in self.bot.teams:
             fsr = self.bot.teams[query]
         else:
-            if query is None:
-                query = "default"
             fsr = await self.search(interaction, query, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
@@ -351,9 +343,9 @@ class Fixtures(commands.Cog):
         return await view.push_squad()
 
     # FIXTURE commands
-    @app_commands.command(description="Fetch the stats for a fixture")
-    @app_commands.describe(query="fixture to search for")
-    @app_commands.autocomplete(query=fx_ac)
+    @command(description="Fetch the stats for a fixture")
+    @describe(query="fixture to search for")
+    @autocomplete(query=fx_ac)
     async def stats(self, interaction: Interaction, query: str) -> Message:
         """Look up the stats for a fixture."""
         await interaction.response.defer(thinking=True)
@@ -363,7 +355,7 @@ class Fixtures(commands.Cog):
         else:
             fsr = await self.search(interaction, query, mode="team")
 
-        if isinstance(fsr, HasFixtures):
+        if isinstance(fsr, Competition | Team):
             await self.pick_recent_game(interaction, fsr)
 
         if isinstance(fsr, Message):
@@ -372,9 +364,9 @@ class Fixtures(commands.Cog):
         view = fsr.view(interaction, await self.bot.browser.newPage())
         return await view.push_stats()
 
-    @app_commands.command(description="Fetch the formations for a fixture")
-    @app_commands.describe(query="fixture to search for")
-    @app_commands.autocomplete(query=fx_ac)
+    @command(description="Fetch the formations for a fixture")
+    @describe(query="fixture to search for")
+    @autocomplete(query=fx_ac)
     async def formations(self, interaction: Interaction, query: str) -> Message:
         """Look up the formation for a Fixture."""
         await interaction.response.defer(thinking=True)
@@ -387,7 +379,7 @@ class Fixtures(commands.Cog):
 
         fsr = await self.search(interaction, query, mode="team")
 
-        if isinstance(fsr, HasFixtures):
+        if isinstance(fsr, Competition | Team):
             await self.pick_recent_game(interaction, fsr)
 
         if isinstance(fsr, Message):
@@ -397,9 +389,9 @@ class Fixtures(commands.Cog):
         view = fsr.view(interaction, page)
         return await view.push_lineups()
 
-    @app_commands.command(description="Fetch the summary for a fixture")
-    @app_commands.describe(query="fixture to search for")
-    @app_commands.autocomplete(query=fx_ac)
+    @command(description="Fetch the summary for a fixture")
+    @describe(query="fixture to search for")
+    @autocomplete(query=fx_ac)
     async def summary(self, interaction: Interaction, query: str) -> Message:
         """Get a summary for one of today's games."""
         await interaction.response.defer(thinking=True)
@@ -409,7 +401,7 @@ class Fixtures(commands.Cog):
         else:
             fsr = await self.search(interaction, query, mode="team")
 
-        if isinstance(fsr, HasFixtures):
+        if isinstance(fsr, Competition | Team):
             await self.pick_recent_game(interaction, fsr)
 
         if isinstance(fsr, Message):
@@ -419,9 +411,9 @@ class Fixtures(commands.Cog):
         view = fsr.view(interaction, page)
         return await view.push_summary()
 
-    @app_commands.command(description="Fetch the head-to-head info for a fixture")
-    @app_commands.describe(query="fixture to search for")
-    @app_commands.autocomplete(query=fx_ac)
+    @command(description="Fetch the head-to-head info for a fixture")
+    @describe(query="fixture to search for")
+    @autocomplete(query=fx_ac)
     async def head_to_head(self, interaction: Interaction, query: str) -> Message:
         """Lookup the head-to-head details for a Fixture"""
         await interaction.response.defer(thinking=True)
@@ -431,7 +423,7 @@ class Fixtures(commands.Cog):
         else:
             fsr = await self.search(interaction, query, mode="team")
 
-        if isinstance(fsr, HasFixtures):
+        if isinstance(fsr, Competition | Team):
             await self.pick_recent_game(interaction, fsr)
 
         if isinstance(fsr, Message):
@@ -442,19 +434,19 @@ class Fixtures(commands.Cog):
         return await view.push_head_to_head()
 
     # UNIQUE commands
-    @app_commands.command(description="Fetch information about a stadium")
-    @app_commands.describe(query="stadium to search for")
+    @command(description="Fetch information about a stadium")
+    @describe(query="stadium to search for")
     async def stadium(self, interaction: Interaction, query: str) -> Message:
         """Lookup information about a team's stadiums"""
         await interaction.response.defer(thinking=True)
 
-        stadiums: List[Stadium] = await football.get_stadiums(self.bot, query)
+        stadiums: List[Stadium] = await get_stadiums(self.bot, query)
         if not stadiums:
             return await self.bot.error(interaction, f"🚫 No stadiums found matching `{query}`")
 
         markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.name})") for i in stadiums]
 
-        view = view_utils.ObjectSelectView(interaction, objects=markers, timeout=30)
+        view = ObjectSelectView(self.bot, interaction, objects=markers, timeout=30)
         await view.update()
         await view.wait()
 

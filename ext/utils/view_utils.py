@@ -1,45 +1,161 @@
 """Generic Objects for discord Views"""
 # Generic Buttons
-import typing
-from typing import Iterable, List, Callable, Tuple
+
+
+from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING
 
 from discord import Interaction, ButtonStyle, SelectOption, NotFound, Embed, Message
 from discord.ui import Button, Select, Modal, View, TextInput
+from pyppeteer.page import Page
+
+if TYPE_CHECKING:
+    from core import Bot
 
 
-class FirstButton(Button):
-    """Previous Button for Pagination Views"""
+def add_page_buttons(view: View, row: int = 0):
+    """Helper function to bulk add page buttons"""
+    index = getattr(view, "index", 1)
+    pages = len(getattr(view, "pages", []))
 
-    def __init__(self, disabled=False, row=0) -> None:
-        super().__init__(label="First", emoji="⏮", row=row, disabled=disabled)
+    p = Previous(row=row)
+    p.disabled = True if index == 0 else False
+    view.add_item(p)
 
-    async def callback(self, interaction: Interaction):
+    j = Jump(row=row, label=f"Page {index + 1} of {pages}")
+    j.disabled = True if pages < 3 else False
+    view.add_item(j)
+
+    n = Next(row=row)
+    n.disabled = True if index + 1 >= pages else False  # index 0 plus 1, len pages = 1
+    view.add_item(n)
+    view.add_item(Stop(row=row))
+
+
+class First(Button):
+    """Get the first item in a Pagination View"""
+
+    def __init__(self, row: int = 0) -> None:
+        super().__init__(label="First", emoji="⏮", row=row)
+
+    async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
         await interaction.response.defer()
         self.view.index = 0
-        await self.view.update()
+        return await self.view.update()
 
 
 class Previous(Button):
-    """Previous Button for Pagination Views"""
+    """Get the previous item in a Pagination View"""
 
-    def __init__(self, disabled=False, row=0):
-        super().__init__(label="Previous", emoji="◀", row=row, disabled=disabled)
+    def __init__(self, row: int = 0) -> None:
+        super().__init__(label="Previous", emoji="◀", row=row)
+
+    async def callback(self, interaction: Interaction) -> Message:
+        """Do this when button is pressed"""
+        await interaction.response.defer()
+        self.view.index = self.view.index - 1 if self.view.index > 0 else 0
+        return await self.view.update()
+
+
+class Jump(Button):
+    """Jump to a specific page in a Pagination view"""
+
+    def __init__(self, label: str = "Jump to page", row: int = 0):
+        super().__init__(label=label, style=ButtonStyle.blurple, emoji='⤴', row=row)
+
+    async def callback(self, interaction: Interaction) -> Modal:
+        """When button is clicked..."""
+        return await interaction.response.send_modal(JumpModal(self.view))
+
+
+class JumpModal(Modal):
+    """Type page number in box, set index to that page."""
+    page = TextInput(label="Enter a page number")
+
+    def __init__(self, view: View, title: str = "Jump to page") -> None:
+        super().__init__(title=title)
+        self.view = view
+        pages = getattr(self.view, "pages")
+        self.page.placeholder = f"1 - {len(pages)}"
+
+    async def on_submit(self, interaction: Interaction) -> Message:
+        """Validate entered data & set parent index."""
+        await interaction.response.defer()
+
+        pages: List = getattr(self.view, "pages", [])
+        update: Callable = getattr(self.view, "update")
+        try:
+            _ = pages[int(self.page.value)]
+            self.view.index = int(self.page.value)
+            return await update()
+        except ValueError:  # User did not enter a number.
+            return await update(content="Invalid page selected.")
+        except IndexError:  # Number was out of range.
+            self.view.index = len(pages) - 1
+            return await update()
+
+
+class Next(Button):
+    """Get the next item in a Pagination View"""
+
+    def __init__(self, row: int = 0) -> None:
+        super().__init__(label="Next", emoji="▶", row=row)
+
+    async def callback(self, interaction: Interaction) -> Message:
+        """Do this when button is pressed"""
+        await interaction.response.defer()
+        if self.view.index + 1 < len(self.view.pages):
+            self.view.index += 1
+        return await self.view.update()
+
+
+class Last(Button):
+    """Get the last item in a Pagination View"""
+
+    def __init__(self, row: int = 0) -> None:
+        super().__init__(label="Last", emoji="⏭", row=row)
+        pages = getattr(self.view, "pages", [])
+        index = getattr(self.view, "index", 0)
+        if len(pages) == index:
+            self.disabled = True
+
+    async def callback(self, interaction: Interaction) -> Message:
+        """Do this when button is pressed"""
+        await interaction.response.defer()
+        self.view.index = len(getattr(self.view, "pages", [None])) - 1  # -1 because List index from 0 vs human index 1
+        return await self.view.update()
+
+
+class Stop(Button):
+    """A generic button to stop a View"""
+
+    def __init__(self, row=3):
+        super().__init__(label="Hide", emoji="🚫", row=row)
 
     async def callback(self, interaction: Interaction):
         """Do this when button is pressed"""
-        await interaction.response.defer()
-        self.view.index = self.view.index - 1 if self.view.index > 0 else self.view.index
-        await self.view.update()
+        try:
+            await self.view.interaction.delete_original_message()
+        except NotFound:
+            pass
+
+        page: Page = getattr(self.view, "page", None)
+        if page is not None and not page.isClosed():
+            await page.close()
+        self.view.stop()
 
 
+# Dropdowns
 class PageButton(Button):
     """Button to spawn a dropdown to select pages."""
 
-    def __init__(self, label="Jump to a page", disabled=False, row=0):
-        super().__init__(emoji="⏬", label=label, row=row, disabled=disabled, style=ButtonStyle.primary)
+    def __init__(self, label: str = "Jump to a page", row: int = 0) -> None:
+        super().__init__(emoji="⏬", label=label, row=row, style=ButtonStyle.primary)
+        pages = getattr(self.view, "pages", [])
+        if len(pages) < 3:
+            self.disabled = True
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """The pages button."""
         await interaction.response.defer()
 
@@ -58,108 +174,43 @@ class PageButton(Button):
         self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row))
         self.disabled = True
 
-        await self.view.interaction.client.reply(self.view.interaction, view=self.view)
+        return await self.view.interaction.client.reply(self.view.interaction, view=self.view)
 
 
-class Next(Button):
-    """Get next item in a view's pages"""
-
-    def __init__(self, disabled=False, row=0):
-        super().__init__(label="Next", emoji="▶", row=row, disabled=disabled)
-
-    async def callback(self, interaction: Interaction):
-        """Do this when button is pressed"""
-        await interaction.response.defer()
-        self.view.index += 1 if self.view.index < len(self.view.pages) else self.view.index
-        await self.view.update()
-
-
-class LastButton(Button):
-    """Get the last item in a paginator."""
-
-    def __init__(self, disabled=False, row=0):
-        super().__init__(label="Last", emoji="⏭", row=row, disabled=disabled)
-
-    async def callback(self, interaction: Interaction):
-        """Do this when button is pressed"""
-        await interaction.response.defer()
-        self.view.index = len(self.view.pages) - 1
-        await self.view.update()
-
-
-class Stop(Button):
-    """A generic button to stop a View"""
-
-    def __init__(self, row=3):
-        super().__init__(label="Hide", emoji="🚫", row=row)
-
-    async def callback(self, interaction: Interaction):
-        """Do this when button is pressed"""
-        try:
-            await self.view.interaction.delete_original_message()
-        except NotFound:
-            pass
-
-        if hasattr(self.view, "page"):
-            await self.view.page.close()
-        self.view.stop()
-
-
-# Dropdowns
 class PageSelect(Select):
     """Page Selector Dropdown"""
 
-    def __init__(self, placeholder=None, options=None, row=4):
+    def __init__(self, placeholder: str = None, options: List = None, row: int = 4) -> None:
         super().__init__(placeholder=placeholder, options=options, row=row)
 
-    async def callback(self, interaction):
-        """Set View Index """
+    async def callback(self, interaction: Interaction) -> Message:
+        """Set View Index"""
         await interaction.response.defer()
         self.view.index = int(self.values[0]) - 1
         self.view.remove_item(self)
-        await self.view.update()
-
-
-class JumpModal(Modal):
-    """Type page number in box, set index to that page."""
-    page = TextInput(label="Enter a page number")
-
-    def __init__(self, view, title="Jump to page"):
-        super().__init__(title=title)
-        self.view = view
-        self.page.placeholder = f"0 - {len(self.view.pages)}"
-
-    async def on_submit(self, interaction):
-        """Validate entered data & set parent index."""
-        try:
-            _ = self.view.pages[int(str(self.page))]
-        except ValueError:  # User did not enter a number.
-            await self.view.update(content="Invalid page selected.")
-        except IndexError:  # Number was out of range.
-            self.view.index = len(self.view.pages) - 1
-            await self.view.update()
+        return await self.view.update()
 
 
 class ObjectSelectView(View):
     """Generic Object Select and return"""
 
-    def __init__(self, interaction: Interaction, objects: list, timeout=180):
+    def __init__(self, bot: 'Bot', interaction: Interaction, objects: list, timeout: int = 180) -> None:
         self.interaction: Interaction = interaction
         self.value = None  # As Yet Unset
+        self.bot: Bot = bot
         self.index: int = 0
         self.objects: list = objects
-
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(timeout=timeout)
 
-    async def interaction_check(self, interaction: Interaction):
+    async def interaction_check(self, interaction: Interaction) -> bool:
         """Assure only the command's invoker can select a result"""
         return interaction.user.id == self.interaction.user.id
 
     @property
-    def embed(self):
+    def embed(self) -> Embed:
         """Embeds look prettier, ok?"""
-        e = Embed(title="Use the dropdown below to select from the following list.")
+        e: Embed = Embed(title="Use the dropdown below to select from the following list.")
         e.set_author(name="Multiple results found")
         e.description = "\n".join([i[1] for i in self.pages[self.index]])
         return e
@@ -168,48 +219,44 @@ class ObjectSelectView(View):
         """Send new version of view to user"""
         self.clear_items()
 
-        if len(self.pages) != 1:
-            self.add_item(Previous(row=1, disabled=True if self.index == 0 else False))
-            self.add_item(PageButton(row=1, label=f"Page {self.index + 1} of {len(self.pages)}"))
-            self.add_item(Next(row=1, disabled=True if self.index == len(self.pages) - 1 else False))
+        add_page_buttons(self, row=1)
 
         _ = ItemSelect(placeholder="Select Matching Item...", options=self.pages[0])
         _.label = f"Page {self.index + 1} of {len(self.pages)}"
         self.add_item(_)
-
         self.add_item(Stop(row=1))
-        return await self.interaction.client.reply(self.interaction, content=content, view=self, embed=self.embed)
+        return await self.bot.reply(self.interaction, content=content, view=self, embed=self.embed)
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Cleanup"""
         self.clear_items()
         err = "Timed out waiting for you to select a match."
-        await self.interaction.client.error(self.interaction, err, followup=False)
         self.stop()
+        return await self.bot.error(self.interaction, err, followup=False)
 
 
 class MultipleSelect(Select):
     """Select multiple matching items."""
 
-    def __init__(self, placeholder, options: Iterable[Tuple[str, str, str]], attribute, row=0):
+    def __init__(self, placeholder: str, options: Iterable[Tuple[str, str, str]], attribute: str, row: int = 0) -> None:
         self.attribute = attribute
 
         super().__init__(placeholder=placeholder, max_values=len(list(options)), row=row)
         for emoji, label, description in options:
             self.add_option(label=label, emoji=emoji, description=description, value=label)
 
-    async def callback(self, interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """When selected assign view's requested attribute to value of selection."""
         await interaction.response.defer()
         setattr(self.view, self.attribute, self.values)
         self.view.index = 0
-        await self.view.update()
+        return await self.view.update()
 
 
 class ItemSelect(Select):
     """A Dropdown That Returns a Generic Selected Item"""
 
-    def __init__(self, placeholder, options: List[Tuple[str, str, str]], row=0):
+    def __init__(self, placeholder: str, options: List[Tuple[str, str, str]], row: int = 0) -> None:
         super().__init__(placeholder=placeholder)
         self.row = row
         for index, (emoji, label, description) in enumerate(options):
@@ -218,7 +265,7 @@ class ItemSelect(Select):
                 continue
             self.add_option(emoji=emoji, label=label, description=description, value=str(index))
 
-    async def callback(self, interaction):
+    async def callback(self, interaction: Interaction) -> None:
         """Response object for view"""
         await interaction.response.defer()
         self.view.value = self.view.index * 25 + int(self.values[0])
@@ -229,30 +276,30 @@ class FuncButton(Button):
     """A Generic Button with a passed through function."""
 
     def __init__(self, label: str, func: Callable, emoji: str = None,
-                 style: ButtonStyle = ButtonStyle.secondary, row: int = 2, disabled: bool = False):
+                 style: ButtonStyle = ButtonStyle.secondary, row: int = 2, disabled: bool = False) -> None:
         super().__init__(label=label, emoji=emoji, style=style, row=row, disabled=disabled)
-        self.func = func
+        self.func: Callable = func
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> None:
         """A Generic Callback"""
         await interaction.response.defer()
-        await self.func()
+        return await self.func()
 
 
 class Paginator(View):
     """Generic Paginator that returns nothing."""
 
-    def __init__(self, interaction: Interaction, embeds: typing.List[Embed]):
+    def __init__(self, interaction: Interaction, embeds: List[Embed]) -> None:
         super().__init__()
-        self.index = 0
-        self.pages = embeds
-        self.interaction = interaction
+        self.index: int = 0
+        self.pages: List[Embed] = embeds
+        self.interaction: Interaction = interaction
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
-        await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
+        return await self.interaction.client.reply(self.interaction, view=self, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
@@ -261,13 +308,7 @@ class Paginator(View):
     async def update(self, content: str = "") -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
-
-        self.add_item(Previous(disabled=True if self.index == 0 else False))
-        self.add_item(PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
-                                 disabled=True if len(self.pages) == 1 else False))
-        self.add_item(Next(disabled=True if self.index == len(self.pages) - 1 else False))
-        self.add_item(Stop(row=0))
-
+        add_page_buttons(self)
         return await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index],
                                                    view=self)
 
@@ -276,14 +317,14 @@ class Confirmation(View):
     """Ask the user if they wish to confirm an option."""
 
     def __init__(self, interaction: Interaction, label_a: str = "Yes", label_b: str = "No",
-                 colour_a: ButtonStyle = None, colour_b: ButtonStyle = None):
+                 colour_a: ButtonStyle = None, colour_b: ButtonStyle = None) -> None:
         super().__init__()
         self.interaction = interaction
         self.add_item(BoolButton(label=label_a, colour=colour_a))
         self.add_item(BoolButton(label=label_b, colour=colour_b, value=False))
         self.value = None
 
-    async def interaction_check(self, interaction: Interaction):
+    async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify only invoker of command can use the buttons."""
         return interaction.user.id == self.interaction.user.id
 
@@ -291,12 +332,12 @@ class Confirmation(View):
 class BoolButton(Button):
     """Set View value"""
 
-    def __init__(self, label="Yes", colour: ButtonStyle = None, value: bool = True):
+    def __init__(self, label="Yes", colour: ButtonStyle = None, value: bool = True) -> None:
         colour = ButtonStyle.secondary if colour is None else colour
         super().__init__(label=label, style=colour)
-        self.value = value
+        self.value: bool = value
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> None:
         """On Click Event"""
         self.view.value = self.value
         self.view.stop()

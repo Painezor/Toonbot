@@ -1,22 +1,29 @@
 """This Cog Grabs data from Flashscore and outputs the latest scores to user-configured live score channels"""
-# Misc
 import datetime
+# Misc
 from collections import defaultdict
 from copy import deepcopy
 from itertools import zip_longest
+# Type Hinting
 from typing import List, Optional, Dict, TYPE_CHECKING, Set
 
+# Error Handling
 from asyncpg import UniqueViolationError, ForeignKeyViolationError
-from discord import ButtonStyle, Interaction, Colour, Embed, NotFound, HTTPException, PermissionOverwrite, Forbidden, \
-    app_commands, Message, TextChannel, Color
-from discord.ext import commands, tasks
+# Discord
+from discord import ButtonStyle, Interaction, Colour, Embed, PermissionOverwrite, Message, TextChannel, Color
+from discord import HTTPException, Forbidden
+from discord.app_commands import command, Group, describe, Choice, guilds, autocomplete
+from discord.app_commands.checks import has_permissions, bot_has_permissions
+from discord.ext.commands import Cog
+from discord.ext.tasks import loop
 from discord.ui import Button, Select, View
-# Web Scraping
 from lxml import html, etree
 from lxml.etree import ParserError
 
-from ext.utils import football, embed_utils, view_utils
-from ext.utils.football import Team, GameTime, Fixture, Competition
+from ext.utils.embed_utils import rows_to_embeds
+# Utils
+from ext.utils.football import Team, GameTime, Fixture, Competition, fs_search
+from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
     from core import Bot
@@ -61,7 +68,6 @@ WORLD_CUP_LEAGUES = [
 
 
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
-# TODO: Permissions Pass.
 
 
 class ResetLeagues(Button):
@@ -79,14 +85,14 @@ class ResetLeagues(Button):
 class RemoveLeague(Select):
     """Button to bring up the remove leagues dropdown."""
 
-    def __init__(self, leagues, row=4):
+    def __init__(self, leagues: List[str], row: int = 4) -> None:
         super().__init__(placeholder="Remove tracked league(s)", row=row)
         self.max_values = len(leagues)
 
         for lg in sorted(leagues):
             self.add_option(label=lg)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> None:
         """When a league is selected"""
         await interaction.response.defer()
         await self.view.remove_leagues(self.values)
@@ -95,57 +101,51 @@ class RemoveLeague(Select):
 class ScoresConfig(View):
     """Generic Config View"""
 
-    def __init__(self, interaction: Interaction, channel: TextChannel):
+    def __init__(self, bot: 'Bot', interaction: Interaction, channel: TextChannel) -> None:
         super().__init__()
-        self.interaction = interaction
+        self.interaction: Interaction = interaction
         self.channel: TextChannel = channel
-
-        self.index: int = 0
         self.pages: List[Embed] = []
+        self.index: int = 0
+        self.bot: Bot = bot
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
         self.clear_items()
-        await self.interaction.client.reply(self.interaction, view=self, followup=False)
         self.stop()
+        return await self.bot.reply(self.interaction, view=self, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify user of view is correct user."""
         return interaction.user.id == self.interaction.user.id
 
-    async def get_leagues(self):
+    async def get_leagues(self) -> List[str]:
         """Fetch Leagues for View's Channel"""
-        connection = await self.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         async with connection.transaction():
             q = """SELECT * FROM scores_leagues WHERE channel_id = $1"""
             leagues = await connection.fetch(q, self.channel.id)
-        await self.interaction.client.db.release(connection)
-
-        leagues = [r['league'] for r in leagues]
-        return leagues
+        await self.bot.db.release(connection)
+        return [r['league'] for r in leagues]
 
     async def update(self, content: str = "") -> Message:
         """Push the newest version of view to message"""
         self.clear_items()
         leagues = await self.get_leagues()
 
+        embed: Embed = Embed(colour=Colour.dark_teal(), title="Toonbot Live Scores config")
+
         if leagues:
-            e = Embed(colour=Colour.dark_teal(), title="Toonbot Live Scores config")
-            e.set_thumbnail(url=self.interaction.client.user.display_avatar.url)
+            embed.set_thumbnail(url=self.interaction.client.user.display_avatar.url)
 
             header = f'Tracked leagues for {self.channel.mention}```yaml\n'
 
             if not leagues:
                 leagues = ["```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"]
 
-            embeds = embed_utils.rows_to_embeds(e, sorted(leagues), header=header, footer="```", rows_per=25)
+            embeds = rows_to_embeds(embed, sorted(leagues), header=header, footer="```", rows_per=25)
             self.pages = embeds
-            self.add_item(view_utils.Previous(disabled=True if self.index == 0 else False))
-            self.add_item(view_utils.PageButton(label=f"Page {self.index + 1} of {len(self.pages)}",
-                                                disabled=True if len(self.pages) == 1 else False))
-            self.add_item(view_utils.Next(disabled=True if self.index == len(self.pages) - 1 else False))
-            self.add_item(view_utils.Stop(row=0))
-
+            add_page_buttons(self)
             embed = self.pages[self.index]
 
             if len(leagues) > 25:
@@ -156,14 +156,13 @@ class ScoresConfig(View):
             self.add_item(RemoveLeague(leagues))
         else:
             self.add_item(ResetLeagues())
-            embed = None
-            content = f"You have no tracked leagues for {self.channel.mention}, would you like to reset it?"
+            embed.description = f"No tracked leagues for {self.channel.mention}, would you like to reset it?"
 
         return await self.interaction.client.reply(self.interaction, content=content, embed=embed, view=self)
 
     async def remove_leagues(self, leagues):
         """Bulk remove leagues from a live scores channel"""
-        view = view_utils.Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
+        view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
         lg_text = "```yaml\n" + '\n'.join(sorted(leagues)) + "```"
         txt = f"Remove these leagues from {self.channel.mention}? {lg_text}"
         await self.interaction.client.reply(self.interaction, content=txt, view=view)
@@ -191,12 +190,11 @@ class ScoresConfig(View):
         await self.update(content=f"Tracked leagues for {self.channel.mention} reset")
 
 
-class Scores(commands.Cog, name="LiveScores"):
+class Scores(Cog, name="LiveScores"):
     """Live Scores channel module"""
 
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
-        self.page = None
 
         # Score loops.
         self.bot.score_loop = self.score_loop.start()
@@ -214,7 +212,7 @@ class Scores(commands.Cog, name="LiveScores"):
     #     self.bot.fs_games = await self.get_games()  # FS Version
 
     # Core Loop
-    @tasks.loop(minutes=1)
+    @loop(minutes=1)
     async def score_loop(self):
         """Score Checker Loop"""
         if self.bot.db is None:
@@ -230,12 +228,17 @@ class Scores(commands.Cog, name="LiveScores"):
 
         games: dict[Competition, List[Fixture]] = dict()
 
-        for i in self.bot.games.values():
+        # Copy to avoid size change in iteration.
+        for k, i in self.bot.games.copy().items():
+            if i.expires == datetime.datetime.now().toordinal():
+                self.bot.games.pop(k)
+                continue  # Fixture is expired.
+
             games.setdefault(i.competition, []).append(i)
 
         self.bot.scores_embeds = defaultdict(set)
 
-        for comp, fixtures in games.items():
+        for comp, fixtures in games.copy().items():
             _ = await comp.live_score_embed
             e = deepcopy(_)
             e.description = ""
@@ -250,7 +253,7 @@ class Scores(commands.Cog, name="LiveScores"):
             if e.description:
                 self.bot.scores_embeds[comp].add(e)
 
-        for channel_id, leagues in self.bot.scores_cache.items():  # Error if dict changes sizes during iteration.
+        for channel_id, leagues in self.bot.scores_cache.copy().items():  # copy avoids RunTimeError
             await self.update_channel(channel_id, leagues)
 
     # async def get_games(self) -> List[Fixture]:
@@ -347,18 +350,28 @@ class Scores(commands.Cog, name="LiveScores"):
                 continue
 
             # Check if chunk has header row:
-            header = ''.join(tree.xpath('.//h4/text()'))
+            header = ''.join(tree.xpath('.//h4/text()')).strip()
             if header:
-                country, name = header.split(':', 1)
-
                 # Loop over bot.competitions to see if we can find the right Competition object for base_embed.
-                for c in self.bot.competitions.values():
-                    if header in c.title:
-                        competition = c
-                        break
+                comps = self.bot.competitions.copy().values()
+
+                match = next((x for x in comps if x.title == header), None)  # Exact match.
+                if match is not None:
+                    competition = match
                 else:
-                    competition = Competition(self.bot, country=country.strip(), name=name.strip())
-                continue  # Loop after making the competition.
+                    partial = [x for x in comps if x.title in header]  # Partial Matches
+                    for substring in ['women', 'u18']:  # Filter...
+                        if substring in header.lower():
+                            partial = [i for i in partial if "women" in i.name.lower()]
+
+                    if partial:
+                        competition = partial[0]
+                        if len(partial) > 2:
+                            print(f"Warning, found multiple partial matches for {header}")
+                            print(header, f"{[c.title for c in partial]}")
+                    else:
+                        country, name = header.split(':', 1)
+                        competition = Competition(self.bot, country=country.strip(), name=name.strip())
 
             lnk = ''.join(tree.xpath('.//a/@href'))
 
@@ -383,7 +396,7 @@ class Scores(commands.Cog, name="LiveScores"):
                             teams = [teams[0], teams[-2]] if teams[2] == x else [teams[0:2], teams[-1]]
                     for y in ["Banik Most"]:
                         if y in teams:
-                            teams = [teams[0], teams[-2]] if teams[1] == y else [teams[0:2], teams[-1]]
+                            teams = [teams[0], teams[-2]] if teams[0] == y else [teams[0:2], teams[-1]]
 
                 url = "http://www.flashscore.com" + lnk
 
@@ -405,12 +418,12 @@ class Scores(commands.Cog, name="LiveScores"):
             if stage:
                 time = stage.pop(0)
             else:
-                print(f"No stage found in {self.bot.games[match_id].live_score_text}")
+                # "Awaiting <br/> Updates" line split breaks this
                 continue
 
             if stage:
                 state = stage.pop(0)
-                if state not in ['Postponed', 'Cancelled', 'Delayed', 'Interrupted']:
+                if state not in ['Postponed', 'Cancelled', 'Delayed', 'Interrupted', 'Abandoned']:
                     print("Unhandled state", state)
                 if stage:
                     print("Unhandled", len(stage), "Length stage found", stage)
@@ -427,6 +440,9 @@ class Scores(commands.Cog, name="LiveScores"):
                 elif a_score.endswith('pen'):
                     a_score = a_score.replace('pen', '')
                     state = "After Pens"
+                elif a_score.endswith('WO'):
+                    a_score = 0
+                    state = "Walkover"
 
                 # Replace with set_score
                 sh = None if h_score == "-" else int(h_score)
@@ -446,6 +462,8 @@ class Scores(commands.Cog, name="LiveScores"):
             match state:
                 case 'live':
                     self.bot.games[match_id].set_time(self.bot, GameTime(time))
+                case 'Walkover':
+                    self.bot.games[match_id].set_time(self.bot, GameTime('Walkover'))
                 case 'AET' | 'After Pens' | 'Postponed' | 'Cancelled' | 'Delayed' | 'Abandoned' | 'Interrupted':
                     self.bot.games[match_id].set_time(self.bot, GameTime(state))
                 case 'sched' | 'fin':
@@ -464,7 +482,7 @@ class Scores(commands.Cog, name="LiveScores"):
                             ko += datetime.timedelta(days=1)
                         expiry = ko + datetime.timedelta(days=1)
                         self.bot.games[match_id].kickoff = ko
-                        self.bot.games[match_id].expires = expiry.day
+                        self.bot.games[match_id].expires = expiry.toordinal()
                 case _:
                     print(f"State not handled {state} | {time}")
 
@@ -521,11 +539,6 @@ class Scores(commands.Cog, name="LiveScores"):
 
     async def update_channel(self, channel_id: int, leagues: Set[str]):
         """Edit a live-score channel to have the latest scores"""
-        # logging = True if channel_id == 924709355872464997 else False
-        logging = False
-        if logging:
-            print("Logging toonbot update_channel")
-
         channel: TextChannel = self.bot.get_channel(channel_id)
         if channel is None:
             return
@@ -559,9 +572,6 @@ class Scores(commands.Cog, name="LiveScores"):
         if channel.is_news():
             guild_embeds = [Embed(description=NO_NEWS, colour=Color.red())]
 
-        if logging:
-            print("Got Guild embeds", guild_embeds)
-
         # Paginate into maxsize 6000 / max number 10 chunks.
 
         for x in guild_embeds:
@@ -576,9 +586,6 @@ class Scores(commands.Cog, name="LiveScores"):
                 count = 1
         new_embeds_paged.append(new_embeds)
 
-        if logging:
-            print("Got new_embeds_paged", new_embeds_paged)
-
         # Copy so we don't fucking nuke it.
         try:
             messages = self.bot.scores_messages.pop(channel_id)
@@ -591,57 +598,56 @@ class Scores(commands.Cog, name="LiveScores"):
         if None in tuples[0]:
             # we need a new message
             try:
-                if channel.id == 900091291331878912:
-                    print("Firing purge event for channel 900091291331878912")
                 if not channel.is_news():
-                    await channel.purge()
+                    # Purge only from last 7 days because fuck you ratelimiting.
+                    ts = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=7)
+
+                    # LOOK BEFORE YOU LEAP.
+                    await channel.purge(after=ts, limit=10, reason="Clean livescores channel")
             except HTTPException:
                 pass
 
         self.bot.scores_messages[channel_id]: Dict[Message, List[Embed]] = defaultdict(list)
 
+        message: Optional[Message]
+        old_embeds: List[Embed]
+        new_embeds: List[Embed]
         for message, old_embeds, new_embeds in tuples:
-            if logging:
-                print(f"Got | Message: {type(message)} | old: {type(old_embeds)} | new: {type(old_embeds)}")
             if message is None:  # No message exists in cache, or we need an additional message.
-                if logging:
-                    print("[TOONBOT SCORES] Message is None, sending new message.")
                 try:
-                    if channel.id == 900091291331878912:
-                        print("Sending messages to channel 900091291331878912")
                     message = await channel.send(embeds=new_embeds)
                 except HTTPException:
                     message = None
 
             elif new_embeds is None:
-                await message.delete()  # Shorter than old message list, we do not need this message any more.
-                continue
+                if not message.flags.suppress_embeds:
+                    try:
+                        await message.edit(suppress=True)  # Suppress Message embeds until they're needed again.
+                    except HTTPException:
+                        message = None
+
+            elif old_embeds is None:
+                try:
+                    if message.flags.suppress_embeds:
+                        await message.edit(embeds=new_embeds, suppress=False)
+                    else:
+                        await message.edit(embeds=new_embeds)
+                except HTTPException:  # Forbidden, NotFound
+                    continue
 
             elif not set([i.description for i in new_embeds]) == set([i.description for i in old_embeds]):
-                if logging:
-                    print("[TOONBOT SCORES] new_embeds is None, deleting a message.")
                 # We now have a Message, a list of old_embeds, and a list of new_embeds
                 try:
-                    await message.edit(embeds=new_embeds)
-                except NotFound:
+                    if message.flags.suppress_embeds:
+                        await message.edit(embeds=new_embeds, suppress=False)
+                    else:
+                        await message.edit(embeds=new_embeds)
+                except HTTPException:  # Forbidden, NotFound
                     continue
-            else:
-                if logging:
-                    print("[TOONBOT SCORES] embeds are identical.")
-                    for x, y in zip(old_embeds, new_embeds):
-                        print("================================")
-                        print(x.description == y.description)
-                        print(x.description)
-                        print(y.description)
-                        print("================================")
-            if logging:
-                print("Inserted message into channel_id", channel_id)
             self.bot.scores_messages[channel_id][message] = new_embeds
-            if logging:
-                print(self.bot.scores_messages[channel_id])
 
     # Event listeners for channel deletion or guild removal.
-    @commands.Cog.listener()
+    @Cog.listener()
     async def on_guild_channel_delete(self, channel):
         """Remove all of a channel's stored data upon deletion"""
         connection = await self.bot.db.acquire()
@@ -651,7 +657,7 @@ class Scores(commands.Cog, name="LiveScores"):
         finally:
             await self.bot.db.release(connection)
 
-    @commands.Cog.listener()
+    @Cog.listener()
     async def on_guild_remove(self, guild):
         """Remove all data for tracked channels for a guild upon guild leave"""
         connection = await self.bot.db.acquire()
@@ -659,19 +665,15 @@ class Scores(commands.Cog, name="LiveScores"):
             await connection.execute("""DELETE FROM scores_channels WHERE guild_id = $1""", guild.id)
         await self.bot.db.release(connection)
 
-    livescores = app_commands.Group(name="livescores", description="Create or manage livescores channels")
+    livescores = Group(name="livescores", description="Create or manage livescores channels")
 
     @livescores.command()
-    @app_commands.describe(channel="Target Channel")
+    @describe(channel="Target Channel")
+    @has_permissions(manage_channels=True)
     async def manage(self, interaction: Interaction, channel: Optional[TextChannel]):
         """View or Delete tracked leagues from a live-scores channel."""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-        elif not interaction.permissions.manage_channels:
-            err = "You need manage_channels permissions to edit a scores channel."
-            return await self.bot.error(interaction, err)
-
-        channel = interaction.channel if channel is None else channel
+        if channel is None:
+            channel = interaction.channel
 
         connection = await self.bot.db.acquire()
         try:
@@ -684,23 +686,14 @@ class Scores(commands.Cog, name="LiveScores"):
             err = f"{channel.mention} is not a live-scores channel."
             return await self.bot.error(interaction, err)
 
-        await ScoresConfig(interaction, channel).update(content=f"Fetching config for {channel.mention}...")
+        await ScoresConfig(self.bot, interaction, channel).update(content=f"Fetching config for {channel.mention}...")
 
     @livescores.command()
-    @app_commands.describe(name="Enter a name for the channel")
+    @describe(name="Enter a name for the channel")
+    @has_permissions(manage_channels=True)
+    @bot_has_permissions(manage_channels=True)
     async def create(self, interaction: Interaction, name: Optional[str]):
         """Create a live-scores channel for your server."""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-
-        if not interaction.permissions.manage_channels:
-            err = "You need manage_channels permissions to create a scores channel."
-            return await self.bot.error(interaction, err)
-
-        if not interaction.channel.permissions_for(interaction.guild.me).manage_channels:
-            err = "I need manage_channels permissions to create a scores channel."
-            return await self.bot.error(interaction, err)
-
         reason = f'{interaction.user} (ID: {interaction.user.id}) created a Toonbot live-scores channel.'
         topic = "Live Scores from around the world"
 
@@ -742,23 +735,20 @@ class Scores(commands.Cog, name="LiveScores"):
         await self.update_channel(channel.id, leagues)
 
     # Autocomplete
-    async def lg_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
+    async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [app_commands.Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
+        return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     @livescores.command()
-    @app_commands.describe(league_name="league name to search for", channel="Target Channel")
-    @app_commands.autocomplete(league_name=lg_ac)
+    @describe(league_name="league name to search for", channel="Target Channel")
+    @autocomplete(league_name=lg_ac)
+    @has_permissions(manage_channels=True)
+    @bot_has_permissions(manage_channels=True)
     async def add(self, interaction: Interaction, league_name: str, channel: Optional[TextChannel]):
         """Add a league to an existing live-scores channel"""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-        if not interaction.permissions.manage_channels:
-            err = "You need manage_channels permissions to create a scores channel."
-            return await self.bot.error(interaction, err)
-
-        channel = interaction.channel if channel is None else channel
+        if channel is None:
+            channel = interaction.channel
 
         q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
 
@@ -775,15 +765,15 @@ class Scores(commands.Cog, name="LiveScores"):
         if league_name in self.bot.competitions:
             res = self.bot.competitions[league_name]
         elif "http" not in league_name:
-            res = await football.fs_search(interaction, league_name)
-            if res is None:
+            res = await fs_search(self.bot, interaction, league_name, competitions=True)
+            if isinstance(res, Message):
                 return
         else:
             if "flashscore" not in league_name:
                 return await self.bot.error(interaction, "Invalid link provided.")
 
             qry = str(league_name).strip('[]<>')  # idiots
-            res = await football.Competition.by_link(self.bot, qry)
+            res = await Competition.by_link(self.bot, qry)
 
             if res is None:
                 err = f"Failed to get data for {qry} channel not modified."
@@ -797,19 +787,16 @@ class Scores(commands.Cog, name="LiveScores"):
         finally:
             await self.bot.db.release(connection)
 
-        view = ScoresConfig(interaction, channel)
+        view = ScoresConfig(self.bot, interaction, channel)
         await view.update(content=f"Added tracked league for {channel.mention}```yaml\n{res}```")
 
     @livescores.command(name="worldcup")
-    async def addwc(self, interaction: Interaction, channel: Optional[TextChannel]):
+    @has_permissions(manage_channels=True)
+    @bot_has_permissions(manage_channels=True)
+    async def addwc(self, interaction: Interaction, channel: TextChannel = None):
         """Add the qualifying tournaments for the World Cup to a live score channel"""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-        if not interaction.permissions.manage_channels:
-            err = "You need manage_channels permissions to create a scores channel."
-            return await self.bot.error(interaction, err)
-
-        channel = interaction.channel if channel is None else channel
+        if channel is None:
+            channel = interaction.channel
 
         q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -831,17 +818,17 @@ class Scores(commands.Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
         res = f"{channel.mention} ```yaml\n" + "\n".join(WORLD_CUP_LEAGUES) + "```"
-        await ScoresConfig(interaction, channel).update(content=f"Added to tracked leagues for {res}")
+        await ScoresConfig(self.bot, interaction, channel).update(content=f"Added to tracked leagues for {res}")
 
-    @app_commands.command()
-    @app_commands.guilds(250252535699341312)
+    @command()
+    @guilds(250252535699341312)
     async def livescore_clear(self, interaction) -> Message:
         """ ADMIN: Force a cache refresh of the live scores"""
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
 
         self.bot.games = defaultdict(dict)
-        e = Embed(colour=Colour.og_blurple(), description="[ADMIN] Cleared global games cache.")
+        e: Embed = Embed(colour=Colour.og_blurple(), description="[ADMIN] Cleared global games cache.")
         return await self.bot.reply(interaction, embed=e)
 
     async def on_guild_channel_update(self, before: TextChannel, after: TextChannel):

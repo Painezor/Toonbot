@@ -7,7 +7,9 @@ from discord import Embed, app_commands, Interaction
 from discord.ext import commands
 from lxml import html
 
-from ext.utils import embed_utils, view_utils, timed_events
+from ext.utils.embed_utils import rows_to_embeds
+from ext.utils.timed_events import Timestamp
+from ext.utils.view_utils import ObjectSelectView, Paginator
 
 # aiohttp useragent.
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -25,12 +27,17 @@ class Tv(commands.Cog):
         with open('tv.json') as f:
             self.bot.tv = json.load(f)
 
-    async def tv_ac(self, _: Interaction, current: str, __) -> List[app_commands.Choice[str]]:
+    async def tv_ac(self, _: Interaction, current: str) -> List[app_commands.Choice[str]]:
         """Return list of live teams"""
         matches = []
         for x in self.bot.tv:
             if current.lower() in x.lower():
                 matches.append(app_commands.Choice(name=x, value=x))
+
+        if None in matches:
+            print("None found in tv_ac")
+            print(matches)
+            matches = [i for i in matches if i is not None]
         return matches[:25]
 
     @app_commands.command()
@@ -40,7 +47,7 @@ class Tv(commands.Cog):
         """Lookup next televised games for a team"""
         await interaction.response.defer(thinking=True)
 
-        e = Embed(colour=0x034f76)
+        e: Embed = Embed(colour=0x034f76)
         e.set_author(name="LiveSoccerTV.com")
 
         # Selection View if team is passed
@@ -53,9 +60,9 @@ class Tv(commands.Cog):
             _ = [('📺', i, self.bot.tv[i]) for i in matches]
 
             if len(_) > 1:
-                view = view_utils.ObjectSelectView(interaction, objects=_, timeout=30)
+                view = ObjectSelectView(self.bot, interaction, objects=_, timeout=30)
                 e.description = '⏬ Multiple results found, choose from the dropdown.'
-                message = await self.bot.reply(interaction, embed=e, view=view)
+                await self.bot.reply(interaction, embed=e, view=view)
                 await view.update()
                 await view.wait()
 
@@ -101,9 +108,9 @@ class Tv(commands.Cog):
                 timestamp = int(timestamp)
                 _ = datetime.datetime.fromtimestamp(timestamp / 1000)
                 if match_column == 3:
-                    ts = timed_events.Timestamp(_).datetime
+                    ts = Timestamp(_).datetime
                 else:
-                    ts = str(timed_events.Timestamp(_))
+                    ts = str(Timestamp(_))
 
             except (ValueError, IndexError):
                 date = ''.join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
@@ -117,7 +124,7 @@ class Tv(commands.Cog):
         if not rows:
             rows = [f"No televised matches found, check online at {e.url}"]
 
-        view = view_utils.Paginator(interaction, embed_utils.rows_to_embeds(e, rows))
+        view = Paginator(interaction, rows_to_embeds(e, rows))
         await view.update()
 
 

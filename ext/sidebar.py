@@ -1,9 +1,10 @@
 """Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
 import datetime
-import math
 import pathlib
 import re
+from asyncio import sleep
 from importlib import reload
+from math import ceil
 from typing import Optional
 
 from PIL import Image
@@ -13,6 +14,7 @@ from discord.ext import commands, tasks
 from lxml import html
 
 from ext.utils import football
+from ext.utils.football import Team
 
 NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
@@ -35,7 +37,7 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
     if not rows:
         return ""
 
-    height = math.ceil(len(rows) / (len(rows) // per + 1))
+    height = ceil(len(rows) / (len(rows) // per + 1))
     chunks = [''.join(rows[i:i + height]) for i in range(0, len(rows), height)]
     chunks.reverse()
     markdown = header + header.join(chunks)
@@ -51,20 +53,26 @@ class NUFCSidebar(commands.Cog):
         self.bot.sidebar = self.sidebar_loop.start()
         reload(football)
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
         self.bot.sidebar.cancel()
 
     @tasks.loop(hours=6)
-    async def sidebar_loop(self):
+    async def sidebar_loop(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
+        try:
+            self.bot.teams['p6ahwuwJ']
+        except KeyError:
+            await sleep(60)
+            return await self.sidebar_loop()
+
         markdown = await self.make_sidebar()
         _ = await self.bot.reddit.subreddit('NUFC')
         _ = await _.wiki.get_page("config/sidebar")
         await _.edit(content=markdown)
 
     @sidebar_loop.before_loop
-    async def fetch_team_data(self):
+    async def fetch_team_data(self) -> None:
         """Grab information about teams from local database."""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
@@ -74,14 +82,15 @@ class NUFCSidebar(commands.Cog):
         # Session / Browser will not be initialised
         await self.bot.wait_until_ready()
 
-    async def make_sidebar(self, subreddit="NUFC", qry="newcastle", team_id="p6ahwuwJ"):
+    async def make_sidebar(self, subreddit: str = "NUFC", qry: str = "newcastle", team_id: str = "p6ahwuwJ"):
         """Build the sidebar markdown"""
         # Fetch all data
-        _ = await self.bot.reddit.subreddit(subreddit)
-        _ = await _.wiki.get_page('sidebar')
-        top = _.content_md
+        srd = await self.bot.reddit.subreddit(subreddit)
+        wiki = await srd.wiki.get_page('sidebar')
 
-        fsr = self.bot.teams[team_id]
+        top = wiki.content_md
+
+        fsr: Team = self.bot.teams[team_id]
 
         page = await self.bot.browser.newPage()
         try:
@@ -92,7 +101,7 @@ class NUFCSidebar(commands.Cog):
 
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             if resp.status != 200:
-                return "Retry"
+                return
             tree = html.fromstring(await resp.text())
 
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{'|:--:' * 6}\n"
@@ -104,9 +113,9 @@ class NUFCSidebar(commands.Cog):
             match movement:
                 case "team hasn't moved":
                     table += f'{rank}'
-                case 'moving up':
+                case 'team has moved up':
                     table += f'🔺 {rank}'
-                case 'moving down':
+                case 'team has moved down':
                     table += f'🔻 {rank}'
                 case _:
                     print("Invalid movement for team detected", movement)
@@ -151,54 +160,42 @@ class NUFCSidebar(commands.Cog):
 
         match_threads = f"\n\n### {pre} - {match} - {post}"
 
-        # Insert team badges
-        for x in fixtures + results:
-            try:
-                r = [i for i in self.bot.reddit_teams if i['name'] == x.home][0]
-                x.home_icon = r['icon']
-                x.home_subreddit = r['subreddit']
-                x.short_home = r['short_name']
-            except IndexError:
-                x.home_icon = ""
-                x.home_subreddit = "#temp"
-                x.short_home = x.home
-            try:
-                r = [i for i in self.bot.reddit_teams if i['name'] == x.away][0]
-                x.away_icon = r['icon']
-                x.away_subreddit = r['subreddit']
-                x.short_away = r['short_name']
-            except IndexError:
-                x.away_icon = ""
-                x.away_subreddit = "#temp/"
-                x.short_away = x.away
-
-        # Build data with passed icons.
-
-        # Start with "last match" bar at the top.
-        lm = results[0]
-
         # Check if we need to upload a temporary badge.
-        if not lm.home_icon or not lm.away_icon:
-            which_team = "home" if not lm.home_icon else "away"
-            badge: str = await lm.get_badge(which_team)
-
-            if badge:
-                # TODO: BOT.SESSION.GET
-                raise NotImplementedError
-                im = Image.open(badge)
-                im.save("TEMP_BADGE.png", "PNG")
-                s = await self.bot.reddit.subreddit("NUFC")
-                await s.stylesheet.upload("TEMP_BADGE.png", "temp")
-                await s.stylesheet.update(s.stylesheet().stylesheet, reason="Upload a badge")
-                print("Uploaded new image to sidebar!")
-
-        top_bar = f"> [{lm.home}]({lm.home_subreddit}) [{lm.score}]({lm.url}) [{lm.away}]({lm.away_subreddit})"
+        top_bar = ""
+        count = 0
         if fixtures:
-            header = "\n* Upcoming fixtures"
-            th = "\n\n Date & Time | Match\n--:|:--\n"
+            rows = []
+            for f in fixtures:
+                home = next((i for i in self.bot.reddit_teams if i['name'] == f.home.name), None)
+                away = next((i for i in self.bot.reddit_teams if i['name'] == f.away.name), None)
+                short_home = home['short_name'] if home is not None else f.home.name
+                short_away = away['short_name'] if away is not None else f.away.name
+                home_sub = home['subreddit'] if home is not None else "#temp"
+                away_sub = away['subreddit'] if away is not None else "#temp/"  # '/' Denotes away ::after img
 
-            mdl = [f"{i.kickoff} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in fixtures]
-            fx_markdown = header + rows_to_md_table(th, mdl)  # Show all fixtures.
+                if count == 0:
+                    h = f"[{f.home.name}]({home_sub})"
+                    a = f"[{f.away.name}]({away_sub})"
+                    top_bar = f"> {h} [{f.score}]({f.url}) {a}"
+
+                    home_icon = home['icon'] if home is not None else ""
+                    away_icon = away['icon'] if away is not None else ""
+
+                    # Upload badge.
+                    if not home_icon or not away_icon:
+                        badge: str = await f.get_badge('home') if not home_icon else await f.get_badge('away')
+                        if badge:
+                            im = Image.open(badge)
+                            im.save("TEMP_BADGE.png", "PNG")
+                            s = await self.bot.reddit.subreddit("NUFC")
+                            await s.stylesheet.upload("TEMP_BADGE.png", "temp")
+                            await s.stylesheet.update(s.stylesheet().stylesheet, reason="Upload a badge")
+                            print("Uploaded new image to sidebar!")
+
+                count += 1
+
+                rows.append(f"{f.kickoff} | [{short_home} {f.score} {short_away}]({f.url})\n")
+            fx_markdown = "\n* Upcoming fixtures" + rows_to_md_table("\n\n Date & Time | Match\n--:|:--\n", rows)
         else:
             fx_markdown = ""
 
@@ -213,11 +210,17 @@ class NUFCSidebar(commands.Cog):
         if results:
             header = "* Previous Results\n"
             markdown += header
-            th = "\n Date | Result\n--:|:--\n"
-
-            mdl = [f"{i.kickoff} | [{i.short_home} {i.score} {i.short_away}]({i.url})\n" for i in results]
-            rx_markdown = rows_to_md_table(th, mdl, max_length=10240 - len(markdown + footer))
-            markdown += rx_markdown
+            rows = []
+            for r in results:
+                home = next((i for i in self.bot.reddit_teams if i['name'] == r.home.name), None)
+                away = next((i for i in self.bot.reddit_teams if i['name'] == r.away.name), None)
+                short_home = home['short_name'] if home is not None else r.home.name
+                short_away = away['short_name'] if away is not None else r.away.name
+                # home_sub = home['subreddit'] if home is not None else "#temp"
+                # away_sub = away['subreddit'] if away is not None else "#temp/" # '/' Denotes away ::after img
+                rows.append(f"{r.kickoff} | [{short_home} {r.score} {short_away}]({r.url})\n")
+            md = rows_to_md_table("\n Date | Result\n--:|:--\n", rows, max_length=10240 - len(markdown + footer))
+            markdown += md
 
         markdown += footer
         return markdown
@@ -235,7 +238,7 @@ class NUFCSidebar(commands.Cog):
 
         await interaction.response.defer()
         # Check if message has an attachment, for the new sidebar image.
-        e = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")
+        e: Embed = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
         e.set_author(icon_url=th, name="r/NUFC Sidebar updated")
         file = None

@@ -1,10 +1,12 @@
 """Cog for outputting various RSS based information"""
 import datetime
-import re
+from re import sub
 from typing import TYPE_CHECKING
 
-from discord import Embed, app_commands, Interaction
-from discord.ext import commands, tasks
+from discord import Embed, Interaction
+from discord.app_commands import command, describe, guilds
+from discord.ext.commands import Cog
+from discord.ext.tasks import loop
 from discord.ui import View
 from lxml import html
 from pyppeteer.errors import TimeoutError
@@ -24,7 +26,7 @@ class DevBlogView(View):
     """Browse Dev Blogs"""
 
 
-class RSS(commands.Cog):
+class RSS(Cog):
     """RSS Commands"""
 
     def __init__(self, bot: 'Bot') -> None:
@@ -48,19 +50,22 @@ class RSS(commands.Cog):
         """Get a list of old dev blogs stored in DB"""
 
     async def parse_all_blogs(self):
+        """Loop through all dev blogs to fetch new data"""
         pass
 
     async def get_inner_text(self, blog_id=296):  # 296 debug
+        """Get the inner text of a specific dev blog"""
         async with self.bot.session.get(f'https://blog.worldofwarships.com/blog/{blog_id}') as resp:
             src = await resp.text()
 
         tree = html.fromstring(src)
 
         inner = tree.xpath('.//div[@class="article__content"]')[0].inner_html
+        print(inner)
 
-    @app_commands.command()
-    @app_commands.describe(number="Enter Dev Blog Number")
-    @app_commands.guilds(742372603813036082)
+    @command()
+    @describe(number="Enter Dev Blog Number")
+    @guilds(742372603813036082)
     async def dev_blog(self, interaction: Interaction, number: int):
         """Fetch a World of Warships dev blog, either provide ID number or leave blank to get latest."""
         if number:
@@ -94,7 +99,7 @@ class RSS(commands.Cog):
         finally:
             await page.close()
 
-        e = Embed(url=link, colour=0x064273)
+        e: Embed = Embed(url=link, colour=0x064273)
         e.title = tree.xpath('.//div[@class="title"]/text()')[0] if title is None else title
         category = "EU News: " + tree.xpath('.//nav/div/a/span/text()')[-1] if category is None else category
         date = datetime.datetime.now() if date is None else datetime.datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %Z")
@@ -123,7 +128,7 @@ class RSS(commands.Cog):
 
         article_html = tree.xpath('.//div[@class="article__content"]')[0]
 
-        e = Embed(colour=0x00FFFF, title=''.join(tree.xpath('.//h2[@class="article__title"]/text()')), url=url)
+        e: Embed = Embed(colour=0x00FFFF, title=''.join(tree.xpath('.//h2[@class="article__title"]/text()')), url=url)
         e.set_author(name="World of Warships Development Blog", url="https://blog.worldofwarships.com/")
         e.timestamp = datetime.datetime.now(datetime.timezone.utc)
         e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
@@ -138,67 +143,60 @@ class RSS(commands.Cog):
 
             try:
                 txt = node.text if node.text.strip() else ""
-                txt = re.sub(r'\s{2,}', ' ', txt)
+                txt = sub(r'\s{2,}', ' ', txt)
             except AttributeError:
                 txt = ""
 
-            try:
-                tl = node.tail if node.tail.strip() else ""
-                tl = re.sub(r'\s{2,}', ' ', tl)
-            except AttributeError:
-                tl = ""
-
             if not txt:
                 out = ""
-            elif node.tag in ["p" or "div"]:
-                out = f"{txt}"
-            elif node.tag == "em":
-                out = f"*{txt}*"
-            elif node.tag == "strong":
-                out = f" **{txt}**"
-                try:
-                    node.parent.text
-                except AttributeError:
-                    out += "\n"
-            elif node.tag == "span":
-                if 'class' in node.attrib:
-                    if "ship" in node.attrib['class']:
-                        try:
-                            out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
-                        except AttributeError:
-                            out = f"**{txt}**\n"
-                    else:
-                        out = txt
-                else:
-                    out = txt
-            elif node.tag == "ul":
-                out = f"{txt}"
-            elif node.tag == "li":
-                bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
-                out = f"{bullet_type} {txt}"
-            elif node.tag in ["h3", "h4"]:
-                out = f"**{txt}**"
-            elif node.tag == "a":
-                out = f"[{txt}]({node.attrib['href']})"
             else:
-                print(f"Unhandled node tag found: {node.tag} | {txt} | {tail}")
-                out = txt
+                match node.tag:
+                    case "p" | "div" | "ul":
+                        out = txt
+                    case "em":
+                        out = f"*{txt}*"
+                    case "strong" | "h3" | "h4":
+                        out = f" **{txt}**"
+                        try:
+                            node.parent.text
+                        except AttributeError:
+                            out += "\n"
+                    case "span":
+                        out = txt
+                        if 'class' in node.attrib:
+                            if "ship" in node.attrib['class']:
+                                try:
+                                    out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
+                                except AttributeError:
+                                    out = f"**{txt}**\n"
+                    case "li":
+                        bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
+                        out = f"{bullet_type} {txt}"
+                    case "a":
+                        out = f"[{txt}]({node.attrib['href']})"
+                    case _:
+                        print(f"Unhandled node tag found: {node.tag} | {txt} | {tail}")
+                        out = txt
 
-            if tl:
-                out += tl
+            try:
+                tl = node.tail if node.tail.strip() else ""
+                tl = sub(r'\s{2,}', ' ', tl)
+            except AttributeError:
+                tl = ""
+            out += tl
 
             return out
 
         for n in article_html.iterchildren():  # Top Level Children Only.
             try:
                 text = n.text if n.text.strip() else ""
-                text = re.sub(r'\s{2,}', ' ', text)
+                text = sub(r'\s{2,}', ' ', text)
             except AttributeError:
                 text = ""
 
             try:
                 tail = n.tail if n.tail.strip() else ""
-                tail = re.sub(r'\s{2,}', ' ', tail)
+                tail = sub(r'\s{2,}', ' ', tail)
             except AttributeError:
                 tail = ""
 
@@ -209,13 +207,13 @@ class RSS(commands.Cog):
                 # Force Linebreak on new section.
                 try:
                     child_text = child.text if child.text.strip() else ""
-                    child_text = re.sub(r'\s{2,}', ' ', child_text)
+                    child_text = sub(r'\s{2,}', ' ', child_text)
                 except AttributeError:
                     child_text = ""
 
                 try:
                     child_tail = child.tail if child.tail.strip() else ""
-                    child_tail = re.sub(r'\s{2,}', ' ', child_tail)
+                    child_tail = sub(r'\s{2,}', ' ', child_tail)
                 except AttributeError:
                     child_tail = ""
 
@@ -238,17 +236,17 @@ class RSS(commands.Cog):
             e.description = output
         return e
 
-    @app_commands.command()
-    @app_commands.describe(link="Enter the news article link to be parsed")
-    @app_commands.guilds(742372603813036082)
+    @command()
+    @describe(link="Enter the news article link to be parsed")
+    @guilds(742372603813036082)
     async def news(self, interaction: Interaction, link: str) -> None:
         """Manual refresh of missed news articles."""
-        if interaction.user.id != interaction.client.owner_id:
+        if interaction.user.id != self.bot.owner_id:
             return await interaction.client.error(interaction, "You do not own this bot.")
         await self.dispatch_eu_news(link)
         await self.bot.reply(interaction, content="Sent.", delete_after=1)
 
-    @tasks.loop(seconds=60)
+    @loop(seconds=60)
     async def eu_news(self):
         """Loop to get the latest EU news articles"""
         if self.bot.session is None:
@@ -272,9 +270,11 @@ class RSS(commands.Cog):
             desc = " ".join(''.join(i.xpath('.//description/text()')).split()).replace(' ]]>', '')
             title = ''.join(i.xpath('.//title/text()'))
             await self.dispatch_eu_news(link, date=date, title=title, desc=desc, category=category)
-        self.bot.news_cached = True
 
-    @tasks.loop(seconds=60)
+        if articles:
+            self.bot.news_cached = True
+
+    @loop(seconds=60)
     async def blog_loop(self):
         """Loop to get the latest dev blog articles"""
         if self.bot.session is None:

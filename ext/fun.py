@@ -1,15 +1,16 @@
 """Miscellaneous toys built for my own personal entertainment."""
-import collections
-import random
-import re
+from collections import Counter
 from copy import deepcopy
+from random import choice, randint, randrange, shuffle
+from re import finditer
 from typing import List, TYPE_CHECKING
 
-from discord import ButtonStyle, Colour, Embed, Interaction, app_commands, TextStyle, Message, File
-from discord.ext import commands
+from discord import ButtonStyle, Colour, Embed, Interaction, TextStyle, Message, File
+from discord.app_commands import command, context_menu, describe
+from discord.ext.commands import Cog
 from discord.ui import Button, View, Modal, TextInput
 
-from ext.utils import view_utils
+from ext.utils.view_utils import Stop, Paginator
 
 if TYPE_CHECKING:
     from core import Bot
@@ -20,25 +21,26 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 
 
 # TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
+# Send modal for custom roll
 # TODO: Slash attachments pass
-# TODO: Permissions Pass.
 # TODO: Macros Command OPTION enum for command.
 
 
 class CoinView(View):
     """A View with a counter for 2 results"""
 
-    def __init__(self, interaction: Interaction, count: int = 1) -> None:
+    def __init__(self, bot: 'Bot', interaction: Interaction, count: int = 1) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.results: List[str] = []
+        self.bot: Bot = bot
         for x in range(count):
-            self.results.append(random.choice(['Heads', 'Tails']))
+            self.results.append(choice(['Heads', 'Tails']))
 
     async def on_timeout(self) -> None:
         """Clear view"""
         self.clear_items()
-        await self.interaction.client.reply(self.interaction, view=self, followup=False)
+        await self.bot.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -47,17 +49,17 @@ class CoinView(View):
 
     async def update(self, content: str = "") -> Message:
         """Update embed and push to view"""
-        e = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(), description=f"**{self.results[-1]}**\n\n")
+        e: Embed = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(), description=f"**{self.results[-1]}**\n\n")
         e.set_thumbnail(url=COIN_IMAGE)
 
         if len(self.results) > 1:
-            counter = collections.Counter(self.results)
+            counter = Counter(self.results)
             for c in counter.most_common():
                 e.add_field(name=f"Total {c[0]}", value=c[1])
 
             e.description += "\n" + f"{'...' if len(self.results) > 200 else ''}"
             e.description += ', '.join([f'*{i}*' for i in self.results[-200:]])
-        return await self.interaction.client.reply(self.interaction, content=content, view=self, embed=e)
+        return await self.bot.reply(self.interaction, content=content, view=self, embed=e)
 
 
 class FlipButton(Button):
@@ -71,7 +73,7 @@ class FlipButton(Button):
         """When clicked roll"""
         await interaction.response.defer()
         for x in range(self.count):
-            self.view.results.append(random.choice(['Heads', 'Tails']))
+            self.view.results.append(choice(['Heads', 'Tails']))
         return await self.view.update()
 
 
@@ -80,13 +82,17 @@ class PollModal(Modal, title="Make a Decision"):
     question = TextInput(label="Enter a question", placeholder="What should I do?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
 
+    def __init__(self, bot: 'Bot'):
+        super().__init__()
+        self.bot: Bot = bot
+
     async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
-        e = Embed(colour=interaction.user.colour, title=self.question)
+        e: Embed = Embed(colour=interaction.user.colour, title=self.question)
         e.set_author(icon_url=interaction.user.display_avatar.url, name=f'Choose')
 
         choices = str(self.answers).split("\n")
-        random.shuffle(choices)
+        shuffle(choices)
         e.description = f"\n\n🥇 **{choices.pop(0)}**\n"
         try:
             e.description += f"🥈 **{choices.pop(0)}**\n"
@@ -94,26 +100,27 @@ class PollModal(Modal, title="Make a Decision"):
             e.description += ' ,'.join([f"*{i}*" for i in choices])
         except IndexError:
             pass
-        return await interaction.client.reply(interaction, embed=e)
+
+        return await self.bot.reply(interaction, embed=e)
 
 
 # Context Menu commands must be free floating.
-@app_commands.context_menu(name="MoCk")
+@context_menu(name="MoCk")
 async def mock(interaction: Interaction, message: Message) -> Message:
     """AlTeRnAtInG cApS"""
     content = ''.join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
     return await interaction.client.reply(interaction, content=content)
 
 
-class Fun(commands.Cog):
+class Fun(Cog):
     """Various Toys for you to play with."""
 
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
         self.bot.tree.add_command(mock)  # Must be free floating.
 
-    @app_commands.command(name="8ball")
-    @app_commands.describe(question="enter a question")
+    @command(name="8ball")
+    @describe(question="enter a question")
     async def eight_ball(self, interaction: Interaction, question: str) -> Message:
         """Magic Geordie 8ball"""
         res = ["probably", "Aye", "aye mate", "wey aye.", "aye trust is pal.",
@@ -126,110 +133,106 @@ class Fun(commands.Cog):
                "mebbe like", "dain't bet on it like"
                ]
 
-        e = Embed(title=question, colour=0x000001, description=random.choice(res))
+        e: Embed = Embed(title=question, colour=0x000001, description=choice(res))
         e.set_author(icon_url=self.bot.user.display_avatar.url, name=f'🎱 8 Ball')
         return await self.bot.reply(interaction, embed=e)
 
-    @app_commands.command()
+    @command()
     async def lenny(self, interaction) -> Message:
         """( ͡° ͜ʖ ͡°)"""
         lennys = ['( ͡° ͜ʖ ͡°)', '(ᴗ ͜ʖ ᴗ)', '(⟃ ͜ʖ ⟄) ', '(͠≖ ͜ʖ͠≖)', 'ʕ ͡° ʖ̯ ͡°ʔ', '( ͠° ͟ʖ ͡°)', '( ͡~ ͜ʖ ͡°)',
                   '( ͡◉ ͜ʖ ͡◉)', '( ͡° ͜V ͡°)', '( ͡ᵔ ͜ʖ ͡ᵔ )',
                   '(☭ ͜ʖ ☭)', '( ° ͜ʖ °)', '( ‾ ʖ̫ ‾)', '( ͡° ʖ̯ ͡°)', '( ͡° ل͜ ͡°)', '( ͠° ͟ʖ ͠°)', '( ͡o ͜ʖ ͡o)',
                   '( ͡☉ ͜ʖ ͡☉)', 'ʕ ͡° ͜ʖ ͡°ʔ', '( ͡° ͜ʖ ͡ °)']
-        return await self.bot.reply(interaction, content=random.choice(lennys))
+        return await self.bot.reply(interaction, content=choice(lennys))
 
-    @app_commands.command()
+    @command()
     async def thatsthejoke(self, interaction: Interaction) -> Message:
         """That's the joke"""
         return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=xECUrlnXCqk")
 
-    @app_commands.command()
+    @command()
     async def helmet(self, interaction: Interaction) -> Message:
         """Helmet"""
         return await self.bot.reply(interaction, file=File(fp="Images/helmet.jpg"))
 
-    @app_commands.command()
+    @command()
     async def dead(self, interaction: Interaction) -> Message:
         """STOP, STOP HE'S ALREADY DEAD"""
         return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
 
-    @app_commands.command()
+    @command()
     async def coin(self, interaction: Interaction, count: int = 1) -> Message | View:
         """Flip a coin"""
         if count > 10000:
             return await self.bot.error(interaction, 'Too many coins.')
 
-        view = CoinView(interaction, count=count)
+        view = CoinView(self.bot, interaction, count=count)
         view.add_item(FlipButton())
 
         for _ in [5, 10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
-        view.add_item(view_utils.Stop(row=1))
+        view.add_item(Stop(row=1))
         return await view.update()
 
-    @app_commands.command()
-    @app_commands.describe(query="enter a search term")
+    @command()
+    @describe(query="enter a search term")
     async def urban(self, interaction: Interaction, query: str) -> Message | View:
         """Lookup a definition from urban dictionary"""
         url = f"http://api.urbandictionary.com/v0/define?term={query}"
         async with self.bot.session.get(url) as resp:
-            if resp.status != 200:
-                return await interaction.client.error(interaction, f"🚫 HTTP Error, code: {resp.status}")
-            resp = await resp.json()
-
+            match resp.status:
+                case 200:
+                    resp = await resp.json()
+                case _:
+                    return await self.bot.error(interaction, f"🚫 HTTP Error, code: {resp.status}")
         tn = "http://d2gatte9o95jao.cloudfront.net/assets/apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
 
-        embeds = []
-
-        resp = resp["list"]
         # Populate Embed, add to list
-        e = Embed(color=0xFE3511)
-        e.set_author(name=f"Urban Dictionary")
-        e.set_thumbnail(url=tn)
+        e: Embed = Embed(color=0xFE3511).set_author(name=f"Urban Dictionary").set_thumbnail(url=tn)
 
-        if resp:
-            for i in resp:
-                embed = deepcopy(e)
-                embed.title = i["word"]
-                embed.url = i["permalink"]
-                de = rde = i["definition"]
-                for z in re.finditer(r'\[(.*?)]', de):
+        embeds = []
+        for i in resp["list"]:
+            embed = deepcopy(e)
+            embed.title = i["word"]
+            embed.url = i["permalink"]
+            de = rde = i["definition"]
+            for z in finditer(r'\[(.*?)]', de):
+                z1 = z.group(1).replace(' ', "%20")
+                z = z.group()
+                de = de.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
+
+            de = de[:2044] + "..." if len(rde) > 2048 else rde
+
+            if i["example"]:
+                ex = rex = i['example']
+                for z in finditer(r'\[(.*?)]', ex):
                     z1 = z.group(1).replace(' ', "%20")
                     z = z.group()
-                    de = de.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
+                    rex = ex.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
 
-                de = de[:2044] + "..." if len(rde) > 2048 else rde
+                ex = ex[:1020] + "..." if len(rex) > 1024 else rex
 
-                if i["example"]:
-                    ex = rex = i['example']
-                    for z in re.finditer(r'\[(.*?)]', ex):
-                        z1 = z.group(1).replace(' ', "%20")
-                        z = z.group()
-                        rex = ex.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
+                embed.add_field(name="Example", value=ex)
 
-                    ex = ex[:1020] + "..." if len(rex) > 1024 else rex
+            embed.description = de
+            embeds.append(embed)
 
-                    embed.add_field(name="Example", value=ex)
-
-                embed.description = de
-
-                embeds.append(embed)
-        else:
+        if not embeds:
             e.description = f"🚫 No results found for {query}."
             embeds = [e]
 
-        view = view_utils.Paginator(interaction, embeds=embeds)
+        view = Paginator(interaction, embeds=embeds)
         return await view.update()
 
-    @app_commands.command()
-    @app_commands.describe(dice="enter a roll (format: 1d20+3)")
+    @command()
+    @describe(dice="enter a roll (format: 1d20+3)")
     async def roll(self, interaction: Interaction, dice: str = "d20") -> Message:
         """Roll a set of dice in the format XdY+Z. Use 'adv' or 'dis' for (dis)advantage"""
         advantage = True if dice.startswith("adv") else False
         disadvantage = True if dice.startswith("dis") else False
 
-        e = Embed(title="🎲 Dice Roller")
+        e: Embed = Embed(title="🎲 Dice Roller")
         if advantage:
             e.title += " (Advantage)"
         if disadvantage:
@@ -252,7 +255,7 @@ class Fun(commands.Cog):
                     e.description += f"{r}: **1**\n"
                     total += 1
                     continue
-                result = random.randint(1, int(r))
+                result = randint(1, int(r))
                 e.description += f"{r}: **{result}**\n"
                 total += int(result)
                 continue
@@ -284,20 +287,20 @@ class Fun(commands.Cog):
                     sides = int(sides)
 
                 if dice > 1000:
-                    return await interaction.client.error(interaction, 'Too many dice')
+                    return await self.bot.error(interaction, 'Too many dice')
                 if sides > 1000000:
-                    return await interaction.client.error(interaction, 'Too many sides')
+                    return await self.bot.error(interaction, 'Too many sides')
 
             e.description += f"{r}: "
             total_roll = 0
             roll_info = ""
             curr_rolls = []
             for i in range(dice):
-                first_roll = random.randrange(1, 1 + sides)
+                first_roll = randrange(1, 1 + sides)
                 roll_outcome = first_roll
 
                 if dice in ["adv", "dis"]:
-                    second_roll = random.randrange(1, 1 + sides)
+                    second_roll = randrange(1, 1 + sides)
                     if (advantage and second_roll > first_roll) or (disadvantage and second_roll < first_roll):
                         roll_outcome = second_roll
                         roll_info += f"({first_roll}, __{second_roll}__)"
@@ -309,12 +312,13 @@ class Fun(commands.Cog):
                 total_roll += roll_outcome
 
                 if dice == 1 and sides >= 20:
-                    if roll_outcome == 1:
-                        e.colour = Colour.red()
-                        e.set_footer(text="Critical Failure")
-                    elif roll_outcome == sides:
-                        e.colour = Colour.green()
-                        e.set_footer(text="Critical.")
+                    match roll_outcome:
+                        case 1:
+                            e.colour = Colour.red()
+                            e.set_footer(text="Critical Failure")
+                        case sides:
+                            e.colour = Colour.green()
+                            e.set_footer(text="Critical.")
 
             roll_info += ", ".join(curr_rolls)
 
@@ -330,12 +334,12 @@ class Fun(commands.Cog):
 
         return await self.bot.reply(interaction, embed=e)
 
-    @app_commands.command()
+    @command()
     async def choose(self, interaction: Interaction) -> PollModal:
         """Make a decision for you (separate choices with new lines)"""
-        return await interaction.response.send_modal(PollModal())
+        return await interaction.response.send_modal(PollModal(self.bot))
 
-    @app_commands.command(name="f")
+    @command(name="f")
     async def press_f(self, interaction) -> Message:
         """Press F to pay respects"""
         return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")

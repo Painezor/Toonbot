@@ -1,92 +1,160 @@
 """Moderation Commands"""
-import datetime
-from typing import Optional, Literal
+from typing import Optional, Literal, TYPE_CHECKING
 
-from discord import Interaction, Member, app_commands, Colour, Embed, TextChannel, HTTPException, Forbidden, Object, \
-    Message
-from discord.ext import commands
+from discord import Interaction, Member, Colour, Embed, TextChannel, HTTPException, Forbidden, Object, Message, \
+    TextStyle
+from discord.app_commands import command, describe
+from discord.app_commands.checks import has_permissions, bot_has_permissions
+from discord.ext.commands import Cog
+from discord.ui import Modal, TextInput
 
-from ext.utils import embed_utils, view_utils, timed_events
+from ext.utils.embed_utils import rows_to_embeds
+from ext.utils.view_utils import Paginator
 
-
-# TODO: User Commands Pass
-# TODO: Modals pass -> Say command, pin command, topic command.
-# TODO: Grouped Commands pass
-# TODO: Slash attachments pass
-# TODO: Permissions Pass.
-# TODO: Banlist dropdown -> Unban.
+if TYPE_CHECKING:
+    from core import Bot
 
 
-class Mod(commands.Cog):
+class BanModal(Modal, title="Bulk ban user IDs"):
+    """Modal for user to enter multi line bans on."""
+    ban_list = TextInput(
+        label="Enter User IDs to ban, one per line",
+        style=TextStyle.paragraph,
+        placeholder="12345678901234\n12345678901235\n12345678901236\n..."
+    )
+    reason = TextInput(label="Enter a reason", placeholder="<Insert your reason here>", default="No reason provided")
+
+    def __init__(self, bot: 'Bot'):
+        super().__init__()
+        self.bot: Bot = bot
+
+    async def on_submit(self, interaction: Interaction) -> None:
+        """Ban users on submit."""
+        e: Embed = Embed(title="Users Banned", description="")
+        e.add_field(name="reason", value=self.reason.value)
+
+        targets = [int(i.strip()) for i in self.ban_list.value.split('\n')]
+
+        for i in targets:
+            target = await self.bot.fetch_user(int(i))
+
+            try:
+                await self.bot.http.ban(i, interaction.guild.id)
+            except HTTPException:
+                e.description += f"⚠ Banning failed for {i} {target}."
+            else:
+                e.description += f'☠ Banned UserID {i} {target}'
+        await self.bot.reply(interaction, embed=e)
+
+
+class EmbedModal(Modal, title="Send an Embed"):
+    """A Modal to allow the author to send an embedded message"""
+    e_title = TextInput(label="Embed Title", placeholder="Announcement")
+    text = TextInput(label="", placeholder="Enter your text here", style=TextStyle.paragraph, max_length=4000)
+    thumbnail = TextInput(label="Thumbnail", placeholder="Enter url for thumbnail image", required=False)
+    image = TextInput(label="Image", placeholder="Enter url for large image", required=False)
+
+    def __init__(self, bot: 'Bot', interaction: Interaction, destination: TextChannel, colour: Colour) -> None:
+        super().__init__()
+        self.bot: Bot = bot
+        self.interaction: Interaction = interaction
+        self.destination: TextChannel = destination
+        self.colour: Colour = colour
+
+    async def on_submit(self, interaction: Interaction) -> None:
+        """Send the embed"""
+        e = Embed(title=self.e_title, colour=self.colour)
+        e.set_author(name=self.interaction.guild.name, icon_url=self.interaction.guild.icon.url)
+
+        if self.image is not None and "http:" in self.image:
+            e.set_image(url=self.image)
+        if self.thumbnail is not None and "http:" in self.thumbnail:
+            e.set_thumbnail(url=self.thumbnail)
+        try:
+            await self.destination.send(embed=e)
+            await self.bot.reply(interaction, content="Message sent.", ephemeral=True)
+        except Forbidden:
+            await self.bot.error(interaction, "I can't send messages to that channel.")
+
+
+class Mod(Cog):
     """Guild Moderation Commands"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
-    @app_commands.command()
-    @app_commands.describe(message="text to send", destination="target channel")
-    async def say(self, interaction: Interaction, message: str, destination: Optional[TextChannel] = None) -> Message:
-        """Say something as the bot in specified channel"""
-        if not interaction.guild:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
-
-        if destination is None:
-            destination = interaction.channel
+    # TODO: Slash attachments pass
+    @command()
+    @has_permissions(manage_messages=True)
+    @bot_has_permissions(manage_messages=True)
+    @describe(destination="target channel", colour="embed colour")
+    async def embed(self, interaction: Interaction, destination: TextChannel = None,
+                    colour: Literal['red', 'blue', 'green', 'yellow', 'white'] = None) -> Message:
+        """Send an embedded announcement as the bot in a specified channel"""
+        destination = interaction.channel if destination is None else destination
 
         if destination.guild.id != interaction.guild.id:
             return await self.bot.error(interaction, "You cannot send messages to other servers.")
 
-        if not interaction.permissions.manage_messages:
-            if not interaction.user.id == self.bot.owner_id:
-                return await self.bot.error(interaction, "You need manage_messages permissions to do that")
+        match colour:
+            case 'red':
+                colour = Colour.red()
+            case 'blue':
+                colour = Colour.blue()
+            case 'green':
+                colour = Colour.green()
+            case 'yellow':
+                colour = Colour.yellow()
+            case 'white':
+                colour = Colour.light_gray()
 
+        modal = EmbedModal(self.bot, interaction, destination, colour)
+        await interaction.response.send_modal(modal)
+
+    @command()
+    @has_permissions(manage_messages=True)
+    @bot_has_permissions(manage_messages=True)
+    @describe(message="text to send", destination="target channel")
+    async def say(self, interaction: Interaction, message: str, destination: Optional[TextChannel] = None) -> Message:
+        """Say something as the bot in specified channel"""
         if len(message) > 2000:
             return await self.bot.error(interaction, "Message too long. Keep it under 2000.")
 
+        destination = interaction.channel if destination is None else destination
+
+        if destination.guild.id != interaction.guild.id:
+            return await self.bot.error(interaction, "You cannot send messages to other servers.")
+
         try:
             await destination.send(message)
-            await self.bot.reply(interaction, content="Message sent.")
+            await self.bot.reply(interaction, content="Message sent.", ephemeral=True)
         except Forbidden:
             return await self.bot.error(interaction, "I can't send messages to that channel.")
 
-    @app_commands.command()
-    @app_commands.describe(new_topic="Type the new topic for this channel..")
+    @command()
+    @has_permissions(manage_channels=True)
+    @bot_has_permissions(manage_channels=True)
+    @describe(new_topic="Type the new topic for this channel..")
     async def topic(self, interaction: Interaction, new_topic: str):
         """Set the topic for the current channel"""
-        if not interaction.guild:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
-
-        if not interaction.permissions.manage_channels:
-            err = "You need manage_channels permissions to edit the channel topic."
-            return await self.bot.error(interaction, err)
-
         await interaction.channel.edit(topic=new_topic)
         await self.bot.reply(interaction, content=f"{interaction.channel.mention} Topic updated")
 
-    @app_commands.command()
-    @app_commands.describe(message="Type a message to be pinned in this channel.")
+    @command()
+    @has_permissions(manage_channels=True)
+    @bot_has_permissions(manage_channels=True)
+    @describe(message="Type a message to be pinned in this channel.")
     async def pin(self, interaction: Interaction, message: str):
         """Pin a message to the current channel"""
-        if not interaction.permissions.manage_channels:
-            return await self.bot.error(interaction, "You need manage_channels permissions to pin a message.")
-
-        if not interaction.channel.permissions_for(interaction.channel.guild.me).manage_channels:
-            return await self.bot.error(interaction, "I don't have manage_channels permissions to pin messages.")
-
         message = await self.bot.reply(interaction, content=message)
         await message.pin()
 
-    @app_commands.command()
-    @app_commands.describe(member="Pick a user to rename", new_nickname="Choose a new nickname for the member")
+    @command()
+    @has_permissions(manage_nicknames=True)
+    @bot_has_permissions(manage_nicknames=True)
+    @describe(member="Pick a user to rename", new_nickname="Choose a new nickname for the member")
     async def rename(self, interaction: Interaction, member: Member, new_nickname: str):
         """Rename a member"""
-        if not interaction.guild:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
-
-        if not interaction.permissions.manage_nicknames:
-            msg = "You need manage_nicknames permissions to rename a user"
-            return await self.bot.error(interaction, msg)
-
         try:
             await member.edit(nick=new_nickname)
         except Forbidden:
@@ -94,127 +162,63 @@ class Mod(commands.Cog):
         except HTTPException:
             await self.bot.error(interaction, "❔ Member edit failed.")
         else:
-            await self.bot.reply(interaction, content=f"{member.mention} has been renamed.")
+            e = Embed(colour=Colour.og_blurple(), description=f"{member.mention} has been renamed.")
+            await self.bot.reply(interaction, embed=e, ephemeral=True)
 
-    @app_commands.command()
-    @app_commands.describe(member="Pick a user to kick", reason="provide a reason for kicking the user")
-    async def kick(self, interaction: Interaction, member: Member, reason: str = "unspecified reason."):
-        """Kicks the user from the server"""
-        if not interaction.guild:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
+    @command()
+    @has_permissions(ban_members=True)
+    @bot_has_permissions(ban_members=True)
+    @describe(user_ids="comma separated list of user ids to ban", reason="reason for the bans")
+    async def ban(self, interaction: Interaction):
+        """Bans a list of user IDs"""
+        await interaction.response.sendmodal(BanModal(self.bot))
 
-        if not interaction.permissions.kick_members:
-            msg = "You need kick_members permissions to rename a user"
-            return await self.bot.error(interaction, msg)
-
-        try:
-            await member.kick(reason=f"{interaction.user}: {reason}")
-        except Forbidden:
-            await self.bot.error(interaction, f"I can't kick {member.mention}")
-        else:
-            await self.bot.reply(interaction, content=f"{member.mention} was kicked.")
-
-    @app_commands.command()
-    @app_commands.describe(member="Pick a user to ban",
-                           user_ids="enter a comma separated list of user ids to ban",
-                           reason="provide a reason for kicking the user",
-                           delete_days="delete messages from the last x days")
-    async def ban(self, interaction: Interaction,
-                  delete_days: Literal[0, 1, 2, 3, 4, 5, 6, 7],
-                  member: Optional[Member] = None,
-                  user_ids: Optional[str] = None,
-                  reason: str = "Not specified"):
-        """Bans a member (or list of User IDs) from the server, deletes all messages for the last x days"""
-        if not interaction.guild:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-        if not interaction.permissions.ban_members:
-            return await self.bot.error(interaction, "You need ban_members permissions to ban someone.")
-
-        e = Embed(title="Users Banned", description="")
-        if reason is not None:
-            e.add_field(name="reason", value=reason)
-        if delete_days != Literal[0]:
-            e.add_field(name="Deleted Messages", value=f"Messages from the last {delete_days} were deleted.")
-
-        if member is not None:
-            e.description = f"☠ {member.mention}"
-            try:
-                await member.ban(reason=f"{interaction.user.name}: {reason}", delete_message_days=delete_days)
-                await self.bot.reply(interaction, embed=e)
-            except Forbidden:
-                return await self.bot.error(interaction, f"I can't ban {member.mention}.")
-
-        if user_ids is not None:
-            targets = [int(i.strip()) for i in ','.split(user_ids)]
-
-            for i in targets:
-                target = await self.bot.fetch_user(int(i))
-                e.description += f'☠ UserID {i} {target}'
-                try:
-                    await self.bot.http.ban(i, interaction.guild.id)
-                except HTTPException:
-                    e.description += f"⚠ Banning failed for {i}."
-            await self.bot.reply(interaction, embed=e)
-
-    @app_commands.command()
-    @app_commands.describe(user_id="Enter the user ID# of the person to unban")
+    @command()
+    @has_permissions(ban_members=True)
+    @bot_has_permissions(ban_members=True)
+    @describe(user_id="User ID# of the person to unban")
     async def unban(self, interaction: Interaction, user_id: str):
         """Unbans a user from the server"""
-        if not interaction.guild:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-
-        if not interaction.permissions.ban_members:
-            return await self.bot.error(interaction, "You need ban_members permissions to unban someone.")
-
         try:
-            user_id = int(user_id)
+            await interaction.guild.unban(Object(int(user_id)))
         except ValueError:
             return await self.bot.error(interaction, "Invalid user ID provided.")
-
-        user = Object(user_id)
-
-        try:
-            await interaction.guild.unban(user)
         except HTTPException:
             await self.bot.error(interaction, "I can't unban that user.")
         else:
-            target = await self.bot.fetch_user(user_id)
-            await self.bot.reply(interaction, content=f"{user} | {target} was unbanned")
-            e = Embed(title="Unbanned", description=f"You have been unbanned from {interaction.guild.name}")
-            await target.send(embed=e)
+            target = await self.bot.fetch_user(int(user_id))
+            e = Embed(title=user_id, description=f"User ID: {user_id} ({target}) was unbanned", colour=Colour.green())
+            await self.bot.reply(interaction, embed=e)
 
     # TODO: Banlist as View
-    @app_commands.command()
-    async def banlist(self, interaction):
+    # TODO: Dropdown to unban users.
+    @command()
+    @has_permissions(view_audit_log=True)
+    @bot_has_permissions(view_audit_log=True)
+    async def banlist(self, interaction: Interaction) -> Message:
         """Show the ban list for the server"""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be used in DMs.")
+        bans = []
+        async for x in interaction.guild.bans():
+            bans.append(f"{x.user.id} | {x.user.name}#{x.user.discriminator}" f"```yaml\n{x.reason}```")
 
-        if not interaction.permissions.view_audit_log:
-            return await self.bot.error(interaction, "You need view_audit_log permissions to view the ban list.")
+        if not bans:
+            bans = ["No bans found"]
 
-        ban_lines = [f"{x.user.id} | {x.user.name}#{x.user.discriminator}"
-                     f"```yaml\n{x.reason}```" for x in await interaction.guild.bans()]
-
-        if not ban_lines:
-            ban_lines = ["No bans found"]
-
-        e = Embed(color=0x111)
+        e: Embed = Embed(color=0x111)
         n = f"{interaction.guild.name} ban list"
         _ = interaction.guild.icon.url if interaction.guild.icon is not None else None
         e.set_author(name=n, icon_url=_)
 
-        embeds = embed_utils.rows_to_embeds(e, ban_lines)
-        view = view_utils.Paginator(interaction, embeds)
+        embeds = rows_to_embeds(e, bans)
+        view = Paginator(interaction, embeds)
         await view.update()
 
-    @app_commands.command()
-    @app_commands.describe(number="Number of messages to delete.")
+    @command()
+    @has_permissions(manage_messages=True)
+    @bot_has_permissions(manage_messages=True)
+    @describe(number="Number of messages to delete.")
     async def clean(self, interaction: Interaction, number: int = None):
         """Deletes my messages from the last x messages in channel"""
-        if not interaction.permissions.manage_messages:
-            err = 'You need manage_messages permissions to clear messages.'
-            return await self.bot.error(interaction, err)
 
         def is_me(m):
             """Return only messages sent by the bot."""
@@ -222,67 +226,34 @@ class Mod(commands.Cog):
 
         number = 10 if number is None else number
 
-        deleted = await interaction.channel.purge(limit=number, check=is_me)
+        deleted = await interaction.channel.purge(limit=number, check=is_me, reason=f"/clean ran by {interaction.user}")
         c = f'♻ Deleted {len(deleted)} bot message{"s" if len(deleted) > 1 else ""}'
         await self.bot.reply(interaction, content=c, ephemeral=True)
 
-    @app_commands.command()
-    @app_commands.describe(minutes="number of minutes to timeout for", hours="number of hours to timeout for",
-                           days="number of days to timeout for", reason="provide a reason for the timeout")
-    async def timeout(self, interaction: Interaction,
-                      member: Member,
-                      minutes: app_commands.Range[int, 0, 60] = 0,
-                      hours: app_commands.Range[int, 0, 24] = 0,
-                      days: app_commands.Range[int, 0, 7] = 0,
-                      reason: str = "Not specified"):
-        """Timeout a user for the specified amount of time."""
-        if minutes == 0 and hours == 0 and days == 0:
-            return await self.bot.error(interaction, "You need to specify a duration")
-
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
-
-        if not interaction.permissions.moderate_members:
-            return await self.bot.error(interaction, "You need moderate_members permissions to time someone out.")
-
-        delta = datetime.timedelta(minutes=minutes, hours=hours, days=days)
-
-        try:
-            await member.timeout(delta, reason=reason)
-            e = Embed(title="User Timed Out", colour=Colour.dark_magenta())
-            t = timed_events.Timestamp(datetime.datetime.now(datetime.timezone.utc) + delta).long
-            e.description = f"{member.mention} was timed out.\nTimeout ends: {t}"
-            await self.bot.reply(interaction, embed=e)
-        except HTTPException:
-            await self.bot.error(interaction, "I can't time out that user.")
-
-    @app_commands.command()
-    @app_commands.describe(member="The user to untimeout", reason="reason for ending the timeout")
-    async def untimeout(self, interaction: Interaction, member: Member, reason: str = None):
+    @command()
+    @has_permissions(moderate_members=True)
+    @bot_has_permissions(moderate_members=True)
+    @describe(member="The user to untimeout", reason="reason for ending the timeout")
+    async def untimeout(self, interaction: Interaction, member: Member, reason: str = "Not provided"):
         """End the timeout for a user."""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
-
-        if not interaction.permissions.moderate_members:
-            return await self.bot.error(interaction, "You need moderate_members permissions to cancel a timeout.")
-
-        reason = f"{interaction.user}" if reason is None else f"{interaction.user}: reason"
+        if not member.is_timed_out():
+            return await self.bot.error(interaction, "That user is not timed out.")
 
         try:
-            await member.remove_timeout(reason=reason)
-            e = Embed(title="User Timed Out", color=Colour.dark_magenta())
+            await member.timeout(None, reason=f"{interaction.user}: {reason}")
+            e: Embed = Embed(title="User Un-Timed Out", color=Colour.dark_magenta())
             e.description = f"{member.mention} is no longer timed out."
             await self.bot.reply(interaction, embed=e)
         except HTTPException:
             await self.bot.error(interaction, "I can't un-timeout that user.")
 
     # Listeners
-    @commands.Cog.listener()
+    @Cog.listener()
     async def on_guild_join(self, guild):
         """Create database entry for new guild"""
         await self.create_guild(guild.id)
 
-    @commands.Cog.listener()
+    @Cog.listener()
     async def on_guild_remove(self, guild):
         """Delete guild's info upon leaving one."""
         await self.delete_guild(guild.id)
@@ -307,6 +278,6 @@ class Mod(commands.Cog):
             await self.bot.db.release(connection)
 
 
-async def setup(bot):
+async def setup(bot: 'Bot'):
     """Load the mod cog into the bot"""
     await bot.add_cog(Mod(bot))
