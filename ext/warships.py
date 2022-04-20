@@ -1,51 +1,22 @@
 """Private world of warships related commands"""
 import datetime
+from typing import TYPE_CHECKING
 
 from discord import Embed, ActivityType, Colour, app_commands, Interaction, Member
-from discord.ext import commands
+from discord.ext.commands import Cog
 
-targets = ["andejay", "andy_the_cupid_stunt", "chaosmachinegr", "Charede", "darknessdreams_1", "DobbyM8",
-           "frostinator08", "GameProdigy", "Jamdearest", "KidneyCowboy", "Lord_Zath", "Masterchief1567", "nebelfuss",
-           "painezor", "Pelzmorph", "pops_place", "Redberen", "SeaRaptor00", "song_mg", "spacepickshovel", "StatsBloke",
-           "tcfreer", "texashula", "the_shadewe", "thegrumpybeard", "TigersDen", "wookie_legend", "Xairen", "Yuzral"]
-
+if TYPE_CHECKING:
+    from painezBot import PBot
 
 # TODO: Go Live Tracker
 
-# def make_bauble(img):
-#     """Make a single bauble"""
-#     # Open Avatar file.
-#     avatar = Image.open(r"F:/Logos/" + img).convert(mode="RGBA")
-#
-#     # Create Canvas & Paste Avatar
-#     canvas = Image.new("RGBA", (300, 350), (0, 0, 0, 255))
-#     canvas.paste(avatar, (0, 50))
-#
-#     # Apply Bauble mask.
-#     msk = Image.open("images/Bauble_MASK.png").convert('L')
-#     canvas.putalpha(msk)
-#
-#     # Apply bauble top overlay
-#     bauble_top = Image.open("images/BaubleTop.png").convert(mode="RGBA")
-#     canvas.paste(bauble_top, mask=bauble_top)
-#
-#     output_loc = r"F:/Logo-Output/" + img.split('.')[0]
-#     canvas.save(output_loc + ".png")
-#
-#
-# def bulk_image():
-#     """Batch Export Baubles"""
-#     directory = r'F:\Logos'
-#     for img in os.listdir(directory):
-#         make_bauble(img)
 
-
-class Warships(commands.Cog):
+class Warships(Cog):
     """World of Warships related commands"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
-        self.now_live_cache = {}
+    def __init__(self, bot: 'PBot') -> None:
+        self.bot: PBot = bot
+        self.now_live_cache: dict = {}
 
     async def on_presence_update(self, before: Member, after: Member) -> None:
         """Apply hoisted role to streamers when they go live."""
@@ -131,6 +102,6 @@ class Warships(commands.Cog):
     #     await interaction.client.reply(interaction, tw, embed=e)
 
 
-async def setup(bot):
+async def setup(bot: 'PBot'):
     """Load the cog into the bot"""
     await bot.add_cog(Warships(bot))

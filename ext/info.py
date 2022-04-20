@@ -2,18 +2,20 @@
 import datetime
 from copy import deepcopy
 from re import findall
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Union
 
 from discord import Member, Embed, Colour, TextChannel, ButtonStyle, Forbidden, User, Interaction, PartialEmoji
 from discord.app_commands import CommandAlreadyRegistered, context_menu, command, describe
 from discord.ext.commands import Cog
 from discord.ui import View, Button
 
-from ext.utils import timed_events, embed_utils, view_utils
-from ext.utils.embed_utils import get_colour
+from ext.utils import timed_events
+from ext.utils.embed_utils import get_colour, rows_to_embeds
+from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
 
 INV = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
       "&scope=bot%20applications.commands"
@@ -81,17 +83,17 @@ async def u_info(interaction: Interaction, member: Member):
     sh = Embed(colour=Colour.og_blurple())
     sh.set_footer(text=f"{member} (ID: {member})", icon_url=member.display_avatar.url)
 
-    embeds = embed_utils.rows_to_embeds(sh, matches, 20, header=f"User found on {len(matches)} servers.")
+    embeds = rows_to_embeds(sh, matches, 20, header=f"User found on {len(matches)} servers.")
 
-    view = view_utils.Paginator(interaction, [e, perm_embed, av] + embeds)
+    view = Paginator(interaction.client, interaction, [e, perm_embed, av] + embeds)
     await view.update()
 
 
 class Info(Cog):
     """Get information about users or servers."""
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+        self.bot: Bot | PBot = bot
         try:
             self.bot.tree.add_command(u_info)
         except CommandAlreadyRegistered:
@@ -155,7 +157,7 @@ class Info(Cog):
 
         if interaction.guild.icon:
             e.set_thumbnail(url=interaction.guild.icon.url)
-            e.colour = await embed_utils.get_colour(str(interaction.guild.icon.url))
+            e.colour = await get_colour(str(interaction.guild.icon.url))
 
         emojis = ""
         for emoji in interaction.guild.emojis:
@@ -207,7 +209,7 @@ class Info(Cog):
     @command()
     async def about(self, interaction: Interaction):
         """Tells you information about the bot itself."""
-        e: Embed = Embed(colour=0x2ecc71, timestamp=interaction.client.user.created_at)
+        e: Embed = Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         e.set_footer(text=f"Toonbot is coded by Painezor and was created on ")
 
         me = self.bot.user
@@ -229,6 +231,6 @@ class Info(Cog):
         await self.bot.reply(interaction, embed=e, view=view)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Union['Bot', 'PBot']):
     """Load the Info cog into the bot"""
     await bot.add_cog(Info(bot))

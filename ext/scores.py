@@ -68,7 +68,7 @@ WORLD_CUP_LEAGUES = [
 
 
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
-
+# TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
 
 class ResetLeagues(Button):
     """Button to reset a live score channel back to it's default leagues"""
@@ -136,7 +136,7 @@ class ScoresConfig(View):
         embed: Embed = Embed(colour=Colour.dark_teal(), title="Toonbot Live Scores config")
 
         if leagues:
-            embed.set_thumbnail(url=self.interaction.client.user.display_avatar.url)
+            embed.set_thumbnail(url=self.bot.user.display_avatar.url)
 
             header = f'Tracked leagues for {self.channel.mention}```yaml\n'
 
@@ -158,36 +158,38 @@ class ScoresConfig(View):
             self.add_item(ResetLeagues())
             embed.description = f"No tracked leagues for {self.channel.mention}, would you like to reset it?"
 
-        return await self.interaction.client.reply(self.interaction, content=content, embed=embed, view=self)
+        return await self.bot.reply(self.interaction, content=content, embed=embed, view=self)
 
-    async def remove_leagues(self, leagues):
+    async def remove_leagues(self, leagues) -> Message:
         """Bulk remove leagues from a live scores channel"""
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
         lg_text = "```yaml\n" + '\n'.join(sorted(leagues)) + "```"
         txt = f"Remove these leagues from {self.channel.mention}? {lg_text}"
-        await self.interaction.client.reply(self.interaction, content=txt, view=view)
+        await self.bot.reply(self.interaction, content=txt, view=view)
         await view.wait()
 
         if view.value:
-            connection = await self.interaction.client.db.acquire()
+            connection = await self.bot.db.acquire()
             async with connection.transaction():
                 q = """DELETE from scores_leagues WHERE (channel_id, league) = ($1, $2)"""
                 for x in leagues:
                     await connection.execute(q, self.channel.id, x)
-            await self.interaction.client.db.release(connection)
-        await self.update(content=f"Removed {self.channel.mention} tracked leagues: {lg_text}")
+            await self.bot.db.release(connection)
+            return await self.update(content=f"Removed {self.channel.mention} tracked leagues: {lg_text}")
+        else:
+            return await self.update()
 
-    async def reset_leagues(self):
+    async def reset_leagues(self) -> Message:
         """Reset a channel to default leagues."""
-        connection = await self.interaction.client.db.acquire()
+        connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
                 for x in DEFAULT_LEAGUES:
                     await connection.execute(q, self.channel.id, x)
         finally:
-            await self.interaction.client.db.release(connection)
-        await self.update(content=f"Tracked leagues for {self.channel.mention} reset")
+            await self.bot.db.release(connection)
+        return await self.update(content=f"Tracked leagues for {self.channel.mention} reset")
 
 
 class Scores(Cog, name="LiveScores"):
@@ -333,9 +335,12 @@ class Scores(Cog, name="LiveScores"):
     async def fetch_games(self) -> None:
         """Grab current scores from flashscore using aiohttp"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
-            if resp.status != 200:
-                print(f'[ERR] Scores error {resp.status} ({resp.reason}) during fetch_games')
-                return
+            match resp.status:
+                case 200:
+                    pass
+                case _:
+                    print(f'[ERR] Scores error {resp.status} ({resp.reason}) during fetch_games')
+                    return
             tree = html.fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
 
         inner_html = tree.xpath('.//div[@id="score-data"]')[0]
@@ -391,12 +396,17 @@ class Scores(Cog, name="LiveScores"):
                 if len(teams) == 1:
                     teams = teams[0].split(' - ')  # Teams such as Al-Whatever exist.
                 if len(teams) != 2:
-                    for x in ["La Duchere"]:
-                        if x in teams:
-                            teams = [teams[0], teams[-2]] if teams[2] == x else [teams[0:2], teams[-1]]
-                    for y in ["Banik Most"]:
-                        if y in teams:
-                            teams = [teams[0], teams[-2]] if teams[0] == y else [teams[0:2], teams[-1]]
+                    match teams:
+                        case _, "La Duchere", _:
+                            teams = [teams[0] + teams[1], teams[2]]
+                        case _, _, "La Duchere":
+                            teams = [teams[0], teams[1] + teams[2]]
+                        case "Banik Most", _, _:
+                            teams = [teams[0], teams[1] + teams[2]]
+                        case _, "Banik Most", _:
+                            teams = [teams[0] + teams[1], teams[2]]
+                        case _:
+                            print("Fetch games team problem", len(teams), "teams found:", teams)
 
                 url = "http://www.flashscore.com" + lnk
 
@@ -461,16 +471,16 @@ class Scores(Cog, name="LiveScores"):
             # State must be set before Score
             match state:
                 case 'live':
-                    self.bot.games[match_id].set_time(self.bot, GameTime(time))
+                    self.bot.games[match_id].set_time(GameTime(time))
                 case 'Walkover':
-                    self.bot.games[match_id].set_time(self.bot, GameTime('Walkover'))
+                    self.bot.games[match_id].set_time(GameTime('Walkover'))
                 case 'AET' | 'After Pens' | 'Postponed' | 'Cancelled' | 'Delayed' | 'Abandoned' | 'Interrupted':
-                    self.bot.games[match_id].set_time(self.bot, GameTime(state))
+                    self.bot.games[match_id].set_time(GameTime(state))
                 case 'sched' | 'fin':
                     if state == 'sched':
-                        self.bot.games[match_id].set_time(self.bot, GameTime("scheduled"))
+                        self.bot.games[match_id].set_time(GameTime("scheduled"))
                     else:
-                        self.bot.games[match_id].set_time(self.bot, GameTime("Full Time"))
+                        self.bot.games[match_id].set_time(GameTime("Full Time"))
 
                     if self.bot.games[match_id].kickoff is None:
                         ko = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
@@ -486,8 +496,8 @@ class Scores(Cog, name="LiveScores"):
                 case _:
                     print(f"State not handled {state} | {time}")
 
-            await self.bot.games[match_id].set_score(self.bot, sh)
-            await self.bot.games[match_id].set_score(self.bot, sa, home=False)
+            await self.bot.games[match_id].set_score(sh)
+            await self.bot.games[match_id].set_score(sa, home=False)
 
             # Get Red Card Data
             cards = [i.replace('rcard-', '') for i in tree.xpath('./img/@class')]
@@ -501,9 +511,9 @@ class Scores(Cog, name="LiveScores"):
                         home_cards, away_cards = None, int(cards[0])
 
                 if home_cards != self.bot.games[match_id].home_cards:
-                    self.bot.games[match_id].set_cards(self.bot, home_cards)
+                    self.bot.games[match_id].set_cards(home_cards)
                 if away_cards != self.bot.games[match_id].away_cards:
-                    self.bot.games[match_id].set_cards(self.bot, away_cards, home=False)
+                    self.bot.games[match_id].set_cards(away_cards, home=False)
 
     async def update_cache(self) -> None:
         """Grab the most recent data for all channel configurations"""

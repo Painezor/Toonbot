@@ -231,7 +231,7 @@ class TransfersCog(Cog):
                 case 200:
                     pass
                 case _:
-                    print(f'Transfers: received bad status: {resp.status}')
+                    print(f'Transfers: bad status: {resp.status}')
                     return
             tree = html.fromstring(await resp.text())
 

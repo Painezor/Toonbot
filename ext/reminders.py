@@ -1,6 +1,6 @@
 """Commands for creating time triggered message reminders."""
 import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from asyncpg import Record
 from dateutil.relativedelta import relativedelta
@@ -16,15 +16,22 @@ from ext.utils.view_utils import Stop, Paginator
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
+    from discord import Client
 
 
 # TODO: Slash attachments pass - Add an attachment.
 
 
-async def spool_reminder(bot: 'Bot', r: Record):
+async def spool_reminder(bot: Union['Bot', 'PBot'], r: Record):
     """Bulk dispatch reminder messages"""
     # Get data from records
-    await sleep_until(r["target_time"])
+    time = r["target_time"]
+    print(time, type(time))
+    if time < datetime.datetime.now():
+        await sleep_until(r["target_time"])
+    else:
+        print("Yeet expired reminder\n", r)
     rv = ReminderView(bot, r)
     await rv.dispatch()
 
@@ -37,11 +44,11 @@ class RemindModal(Modal):
     minutes = TextInput(label="Number of minutes", default="0", placeholder="1", max_length=2, required=False)
     description = TextInput(label="Reminder Description", placeholder="Remind me about...", style=TextStyle.paragraph)
 
-    def __init__(self, bot: 'Bot', title: str, target_message: Message = None):
+    def __init__(self, bot: Union['Bot', 'PBot', 'Client'], title: str, target_message: Message = None):
         super().__init__(title=title)
         self.target_message = target_message
         self.interaction = None
-        self.bot: Bot = bot
+        self.bot: Bot | Client | PBot = bot
 
     async def on_submit(self, interaction: Interaction):
         """Insert entry to the database when the form is submitted"""
@@ -137,12 +144,12 @@ async def add_reminder(interaction: Interaction, message: Message):
 class Reminders(Cog):
     """Set yourself reminders"""
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+        self.bot: Bot | PBot = bot
         self.bot.reminders = []  # A list of tasks.
         self.bot.tree.add_command(add_reminder)
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
         """Do when the cog loads"""
         connection = await self.bot.db.acquire()
         records = await connection.fetch("""SELECT * FROM reminders""")
@@ -151,7 +158,7 @@ class Reminders(Cog):
                 self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, r)))
         await self.bot.db.release(connection)
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Cancel all active tasks on cog reload"""
         self.bot.tree.remove_command(add_reminder.name)
         for i in self.bot.reminders:
@@ -160,12 +167,12 @@ class Reminders(Cog):
     reminder = Group(name="reminder", description="Set Reminders for yourself")
 
     @reminder.command()
-    async def add(self, interaction: Interaction):
+    async def add(self, interaction: Interaction) -> Message:
         """Remind you of something at a specified time."""
-        await interaction.response.send_modal(RemindModal(self.bot, title="Create a reminder"))
+        return await interaction.response.send_modal(RemindModal(self.bot, title="Create a reminder"))
 
     @reminder.command()
-    async def list(self, interaction: Interaction):
+    async def list(self, interaction: Interaction) -> Message:
         """Check your active reminders"""
         connection = await self.bot.db.acquire()
         try:
@@ -186,10 +193,10 @@ class Reminders(Cog):
         e: Embed = Embed(colour=0x7289DA, title="Your reminders")
         embeds = rows_to_embeds(e, _)
 
-        view = Paginator(interaction, embeds)
-        await view.update()
+        view = Paginator(self.bot, interaction, embeds)
+        return await view.update()
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Union['Bot', 'PBot']) -> None:
     """Load the reminders Cog into the bot"""
     await bot.add_cog(Reminders(bot))

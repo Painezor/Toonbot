@@ -1,20 +1,24 @@
 """Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
 import datetime
-import pathlib
-import re
 from asyncio import sleep
-from importlib import reload
 from math import ceil
-from typing import Optional
+from pathlib import Path
+from re import sub, DOTALL
+from typing import Optional, TYPE_CHECKING
 
 from PIL import Image
 from asyncpraw.models import Subreddit
-from discord import Attachment, Embed, File, app_commands, Interaction
-from discord.ext import commands, tasks
+from discord import Attachment, Embed, File, Interaction
+from discord.app_commands import command, describe, guilds
+from discord.app_commands.checks import has_role
+from discord.ext.commands import Cog
+from discord.ext.tasks import loop
 from lxml import html
 
-from ext.utils import football
 from ext.utils.football import Team
+
+if TYPE_CHECKING:
+    from core import Bot
 
 NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
@@ -45,19 +49,18 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
     return markdown
 
 
-class NUFCSidebar(commands.Cog):
+class NUFCSidebar(Cog):
     """Edit the r/NUFC sidebar"""
 
-    def __init__(self, bot) -> None:
+    def __init__(self, bot: 'Bot') -> None:
         self.bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
-        reload(football)
 
     async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
         self.bot.sidebar.cancel()
 
-    @tasks.loop(hours=6)
+    @loop(hours=6)
     async def sidebar_loop(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
         try:
@@ -100,8 +103,11 @@ class NUFCSidebar(commands.Cog):
             await page.close()
 
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
-            if resp.status != 200:
-                return
+            match resp.status:
+                case 200:
+                    pass
+                case _:
+                    return
             tree = html.fromstring(await resp.text())
 
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{'|:--:' * 6}\n"
@@ -112,11 +118,11 @@ class NUFCSidebar(commands.Cog):
 
             match movement:
                 case "team hasn't moved":
-                    table += f'{rank}'
+                    table += f'{rank} | '
                 case 'team has moved up':
-                    table += f'🔺 {rank}'
+                    table += f'🔺 {rank} | '
                 case 'team has moved down':
-                    table += f'🔻 {rank}'
+                    table += f'🔻 {rank} | '
                 case _:
                     print("Invalid movement for team detected", movement)
                     table += f"? {rank}"
@@ -135,14 +141,14 @@ class NUFCSidebar(commands.Cog):
 
         # Get match threads
         last_opponent = qry.split(" ")[0]
-        sub = await self.bot.reddit.subreddit("NUFC")
-        async for i in sub.search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
+        nufc_sub = await self.bot.reddit.subreddit("NUFC")
+        async for i in nufc_sub.search('flair:"Pre-match thread"', sort="new", syntax="lucene"):
             if last_opponent in i.title:
                 pre = f"[Pre]({i.url.split('?ref=')[0]})"
                 break
         else:
             pre = "Pre"
-        async for i in sub.search('flair:"Match thread"', sort="new", syntax="lucene"):
+        async for i in nufc_sub.search('flair:"Match thread"', sort="new", syntax="lucene"):
             if not i.title.startswith("Match"):
                 continue
             if last_opponent in i.title:
@@ -151,7 +157,7 @@ class NUFCSidebar(commands.Cog):
         else:
             match = "Match"
 
-        async for i in sub.search('flair:"Post-match thread"', sort="new", syntax="lucene"):
+        async for i in nufc_sub.search('flair:"Post-match thread"', sort="new", syntax="lucene"):
             if last_opponent in i.title:
                 post = f"[Post]({i.url.split('?ref=')[0]})"
                 break
@@ -225,16 +231,17 @@ class NUFCSidebar(commands.Cog):
         markdown += footer
         return markdown
 
-    @app_commands.command()
-    @app_commands.describe(image="Upload a new sidebar image", caption="Set a new Sidebar Caption")
-    @app_commands.guilds(332159889587699712)
+    @command()
+    @describe(image="Upload a new sidebar image", caption="Set a new Sidebar Caption")
+    @guilds(332159889587699712)
+    @has_role(332161994738368523)
     async def sidebar(self, interaction: Interaction,
                       caption: Optional[str] = None,
                       image: Optional[Attachment] = None):
         """Upload an image to the sidebar, or edit the caption."""
 
         if "Subreddit Moderators" not in [i.name for i in interaction.user.roles]:
-            return await interaction.client.error(interaction, "You need the 'Subreddit Moderators' role to do that")
+            return await self.bot.error(interaction, "You need the 'Subreddit Moderators' role to do that")
 
         await interaction.response.defer()
         # Check if message has an attachment, for the new sidebar image.
@@ -244,15 +251,15 @@ class NUFCSidebar(commands.Cog):
         file = None
 
         if caption:
-            _ = await interaction.client.reddit.subreddit('NUFC')
+            _ = await self.bot.reddit.subreddit('NUFC')
             _ = await _.wiki.get_page('sidebar')
-            markdown = re.sub(r'---.*?---', f"---\n\n> {caption}\n\n---", _.content_md, flags=re.DOTALL)
+            markdown = sub(r'---.*?---', f"---\n\n> {caption}\n\n---", _.content_md, flags=DOTALL)
             await _.edit(content=markdown)
             e.description = f"Set caption to: {caption}"
 
         if image:
-            await image.save(pathlib.Path('sidebar'))
-            s: Subreddit = await interaction.client.reddit.subreddit("NUFC")
+            await image.save(Path('sidebar'))
+            s: Subreddit = await self.bot.reddit.subreddit("NUFC")
             await s.stylesheet.upload("sidebar", 'sidebar')
             style = await s.stylesheet()
             await s.stylesheet.update(style.stylesheet, reason=f"Sidebar image by {interaction.user} via discord")
@@ -261,10 +268,10 @@ class NUFCSidebar(commands.Cog):
             file = File(fp="sidebar.png", filename="sidebar.png")
 
         # Build
-        subreddit = await interaction.client.reddit.subreddit('NUFC')
+        subreddit = await self.bot.reddit.subreddit('NUFC')
         wiki = await subreddit.wiki.get_page("config/sidebar")
         await wiki.edit(content=await self.make_sidebar())
-        await interaction.client.reply(interaction, embed=e, file=file)
+        await self.bot.reply(interaction, embed=e, file=file)
 
 
 async def setup(bot):

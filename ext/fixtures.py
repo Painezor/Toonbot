@@ -84,8 +84,9 @@ class Fixtures(Cog):
         return items[view.value]
 
     # Autocompletes
-    async def tm_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
+    async def tm_ac(self, interaction: Interaction, current: str) -> List[Choice[str]]:
         """Autocomplete from list of stored teams"""
+        await interaction.response.defer(thinking=True)
         teams = sorted(list(self.bot.teams.values()), key=lambda x: x.name)
         return [Choice(name=t.name, value=t.id) for t in teams if current.lower() in t.name.lower()][:25]
 
@@ -284,7 +285,7 @@ class Fixtures(Cog):
         else:
             embeds.append(deepcopy(e))
 
-        view = Paginator(interaction, embeds)
+        view = Paginator(self.bot, interaction, embeds)
         return await view.update()
 
     # TEAM only

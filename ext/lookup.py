@@ -46,6 +46,8 @@ class Lookups(commands.Cog):
     @describe(team_name="name of a team")
     async def rumours(self, interaction: Interaction, team_name: str):
         """Get the latest transfer rumours for a team"""
+        await interaction.response.defer(thinking=True)
+
         view = transfer_tools.SearchView(self.bot, interaction, team_name, category="team", fetch=True)
         await view.update()
         await view.wait()
@@ -86,8 +88,9 @@ class Lookups(commands.Cog):
     @guilds(250252535699341312)
     async def attendance(self, interaction: Interaction, query: str):
         """Get a list of a league's average attendances."""
-        view = transfer_tools.SearchView(self.bot, interaction, query, category="Competitions", fetch=True)
+        view = transfer_tools.SearchView(self.bot, interaction, query, category="competition", fetch=True)
         await view.update()
+        await view.wait()
 
         if view.value is None:
             return

@@ -4,15 +4,15 @@ from inspect import isawaitable
 from os import system
 from sys import version
 from traceback import format_exception
-from typing import Optional, TYPE_CHECKING, List
+from typing import Optional, TYPE_CHECKING, List, Union
 
-from discord import Interaction, Embed, Colour, ButtonStyle, Activity, Attachment, Message, Object
+from discord import Interaction, Embed, Colour, Activity, Attachment, Message, Object
 from discord.app_commands import Choice, describe, autocomplete, Group, command, guilds
-from discord.ext.commands import Cog
-from discord.ui import View, Button
+from discord.ext.commands import Cog, NotOwner
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
 
 NO_SLASH_COMM = ("Due to changes with discord, Toonbot will soon be unable to parse messages to find commands\n"
                  "All commands have been moved to use the new /slashcommands system, bots must be re-invited to servers"
@@ -25,45 +25,15 @@ def error_to_codeblock(error):
            f'{"".join(format_exception(type(error), error, error.__traceback__))}```'
 
 
-# AutoComplete
-COGS = ['errors', 'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv',
-        'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes', 'reminders', 'rss', 'sidebar', 'streams', 'warships',
-        'testing']
-
-
-async def cg_ac(_: Interaction, value: str) -> List[Choice]:
-    """Autocomplete from list of cogs"""
-    return [Choice(name=c, value=c) for c in sorted(COGS) if value.lower() in c.lower()]
-
-
 class Admin(Cog):
     """Code debug & loading of modules"""
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+        self.bot: Bot | PBot = bot
 
-    async def on_message(self, message: Message) -> Message:
-        """Slash commands warning system."""
-        me = message.channel.me
-        if me in message.mentions or message.content.startswith(".tb"):
-            name = f"{me.display_name} ({me.name})" if me.display_name != message.me.name else f"{me.name}"
-            e: Embed = Embed(title=f"{name} now uses slash commands")
-            e.colour = Colour.og_blurple()
-
-            if not message.channel.permissions_for(message.author).use_slash_commands:
-                e.colour = Colour.red()
-                e.description = f"Your server's settings do not allow any of your roles to use slash commands.\n" \
-                                "Ask a moderator to give you `use_slash_commands` permissions."
-            else:
-                e.description = "I use slash commands now, type `/` to see a list of my commands"
-                if message.guild is not None:
-                    e.description += "\nIf you don't see any slash commands, you need to re-invite the bot using" \
-                                     "the link below."
-
-            view = View()
-            view.add_item(Button(style=ButtonStyle.url, url=self.bot.invite, label="Invite me to your server"))
-            e.add_field(name="Discord changes", value=NO_SLASH_COMM)
-            return await message.reply(embed=e, view=view)
+    async def cg_ac(self, _: Interaction, value: str) -> List[Choice]:
+        """Autocomplete from list of cogs"""
+        return [Choice(name=c, value=c) for c in sorted(self.bot.COGS) if value.lower() in c.lower()]
 
     @command()
     @describe(guild="enter guild ID to sync")
@@ -204,8 +174,11 @@ class Admin(Cog):
             return await self.bot.error(interaction, "You need to provide either a link or an attachment.")
 
         async with self.bot.session.get(avatar) as resp:
-            if resp.status != 200:
-                return await self.bot.reply(interaction, content=f"HTTP Error: Status Code {resp.status}")
+            match resp.status:
+                case 200:
+                    pass
+                case _:
+                    return await self.bot.reply(interaction, content=f"HTTP Error: Status Code {resp.status}")
 
             new_avatar = await resp.read()  # Needs to be bytes.
 
@@ -251,7 +224,20 @@ class Admin(Cog):
         e.description = f"Set status to {act.type} {act.name}"
         return await self.bot.reply(interaction, embed=e)
 
+    @command()
+    @describe(channel_id="Channel ID to check messages of.")
+    @guilds(250252535699341312)
+    async def ratecheck(self, interaction, channel_id: str):
+        """Check the fucking ratelimit of some dickhead"""
+        if not interaction.user.id == self.bot.owner_id:
+            raise NotOwner
 
-async def setup(bot: 'Bot') -> None:
+        channel = self.bot.get_channel(int(channel_id))
+        count = 0
+        async for message in channel.history(limit=20):
+            print(count, message.content, message.author, len(message.embeds), "Embeds in this message.")
+
+
+async def setup(bot: Union['Bot', 'PBot']) -> None:
     """Load the Administration cog into the Bot"""
     await bot.add_cog(Admin(bot))

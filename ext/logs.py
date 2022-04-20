@@ -1,6 +1,6 @@
 """Notify server moderators about specific events"""
 import datetime
-from typing import List, Sequence, TYPE_CHECKING
+from typing import List, Sequence, TYPE_CHECKING, Union, Callable
 
 from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, Member, User, Message
 from discord import Guild, Emoji, GuildSticker, TextChannel
@@ -13,6 +13,7 @@ from ext.utils import timed_events, view_utils
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
 
 TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 
@@ -42,21 +43,20 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 class ToggleButton(Button):
     """A Button to toggle the notifications settings."""
 
-    def __init__(self, bot: 'Bot', db_key: str, value: bool, row: int = 0) -> None:
-        self.value = value
-        self.db_key = db_key
-        self.bot: Bot = bot
+    def __init__(self, bot: Union['Bot', 'PBot'], db_key: str, value: bool, row: int = 0) -> None:
+        self.value: bool = value
+        self.db_key: str = db_key
+        self.bot: Bot | PBot = bot
 
-        emoji = '🟢' if value else '🔴'  # None (Off)
-        label = "On" if value else "Off"
-
-        title = db_key.replace('_', ' ').title()
+        emoji: str = '🟢' if value else '🔴'  # None (Off)
+        label: str = "On" if value else "Off"
+        title: str = db_key.replace('_', ' ').title()
         super().__init__(label=f"{title} ({label})", emoji=emoji, row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
         await interaction.response.defer()
-        new_value = False if self.value else True
+        new_value: bool = False if self.value else True
 
         connection = await self.bot.db.acquire()
         try:
@@ -65,8 +65,8 @@ class ToggleButton(Button):
                 await connection.execute(q, new_value, self.view.channel.id)
         finally:
             await self.bot.db.release(connection)
-        cog = self.bot.get_cog("Logs")
-        upd = getattr(cog, "update_cache")
+        cog: Cog = self.bot.get_cog("Logs")
+        upd: Callable = getattr(cog, "update_cache")
         await upd()
         return await self.view.update()
 
@@ -418,6 +418,6 @@ class Logs(Cog):
                 continue
 
 
-async def setup(bot):
+async def setup(bot: Union['Bot', 'PBot']):
     """Loads the notifications cog into the bot"""
     await bot.add_cog(Logs(bot))

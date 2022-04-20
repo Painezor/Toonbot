@@ -4,6 +4,7 @@ from __future__ import annotations  # Cyclic Type Hinting
 import datetime
 from asyncio import Semaphore, to_thread
 from dataclasses import dataclass, field
+from enum import Enum
 from itertools import zip_longest
 from json import JSONDecodeError, loads
 from sys import stderr
@@ -11,7 +12,7 @@ from traceback import print_exception
 from typing import List, TYPE_CHECKING, NoReturn, Dict, Literal
 from urllib.parse import quote, quote_plus
 
-from discord import Embed, Interaction, Message
+from discord import Embed, Interaction, Message, Colour
 from discord.ui import View, Select
 from lxml import html
 from pyppeteer.errors import TimeoutError, ElementHandleError
@@ -70,6 +71,57 @@ class MatchEvent:
 
     def __repr__(self) -> str:
         return f"Event({self.__dict__})"
+
+
+class EventType(Enum):
+    """An Enum representing an EventType for ticker events"""
+
+    def __new__(cls, *args, **kwargs):
+        obj = object.__new__(cls)
+        obj._value_ = args[0]
+        return obj
+
+    def __init__(self, name: str, colour: Colour, db_fields: List) -> None:
+        self.colour: Colour = colour
+        self.db_fields: List = db_fields
+
+    # Goals
+    GOAL = "Goal", Colour.dark_green(), ["goal"]
+    VAR_GOAL = "VAR Goal", Colour.og_blurple(), ["var"]
+    GOAL_OVERTURNED = "Goal Overturned", Colour.og_blurple(), ["var"]
+
+    # Cards
+    RED_CARD = "Red Card", Colour.red(), ["var"]
+    VAR_RED_CARD = "VAR Red Card", Colour.og_blurple(), ["var"]
+    RED_CARD_OVERTURNED = "Red Card Overturned", Colour.og_blurple(), ["var"]
+
+    # State Changes
+    DELAYED = "Match Delayed", Colour.orange(), ["delayed"]
+    INTERRUPTED = "Match Interrupted", Colour.dark_orange(), ["delayed"]
+    CANCELLED = "Match Cancelled", Colour.red(), ["delayed"]
+    POSTPONED = "Match Postponed", Colour.red(), ["delayed"]
+    ABANDONED = "Match Abandoned", Colour.red(), ["full_time"]
+    RESUMED = "Match Resumed", Colour.light_gray(), ["kick_off"]
+
+    # Period Changes
+    KICK_OFF = "Kick Off", Colour.green(), ["kick_off"]
+    HALF_TIME = "Half Time", 0x00ffff, ["half_time"]
+    SECOND_HALF_BEGIN = "Second Half Begins", Colour.light_gray(), ["second_half_begin"]
+    PERIOD_BEGIN = "Period #PERIOD# Begins", Colour.light_gray(), ["second_half_begin"]
+    PERIOD_END = "Period #PERIOD# Ends", Colour.light_gray(), ["half_time"]
+
+    FULL_TIME = "Full Time", Colour.teal(), ["full_time"]
+    FINAL_RESULT_ONLY = "Final Result", Colour.teal(), ["final_result_only"]
+    SCORE_AFTER_EXTRA_TIME = "Score After Extra Time", Colour.teal(), ["full_time"]
+
+    NORMAL_TIME_END = "End of normal time", Colour.greyple(), ["extra_time"]
+    EXTRA_TIME_BEGIN = "Start of extra time", Colour.lighter_grey(), ["extra_time"]
+    HALF_TIME_ET_BEGIN = "Extra Time: Half Time", Colour.light_grey(), ["half_time", "extra_time"]
+    HALF_TIME_ET_END = "Extra Time: Start of Second Half", Colour.dark_grey(), ["second_half_begin", "extra_time"]
+    EXTRA_TIME_END = "End of Extra Time", Colour.darker_gray(), ["extra_time"]
+
+    PENALTIES_BEGIN = "Penalties Begin", Colour.dark_gold(), ["penalties"]
+    PENALTY_RESULTS = "Penalty Results", Colour.gold(), ["penalties"]
 
 
 @dataclass
@@ -188,14 +240,15 @@ class GameTime:
     value: str
 
     def __init__(self, value: str) -> None:
-        if value == 'Postp':
-            self.value = 'Postponed'
-        elif value == 'Pen':
-            self.value = 'After Pens'
-        elif value == 'Abn':
-            self.value = 'Abandoned'
-        else:
-            self.value = value
+        match value:
+            case 'Postp':
+                self.value = 'Postponed'
+            case 'Pen':
+                self.value = 'After Pens'
+            case 'Abn':
+                self.value = 'Abandoned'
+            case _:
+                self.value = value
 
     def __repr__(self) -> str:
         return f"GameTime({self.__dict__})"
@@ -235,7 +288,7 @@ class GameTime:
             case "Awaiting":
                 return "soon"
             case "After Pens":
-                return "After Penalties"
+                return "PSO"
             case "Half Time":
                 return "HT"
             case "Break Time":
@@ -365,7 +418,8 @@ class Team(FlashScoreItem):
     _players_timestamp: datetime.datetime = None
 
     def __str__(self) -> str:
-        return self.markdown
+        comp = self.competition.title if self.competition is not None else ""
+        return f"{self.name} ({comp})"
 
     def __eq__(self, other) -> bool:
         """Multiple ways of checking equivalency"""
@@ -515,7 +569,7 @@ class Team(FlashScoreItem):
         _page = await self.bot.browser.newPage() if page is None else page
         try:
             await _page.goto(self.link + "/news")
-            await _page.waitForXPath('.//div[@class="sportName soccer"]', {"timeout": 5000})
+            await _page.waitForXPath('.//div[@class="matchBox"]', {"timeout": 5000})
             tree = html.fromstring(await _page.content())
         except TimeoutError:
             return []
@@ -527,7 +581,7 @@ class Team(FlashScoreItem):
         print(f"Found {len(rows)} news rows")
         items = []
         for i in rows:
-            title = "".join(i.xpath('.//div[@class="rssNews_title"/text()]'))
+            title = "".join(i.xpath('.//div[@class="rssNews_title"]/text()]'))
             print(title)
             image = "".join(i.xpath('.//img/@src'))
             print(image)
@@ -989,10 +1043,10 @@ class Fixture(FlashScoreItem):
         return '⚽'
 
     def __eq__(self, other) -> bool:
-        if self.id is not None:
-            return self.id == other.id
-        else:
+        if self.id is None:
             return self.url == other.url
+        else:
+            return self.id == other.id
 
     def __str__(self) -> str:
         if self.time is None:
@@ -1003,9 +1057,9 @@ class Fixture(FlashScoreItem):
                     time = self.ko_relative
                 case _:
                     time = self.time.state
-        return f"{time}: [{self.bold_score}]({self.link})"
+        return f"{time}: {self.bold_markdown}"
 
-    def set_cards(self, bot: 'Bot', new_value: int, home=True) -> int:
+    def set_cards(self, new_value: int, home=True) -> int:
         """Update red cards & dispatch event."""
         target_var = "home_cards" if home else "away_cards"
         old_value = getattr(self, target_var)
@@ -1013,29 +1067,31 @@ class Fixture(FlashScoreItem):
         if new_value == old_value or None in [old_value, new_value]:
             return new_value
 
-        event = "red_card" if new_value > old_value else "var_red_card"
-        bot.dispatch("fixture_event", event, self, home=home)
+        event = EventType.RED_CARD if new_value > old_value else EventType.VAR_RED_CARD
+        self.bot.dispatch("fixture_event", event, self, home=home)
         setattr(self, target_var, new_value)
         return new_value
 
-    async def set_score(self, bot: 'Bot', new_value: int, home=True) -> int:
+    async def set_score(self, new_value: int, home=True) -> int:
         """Update scores & dispatch goal events"""
         target_var = "score_home" if home else "score_away"
         old_value = getattr(self, target_var)
+
         setattr(self, target_var, new_value)
-        if new_value == old_value or None in [old_value, new_value]:
+        if new_value == old_value or old_value is None:
             return new_value
 
         if self.competition.id is None:
-            return new_value  # So much stuff will fuck up if we let this go thorough
+            return new_value  # So much stuff will fuck up if we let this go through
 
         # Update competition's table.
-        await bot.competitions[self.competition.id].get_table()
-        event = "goal" if new_value > old_value else "var_goal"
-        bot.dispatch("fixture_event", event, self, home=home)
+        await self.bot.competitions[self.competition.id].get_table()
+
+        event = EventType.GOAL if new_value > old_value else EventType.VAR_GOAL
+        self.bot.dispatch("fixture_event", event, self, home=home)
         return new_value
 
-    def set_time(self, bot: 'Bot', game_time: GameTime) -> GameTime:
+    def set_time(self, game_time: GameTime) -> GameTime:
         """Update the time of the event"""
         if self.time is None or game_time.state == self.time.state:
             self.time = game_time  # Update the time and be done with it.
@@ -1051,59 +1107,69 @@ class Fixture(FlashScoreItem):
         if old_state == new_state:
             return self.time  # We don't need to dispatch any events..
 
-        change = (new_state, old_state)
+        self.dispatch_events(old_state, new_state)
+        return game_time
 
-        match change:
-            # All of these states are "Final"
-            # "TO", "FROM"
-            case ("Stoppage Time", _):
-                pass
-            case ("AET", _):
-                bot.dispatch("fixture_event", "score_after_extra_time", self)
-            case ("Penalties", _):
-                bot.dispatch("fixture_event", "penalties_begin", self)
-            case ("After Pens", _):
-                bot.dispatch("fixture_event", "penalty_results", self)
-            case ("Interrupted" | "Postponed" | "Cancelled" | "Delayed" | "Abandoned", _):
-                bot.dispatch("fixture_event", change[0].lower().replace(' ', '_'), self)
-            # Begin or Resume Playing
-            case ("Live", "scheduled" | "Delayed"):
-                bot.dispatch("fixture_event", "kick_off", self)
-            case ("Live", "Interrupted"):
-                bot.dispatch("fixture_event", "resumed", self)
-            case ("Live", "Half Time"):
-                bot.dispatch("fixture_event", "second_half_begin", self)
-            case ("Live", "Break Time"):
-                bot.dispatch("fixture_event", f"start_of_period_{self.breaks + 1}", self)
+    def dispatch_events(self, old, new) -> None:
+        """Dispatch events to the ticker"""
+        match old, new:
+            case _, "Stoppage Time":
+                return
+            case _, "AET":
+                return self.bot.dispatch("fixture_event", EventType.SCORE_AFTER_EXTRA_TIME, self)
+            case _, "Penalties":
+                return self.bot.dispatch("fixture_event", EventType.PENALTIES_BEGIN, self)
+            case _, "After Pens":
+                return self.bot.dispatch("fixture_event", EventType.PENALTY_RESULTS, self)
+            case _, "Interrupted":
+                return self.bot.dispatch("fixture_event", EventType.INTERRUPTED, self)
+            case _, "Cancelled":
+                return self.bot.dispatch("fixture_event", EventType.CANCELLED, self)
+            case _, "Postponed":
+                return self.bot.dispatch("fixture_event", EventType.POSTPONED, self)
+            case _, "Delayed":
+                return self.bot.dispatch("fixture_event", EventType.DELAYED, self)
+            case _, "Abandoned":
+                return self.bot.dispatch("fixture_event", EventType.ABANDONED, self)
+
+            # New State is LIVE
+            case "scheduled" | "Delayed", "Live":  # Match has resumed
+                return self.bot.dispatch("fixture_event", EventType.KICK_OFF, self)
+            case "Interrupted", "Live":
+                return self.bot.dispatch("fixture_event", EventType.RESUMED, self)
+            case "Half Time", "Live":
+                return self.bot.dispatch("fixture_event", EventType.SECOND_HALF_BEGIN, self)
+            case "Break Time", "Live":
+                return self.bot.dispatch("fixture_event", EventType.PERIOD_BEGIN, self)
 
             # Half Time is fired at both regular Half time, and ET Half time.
-            case ("Half Time", "Extra Time"):
-                bot.dispatch("fixture_event", "ht_et_begin", self)
-            case ("Half Time", _):
-                bot.dispatch("fixture_event", "half_time", self)
+            case "Extra Time", "Half Time":
+                return self.bot.dispatch("fixture_event", EventType.HALF_TIME_ET_BEGIN, self)
+            case _, "Half Time":
+                return self.bot.dispatch("fixture_event", EventType.HALF_TIME, self)
 
             # Break Time fires After regular time ends & before penalties
-            case ("Break Time", "Live" | "Stoppage Time"):
+            case "Extra Time", "Break Time":
+                return self.bot.dispatch("fixture_event", EventType.EXTRA_TIME_END, self)
+            case _, "Break Time":
                 self.breaks += 1
-                event = "end_of_normal_time" if self.periods == 2 else f"end_of_period{self.breaks}"
-                bot.dispatch("fixture_event", event, self)
-            case ("Break Time", "Extra Time"):
-                bot.dispatch("fixture_event", "end_of_extra_time", self)
-            case ("Extra Time", "Break Time" | "Live" | "Stoppage Time"):
-                bot.dispatch("fixture_event", "extra_time_begins", self)
-            case ("Extra Time", "Half Time"):
-                bot.dispatch("fixture_event", "ht_et_end", self)
+                event = EventType.NORMAL_TIME_END if self.periods == 2 else EventType.PERIOD_END
+                return self.bot.dispatch("fixture_event", event, self)
+
+            case "Half Time", "Extra Time":
+                return self.bot.dispatch("fixture_event", EventType.HALF_TIME_ET_END, self)
+            case _, "Extra Time":
+                return self.bot.dispatch("fixture_event", EventType.EXTRA_TIME_BEGIN, self)
 
             # End of Game
-            case ("Full Time", "Live" | "Stoppage Time"):
-                bot.dispatch("fixture_event", "full_time", self)
-            case ("Full Time", "Extra Time"):
-                bot.dispatch("fixture_event", "score_after_extra_time", self)
-            case ("Full Time", "scheduled" | "Half Time"):
-                bot.dispatch("fixture_event", "final_result_only", self)
-            case _:
-                print(f'Unhandled State change: {self.url} | {old_state} -> {new_state}')
-        return game_time
+            case "Extra Time", "Full Time":
+                return self.bot.dispatch("fixture_event", EventType.SCORE_AFTER_EXTRA_TIME, self)
+            case "scheduled" | "Half Time", "Full Time":
+                return self.bot.dispatch("fixture_event", EventType.FINAL_RESULT_ONLY, self)
+            case _, "Full Time":
+                return self.bot.dispatch("fixture_event", EventType.FULL_TIME, self)
+
+        print(f'Unhandled State change: {self.url} | {old} -> {new}')
 
     async def base_embed(self) -> Embed:
         """Return a preformatted discord embed for a generic Fixture"""
@@ -1213,6 +1279,16 @@ class Fixture(FlashScoreItem):
         return f"{hb}{self.home.name} {self.score_home}{hb} - {ab}{self.score_away} {self.away.name}{ab}"
 
     @property
+    def bold_markdown(self) -> str:
+        """Markdown Formatting bold winning team, have score only link."""
+        if self.score_home is None or self.score_away is None or self.time.state == "scheduled":
+            return f"{self.home.name} vs {self.away.name}"
+
+        hb, ab = ('**', '') if self.score_home > self.score_away else ('', '**')
+        hb, ab = ("", "") if self.score_home == self.score_away else (hb, ab)
+        return f"{hb}{self.home.name}{hb} [{self.score_home} - {self.score_away}]({self.link}) {ab}{self.away.name}{ab}"
+
+    @property
     def score_line(self) -> str:
         """Home 0 - 0 Away"""
         score = "vs" if self.time is not None and self.time.state == "scheduled" else self.score
@@ -1235,7 +1311,7 @@ class Fixture(FlashScoreItem):
         _ = '🟥'
         h_c = f"`{self.home_cards * _}` " if self.home_cards is not None else ""
         a_c = f" `{self.away_cards * _}`" if self.away_cards is not None else ""
-        return f"{emote} {self.time} {h_c}[{self.bold_score}]({self.link}){a_c}"
+        return f"{emote} {self.time} {h_c}{self.bold_markdown}{a_c}"
 
     async def get_badge(self, team: Literal['home', 'away']) -> str:
         """Fetch an image of a Team's Logo or Badge as a BytesIO object"""
@@ -1289,8 +1365,8 @@ class Fixture(FlashScoreItem):
         _page = self.bot.browser.newPage if page is None else page
 
         try:
-            await _page.goto(self.link + "/#standings/table/overall")
-            await _page.waitForXPath("/#match-summary/match-statistics/0", {"timeout": 5000})
+            await _page.goto(self.link + "/#match-summary/match-statistics/0")
+            await _page.waitForXPath(".//div[@class='section']", {"timeout": 5000})
             await delete_ads(_page)
             data = await screenshot(_page, ".//div[contains(@class, 'statRow')]")
             self.stats = await self.bot.dump_image(data)
@@ -1442,6 +1518,9 @@ class Fixture(FlashScoreItem):
             tree = html.fromstring(await _page.content())
         except TimeoutError:
             return 'Timed out waiting for summary'
+        finally:
+            if page is None:
+                await _page.close()
 
         preview_lines = tree.xpath('.//div[@class="previewLine"]')
 
@@ -1518,11 +1597,11 @@ class Fixture(FlashScoreItem):
 
         return preview
 
-    async def refresh(self, page: Page = None, max_retry: int = 3) -> NoReturn:
+    async def refresh(self, page: Page = None) -> NoReturn:
         """Perform an intensive full lookup for a fixture"""
-        _page = await self.bot.browser.newPage() if page is None else page
 
-        for i in range(max_retry):
+        for i in range(3):  # retry up to 3 times.
+            _page = await self.bot.browser.newPage() if page is None else page
             try:
                 await _page.goto(self.link)
                 await _page.waitForXPath(".//div[@id='utime']", {"timeout": 5000})
@@ -1537,6 +1616,7 @@ class Fixture(FlashScoreItem):
                 if page is None:
                     await _page.close()
         else:
+            print(self.link, "football.py refresh failed to find xpath .//div[@id='utime'] after 3 attempts.")
             return
 
         # Some of these will only need updating once per match
@@ -1670,22 +1750,24 @@ class Fixture(FlashScoreItem):
                 href = ''.join(node.xpath('.//a[contains(@class, "playerName")]//text()')).strip()
                 print("event player link found", href)
                 event.player = Player(self.bot, name=name, url=href)
-            _ = ''.join(node.xpath('.//div[contains(@class, "assist")]//text()'))
-            if _:
-                event.assist = _
+
+            assist = ''.join(node.xpath('.//div[contains(@class, "assist")]//text()'))
+            event.assist = assist if assist else None
+
             if event_desc:
-                event.full_description = event_desc
+                event.note = event_desc
 
             # Detection of Teams
-            if "home" in event_class:
-                event.team = self.home
-            elif "away" in event_class:
-                event.team = self.away
-            elif "empty" in event_class:
-                continue  # No events in half signifier.
-            else:
-                print(f"No team found for event_class {event_class}")
-                event.team = None
+            match event_class:
+                case event_class if "home" in event_class:
+                    event.team = self.home
+                case event_class if "away" in event_class:
+                    event.team = self.away
+                case event_class if "empty" in event_class:
+                    continue  # No events in half signifier.
+                case _:
+                    print(f"No team found for event_class {event_class}")
+                    event.team = None
 
             event.time = GameTime(''.join(node.xpath('.//div[contains(@class, "timeBox")]//text()')).strip())
             events.append(event)
@@ -1970,7 +2052,7 @@ class CompetitionView(View, ViewErrorHandling):
             if self.filter_mode is not None:
                 players = await self.competition.get_scorers()
 
-                all_players = [('👕', str(i.team), str(i.team.link)) for i in players]
+                all_players = [('👕', i.team.name, str(i.team.link)) for i in players]
                 teams = set(all_players)
                 teams = sorted(teams, key=lambda x: x[1])  # Sort by second Value.
 
@@ -2284,7 +2366,6 @@ class LeagueTableSelect(Select):
         self.objects = leagues
         super().__init__(placeholder="Select which league to get table from...")
         for num, league in enumerate(self.objects):
-            print(num, league.__dict__)
             self.add_option(label=league.title, emoji='🏆', description=league.link, value=str(num))
 
     async def callback(self, interaction: Interaction) -> Message:
@@ -2387,9 +2468,7 @@ class Stadium:
 # TODO: un-fuck this shit.
 async def get_stadiums(bot: 'Bot', query: str) -> List[Stadium]:
     """Fetch a list of Stadium objects matching a user query"""
-    qry: str = quote_plus(query)
-
-    async with bot.session.get(f'https://www.footballgroundmap.com/search/{qry}') as resp:
+    async with bot.session.get(f'https://www.footballgroundmap.com/search/{quote_plus(query)}') as resp:
         tree = html.fromstring(await resp.text())
 
     stadiums: List[Stadium] = []
@@ -2407,15 +2486,19 @@ async def get_stadiums(bot: 'Bot', query: str) -> List[Stadium]:
 
         sub_nodes = i.xpath('.//small/following-sibling::a')
         for s in sub_nodes:
-            name = ''.join(s.xpath('.//text()')).title()
-            url = ''.join(s.xpath('./@href'))
+            stad = Stadium(bot)
+            stad.name = ''.join(s.xpath('.//text()')).title()
+            stad.url = ''.join(s.xpath('./@href'))
 
-            if query.lower() not in name.lower() and query.lower() not in team.lower():
+            if query.lower() not in stad.name.lower() + team.lower():
                 continue  # Filtering.
 
-            if not any(c.name == name for c in stadiums) and not any(c.url == url for c in stadiums):
-                stadiums.append(Stadium(bot, url=url, name=name, team=team, team_badge=badge, country=country,
-                                        league=league))
+            if stad not in stadiums:
+                stad.team = team
+                stad.team_badge = badge
+                stad.country = country
+                stad.league = league
+                stadiums.append(stad)
 
     return stadiums
 

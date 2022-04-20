@@ -81,8 +81,11 @@ class Tv(commands.Cog):
 
         rows = []
         async with self.bot.session.get(e.url, headers=HEADERS) as resp:
-            if resp.status != 200:
-                return await self.bot.error(interaction, f"{e.url} returned a HTTP {resp.status} error.")
+            match resp.status:
+                case 200:
+                    pass
+                case _:
+                    return await self.bot.error(interaction, f"{e.url} returned a HTTP {resp.status} error.")
             tree = html.fromstring(await resp.text())
 
         # match_column = 3 if not team else 5
@@ -124,7 +127,7 @@ class Tv(commands.Cog):
         if not rows:
             rows = [f"No televised matches found, check online at {e.url}"]
 
-        view = Paginator(interaction, rows_to_embeds(e, rows))
+        view = Paginator(self.bot, interaction, rows_to_embeds(e, rows))
         await view.update()
 
 

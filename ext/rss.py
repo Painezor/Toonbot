@@ -1,89 +1,248 @@
 """Cog for outputting various RSS based information"""
 import datetime
 from re import sub
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
-from discord import Embed, Interaction
-from discord.app_commands import command, describe, guilds
+from asyncpg import Record
+from discord import Embed, Interaction, Message
+from discord.app_commands import command, describe, guilds, Choice, autocomplete
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View
 from lxml import html
 from pyppeteer.errors import TimeoutError
 
+from ext.utils.view_utils import add_page_buttons
+
 if TYPE_CHECKING:
-    from core import Bot
+    from painezBot import PBot
 
 EU_NEWS_CHANNEL = 849418195021856768
 DEV_BLOG_CHANNEL = 849412392651587614
 
 
-# TODO: Dev Blog Search
-# TODO: Dev Blog Browser View
+async def parse(bot: 'PBot', url: str):
+    """Get Embed from the Dev Blog page"""
+    async with bot.session.get(url) as resp:
+        tree = html.fromstring(await resp.text())
+
+    article_html = tree.xpath('.//div[@class="article__content"]')[0]
+
+    e: Embed = Embed(colour=0x00FFFF, title=''.join(tree.xpath('.//h2[@class="article__title"]/text()')), url=url)
+    e.set_author(name="World of Warships Development Blog", url="https://blog.worldofwarships.com/")
+    e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
+    e.description = ""
+    main_image = None
+    output = ""
+
+    def fmt(node):
+        """Format the passed node"""
+        if n.tag == "img" and main_image is None:
+            e.set_image(url=n.attrib['src'])
+
+        try:
+            txt = node.text if node.text.strip() else ""
+            txt = sub(r'\s{2,}', ' ', txt)
+        except AttributeError:
+            txt = ""
+
+        if not txt:
+            out = ""
+        else:
+            match node.tag:
+                case "p" | "div" | "ul":
+                    out = txt
+                case "em":
+                    out = f"*{txt}*"
+                case "strong" | "h3" | "h4":
+                    out = f" **{txt}**"
+                    try:
+                        node.parent.text
+                    except AttributeError:
+                        out += "\n"
+                case "span":
+                    out = txt
+                    if 'class' in node.attrib:
+                        if "ship" in node.attrib['class']:
+                            try:
+                                out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
+                            except AttributeError:
+                                out = f"**{txt}**\n"
+                case "li":
+                    bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
+                    out = f"{bullet_type} {txt}"
+                case "a":
+                    out = f"[{txt}]({node.attrib['href']})"
+                case _:
+                    print(f"Unhandled node tag found: {node.tag} | {txt} | {tail}")
+                    out = txt
+
+        try:
+            tl = node.tail if node.tail.strip() else ""
+            tl = sub(r'\s{2,}', ' ', tl)
+        except AttributeError:
+            tl = ""
+        out += tl
+
+        return out
+
+    for n in article_html.iterchildren():  # Top Level Children Only.
+        try:
+            text = n.text if n.text.strip() else ""
+            text = sub(r'\s{2,}', ' ', text)
+        except AttributeError:
+            text = ""
+
+        try:
+            tail = n.tail if n.tail.strip() else ""
+            tail = sub(r'\s{2,}', ' ', tail)
+        except AttributeError:
+            tail = ""
+
+        if text or tail:
+            output += f"{fmt(n)}"
+
+        for child in n.iterdescendants():
+            # Force Linebreak on new section.
+            try:
+                child_text = child.text if child.text.strip() else ""
+                child_text = sub(r'\s{2,}', ' ', child_text)
+            except AttributeError:
+                child_text = ""
+
+            try:
+                child_tail = child.tail if child.tail.strip() else ""
+                child_tail = sub(r'\s{2,}', ' ', child_tail)
+            except AttributeError:
+                child_tail = ""
+
+            if child_text or child_tail:
+                output += "\n" if child.tag == "li" else ""
+                output += f"{fmt(child)}"
+                if child.tag == "li" and child.getnext() is None and not child.getchildren():
+                    output += "\n\n"  # Extra line after lists.
+                output += "\n\n" if child.tag == "p" else ""
+
+        if text or tail:
+            if n.tag == "p":
+                output += "\n\n" if n.itertext() else ""
+            output += "\n" if n.tag == "li" else ""
+
+    if len(output) > 4000:
+        trunc = f"...\n[Read Full Article]({url})"
+        e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
+    else:
+        e.description = output
+    return e
 
 
 class DevBlogView(View):
     """Browse Dev Blogs"""
 
+    def __init__(self, bot: 'PBot', interaction: Interaction, pages: List[Record], last: bool = False) -> None:
+        self.interaction: Interaction = interaction
+        self.pages: List[Record] = pages
+        self.index: int = len(pages) - 1 if last else 0
+        self.bot: PBot = bot
+        super().__init__()
+
+    async def update(self) -> Message:
+        """Push the latest version of the view to discord."""
+        self.clear_items()
+        add_page_buttons(self)
+        e = await parse(self.bot, self.pages[self.index]['link'])
+        return await self.bot.reply(self.interaction, embed=e)
+
 
 class RSS(Cog):
     """RSS Commands"""
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: 'PBot') -> None:
+        self.bot: PBot = bot
         self.bot.eu_news = self.eu_news.start()
         self.bot.dev_blog = self.blog_loop.start()
         self.bot.blog_cache = []
         self.bot.news_cached = False
-        self.bot.dev_blog_cached = False
 
-    async def cog_load(self):
+    async def cog_load(self) -> None:
         """Do this on Cog Load"""
         await self.get_blogs()
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Stop previous runs of tickers upon Cog Reload"""
         self.bot.eu_news.cancel()
         self.bot.dev_blog.cancel()
 
     async def get_blogs(self):
         """Get a list of old dev blogs stored in DB"""
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                q = """SELECT * FROM dev_blogs"""
+                self.bot.blog_cache = await connection.fetch(q)
+        finally:
+            await self.bot.db.release(connection)
 
-    async def parse_all_blogs(self):
-        """Loop through all dev blogs to fetch new data"""
-        pass
-
-    async def get_inner_text(self, blog_id=296):  # 296 debug
+    async def store_blog(self, blog_id: int) -> None:
         """Get the inner text of a specific dev blog"""
-        async with self.bot.session.get(f'https://blog.worldofwarships.com/blog/{blog_id}') as resp:
+        if blog_id in [r['id'] for r in self.bot.blog_cache]:
+            return
+
+        url = f"https://blog.worldofwarships.com/blog/{blog_id}"
+
+        async with self.bot.session.get(url) as resp:
             src = await resp.text()
 
         tree = html.fromstring(src)
+        try:
+            title = str(tree.xpath('.//title/text()')[0])
+            title = title.split(' - Development')[0]
+        except IndexError:
+            print("Could not find Title for blog #", blog_id)
+            return
 
-        inner = tree.xpath('.//div[@class="article__content"]')[0].inner_html
-        print(inner)
+        text = tree.xpath('.//div[@class="article__content"]')[0].text_content()
+
+        if text:
+            print("Storing Dev Blog #", blog_id)
+        else:
+            print("Could not find content for blog #", blog_id)
+            return
+
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                q = """INSERT INTO dev_blogs (id, title, text) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
+                await connection.execute(q, blog_id, title, text)
+        finally:
+            await self.bot.db.release(connection)
+
+    async def db_ac(self, _: Interaction, current: str) -> List[Choice]:
+        """Autocomplete dev blog by text"""
+        blogs = [i for i in self.bot.blog_cache if current.lower() in i['title'].lower() + i['text'].lower()]
+        return [Choice(name=f"{i['id']}: {i['title']}"[:100], value=str(i['id'])) for i in blogs][:-25:-1]
+        # Last 25 items reversed
 
     @command()
-    @describe(number="Enter Dev Blog Number")
-    @guilds(742372603813036082)
-    async def dev_blog(self, interaction: Interaction, number: int):
-        """Fetch a World of Warships dev blog, either provide ID number or leave blank to get latest."""
-        if number:
-            link = f"https://blog.worldofwarships.com/blog/{number}"
-        else:
-            async with interaction.client.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
-                tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
+    @autocomplete(search=db_ac)
+    @describe(search="Search for a dev blog by text content")
+    async def dev_blog(self, interaction: Interaction, search: str):
+        """Fetch a World of Warships dev blog, either search for text or leave blank to get latest."""
+        await interaction.response.defer(thinking=True, ephemeral=True)
 
-            articles = tree.xpath('.//item')
-            for i in articles:
-                link = ''.join(i.xpath('.//guid/text()'))
-                if link:
-                    break
-            else:
-                return await self.bot.error(interaction, "Couldn't find any dev blogs.")
+        try:
+            int(search)
+            e = await parse(self.bot, "https://blog.worldofwarships.com/blog/" + search)
 
-        e = await self.parse(link)
-        await self.bot.reply(interaction, embed=e)
+            text = f"{interaction.user.mention} looked up Dev Blog {search}. Feel free to discuss it in the thread."
+            message = await interaction.channel.send(text)
+            thread = await message.create_thread(name=search)
+            await thread.send(embed=e)
+        except ValueError:
+            matches = [i for i in self.bot.blog_cache if search.lower() in i['title'].lower() + i['text'].lower()]
+            view = DevBlogView(self.bot, interaction, pages=matches)
+            await view.update()
 
     async def dispatch_eu_news(self, link: str, date=None, title=None, category=None, desc=None):
         """Handle dispatching of news article."""
@@ -121,130 +280,15 @@ class RSS(Cog):
 
         await ch.send(embed=e)
 
-    async def parse(self, url: str, store_only=False):
-        """Get Embed from the Dev Blog page"""
-        async with self.bot.session.get(url) as resp:
-            tree = html.fromstring(await resp.text())
-
-        article_html = tree.xpath('.//div[@class="article__content"]')[0]
-
-        e: Embed = Embed(colour=0x00FFFF, title=''.join(tree.xpath('.//h2[@class="article__title"]/text()')), url=url)
-        e.set_author(name="World of Warships Development Blog", url="https://blog.worldofwarships.com/")
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
-        e.description = ""
-        main_image = None
-        output = ""
-
-        def fmt(node):
-            """Format the passed node"""
-            if n.tag == "img" and main_image is None:
-                e.set_image(url=n.attrib['src'])
-
-            try:
-                txt = node.text if node.text.strip() else ""
-                txt = sub(r'\s{2,}', ' ', txt)
-            except AttributeError:
-                txt = ""
-
-            if not txt:
-                out = ""
-            else:
-                match node.tag:
-                    case "p" | "div" | "ul":
-                        out = txt
-                    case "em":
-                        out = f"*{txt}*"
-                    case "strong" | "h3" | "h4":
-                        out = f" **{txt}**"
-                        try:
-                            node.parent.text
-                        except AttributeError:
-                            out += "\n"
-                    case "span":
-                        out = txt
-                        if 'class' in node.attrib:
-                            if "ship" in node.attrib['class']:
-                                try:
-                                    out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
-                                except AttributeError:
-                                    out = f"**{txt}**\n"
-                    case "li":
-                        bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
-                        out = f"{bullet_type} {txt}"
-                    case "a":
-                        out = f"[{txt}]({node.attrib['href']})"
-                    case _:
-                        print(f"Unhandled node tag found: {node.tag} | {txt} | {tail}")
-                        out = txt
-
-            try:
-                tl = node.tail if node.tail.strip() else ""
-                tl = sub(r'\s{2,}', ' ', tl)
-            except AttributeError:
-                tl = ""
-            out += tl
-
-            return out
-
-        for n in article_html.iterchildren():  # Top Level Children Only.
-            try:
-                text = n.text if n.text.strip() else ""
-                text = sub(r'\s{2,}', ' ', text)
-            except AttributeError:
-                text = ""
-
-            try:
-                tail = n.tail if n.tail.strip() else ""
-                tail = sub(r'\s{2,}', ' ', tail)
-            except AttributeError:
-                tail = ""
-
-            if text or tail:
-                output += f"{fmt(n)}"
-
-            for child in n.iterdescendants():
-                # Force Linebreak on new section.
-                try:
-                    child_text = child.text if child.text.strip() else ""
-                    child_text = sub(r'\s{2,}', ' ', child_text)
-                except AttributeError:
-                    child_text = ""
-
-                try:
-                    child_tail = child.tail if child.tail.strip() else ""
-                    child_tail = sub(r'\s{2,}', ' ', child_tail)
-                except AttributeError:
-                    child_tail = ""
-
-                if child_text or child_tail:
-                    output += "\n" if child.tag == "li" else ""
-                    output += f"{fmt(child)}"
-                    if child.tag == "li" and child.getnext() is None and not child.getchildren():
-                        output += "\n\n"  # Extra line after lists.
-                    output += "\n\n" if child.tag == "p" else ""
-
-            if text or tail:
-                if n.tag == "p":
-                    output += "\n\n" if n.itertext() else ""
-                output += "\n" if n.tag == "li" else ""
-
-        if len(output) > 4000:
-            trunc = f"...\n[Read Full Article]({url})"
-            e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
-        else:
-            e.description = output
-        return e
-
     @command()
     @describe(link="Enter the news article link to be parsed")
     @guilds(742372603813036082)
-    async def news(self, interaction: Interaction, link: str) -> None:
+    async def news(self, interaction: Interaction, link: str) -> Message:
         """Manual refresh of missed news articles."""
         if interaction.user.id != self.bot.owner_id:
-            return await interaction.client.error(interaction, "You do not own this bot.")
+            return await self.bot.error(interaction, "You do not own this bot.")
         await self.dispatch_eu_news(link)
-        await self.bot.reply(interaction, content="Sent.", delete_after=1)
+        return await self.bot.reply(interaction, content="Sent.", delete_after=1)
 
     @loop(seconds=60)
     async def eu_news(self):
@@ -258,10 +302,10 @@ class RSS(Cog):
         articles = tree.xpath('.//item')
         for i in articles:
             link = ''.join(i.xpath('.//guid/text()'))
-            if link in self.bot.blog_cache:
+            if link in self.bot.news_cache:
                 continue
 
-            self.bot.blog_cache.append(link)
+            self.bot.news_cache.append(link)
             if not self.bot.news_cached:
                 continue  # Skip on population
 
@@ -277,7 +321,7 @@ class RSS(Cog):
     @loop(seconds=60)
     async def blog_loop(self):
         """Loop to get the latest dev blog articles"""
-        if self.bot.session is None:
+        if self.bot.session is None or not self.bot.blog_cache:
             return
 
         async with self.bot.session.get('https://blog.worldofwarships.com/rss-en.xml') as resp:
@@ -286,28 +330,23 @@ class RSS(Cog):
         articles = tree.xpath('.//item')
         for i in articles:
             link = ''.join(i.xpath('.//guid/text()'))
-
-            try:
-                if link in self.bot.blog_cache:
-                    continue
-            except AttributeError:
-                self.bot.blog_cache = []
-
-            self.bot.blog_cache.append(link)
-
             if ".ru" in link:
                 continue
 
-            if not self.bot.dev_blog_cached:
-                continue  # Skip on population
+            blog_id = int(link.split('/')[-1])
+            if blog_id in [r['id'] for r in self.bot.blog_cache]:
+                continue
 
-            e = await self.parse(link)
+            await self.store_blog(blog_id)
+            await self.get_blogs()
+
+            e = await parse(self.bot, link)
 
             ch = self.bot.get_channel(DEV_BLOG_CHANNEL)
             await ch.send(embed=e)
         self.bot.dev_blog_cached = True
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: 'PBot'):
     """Load the rss Cog into the bot."""
     await bot.add_cog(RSS(bot))

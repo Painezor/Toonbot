@@ -194,8 +194,9 @@ MBEMBA = [
 class MbembaView(View):
     """Generic View for the Mbemba Generator."""
 
-    def __init__(self, interaction: Interaction) -> None:
+    def __init__(self, bot: 'Bot', interaction: Interaction) -> None:
         self.interaction: Interaction = interaction
+        self.bot: Bot = bot
         super().__init__()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -209,7 +210,7 @@ class MbembaView(View):
 
         t = random.choice(MBEMBA)
         e: Embed = Embed(title="Mbemba when", colour=Colour.purple(), description=f"<:mbemba:332196308825931777> {t}")
-        return await self.interaction.client.reply(self.interaction, content=content, embed=e, view=self)
+        return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
 class MbembaButton(Button):
@@ -234,7 +235,7 @@ class NUFC(Cog):
     @guilds(332159889587699712)
     async def mbemba(self, interaction):
         """Mbemba When..."""
-        await MbembaView(interaction).update()
+        await MbembaView(self.bot, interaction).update()
 
     @command()
     @describe(hex_code="Enter a colour #hexcode")
@@ -253,7 +254,7 @@ class NUFC(Cog):
             view = View()
             btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
             view.add_item(btn)
-            return await interaction.client.error(interaction, 'Invalid colour.', view=view)
+            return await self.bot.error(interaction, 'Invalid colour.', view=view)
 
         # Create new role or fetch if already exists.
         role = utils.get(interaction.guild.roles, name=f"#{hex_code}")
@@ -269,7 +270,7 @@ class NUFC(Cog):
 
         # Cleanup old roles.
         [await i.delete() for i in remove_list if not i.members]
-        await interaction.client.reply(interaction, embed=e, ephemeral=True)
+        await self.bot.reply(interaction, embed=e, ephemeral=True)
 
     @command()
     @guilds(332159889587699712)

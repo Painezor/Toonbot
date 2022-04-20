@@ -255,7 +255,7 @@ class Team(TransferResult):
 
         rows = ["No expiring contracts found."] if not rows else rows
 
-        view = Paginator(interaction, rows_to_embeds(e, rows))
+        view = Paginator(bot, interaction, rows_to_embeds(e, rows))
         await view.update()
 
     # def view(self, bot: 'Bot', interaction: Interaction) -> TeamView:
@@ -388,7 +388,7 @@ class TeamView(View):
     async def on_timeout(self) -> None:
         """Clean up"""
         self.clear_items()
-        await self.interaction.client.reply(self.interaction, view=self, followup=False)
+        await self.bot.reply(self.interaction, view=self, followup=False)
         self.stop()
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -689,7 +689,9 @@ class CompetitionView(View):
 
     async def push_attendance(self) -> Message:
         """Fetch attendances for league's stadiums."""
-        async with self.bot.session.get(self.comp.link + "/besucherzahlen/wettbewerb/GB1/plus/") as resp:
+        url = self.comp.link + "/besucherzahlen/wettbewerb/GB1/plus/"
+        print(url)
+        async with self.bot.session.get(url) as resp:
             match resp.status:
                 case 200:
                     pass
@@ -699,7 +701,9 @@ class CompetitionView(View):
             tree = html.fromstring(await resp.text())
 
         rows = []
+
         for i in tree.xpath('.//table[@class="items"]/tr'):
+            print("Found a row.")
             stad = "".join(i.xpath('.//td[2]//tbody/tr[1]/td[@class="hauptlink"]/a/text()'))
             stad_link = TF + "".join(i.xpath('.//td[2]//tbody/tr[1]/td[@class="hauptlink"]/a/@href'))
 
@@ -713,6 +717,7 @@ class CompetitionView(View):
             team = Team(team_name, team_link)
             rows.append(StadiumAttendance(name=stad, link=stad_link, capacity=cap, average=avg, total=tot, team=team))
 
+        print(len(rows), "StadiumAttendance objects found.")
         ranked = sorted(rows, key=lambda x: x.average)
 
         e = self.comp.base_embed
@@ -790,26 +795,6 @@ class SearchView(View):
         self.interaction: Interaction = interaction
 
         self.url: Optional[str] = None
-
-    @property
-    def settings(self):
-        """Parser Settings"""
-        match self.category:
-            case 'player':
-                return "Spieler_page", 'for players', self.parse_players
-            case 'team':
-                return "Verein_page", 'results: Clubs', self.parse_teams
-            case 'referee':
-                return "Schiedsrichter_page", 'for referees', self.parse_referees
-            case 'staff':
-                return "Trainer_page", 'Managers', self.parse_staff
-            case 'agent':
-                return "page", 'for agents', self.parse_agents
-            case 'competition':
-                return "Wettbewerb_page", 'competitions', self.parse_competitions
-            case _:
-                print(f'WARNING NO QUERY STRING FOUND FOR {self.category}')
-                return "page"
 
     @staticmethod
     def parse_competitions(rows: List) -> List[Competition]:
@@ -924,7 +909,7 @@ class SearchView(View):
         return results
 
     @staticmethod
-    def parse_referees(rows) -> List[Referee]:
+    def parse_referees(rows: List) -> List[Referee]:
         """Parse a transfer page to get a list of referees"""
         results = []
         for i in rows:
@@ -975,8 +960,6 @@ class SearchView(View):
 
             categories = [i.lower().strip() for i in tree.xpath(".//div[@class='table-header']/text()")]
 
-            print(categories)
-
             select = CategorySelect()
             ce: Embed = Embed(title="Multiple results found", description="")
             ce.set_footer(text="Use the dropdown to select a category")
@@ -988,8 +971,6 @@ class SearchView(View):
                 except ValueError:
                     print("ValueError in transfer_tools", i)
                     length = "?"
-
-                print(length)
 
                 s = "" if length == 1 else "s"
 
@@ -1026,7 +1007,23 @@ class SearchView(View):
                 self.add_item(select)
                 return await self.bot.reply(self.interaction, content=content, view=self, embed=ce)
 
-        qs, ms, parser = self.settings
+        match self.category:
+            case 'player':
+                qs, ms, parser = "Spieler_page", 'for players', self.parse_players
+            case 'team':
+                qs, ms, parser = "Verein_page", 'results: Clubs', self.parse_teams
+            case 'referee':
+                qs, ms, parser = "Schiedsrichter_page", 'for referees', self.parse_referees
+            case 'staff':
+                qs, ms, parser = "Trainer_page", 'Managers', self.parse_staff
+            case 'agent':
+                qs, ms, parser = "page", 'for agents', self.parse_agents
+            case 'competition':
+                qs, ms, parser = "Wettbewerb_page", 'competitions', self.parse_competitions
+            case _:
+                print(f'WARNING NO QUERY STRING FOUND FOR {self.category}')
+                qs, ms, parser = "page", "", None
+
         p = {"query": self.query, qs: self.index}
 
         async with self.bot.session.post(url, params=p) as resp:
@@ -1052,7 +1049,7 @@ class SearchView(View):
         e: Embed = Embed(title=f"{matches} {self.category.title().rstrip('s')} results for {self.query}")
         e.set_author(name="TransferMarkt Search", url=self.url, icon_url=FAVICON)
 
-        results: List[TransferResult] = parser(self.bot, tree.xpath(trs))
+        results: List[TransferResult] = parser(tree.xpath(trs))
         if not results:
             self.index = 0
             return await self.bot.error(self.interaction, f"🚫 No results found for {self.category}: {self.query}")

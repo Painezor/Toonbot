@@ -1,6 +1,6 @@
 """User Created Polls"""
 from collections import Counter
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, Union
 
 from discord import ButtonStyle, Embed, Colour, TextStyle, Interaction, Message
 from discord.app_commands import command
@@ -9,9 +9,12 @@ from discord.ui import Button, View, Modal, TextInput
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
 
 
-# TODO: Timers, /end poll command, database entry, persistent view.
+# TODO: Database table, persistent views
+# TODO: Timed Poll
+# TODO: End Poll command.
 
 
 class PollButton(Button):
@@ -23,22 +26,22 @@ class PollButton(Button):
     async def callback(self, interaction: Interaction) -> Message:
         """Reply to user to let them know their vote has changed."""
         ej = f"{self.emoji} " if self.emoji is not None else ""
-        if interaction.user.id in self.view.answers:
+        if interaction.user.id in self.view.votes:
             await interaction.response.send_message(f'Your vote has been changed to {ej}{self.label}', ephemeral=True)
         else:
             await interaction.response.send_message(f'You have voted for {ej}{self.label}', ephemeral=True)
-        self.view.answers.update({interaction.user.mention: self.label})
+        self.view.votes.update({interaction.user.mention: self.label})
         return await self.view.update()
 
 
 class PollView(View):
     """View for a poll commands"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, question: str, answers: List[str]):
+    def __init__(self, bot: Union['Bot', 'PBot'], interaction: Interaction, question: str, answers: List[str]):
         self.interaction: Interaction = interaction
         self.question: str = question
         self.votes: dict = {}
-        self.bot: Bot = bot
+        self.bot: Bot | PBot = bot
         super().__init__(timeout=3600)
 
         buttons = [(None, i) for i in answers if i] if answers else [('👍', 'Yes'), ('👎', 'No')]
@@ -99,8 +102,8 @@ class PollModal(Modal, title="Create a poll"):
     question = TextInput(label="Enter a question", placeholder="What is your favourite colour?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Red\nBlue\nYellow")
 
-    def __init__(self, bot: 'Bot'):
-        self.bot: 'Bot' = bot
+    def __init__(self, bot: Union['Bot', 'PBot']):
+        self.bot: Bot | PBot = bot
         super().__init__()
 
     async def on_submit(self, interaction: Interaction) -> Message:
@@ -116,8 +119,8 @@ class PollModal(Modal, title="Create a poll"):
 class Poll(Cog):
     """User Created Polls"""
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+        self.bot: Bot | PBot = bot
 
     @command()
     async def poll(self, interaction: Interaction) -> PollModal:
@@ -125,6 +128,6 @@ class Poll(Cog):
         return await interaction.response.send_modal(PollModal(self.bot))
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Union['Bot', 'PBot']) -> None:
     """Add the Poll cog to the Bot"""
     await bot.add_cog(Poll(bot))

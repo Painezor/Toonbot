@@ -1,15 +1,14 @@
 """Generic Objects for discord Views"""
-# Generic Buttons
+from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING, Union
 
-
-from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING
-
-from discord import Interaction, ButtonStyle, SelectOption, NotFound, Embed, Message
+from discord import Interaction, ButtonStyle, NotFound, Embed, Message
 from discord.ui import Button, Select, Modal, View, TextInput
 from pyppeteer.page import Page
 
 if TYPE_CHECKING:
     from core import Bot
+    from discord import Client
+    from painezBot import PBot
 
 
 def add_page_buttons(view: View, row: int = 0):
@@ -145,38 +144,6 @@ class Stop(Button):
         self.view.stop()
 
 
-# Dropdowns
-class PageButton(Button):
-    """Button to spawn a dropdown to select pages."""
-
-    def __init__(self, label: str = "Jump to a page", row: int = 0) -> None:
-        super().__init__(emoji="⏬", label=label, row=row, style=ButtonStyle.primary)
-        pages = getattr(self.view, "pages", [])
-        if len(pages) < 3:
-            self.disabled = True
-
-    async def callback(self, interaction: Interaction) -> Message:
-        """The pages button."""
-        await interaction.response.defer()
-
-        if len(self.view.pages) < 25:
-            sliced = self.view.pages
-        else:
-            if self.view.index < 13:
-                sliced = self.view.pages[:24]
-            elif self.view.index > len(self.view.pages) - 13:
-                sliced = self.view.pages[24:]
-            else:
-                sliced = self.view.pages[self.view.index - 12:self.view.index + 12]
-        options = [SelectOption(label=f"Page {n}", value=str(n)) for n, e in enumerate(sliced, start=1)]
-
-        self.view.clear_items()
-        self.view.add_item(PageSelect(placeholder="Select A Page", options=options, row=self.row))
-        self.disabled = True
-
-        return await self.view.interaction.client.reply(self.view.interaction, view=self.view)
-
-
 class PageSelect(Select):
     """Page Selector Dropdown"""
 
@@ -289,17 +256,18 @@ class FuncButton(Button):
 class Paginator(View):
     """Generic Paginator that returns nothing."""
 
-    def __init__(self, interaction: Interaction, embeds: List[Embed]) -> None:
+    def __init__(self, bot: Union['Bot', 'PBot', 'Client'], interaction: Interaction, embeds: List[Embed]) -> None:
         super().__init__()
-        self.index: int = 0
-        self.pages: List[Embed] = embeds
         self.interaction: Interaction = interaction
+        self.pages: List[Embed] = embeds
+        self.index: int = 0
+        self.bot: Bot = bot
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
         self.clear_items()
         self.stop()
-        return await self.interaction.client.reply(self.interaction, view=self, followup=False)
+        return await self.bot.reply(self.interaction, view=self, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
@@ -309,8 +277,7 @@ class Paginator(View):
         """Refresh the view and send to user"""
         self.clear_items()
         add_page_buttons(self)
-        return await self.interaction.client.reply(self.interaction, content=content, embed=self.pages[self.index],
-                                                   view=self)
+        return await self.bot.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
 
 class Confirmation(View):

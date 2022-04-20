@@ -206,9 +206,12 @@ class MatchThread:
         """Fetch information about where the match will be televised"""
         tv = {}
         async with self.bot.session.get(f"https://www.livesoccertv.com/") as resp:
-            if resp.status != 200:
-                print(f"{resp.status} received when trying to fetch TV url {resp.url}")
-                return None
+            match resp.status:
+                case 200:
+                    pass
+                case _:
+                    print(f"{resp.status} received when trying to fetch TV url {resp.url}")
+                    return None
             tree = html.fromstring(await resp.text())
             for i in tree.xpath(".//tr//a"):
                 if self.fixture.home.name in ''.join(i.xpath(".//text()")):
@@ -219,8 +222,11 @@ class MatchThread:
             return ""
 
         async with self.bot.session.get(tv["link"]) as resp:
-            if resp.status != 200:
-                return tv
+            match resp.status:
+                case 200:
+                    pass
+                case _:
+                    return tv
             tree = html.fromstring(await resp.text())
             tv_table = tree.xpath('.//table[@id="wc_channels"]//tr')
 

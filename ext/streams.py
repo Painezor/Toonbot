@@ -70,7 +70,7 @@ class GuildStreams(Cog):
         await self.bot.reply(interaction, content=f"Added <{stream.link}> to stream list.", embed=e)
 
     @streams.command()
-    @has_permissions(mange_messages=True)
+    @has_permissions(manage_messages=True)
     async def clear(self, interaction: Interaction):
         """Remove all streams from guild stream list"""
         self.bot.streams[interaction.guild.id] = []

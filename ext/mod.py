@@ -1,5 +1,5 @@
 """Moderation Commands"""
-from typing import Optional, Literal, TYPE_CHECKING
+from typing import Optional, Literal, TYPE_CHECKING, Union
 
 from discord import Interaction, Member, Colour, Embed, TextChannel, HTTPException, Forbidden, Object, Message, \
     TextStyle
@@ -13,6 +13,7 @@ from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
 
 
 class BanModal(Modal, title="Bulk ban user IDs"):
@@ -24,9 +25,9 @@ class BanModal(Modal, title="Bulk ban user IDs"):
     )
     reason = TextInput(label="Enter a reason", placeholder="<Insert your reason here>", default="No reason provided")
 
-    def __init__(self, bot: 'Bot'):
+    def __init__(self, bot: Union['Bot', 'PBot']):
         super().__init__()
-        self.bot: Bot = bot
+        self.bot: Bot | PBot = bot
 
     async def on_submit(self, interaction: Interaction) -> None:
         """Ban users on submit."""
@@ -50,7 +51,7 @@ class BanModal(Modal, title="Bulk ban user IDs"):
 class EmbedModal(Modal, title="Send an Embed"):
     """A Modal to allow the author to send an embedded message"""
     e_title = TextInput(label="Embed Title", placeholder="Announcement")
-    text = TextInput(label="", placeholder="Enter your text here", style=TextStyle.paragraph, max_length=4000)
+    text = TextInput(label="Embed Text", placeholder="Enter your text here", style=TextStyle.paragraph, max_length=4000)
     thumbnail = TextInput(label="Thumbnail", placeholder="Enter url for thumbnail image", required=False)
     image = TextInput(label="Image", placeholder="Enter url for large image", required=False)
 
@@ -66,10 +67,10 @@ class EmbedModal(Modal, title="Send an Embed"):
         e = Embed(title=self.e_title, colour=self.colour)
         e.set_author(name=self.interaction.guild.name, icon_url=self.interaction.guild.icon.url)
 
-        if self.image is not None and "http:" in self.image:
-            e.set_image(url=self.image)
-        if self.thumbnail is not None and "http:" in self.thumbnail:
-            e.set_thumbnail(url=self.thumbnail)
+        if self.image.value is not None and "http:" in self.image.value:
+            e.set_image(url=self.image.value)
+        if self.thumbnail.value is not None and "http:" in self.thumbnail.value:
+            e.set_thumbnail(url=self.thumbnail.value)
         try:
             await self.destination.send(embed=e)
             await self.bot.reply(interaction, content="Message sent.", ephemeral=True)
@@ -168,10 +169,9 @@ class Mod(Cog):
     @command()
     @has_permissions(ban_members=True)
     @bot_has_permissions(ban_members=True)
-    @describe(user_ids="comma separated list of user ids to ban", reason="reason for the bans")
     async def ban(self, interaction: Interaction):
         """Bans a list of user IDs"""
-        await interaction.response.sendmodal(BanModal(self.bot))
+        await interaction.response.send_modal(BanModal(self.bot))
 
     @command()
     @has_permissions(ban_members=True)
@@ -210,8 +210,8 @@ class Mod(Cog):
         e.set_author(name=n, icon_url=_)
 
         embeds = rows_to_embeds(e, bans)
-        view = Paginator(interaction, embeds)
-        await view.update()
+        view = Paginator(self.bot, interaction, embeds)
+        return await view.update()
 
     @command()
     @has_permissions(manage_messages=True)
@@ -219,6 +219,7 @@ class Mod(Cog):
     @describe(number="Number of messages to delete.")
     async def clean(self, interaction: Interaction, number: int = None):
         """Deletes my messages from the last x messages in channel"""
+        await interaction.response.defer(thinking=True)
 
         def is_me(m):
             """Return only messages sent by the bot."""
@@ -228,7 +229,7 @@ class Mod(Cog):
 
         deleted = await interaction.channel.purge(limit=number, check=is_me, reason=f"/clean ran by {interaction.user}")
         c = f'♻ Deleted {len(deleted)} bot message{"s" if len(deleted) > 1 else ""}'
-        await self.bot.reply(interaction, content=c, ephemeral=True)
+        await self.bot.reply(content=c)
 
     @command()
     @has_permissions(moderate_members=True)
@@ -278,6 +279,6 @@ class Mod(Cog):
             await self.bot.db.release(connection)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Union['Bot', 'PBot']):
     """Load the mod cog into the bot"""
     await bot.add_cog(Mod(bot))

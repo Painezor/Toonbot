@@ -3,8 +3,7 @@ from asyncio import to_thread
 from io import BytesIO
 from json import dumps
 from random import choice
-from textwrap import fill
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Union
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord import Embed, Colour, Member, Attachment, Interaction, User, Message
@@ -16,6 +15,7 @@ from ext.utils.embed_utils import embed_image
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
 
 KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_TV_%28Hungary%29.svg" \
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
@@ -55,13 +55,13 @@ def get_target(user: User | Member = None, link: str = None, file: Attachment = 
 class ImageView(View):
     """Holder View for Image Manipulation functions."""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, target: str) -> None:
+    def __init__(self, bot: Union['Bot', 'PBot'], interaction: Interaction, target: str) -> None:
         self.interaction: Interaction = interaction
         self.coordinates: dict = {}
         self.embed: Embed | None = None
         self.image: bytes | None = None
         self.target_url: str = target
-        self.bot: Bot = bot
+        self.bot: Bot | PBot = bot
         super().__init__()
 
     async def get_faces(self) -> Optional[Message]:
@@ -119,17 +119,17 @@ class ImageView(View):
             im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
             knob = Image.open("Images/knob.png")
 
-            for coords in self.coordinates:
-                mlx = int(coords["faceLandmarks"]["mouthLeft"]["x"])
-                mrx = int(coords["faceLandmarks"]["mouthRight"]["x"])
-                lipy = int(coords["faceLandmarks"]["upperLipBottom"]["y"])
-                lipx = int(coords["faceLandmarks"]["upperLipBottom"]["x"])
+            for coordinates in self.coordinates:
+                mlx = int(coordinates["faceLandmarks"]["mouthLeft"]["x"])
+                mrx = int(coordinates["faceLandmarks"]["mouthRight"]["x"])
+                lip_y = int(coordinates["faceLandmarks"]["upperLipBottom"]["y"])
+                lip_x = int(coordinates["faceLandmarks"]["upperLipBottom"]["x"])
 
-                angle = int(coords["faceAttributes"]["headPose"]["roll"] * -1)
+                angle = int(coordinates["faceAttributes"]["headPose"]["roll"] * -1)
                 w = int((mrx - mlx)) * 2
                 h = w
                 tk = ImageOps.fit(knob, (w, h)).rotate(angle)
-                im.paste(tk, box=(int(lipx - w / 2), int(lipy)), mask=tk)
+                im.paste(tk, box=(int(lip_x - w / 2), int(lip_y)), mask=tk)
             output = BytesIO()
             im.save(output, "PNG")
             output.seek(0)
@@ -223,15 +223,15 @@ class ImageView(View):
         self.embed = e
 
     async def update(self) -> Message:
-        """Push latest version to view"""
+        """Push the latest versio of the view to the user"""
         return await embed_image(self.interaction, self.embed, self.image, filename="bob.png")
 
 
 class Images(Cog):
     """Image manipulation commands"""
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+        self.bot: Bot | PBot = bot
 
     @command()
     @describe(user="pick a user", link="provide a link", file="upload a file")
@@ -366,83 +366,83 @@ class Images(Cog):
         e: Embed = Embed(description=caption, colour=0xFD297B)
         e.set_author(name="Tinder", icon_url=icon)
         return await embed_image(interaction, e, output, filename="Tinder.png")
+    #
+    # @command()
+    # @describe(quote="enter quote text", target="pick a user")
+    # async def tard(self, interaction: Interaction, quote: str, target: Optional[User | Member] = None) -> Message:
+    #     """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
+    #     await interaction.response.defer(thinking=True)
+    #     target = interaction.user if target is None else target
+    #
+    #     if target is None or target.id == self.bot.owner_id:
+    #         target = interaction.user
+    #
+    #     image = await target.display_avatar.with_format("png").read()
+    #
+    #     def draw_tard(img: bytes, txt: str) -> BytesIO:
+    #         """Draws the "it's retarded" image"""
+    #         # Open Files
+    #         img: Image = Image.open(BytesIO(img))
+    #         base: Image = Image.open("Images/retarded base.png")
+    #         mask: Image = Image.open("Images/circle mask.png").convert('L')
+    #
+    #         # Resize avatar, make circle, paste
+    #         img = ImageOps.fit(img, (250, 250))
+    #         img.putalpha(mask)
+    #         mask = mask.resize((35, 40))
+    #         small = img.resize((35, 40))
+    #
+    #         base.paste(small, box=(175, 160, 210, 200), mask=small)
+    #         small.close()
+    #
+    #         mask = mask.resize((100, 100))
+    #         large = img.resize((100, 100)).rotate(-20)
+    #
+    #         base.paste(large, box=(325, 90, 425, 190), mask=mask)
+    #         large.close()
+    #         mask.close()
+    #
+    #         # Drawing tex
+    #         d = ImageDraw.Draw(base)
+    #
+    #         # Get best size for text
+    #         def get_first_size(quote_text):
+    #             """Measure font and shrink it to appropriate size."""
+    #             font_size = 72
+    #             ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
+    #             width = 300
+    #             quote_text = fill(quote_text, width=width)
+    #             while font_size > 0:
+    #                 # Make lines thinner if too wide.
+    #                 while width > 1:
+    #                     if ft.getsize(quote_text)[0] < 237 and ft.getsize(quote)[1] < 89:
+    #                         return width, ft
+    #                     width -= 1
+    #                     quote_text = fill(quote, width=width)
+    #                     ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
+    #                 font_size -= 1
+    #                 ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
+    #                 width = 40
+    #
+    #         wid, font = get_first_size(txt)
+    #
+    #         quote_fill = fill(txt, width=wid)
+    #         # Write lines.
+    #         move_up = font.getsize(quote_fill)[1]
+    #         d.text((245, (80 - move_up)), quote_fill, font=font, fill="#000000")
+    #
+    #         # Prepare for sending
+    #         output = BytesIO()
+    #         base.save(output, "PNG")
+    #         output.seek(0)
+    #         base.close()
+    #         img.close()
+    #         return output
+    #
+    #     image = await to_thread(draw_tard, image, quote)
+    #     return await embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
 
-    @command()
-    @describe(quote="enter quote text", target="pick a user")
-    async def tard(self, interaction: Interaction, quote: str, target: Optional[User | Member] = None) -> Message:
-        """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
-        await interaction.response.defer(thinking=True)
-        target = interaction.user if target is None else target
 
-        if target is None or target.id == self.bot.owner_id:
-            target = interaction.user
-
-        image = await target.display_avatar.with_format("png").read()
-
-        def draw_tard(img: bytes, txt: str) -> BytesIO:
-            """Draws the "it's retarded" image"""
-            # Open Files
-            img: Image = Image.open(BytesIO(img))
-            base: Image = Image.open("Images/retarded base.png")
-            mask: Image = Image.open("Images/circle mask.png").convert('L')
-
-            # Resize avatar, make circle, paste
-            img = ImageOps.fit(img, (250, 250))
-            img.putalpha(mask)
-            mask = mask.resize((35, 40))
-            small = img.resize((35, 40))
-
-            base.paste(small, box=(175, 160, 210, 200), mask=small)
-            small.close()
-
-            mask = mask.resize((100, 100))
-            large = img.resize((100, 100)).rotate(-20)
-
-            base.paste(large, box=(325, 90, 425, 190), mask=mask)
-            large.close()
-            mask.close()
-
-            # Drawing tex
-            d = ImageDraw.Draw(base)
-
-            # Get best size for text
-            def get_first_size(quote_text):
-                """Measure font and shrink it to appropriate size."""
-                font_size = 72
-                ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
-                width = 300
-                quote_text = fill(quote_text, width=width)
-                while font_size > 0:
-                    # Make lines thinner if too wide.
-                    while width > 1:
-                        if ft.getsize(quote_text)[0] < 237 and ft.getsize(quote)[1] < 89:
-                            return width, ft
-                        width -= 1
-                        quote_text = fill(quote, width=width)
-                        ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
-                    font_size -= 1
-                    ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
-                    width = 40
-
-            wid, font = get_first_size(txt)
-
-            quote_fill = fill(txt, width=wid)
-            # Write lines.
-            moveup = font.getsize(quote_fill)[1]
-            d.text((245, (80 - moveup)), quote_fill, font=font, fill="#000000")
-
-            # Prepare for sending
-            output = BytesIO()
-            base.save(output, "PNG")
-            output.seek(0)
-            base.close()
-            img.close()
-            return output
-
-        image = await to_thread(draw_tard, image, quote)
-        return await embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
-
-
-async def setup(bot: 'Bot'):
+async def setup(bot: Union['Bot', 'PBot']):
     """Load the Images Cog into the bot"""
     await bot.add_cog(Images(bot))

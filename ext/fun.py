@@ -3,7 +3,7 @@ from collections import Counter
 from copy import deepcopy
 from random import choice, randint, randrange, shuffle
 from re import finditer
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, Union
 
 from discord import ButtonStyle, Colour, Embed, Interaction, TextStyle, Message, File
 from discord.app_commands import command, context_menu, describe
@@ -14,6 +14,7 @@ from ext.utils.view_utils import Stop, Paginator
 
 if TYPE_CHECKING:
     from core import Bot
+    from painezBot import PBot
 
 EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" \
                   "thumbs/120/samsung/265/pool-8-ball_1f3b1.png"
@@ -29,11 +30,11 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 class CoinView(View):
     """A View with a counter for 2 results"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, count: int = 1) -> None:
+    def __init__(self, bot: Union['Bot', 'PBot'], interaction: Interaction, count: int = 1) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.results: List[str] = []
-        self.bot: Bot = bot
+        self.bot: Bot | PBot = bot
         for x in range(count):
             self.results.append(choice(['Heads', 'Tails']))
 
@@ -82,9 +83,9 @@ class PollModal(Modal, title="Make a Decision"):
     question = TextInput(label="Enter a question", placeholder="What should I do?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
 
-    def __init__(self, bot: 'Bot'):
+    def __init__(self, bot: Union['Bot', 'PBot']):
         super().__init__()
-        self.bot: Bot = bot
+        self.bot: Bot | PBot = bot
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
@@ -115,8 +116,8 @@ async def mock(interaction: Interaction, message: Message) -> Message:
 class Fun(Cog):
     """Various Toys for you to play with."""
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+        self.bot: Bot | PBot = bot
         self.bot.tree.add_command(mock)  # Must be free floating.
 
     @command(name="8ball")
@@ -222,7 +223,7 @@ class Fun(Cog):
             e.description = f"🚫 No results found for {query}."
             embeds = [e]
 
-        view = Paginator(interaction, embeds=embeds)
+        view = Paginator(self.bot, interaction, embeds=embeds)
         return await view.update()
 
     @command()
@@ -290,6 +291,8 @@ class Fun(Cog):
                     return await self.bot.error(interaction, 'Too many dice')
                 if sides > 1000000:
                     return await self.bot.error(interaction, 'Too many sides')
+                if sides < 1:
+                    return await self.bot.error(interaction, 'Not enough sides')
 
             e.description += f"{r}: "
             total_roll = 0
@@ -345,6 +348,6 @@ class Fun(Cog):
         return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Union['Bot', 'PBot']) -> None:
     """Load the Fun cog into the bot"""
     return await bot.add_cog(Fun(bot))
