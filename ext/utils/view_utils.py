@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from painezBot import PBot
 
 
-def add_page_buttons(view: View, row: int = 0):
+def add_page_buttons(view: View, row: int = 0) -> View:
     """Helper function to bulk add page buttons"""
     index = getattr(view, "index", 1)
     pages = len(getattr(view, "pages", []))
@@ -28,6 +28,7 @@ def add_page_buttons(view: View, row: int = 0):
     n.disabled = True if index + 1 >= pages else False  # index 0 plus 1, len pages = 1
     view.add_item(n)
     view.add_item(Stop(row=row))
+    return view
 
 
 class First(Button):
@@ -128,10 +129,10 @@ class Last(Button):
 class Stop(Button):
     """A generic button to stop a View"""
 
-    def __init__(self, row=3):
+    def __init__(self, row=3) -> None:
         super().__init__(label="Hide", emoji="🚫", row=row)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> None:
         """Do this when button is pressed"""
         try:
             await self.view.interaction.delete_original_message()

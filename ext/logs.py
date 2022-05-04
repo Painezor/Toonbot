@@ -4,8 +4,7 @@ from typing import List, Sequence, TYPE_CHECKING, Union, Callable
 
 from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, Member, User, Message
 from discord import Guild, Emoji, GuildSticker, TextChannel
-from discord.app_commands import command
-from discord.app_commands.checks import has_permissions
+from discord.app_commands import command, default_permissions
 from discord.ext.commands import Cog
 from discord.ui import Button, View
 
@@ -137,7 +136,7 @@ class Logs(Cog):
         await self.update_cache()
 
     @command()
-    @has_permissions(manage_messages=True)
+    @default_permissions(manage_messages=True)
     async def logs(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """Create moderator logs in this channel."""
         if channel is None:
@@ -276,7 +275,7 @@ class Logs(Cog):
     # Kick notif
     # Leave notif
     @Cog.listener()
-    async def on_member_remove(self, member: Member):
+    async def on_member_remove(self, member: Member) -> None:
         """Event handler for outputting information about member kick, ban, or other departures"""
         # Check if in mod action log and override to specific channels.
         e: Embed = Embed(title="Member Left", description=f"{member.mention} | {member} (ID: {member.id})")
@@ -337,7 +336,7 @@ class Logs(Cog):
 
     # emojis notif
     @Cog.listener()
-    async def on_guild_emojis_update(self, guild: Guild, before: Sequence[Emoji], after: Sequence[Emoji]):
+    async def on_guild_emojis_update(self, guild: Guild, before: Sequence[Emoji], after: Sequence[Emoji]) -> None:
         """Event listener for outputting information about updated emojis on a server"""
         e: Embed = Embed()
         # Find if it was addition or removal.

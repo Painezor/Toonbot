@@ -2,9 +2,9 @@
 from typing import Optional, Literal, TYPE_CHECKING, Union
 
 from discord import Interaction, Member, Colour, Embed, TextChannel, HTTPException, Forbidden, Object, Message, \
-    TextStyle
-from discord.app_commands import command, describe
-from discord.app_commands.checks import has_permissions, bot_has_permissions
+    TextStyle, NotFound
+from discord.app_commands import command, describe, default_permissions
+from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Modal, TextInput
 
@@ -25,7 +25,7 @@ class BanModal(Modal, title="Bulk ban user IDs"):
     )
     reason = TextInput(label="Enter a reason", placeholder="<Insert your reason here>", default="No reason provided")
 
-    def __init__(self, bot: Union['Bot', 'PBot']):
+    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
         super().__init__()
         self.bot: Bot | PBot = bot
 
@@ -37,7 +37,11 @@ class BanModal(Modal, title="Bulk ban user IDs"):
         targets = [int(i.strip()) for i in self.ban_list.value.split('\n')]
 
         for i in targets:
-            target = await self.bot.fetch_user(int(i))
+            try:
+                target = await self.bot.fetch_user(int(i))
+            except NotFound:
+                e.description += f"Could not find user with ID# {i}"
+                continue
 
             try:
                 await self.bot.http.ban(i, interaction.guild.id)
@@ -86,7 +90,7 @@ class Mod(Cog):
 
     # TODO: Slash attachments pass
     @command()
-    @has_permissions(manage_messages=True)
+    @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
     @describe(destination="target channel", colour="embed colour")
     async def embed(self, interaction: Interaction, destination: TextChannel = None,
@@ -113,7 +117,7 @@ class Mod(Cog):
         await interaction.response.send_modal(modal)
 
     @command()
-    @has_permissions(manage_messages=True)
+    @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
     @describe(message="text to send", destination="target channel")
     async def say(self, interaction: Interaction, message: str, destination: Optional[TextChannel] = None) -> Message:
@@ -133,7 +137,7 @@ class Mod(Cog):
             return await self.bot.error(interaction, "I can't send messages to that channel.")
 
     @command()
-    @has_permissions(manage_channels=True)
+    @default_permissions(manage_channels=True)
     @bot_has_permissions(manage_channels=True)
     @describe(new_topic="Type the new topic for this channel..")
     async def topic(self, interaction: Interaction, new_topic: str):
@@ -142,7 +146,7 @@ class Mod(Cog):
         await self.bot.reply(interaction, content=f"{interaction.channel.mention} Topic updated")
 
     @command()
-    @has_permissions(manage_channels=True)
+    @default_permissions(manage_channels=True)
     @bot_has_permissions(manage_channels=True)
     @describe(message="Type a message to be pinned in this channel.")
     async def pin(self, interaction: Interaction, message: str):
@@ -151,7 +155,7 @@ class Mod(Cog):
         await message.pin()
 
     @command()
-    @has_permissions(manage_nicknames=True)
+    @default_permissions(manage_nicknames=True)
     @bot_has_permissions(manage_nicknames=True)
     @describe(member="Pick a user to rename", new_nickname="Choose a new nickname for the member")
     async def rename(self, interaction: Interaction, member: Member, new_nickname: str):
@@ -167,14 +171,14 @@ class Mod(Cog):
             await self.bot.reply(interaction, embed=e, ephemeral=True)
 
     @command()
-    @has_permissions(ban_members=True)
+    @default_permissions(ban_members=True)
     @bot_has_permissions(ban_members=True)
     async def ban(self, interaction: Interaction):
         """Bans a list of user IDs"""
         await interaction.response.send_modal(BanModal(self.bot))
 
     @command()
-    @has_permissions(ban_members=True)
+    @default_permissions(ban_members=True)
     @bot_has_permissions(ban_members=True)
     @describe(user_id="User ID# of the person to unban")
     async def unban(self, interaction: Interaction, user_id: str):
@@ -193,7 +197,7 @@ class Mod(Cog):
     # TODO: Banlist as View
     # TODO: Dropdown to unban users.
     @command()
-    @has_permissions(view_audit_log=True)
+    @default_permissions(view_audit_log=True)
     @bot_has_permissions(view_audit_log=True)
     async def banlist(self, interaction: Interaction) -> Message:
         """Show the ban list for the server"""
@@ -214,7 +218,7 @@ class Mod(Cog):
         return await view.update()
 
     @command()
-    @has_permissions(manage_messages=True)
+    @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
     @describe(number="Number of messages to delete.")
     async def clean(self, interaction: Interaction, number: int = None):
@@ -229,10 +233,10 @@ class Mod(Cog):
 
         deleted = await interaction.channel.purge(limit=number, check=is_me, reason=f"/clean ran by {interaction.user}")
         c = f'♻ Deleted {len(deleted)} bot message{"s" if len(deleted) > 1 else ""}'
-        await self.bot.reply(content=c)
+        await self.bot.reply(interaction, content=c)
 
     @command()
-    @has_permissions(moderate_members=True)
+    @default_permissions(moderate_members=True)
     @bot_has_permissions(moderate_members=True)
     @describe(member="The user to untimeout", reason="reason for ending the timeout")
     async def untimeout(self, interaction: Interaction, member: Member, reason: str = "Not provided"):
@@ -250,31 +254,23 @@ class Mod(Cog):
 
     # Listeners
     @Cog.listener()
-    async def on_guild_join(self, guild):
+    async def on_guild_join(self, guild) -> None:
         """Create database entry for new guild"""
-        await self.create_guild(guild.id)
-
-    @Cog.listener()
-    async def on_guild_remove(self, guild):
-        """Delete guild's info upon leaving one."""
-        await self.delete_guild(guild.id)
-
-    async def create_guild(self, guild_id):
-        """Insert the database entry for a new guild"""
         q = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                await connection.execute(q, guild_id)
+                await connection.execute(q, guild.id)
         finally:
             await self.bot.db.release(connection)
-            
-    async def delete_guild(self, guild_id):
-        """Remove a guild's settings from the database"""
+
+    @Cog.listener()
+    async def on_guild_remove(self, guild) -> None:
+        """Delete guild's info upon leaving one."""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild_id)
+                await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
         finally:
             await self.bot.db.release(connection)
 

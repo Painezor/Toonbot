@@ -1,12 +1,16 @@
 """Reply Handling for bots"""
 from io import BytesIO
+from typing import TYPE_CHECKING
 
 from discord import Embed, Interaction, Message, NotFound, Colour, File
 
+if TYPE_CHECKING:
+	from core import Bot
 
-async def dump_image(self, img: BytesIO) -> str | None:
+
+async def dump_image(bot: 'Bot', img: BytesIO) -> str | None:
 	"""Dump an image to discord & return its URL to be used in embeds"""
-	ch = self.get_channel(874655045633843240)
+	ch = bot.get_channel(874655045633843240)
 	img_msg = await ch.send(file=File(fp=img, filename="dumped_image.png"))
 	url = img_msg.attachments[0].url
 	return None if url == "none" else url

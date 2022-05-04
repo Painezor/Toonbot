@@ -3,7 +3,7 @@ from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, TYPE_CHECKING, Optional
 
 from discord import Interaction, Embed, Colour, Message
@@ -183,7 +183,7 @@ class Competition(TransferResult):
 class Team(TransferResult):
     """An object representing a Team from Transfermarkt"""
     league: Competition = None
-    country: List[str] = None
+    country: List[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"{self.flag} {self.markdown}"
@@ -269,7 +269,7 @@ class Player(TransferResult):
     team: Team = None
     age: int = None
     position: str = None
-    country: List[str] = None
+    country: List[str] = field(default_factory=list)
     picture: str = None
 
     def __repr__(self) -> str:
@@ -689,7 +689,7 @@ class CompetitionView(View):
 
     async def push_attendance(self) -> Message:
         """Fetch attendances for league's stadiums."""
-        url = self.comp.link + "/besucherzahlen/wettbewerb/GB1/plus/"
+        url = self.comp.link.replace('startseite', 'besucherzahlen')
         print(url)
         async with self.bot.session.get(url) as resp:
             match resp.status:
@@ -702,7 +702,7 @@ class CompetitionView(View):
 
         rows = []
 
-        for i in tree.xpath('.//table[@class="items"]/tr'):
+        for i in tree.xpath('.//table[@class="items"]/tbody/tr'):
             print("Found a row.")
             stad = "".join(i.xpath('.//td[2]//tbody/tr[1]/td[@class="hauptlink"]/a/text()'))
             stad_link = TF + "".join(i.xpath('.//td[2]//tbody/tr[1]/td[@class="hauptlink"]/a/@href'))
@@ -769,7 +769,7 @@ class SearchSelect(Select):
             if isinstance(_, Team):
                 self.add_option(label=_.name, description=f"{_.country[0]}: {_.league.name}", value=str(n), emoji='👕')
             elif isinstance(_, Competition):
-                self.add_option(label=_.name, description=_.country[0], value=str(n), emoji='🏆')
+                self.add_option(label=_.name, description=_.country[0] if _.country else None, value=str(n), emoji='🏆')
 
     async def callback(self, interaction: Interaction) -> Competition | Team:
         """Set view value to item."""

@@ -7,7 +7,7 @@ from typing import Optional, TYPE_CHECKING, Union
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord import Embed, Colour, Member, Attachment, Interaction, User, Message
-from discord.app_commands import command, describe
+from discord.app_commands import command, describe, guild_only
 from discord.ext.commands import Cog
 from discord.ui import View
 
@@ -30,10 +30,52 @@ def get_target(user: User | Member = None, link: str = None, file: Attachment = 
     return user.display_avatar.with_format("png").url
 
 
+def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
+    """Draw Images for the tinder command"""
+    # Open The Tinder Image File
+    im: Image = Image.open("Images/tinder.png").convert(mode="RGBA")
+
+    # Open the User's Avatar, fit to size, apply mask.
+    avatar: Image = Image.open(BytesIO(avatar)).convert(mode="RGBA")
+    avatar = ImageOps.fit(avatar, (185, 185))
+
+    # Open the second user's avatar, do same.
+    other: Image = Image.open(BytesIO(image)).convert(mode="RGBA")
+    other = ImageOps.fit(other, (185, 185), centering=(0.5, 0.0))
+
+    # Prepare the Mask and set size.
+    mask: Image = Image.open("Images/circle mask.png")
+    mask = ImageOps.fit(mask.convert('L'), (185, 185))
+    avatar.putalpha(mask)
+    other.putalpha(mask)
+
+    # Paste both images on source image.
+    im.paste(avatar, box=(100, 223, 285, 408), mask=mask)
+    im.paste(other, box=(313, 223, 498, 408), mask=mask)
+
+    # Cleanup
+    mask.close()
+    avatar.close()
+    other.close()
+
+    # Write "it's a mutual match"
+    text = f"You and {user_name} have liked each other."
+    f = ImageFont.truetype('Whitney-Medium.ttf', 24)
+    w, h = f.getsize(text)
+    ImageDraw.Draw(im).text((300 - w / 2, 180), text, font=f, fill="#ffffff")
+
+    out = BytesIO()
+    im.save(out, "PNG")
+    im.close()
+    out.seek(0)
+    return out
+
+
 # TODO: XKCD Command. https://xkcd.com/json.html
 # TODO: Select / Button Pass: Dropdown for ImageView
 # TODO: User Commands Pass
 # TODO: NSFW Knob command.
+
 # @is_nsfw()
 # @command(usage='<@user, link to image, or upload a file>')
 # async def knob(self, interaction: Interaction,*, target: typing.Union[discord.Member, str] = None):
@@ -64,82 +106,26 @@ class ImageView(View):
         self.bot: Bot | PBot = bot
         super().__init__()
 
-    async def get_faces(self) -> Optional[Message]:
-        """Retrieve face features from Project Oxford"""
-        # Prepare POST
-        h = {"Content-Type": "application/json",
-             "Ocp-Apim-Subscription-Key": self.bot.credentials['Oxford']['OxfordKey']}
-        p = {"returnFaceId": "False", "returnFaceLandmarks": "True", "returnFaceAttributes": "headPose"}
-        d = dumps({"url": self.target_url})
-        url = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
+    def draw_knob(self) -> BytesIO:
+        """Draw a knob in someone's mouth for the knob command"""
+        im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
+        knob = Image.open("Images/knob.png")
 
-        # Get Project Oxford reply
-        async with self.bot.session.post(url, params=p, headers=h, data=d) as resp:
-            match resp.status:
-                case 200:
-                    self.coordinates = await resp.json()
-                case 400:
-                    return await self.bot.error(self.interaction, await resp.json())
-                case _:
-                    err = f"HTTP Error {resp.status} accessing facial recognition API."
-                    return await self.bot.error(self.interaction, err)
+        for coordinates in self.coordinates:
+            mlx = int(coordinates["faceLandmarks"]["mouthLeft"]["x"])
+            mrx = int(coordinates["faceLandmarks"]["mouthRight"]["x"])
+            lip_y = int(coordinates["faceLandmarks"]["upperLipBottom"]["y"])
+            lip_x = int(coordinates["faceLandmarks"]["upperLipBottom"]["x"])
 
-        # Get target image as file
-        async with self.bot.session.get(self.target_url) as resp:
-            match resp.status:
-                case 200:
-                    pass
-                case _:
-                    err = f"HTTP Error {resp.status} opening {self.target_url}."
-                    return await self.bot.error(self.interaction, err)
-            self.image = await resp.content.read()
-
-    async def push_eyes(self) -> Message:
-        """Draw the googly eyes"""
-        if self.image is None:
-            maybe_error = await self.get_faces()
-            if isinstance(maybe_error, Message):
-                return maybe_error
-
-        image = await to_thread(self.draw_eyes)
-
-        e: Embed = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
-        e.add_field(name="Source Image", value=self.target_url)
-        await embed_image(self.interaction, e, image, filename="eyes.png")
-
-    async def push_knob(self) -> Message:
-        """Push the bob ross image to View"""
-        if self.image is None:
-            maybe_error = await self.get_faces()
-            if isinstance(maybe_error, Message):
-                return maybe_error
-
-        def draw_knob() -> BytesIO:
-            """Draw a knob in someone's mouth for the knob command"""
-            im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
-            knob = Image.open("Images/knob.png")
-
-            for coordinates in self.coordinates:
-                mlx = int(coordinates["faceLandmarks"]["mouthLeft"]["x"])
-                mrx = int(coordinates["faceLandmarks"]["mouthRight"]["x"])
-                lip_y = int(coordinates["faceLandmarks"]["upperLipBottom"]["y"])
-                lip_x = int(coordinates["faceLandmarks"]["upperLipBottom"]["x"])
-
-                angle = int(coordinates["faceAttributes"]["headPose"]["roll"] * -1)
-                w = int((mrx - mlx)) * 2
-                h = w
-                tk = ImageOps.fit(knob, (w, h)).rotate(angle)
-                im.paste(tk, box=(int(lip_x - w / 2), int(lip_y)), mask=tk)
-            output = BytesIO()
-            im.save(output, "PNG")
-            output.seek(0)
-            return output
-
-        image = await to_thread(draw_knob)
-
-        e: Embed = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
-        e.add_field(name="Source Image", value=self.target_url)
-        await embed_image(self.interaction, e, image, filename="knob.png")
+            angle = int(coordinates["faceAttributes"]["headPose"]["roll"] * -1)
+            w = int((mrx - mlx)) * 2
+            h = w
+            tk = ImageOps.fit(knob, (w, h)).rotate(angle)
+            im.paste(tk, box=(int(lip_x - w / 2), int(lip_y)), mask=tk)
+        output = BytesIO()
+        im.save(output, "PNG")
+        output.seek(0)
+        return output
 
     def draw_eyes(self) -> BytesIO:
         """Draws the eyes"""
@@ -209,6 +195,62 @@ class ImageView(View):
         output.seek(0)
         return output
 
+    async def get_faces(self) -> Optional[Message]:
+        """Retrieve face features from Project Oxford"""
+        # Prepare POST
+        h = {"Content-Type": "application/json",
+             "Ocp-Apim-Subscription-Key": self.bot.credentials['Oxford']['OxfordKey']}
+        p = {"returnFaceId": "False", "returnFaceLandmarks": "True", "returnFaceAttributes": "headPose"}
+        d = dumps({"url": self.target_url})
+        url = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
+
+        # Get Project Oxford reply
+        async with self.bot.session.post(url, params=p, headers=h, data=d) as resp:
+            match resp.status:
+                case 200:
+                    self.coordinates = await resp.json()
+                case 400:
+                    return await self.bot.error(self.interaction, await resp.json())
+                case _:
+                    err = f"HTTP Error {resp.status} accessing facial recognition API."
+                    return await self.bot.error(self.interaction, err)
+
+        # Get target image as file
+        async with self.bot.session.get(self.target_url) as resp:
+            match resp.status:
+                case 200:
+                    pass
+                case _:
+                    err = f"HTTP Error {resp.status} opening {self.target_url}."
+                    return await self.bot.error(self.interaction, err)
+            self.image = await resp.content.read()
+
+    async def push_eyes(self) -> Message:
+        """Draw the googly eyes"""
+        if self.image is None:
+            maybe_error = await self.get_faces()
+            if isinstance(maybe_error, Message):
+                return maybe_error
+
+        image = await to_thread(self.draw_eyes)
+
+        e: Embed = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
+        e.add_field(name="Source Image", value=self.target_url)
+        await embed_image(self.interaction, e, image, filename="eyes.png")
+
+    async def push_knob(self) -> Message:
+        """Push the bob ross image to View"""
+        if self.image is None:
+            maybe_error = await self.get_faces()
+            if isinstance(maybe_error, Message):
+                return maybe_error
+
+        image = await to_thread(self.draw_knob)
+
+        e: Embed = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
+        e.add_field(name="Source Image", value=self.target_url)
+        await embed_image(self.interaction, e, image, filename="knob.png")
+
     async def push_bob(self) -> Message:
         """Push the bob ross image to View"""
         if self.image is None:
@@ -235,10 +277,8 @@ class Images(Cog):
 
     @command()
     @describe(user="pick a user", link="provide a link", file="upload a file")
-    async def eyes(self, interaction: Interaction,
-                   user: Optional[Member | User] = None,
-                   link: Optional[str] = None,
-                   file: Optional[Attachment] = None) -> Message:
+    async def eyes(self, interaction: Interaction, user: Member | User = None, link: str = None,
+                   file: Attachment = None) -> Message:
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
         await interaction.response.defer(thinking=True)
         user = interaction.user if user is None else user
@@ -248,10 +288,8 @@ class Images(Cog):
 
     @command()
     @describe(user="Select a user", link="Provide a link to an image", file="Upload a file")
-    async def ruins(self, interaction: Interaction,
-                    user: Optional[Member | User] = None,
-                    link: Optional[str] = None,
-                    file: Optional[Attachment] = None) -> Message:
+    async def ruins(self, interaction: Interaction, user: Member | User = None, link: str = None,
+                    file: Attachment = None) -> Message:
         """Local man ruins everything"""
         await interaction.response.defer(thinking=True)
         user = interaction.user if user is None else user
@@ -285,23 +323,19 @@ class Images(Cog):
 
     @command()
     @describe(user="pick a user", link="provide a link", file="upload a file")
-    async def bob_ross(self, interaction: Interaction,
-                       user: User | Member = None,
-                       link: str = None,
+    async def bob_ross(self, interaction: Interaction, user: User | Member = None, link: str = None,
                        file: Attachment = None) -> Message:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
         user = interaction.user if user is None else user
-
         await interaction.response.defer(thinking=True)
         link = get_target(user, link, file)
         view = ImageView(self.bot, interaction, link)
         return await view.push_bob()
 
     @command()
+    @guild_only()
     async def tinder(self, interaction: Interaction) -> Message:
         """Try to Find your next date."""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
         av = await interaction.user.display_avatar.with_format("png").read()
 
         for x in range(10):
@@ -315,46 +349,6 @@ class Images(Cog):
         else:
             return await self.bot.error(interaction, "Nobody swiped right on you.")
 
-        def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
-            """Draw Images for the tinder command"""
-            # Open The Tinder Image File
-            im: Image = Image.open("Images/tinder.png").convert(mode="RGBA")
-
-            # Open the User's Avatar, fit to size, apply mask.
-            avatar: Image = Image.open(BytesIO(avatar)).convert(mode="RGBA")
-            avatar = ImageOps.fit(avatar, (185, 185))
-
-            # Open the second user's avatar, do same.
-            other: Image = Image.open(BytesIO(image)).convert(mode="RGBA")
-            other = ImageOps.fit(other, (185, 185), centering=(0.5, 0.0))
-
-            # Prepare the Mask and set size.
-            mask: Image = Image.open("Images/circle mask.png")
-            mask = ImageOps.fit(mask.convert('L'), (185, 185))
-            avatar.putalpha(mask)
-            other.putalpha(mask)
-
-            # Paste both images on source image.
-            im.paste(avatar, box=(100, 223, 285, 408), mask=mask)
-            im.paste(other, box=(313, 223, 498, 408), mask=mask)
-
-            # Cleanup
-            mask.close()
-            avatar.close()
-            other.close()
-
-            # Write "it's a mutual match"
-            text = f"You and {user_name} have liked each other."
-            f = ImageFont.truetype('Whitney-Medium.ttf', 24)
-            w, h = f.getsize(text)
-            ImageDraw.Draw(im).text((300 - w / 2, 180), text, font=f, fill="#ffffff")
-
-            out = BytesIO()
-            im.save(out, "PNG")
-            im.close()
-            out.seek(0)
-            return out
-
         output = await to_thread(draw_tinder, target, av, name)
         if match.id == interaction.user.id:
             caption = f"{interaction.user.mention} matched with themself, How pathetic."
@@ -366,7 +360,7 @@ class Images(Cog):
         e: Embed = Embed(description=caption, colour=0xFD297B)
         e.set_author(name="Tinder", icon_url=icon)
         return await embed_image(interaction, e, output, filename="Tinder.png")
-    #
+
     # @command()
     # @describe(quote="enter quote text", target="pick a user")
     # async def tard(self, interaction: Interaction, quote: str, target: Optional[User | Member] = None) -> Message:
@@ -443,6 +437,6 @@ class Images(Cog):
     #     return await embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
 
 
-async def setup(bot: Union['Bot', 'PBot']):
+async def setup(bot: Union['Bot', 'PBot']) -> None:
     """Load the Images Cog into the bot"""
     await bot.add_cog(Images(bot))

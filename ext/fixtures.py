@@ -5,8 +5,7 @@ from typing import List, TYPE_CHECKING, Literal
 
 from discord import Embed, Colour, Interaction, Message
 # D.py
-from discord.app_commands import Choice, command, describe, autocomplete
-from discord.app_commands.checks import has_permissions
+from discord.app_commands import Choice, command, describe, autocomplete, default_permissions, guild_only
 from discord.ext.commands import Cog
 from discord.ui import View
 
@@ -93,7 +92,7 @@ class Fixtures(Cog):
     async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = sorted(list(self.bot.competitions.values()), key=lambda x: x.title)
-        return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
+        return [Choice(name=i.title[:100], value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     async def tm_lg_ac(self, interaction: Interaction, current: str) -> List[Choice[str]]:
         """An Autocomplete that checks whether team or league is selected, then return appropriate autocompletes"""
@@ -117,14 +116,15 @@ class Fixtures(Cog):
                 print(f'DEBUG Could not find lower for: {g.home.name} | {g.away.name} | {g.competition.title}')
                 continue
 
-            out = f"⚽ {g.home} {g.score} {g.away} ({g.competition.title})"
+            out = f"⚽ {g.home} {g.score} {g.away} ({g.competition.title})"[:100]
             matches.append(Choice(name=out, value=g.id))
         return matches[:25]
 
     @command()
-    @describe(mode="search for a team or a league?", query="enter a search query")
+    @guild_only()
     @autocomplete(query=tm_lg_ac)
-    @has_permissions(manage_guild=True)
+    @default_permissions(manage_guild=True)
+    @describe(mode="search for a team or a league?", query="enter a search query")
     async def default(self, i: Interaction, mode: Literal["team", "league"], query: str) -> Message:
         """Set a default team or league for your flashscore lookups"""
         await i.response.defer(thinking=True)
@@ -198,8 +198,8 @@ class Fixtures(Cog):
         return await view.push_results()
 
     @command()
-    @describe(mode="search for a team or a league?", query="enter a search query")
     @autocomplete(query=tm_lg_ac)
+    @describe(mode="search for a team or a league?", query="enter a search query")
     async def table(self, i: Interaction, mode: Literal["team", "league"], *, query: str = 'default') -> Message:
         """Get table for a league"""
         await i.response.defer(thinking=True)
@@ -222,8 +222,8 @@ class Fixtures(Cog):
             return await view.push_table()
 
     @command()
-    @describe(mode="search for a team or a league?", query="enter a search query")
     @autocomplete(query=tm_lg_ac)
+    @describe(mode="search for a team or a league?", query="enter a search query")
     async def scorers(self, i: Interaction, mode: Literal["team", "league"], query: str = 'default') -> Message:
         """Get top scorers from a league, or search for a team and get their top scorers in a league."""
         await i.response.defer(thinking=True)
@@ -290,8 +290,8 @@ class Fixtures(Cog):
 
     # TEAM only
     @command()
-    @describe(query="enter a search query")
     @autocomplete(query=tm_ac)
+    @describe(query="enter a search query")
     async def news(self, interaction: Interaction, query: str = 'default') -> Message:
         """Get the latest news for a team"""
         await interaction.response.defer(thinking=True)
@@ -308,8 +308,8 @@ class Fixtures(Cog):
         return await view.push_news()
 
     @command()
-    @describe(query="enter a search query")
     @autocomplete(query=tm_ac)
+    @describe(query="enter a search query")
     async def injuries(self, interaction: Interaction, query: str = 'default') -> Message:
         """Get a team's current injuries"""
         await interaction.response.defer(thinking=True)
@@ -325,7 +325,7 @@ class Fixtures(Cog):
         view = fsr.view(interaction, await self.bot.browser.newPage())
         return await view.push_injuries()
 
-    @command(description="Fetch the squad for a team")
+    @command()
     @describe(query="team name to search for")
     @autocomplete(query=tm_ac)
     async def squad(self, interaction: Interaction, query: str = 'default') -> Message:
@@ -344,9 +344,9 @@ class Fixtures(Cog):
         return await view.push_squad()
 
     # FIXTURE commands
-    @command(description="Fetch the stats for a fixture")
-    @describe(query="fixture to search for")
+    @command()
     @autocomplete(query=fx_ac)
+    @describe(query="search by team names")
     async def stats(self, interaction: Interaction, query: str) -> Message:
         """Look up the stats for a fixture."""
         await interaction.response.defer(thinking=True)
@@ -365,9 +365,9 @@ class Fixtures(Cog):
         view = fsr.view(interaction, await self.bot.browser.newPage())
         return await view.push_stats()
 
-    @command(description="Fetch the formations for a fixture")
-    @describe(query="fixture to search for")
+    @command()
     @autocomplete(query=fx_ac)
+    @describe(query="search by team names")
     async def formations(self, interaction: Interaction, query: str) -> Message:
         """Look up the formation for a Fixture."""
         await interaction.response.defer(thinking=True)
@@ -390,11 +390,11 @@ class Fixtures(Cog):
         view = fsr.view(interaction, page)
         return await view.push_lineups()
 
-    @command(description="Fetch the summary for a fixture")
-    @describe(query="fixture to search for")
+    @command()
     @autocomplete(query=fx_ac)
+    @describe(query="search by team names")
     async def summary(self, interaction: Interaction, query: str) -> Message:
-        """Get a summary for one of today's games."""
+        """Get a summary for a fixture"""
         await interaction.response.defer(thinking=True)
 
         if query in self.bot.games:
@@ -412,9 +412,9 @@ class Fixtures(Cog):
         view = fsr.view(interaction, page)
         return await view.push_summary()
 
-    @command(description="Fetch the head-to-head info for a fixture")
-    @describe(query="fixture to search for")
+    @command()
     @autocomplete(query=fx_ac)
+    @describe(query="search by team names")
     async def head_to_head(self, interaction: Interaction, query: str) -> Message:
         """Lookup the head-to-head details for a Fixture"""
         await interaction.response.defer(thinking=True)
@@ -435,8 +435,8 @@ class Fixtures(Cog):
         return await view.push_head_to_head()
 
     # UNIQUE commands
-    @command(description="Fetch information about a stadium")
-    @describe(query="stadium to search for")
+    @command()
+    @describe(query="enter a stadium name")
     async def stadium(self, interaction: Interaction, query: str) -> Message:
         """Lookup information about a team's stadiums"""
         await interaction.response.defer(thinking=True)

@@ -1,6 +1,6 @@
 """Commands for creating time triggered message reminders."""
 import datetime
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Union, Optional
 
 from asyncpg import Record
 from dateutil.relativedelta import relativedelta
@@ -12,7 +12,7 @@ from discord.utils import sleep_until
 
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Stop, Paginator
+from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
@@ -23,15 +23,21 @@ if TYPE_CHECKING:
 # TODO: Slash attachments pass - Add an attachment.
 
 
+class Hide(Button):
+    """A generic button to stop a View"""
+
+    def __init__(self, row=3):
+        super().__init__(label="Hide", emoji="🚫", row=row)
+
+    async def callback(self, interaction: Interaction):
+        """Do this when button is pressed"""
+        await self.view.message.delete()
+
+
 async def spool_reminder(bot: Union['Bot', 'PBot'], r: Record):
     """Bulk dispatch reminder messages"""
     # Get data from records
-    time = r["target_time"]
-    print(time, type(time))
-    if time < datetime.datetime.now():
-        await sleep_until(r["target_time"])
-    else:
-        print("Yeet expired reminder\n", r)
+    await sleep_until(r["target_time"])
     rv = ReminderView(bot, r)
     await rv.dispatch()
 
@@ -46,33 +52,26 @@ class RemindModal(Modal):
 
     def __init__(self, bot: Union['Bot', 'PBot', 'Client'], title: str, target_message: Message = None):
         super().__init__(title=title)
-        self.target_message = target_message
-        self.interaction = None
+        self.interaction: Optional[Interaction] = None
+        self.target_message: Message = target_message
         self.bot: Bot | Client | PBot = bot
 
     async def on_submit(self, interaction: Interaction):
         """Insert entry to the database when the form is submitted"""
-
-        def get_value(value):
-            """Convert to number"""
-            try:
-                return int(str(value))
-            except ValueError:
-                return 0
-
-        hours = get_value(self.hours)
-        minutes = get_value(self.minutes)
-        delta = relativedelta(minutes=minutes, hours=hours, days=get_value(self.days), months=get_value(self.months))
+        hours = int(self.hours.value) if self.hours.value.isdigit() else 0
+        minutes = int(self.minutes.value) if self.minutes.value.isdigit() else 0
+        days = int(self.days.value) if self.days.value.isdigit() else 0
+        months = int(self.months.value) if self.months.value.isdigit() else 0
+        delta = relativedelta(minutes=minutes, hours=hours, days=days, months=months)
 
         remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
-        connection = await self.bot.db.acquire()
-
         msg_id = None if self.target_message is None else self.target_message.id
         ch_id = interaction.channel.id
+        gid = interaction.guild.id if interaction.guild is not None else None
+        time = datetime.datetime.now(datetime.timezone.utc)
 
+        connection = await self.bot.db.acquire()
         try:
-            gid = interaction.guild.id if interaction.guild is not None else None
-            time = datetime.datetime.now(datetime.timezone.utc)
             async with connection.transaction():
                 record = await connection.fetchrow("""INSERT INTO reminders
                 (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
@@ -96,6 +95,7 @@ class ReminderView(View):
         super().__init__(timeout=None)
         self.bot: Bot = bot
         self.record: Record = r
+        self.message: Optional[Message] = None
 
     async def dispatch(self):
         """Send message to appropriate destination"""
@@ -112,13 +112,13 @@ class ReminderView(View):
         e.set_author(name="⏰ Reminder")
         e.description = Timestamp(r['created_time']).date_relative
         e.description += f"\n\n> {r['reminder_content']}" if r['reminder_content'] is not None else ""
-        self.add_item(Stop(row=0))
+        self.add_item(Hide(row=0))
 
         try:
-            await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
+            self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
         except HTTPException:
             try:
-                await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
+                self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
             except HTTPException:
                 pass
 

@@ -134,12 +134,15 @@ class Fun(Cog):
                "mebbe like", "dain't bet on it like"
                ]
 
+        if len(question) > 256:
+            question = question[:253] + "..."
+
         e: Embed = Embed(title=question, colour=0x000001, description=choice(res))
         e.set_author(icon_url=self.bot.user.display_avatar.url, name=f'🎱 8 Ball')
         return await self.bot.reply(interaction, embed=e)
 
     @command()
-    async def lenny(self, interaction) -> Message:
+    async def lenny(self, interaction: Interaction) -> Message:
         """( ͡° ͜ʖ ͡°)"""
         lennys = ['( ͡° ͜ʖ ͡°)', '(ᴗ ͜ʖ ᴗ)', '(⟃ ͜ʖ ⟄) ', '(͠≖ ͜ʖ͠≖)', 'ʕ ͡° ʖ̯ ͡°ʔ', '( ͠° ͟ʖ ͡°)', '( ͡~ ͜ʖ ͡°)',
                   '( ͡◉ ͜ʖ ͡◉)', '( ͡° ͜V ͡°)', '( ͡ᵔ ͜ʖ ͡ᵔ )',
@@ -163,22 +166,23 @@ class Fun(Cog):
         return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
 
     @command()
-    async def coin(self, interaction: Interaction, count: int = 1) -> Message | View:
+    @describe(count="Enter a number of coins")
+    async def coin(self, interaction: Interaction, count: int = 1) -> Message:
         """Flip a coin"""
         if count > 10000:
             return await self.bot.error(interaction, 'Too many coins.')
 
-        view = CoinView(self.bot, interaction, count=count)
-        view.add_item(FlipButton())
+        v = CoinView(self.bot, interaction, count=count)
+        v.add_item(FlipButton())
 
         for _ in [5, 10, 100, 1000]:
-            view.add_item(FlipButton(label=f"Flip {_}", count=_))
-        view.add_item(Stop(row=1))
-        return await view.update()
+            v.add_item(FlipButton(label=f"Flip {_}", count=_))
+        v.add_item(Stop(row=1))
+        return await v.update()
 
     @command()
     @describe(query="enter a search term")
-    async def urban(self, interaction: Interaction, query: str) -> Message | View:
+    async def urban(self, interaction: Interaction, query: str) -> Message:
         """Lookup a definition from urban dictionary"""
         url = f"http://api.urbandictionary.com/v0/define?term={query}"
         async with self.bot.session.get(url) as resp:

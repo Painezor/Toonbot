@@ -6,7 +6,7 @@ from discord.app_commands import ContextMenu, Command, CommandInvokeError, BotMi
 from discord.ext.commands import Context, Cog
 from discord.ui import View, Button
 
-from ext.quotes import OptedOutError, TargetOptedOutError, NoSelfQuotesError
+from ext.quotes import OptedOutError, TargetOptedOutError
 
 if TYPE_CHECKING:
     from core import Bot
@@ -29,8 +29,9 @@ class Errors(Cog):
                         'Instead due to discord changes, all commands have been moved to /slash_commands\n\n' \
                         'If you are the server owner and do not see any slash commands listed, re-invite the bot' \
                         ' using the link below.'
-        view = View().add_item(Button(style=ButtonStyle.url, url=self.bot.invite, label="Colour picker."))
-        return await ctx.reply(embed=e, view=view)
+
+        v = View().add_item(Button(style=ButtonStyle.url, url=self.bot.invite, label="Colour picker."))
+        return await ctx.reply(embed=e, view=v)
 
     async def error_handler(self, i: Interaction, _: Command | ContextMenu, error) -> Message:
         """Event listener for when commands raise exceptions"""
@@ -39,7 +40,7 @@ class Errors(Cog):
             error = error.original
 
         match error:
-            case TargetOptedOutError() | OptedOutError() | NoSelfQuotesError():  # QuoteDB Specific
+            case TargetOptedOutError() | OptedOutError():  # QuoteDB Specific
                 return await self.bot.error(i, error.args[0])
             case BotMissingPermissions():
                 miss = ''.join(error.missing_permissions)

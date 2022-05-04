@@ -4,7 +4,7 @@ import random
 from typing import List, TYPE_CHECKING
 
 from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, Role, Message, File
-from discord.app_commands import command, guilds, describe
+from discord.app_commands import command, guilds, describe, default_permissions
 from discord.ext.commands import Cog
 from discord.ui import Button, View
 
@@ -219,7 +219,7 @@ class MbembaButton(Button):
     def __init__(self) -> None:
         super().__init__(label="Mbemba Again", style=ButtonStyle.blurple, emoji="<:mbemba:332196308825931777>")
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> None:
         """When clicked, re roll."""
         await interaction.response.defer()
         await self.view.update()
@@ -233,13 +233,14 @@ class NUFC(Cog):
 
     @command()
     @guilds(332159889587699712)
-    async def mbemba(self, interaction):
+    async def mbemba(self, interaction: Interaction) -> Message:
         """Mbemba When..."""
-        await MbembaView(self.bot, interaction).update()
+        return await MbembaView(self.bot, interaction).update()
 
     @command()
-    @describe(hex_code="Enter a colour #hexcode")
     @guilds(332159889587699712)
+    @describe(hex_code="Enter a colour #hexcode")
+    @default_permissions(change_nickname=True)
     async def colour(self, interaction: Interaction, hex_code: str):
         """Gives you a colour"""
         # Get user's old colours.

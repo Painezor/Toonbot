@@ -1,6 +1,7 @@
 """r/NUFC Match Thread Bot"""
 import asyncio
 import datetime
+from typing import TYPE_CHECKING
 
 import asyncpg
 import asyncpraw
@@ -11,6 +12,10 @@ from discord.ext import tasks
 from lxml import html
 
 from ext.utils import football
+from ext.utils.football import GameState
+
+if TYPE_CHECKING:
+    from core import Bot
 
 
 class MatchThread:
@@ -122,7 +127,7 @@ class MatchThread:
                 await match.edit(markdown)
                 self.old_markdown = markdown
 
-            if self.fixture.time.state == "fin":
+            if self.fixture.time.state == GameState.FULL_TIME:
                 break
 
             await asyncio.sleep(60)
@@ -373,12 +378,12 @@ class MatchThread:
 class MatchThreadCommands(commands.Cog):
     """MatchThread Commands and Spooler."""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         self.active_threads = []
         self.scheduler_task = self.schedule_threads.start()
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Cancel all current match threads."""
         self.scheduler_task.cancel()
         for i in self.active_threads:
@@ -386,12 +391,14 @@ class MatchThreadCommands(commands.Cog):
             i.task.cancel()
 
     @tasks.loop(hours=24)
-    async def schedule_threads(self):
+    async def schedule_threads(self) -> None:
         """Schedule tomorrow's match threads"""
         # Number of minutes before the match to post
         connection = await self.bot.db.acquire()
-        records = await connection.fetch("""SELECT * FROM mtb_schedule""")
-        await self.bot.db.release(connection)
+        try:
+            records = await connection.fetch("""SELECT * FROM mtb_schedule""")
+        finally:
+            await self.bot.db.release(connection)
 
         page = await self.bot.browser.newPage()
         for r in records:
@@ -409,7 +416,7 @@ class MatchThreadCommands(commands.Cog):
                 await self.spool_thread(fixture, r)
         await page.close()
 
-    async def spool_thread(self, f: football.Fixture, settings: asyncpg.Record):
+    async def spool_thread(self, f: football.Fixture, settings: asyncpg.Record) -> None:
         """Create match threads for all scheduled games."""
         diff = f.kickoff - datetime.datetime.now()
         if diff.days > 7:
@@ -439,6 +446,6 @@ class MatchThreadCommands(commands.Cog):
         await _.start()
 
 
-async def setup(bot):
+async def setup(bot: 'Bot') -> None:
     """Load the match thread cog into the bot"""
     await bot.add_cog(MatchThreadCommands(bot))

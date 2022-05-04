@@ -2,9 +2,8 @@
 from dataclasses import dataclass
 from typing import List, TYPE_CHECKING
 
-from discord import Embed, Member, Interaction, Message
+from discord import Embed, Member, Interaction, Message, Permissions
 from discord.app_commands import autocomplete, Choice, Group, describe
-from discord.app_commands.checks import has_permissions
 from discord.ext.commands import Cog
 
 if TYPE_CHECKING:
@@ -25,8 +24,8 @@ class Stream:
 async def st_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Return List of Guild Streams"""
     guild_streams = interaction.client.streams[interaction.guild.id]
-    matches = [i.name for i in guild_streams if current.lower() in i.name.lower() + i.link.lower()]
-    return [Choice(name=item, value=item) for item in matches if current.lower() in item.lower()][:25]
+    m = [i.name[:100] for i in guild_streams if current.lower() in i.name.lower() + i.link.lower()]
+    return [Choice(name=item, value=item) for item in m if current.lower() in item.lower()][:25]
 
 
 class GuildStreams(Cog):
@@ -35,14 +34,12 @@ class GuildStreams(Cog):
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
 
-    streams = Group(name="streams", description="Stream list for your server")
+    prm = Permissions(manage_messages=True)
+    streams = Group(name="streams", description="Stream list for your server", guild_only=True, default_permissions=prm)
 
     @streams.command()
     async def list(self, interaction: Interaction) -> Message:
         """List all streams for the match added by users."""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
-
         guild_streams = self.bot.streams[interaction.guild.id]
 
         if not guild_streams:
@@ -55,8 +52,6 @@ class GuildStreams(Cog):
     @describe(name="Enter a name for the stream", link="Enter the link oF the stream")
     async def add(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
 
         guild_streams = self.bot.streams[interaction.guild.id]
 
@@ -70,7 +65,6 @@ class GuildStreams(Cog):
         await self.bot.reply(interaction, content=f"Added <{stream.link}> to stream list.", embed=e)
 
     @streams.command()
-    @has_permissions(manage_messages=True)
     async def clear(self, interaction: Interaction):
         """Remove all streams from guild stream list"""
         self.bot.streams[interaction.guild.id] = []
@@ -80,9 +74,6 @@ class GuildStreams(Cog):
     @autocomplete(stream=st_ac)
     async def delete(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be used in DMs")
-
         guild_streams = self.bot.streams[interaction.guild.id]
         matches = [i for i in guild_streams if stream.lower() in i.name.lower() + i.link.lower()]
         if not matches:

@@ -10,10 +10,11 @@ from typing import List, Optional, Dict, TYPE_CHECKING, Set
 # Error Handling
 from asyncpg import UniqueViolationError, ForeignKeyViolationError
 # Discord
-from discord import ButtonStyle, Interaction, Colour, Embed, PermissionOverwrite, Message, TextChannel, Color
+from discord import ButtonStyle, Interaction, Colour, Embed, PermissionOverwrite, Message, TextChannel, Color, \
+    Permissions
 from discord import HTTPException, Forbidden
 from discord.app_commands import command, Group, describe, Choice, guilds, autocomplete
-from discord.app_commands.checks import has_permissions, bot_has_permissions
+from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import Button, Select, View
@@ -22,7 +23,7 @@ from lxml.etree import ParserError
 
 from ext.utils.embed_utils import rows_to_embeds
 # Utils
-from ext.utils.football import Team, GameTime, Fixture, Competition, fs_search
+from ext.utils.football import Team, GameTime, Fixture, Competition, fs_search, GameState
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
@@ -203,7 +204,7 @@ class Scores(Cog, name="LiveScores"):
         # Don't bother with this just yet...
         # self.bot.fs_score_loop = self.fs_score_loop.start()
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
         self.bot.score_loop.cancel()
         # self.bot.fs_score_loop.cancel()
@@ -215,7 +216,7 @@ class Scores(Cog, name="LiveScores"):
 
     # Core Loop
     @loop(minutes=1)
-    async def score_loop(self):
+    async def score_loop(self) -> None:
         """Score Checker Loop"""
         if self.bot.db is None:
             print("[INF] Bot.db is None in scores loop.")
@@ -426,18 +427,36 @@ class Scores(Cog, name="LiveScores"):
             stage = tree.xpath('.//span/text() | .//div[@class="event__stage--block"]/text()')
 
             if stage:
-                time = stage.pop(0)
+                time = str(stage.pop(0))
             else:
                 # "Awaiting <br/> Updates" line split breaks this
                 continue
 
             if stage:
-                state = stage.pop(0)
-                if state not in ['Postponed', 'Cancelled', 'Delayed', 'Interrupted', 'Abandoned']:
-                    print("Unhandled state", state)
-                if stage:
-                    print("Unhandled", len(stage), "Length stage found", stage)
-                    continue
+                state = str(stage.pop(0))
+
+            match state:
+                case "Postponed":
+                    time = GameState.POSTPONED
+                case "Cancelled":
+                    time = GameState.CANCELLED
+                case "Delayed":
+                    time = GameState.DELAYED
+                case "Interrupted":
+                    time = GameState.INTERRUPTED
+                case "Abandoned":
+                    time = GameState.ABANDONED
+                case "sched" | "scheduled":
+                    state = GameState.SCHEDULED
+                case "fin":
+                    if self.bot.games[match_id].penalties_home:
+                        state = GameState.AFTER_PENS
+                    else:
+                        state = GameState.FULL_TIME
+                case "live":
+                    pass
+                case _:
+                    print("scores.py: Unhandled state", state)
 
             # Get match score, and parse additional states.
             score_line = ''.join(tree.xpath('.//a/text()')).split(':')
@@ -446,42 +465,37 @@ class Scores(Cog, name="LiveScores"):
 
                 if a_score.endswith('aet'):
                     a_score = a_score.replace('aet', '')
-                    state = "AET"
+                    time = GameState.AFTER_EXTRA_TIME
                 elif a_score.endswith('pen'):
                     a_score = a_score.replace('pen', '')
-                    state = "After Pens"
+                    time = GameState.AFTER_PENS
                 elif a_score.endswith('WO'):
-                    a_score = 0
-                    state = "Walkover"
+                    a_score = a_score.replace('WO', '')
+                    time = GameState.WALKOVER
 
                 # Replace with set_score
                 sh = None if h_score == "-" else int(h_score)
                 sa = None if a_score == "-" else int(a_score)
-            except IndexError:
+            except (IndexError, ValueError):
                 sh = sa = None
-                print(f'Could not split {score_line} into h, a')
-            except ValueError:
-                sh = sa = None
-                print(f'Could not convert {score_line} into ints')
 
-            cancelled = tree.xpath('./span/@class')
-            if cancelled and cancelled != ['live']:
-                print('Found cancelled text', cancelled)
-
-            # State must be set before Score
-            match state:
-                case 'live':
-                    self.bot.games[match_id].set_time(GameTime(time))
-                case 'Walkover':
-                    self.bot.games[match_id].set_time(GameTime('Walkover'))
-                case 'AET' | 'After Pens' | 'Postponed' | 'Cancelled' | 'Delayed' | 'Abandoned' | 'Interrupted':
+            match time:
+                case GameState():
+                    state = time
+                case 'Extra Time':
+                    state = GameState.EXTRA_TIME
+                case 'Break Time':
+                    state = GameState.BREAK_TIME
+                case 'Penalties':
+                    state = GameState.PENALTIES
+                case 'Half Time':
+                    state = GameState.HALF_TIME
+                case time if time.isdigit() or "'" in time:
+                    state = GameState.LIVE
+                case time if "+" in time:
+                    state = GameState.STOPPAGE_TIME
+                case time if ":" in time:  # We figure out
                     self.bot.games[match_id].set_time(GameTime(state))
-                case 'sched' | 'fin':
-                    if state == 'sched':
-                        self.bot.games[match_id].set_time(GameTime("scheduled"))
-                    else:
-                        self.bot.games[match_id].set_time(GameTime("Full Time"))
-
                     if self.bot.games[match_id].kickoff is None:
                         ko = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
                         now = datetime.datetime.now()
@@ -493,11 +507,21 @@ class Scores(Cog, name="LiveScores"):
                         expiry = ko + datetime.timedelta(days=1)
                         self.bot.games[match_id].kickoff = ko
                         self.bot.games[match_id].expires = expiry.toordinal()
-                case _:
-                    print(f"State not handled {state} | {time}")
 
-            await self.bot.games[match_id].set_score(sh)
-            await self.bot.games[match_id].set_score(sa, home=False)
+            # State must be set before Score
+            match state:
+                case GameState.LIVE:
+                    self.bot.games[match_id].set_time(GameTime(time))
+                # If it is already an instance of GameState
+                case GameState():
+                    self.bot.games[match_id].set_time(GameTime(state))
+                case _:
+                    print(f"Scores.py - GameState not handled {state} | {time}")
+
+            if sh is not None:
+                await self.bot.games[match_id].set_score(sh)
+            if sa is not None:
+                await self.bot.games[match_id].set_score(sa, home=False)
 
             # Get Red Card Data
             cards = [i.replace('rcard-', '') for i in tree.xpath('./img/@class')]
@@ -521,9 +545,7 @@ class Scores(Cog, name="LiveScores"):
         try:
             async with connection.transaction():
                 comps = await connection.fetch("""SELECT * from fs_competitions""")
-            async with connection.transaction():
                 teams = await connection.fetch("""SELECT * from fs_teams""")
-            async with connection.transaction():
                 records = await connection.fetch("""SELECT channel_id, league FROM scores_leagues""")
         finally:
             await self.bot.db.release(connection)
@@ -547,16 +569,13 @@ class Scores(Cog, name="LiveScores"):
                 self.bot.scores_cache.pop(ch)
                 continue
 
-    async def update_channel(self, channel_id: int, leagues: Set[str]):
+    async def update_channel(self, channel_id: int, leagues: Set[str]) -> None:
         """Edit a live-score channel to have the latest scores"""
         channel: TextChannel = self.bot.get_channel(channel_id)
         if channel is None:
             return
 
         # Does league exist in both whitelist and found games
-
-        available: Competition
-
         guild_embeds: List[Embed] = []
         for comp, embeds in self.bot.scores_embeds.items():
             for tracked in leagues:
@@ -658,7 +677,7 @@ class Scores(Cog, name="LiveScores"):
 
     # Event listeners for channel deletion or guild removal.
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel):
+    async def on_guild_channel_delete(self, channel) -> None:
         """Remove all of a channel's stored data upon deletion"""
         connection = await self.bot.db.acquire()
         try:
@@ -668,19 +687,29 @@ class Scores(Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
     @Cog.listener()
-    async def on_guild_remove(self, guild):
+    async def on_guild_remove(self, guild) -> None:
         """Remove all data for tracked channels for a guild upon guild leave"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""DELETE FROM scores_channels WHERE guild_id = $1""", guild.id)
         await self.bot.db.release(connection)
 
-    livescores = Group(name="livescores", description="Create or manage livescores channels")
+    # Autocomplete
+    async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
+        """Autocomplete from list of stored leagues"""
+        lgs = self.bot.competitions.values()
+        return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
+
+    livescores = Group(
+        guild_only=True,
+        name="livescores",
+        description="Create/manage livescores channels",
+        default_permissions=Permissions(manage_channels=True)
+    )
 
     @livescores.command()
     @describe(channel="Target Channel")
-    @has_permissions(manage_channels=True)
-    async def manage(self, interaction: Interaction, channel: Optional[TextChannel]):
+    async def manage(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View or Delete tracked leagues from a live-scores channel."""
         if channel is None:
             channel = interaction.channel
@@ -693,22 +722,21 @@ class Scores(Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
         if not row:
-            err = f"{channel.mention} is not a live-scores channel."
-            return await self.bot.error(interaction, err)
+            return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
-        await ScoresConfig(self.bot, interaction, channel).update(content=f"Fetching config for {channel.mention}...")
+        v = ScoresConfig(self.bot, interaction, channel)
+        return await v.update(content=f"Fetching config for {channel.mention}...")
 
     @livescores.command()
     @describe(name="Enter a name for the channel")
-    @has_permissions(manage_channels=True)
-    @bot_has_permissions(manage_channels=True)
-    async def create(self, interaction: Interaction, name: Optional[str]):
+    async def create(self, interaction: Interaction, name: str = None):
         """Create a live-scores channel for your server."""
         reason = f'{interaction.user} (ID: {interaction.user.id}) created a Toonbot live-scores channel.'
         topic = "Live Scores from around the world"
+        name = "live-scores" if name is None else name
 
         try:
-            name = "live-scores" if name is None else name
+
             channel = await interaction.guild.create_text_channel(name=name, reason=reason, topic=topic)
         except Forbidden:
             return await self.bot.error(interaction, 'I need manage_channels permissions to make a channel.')
@@ -744,18 +772,10 @@ class Scores(Cog, name="LiveScores"):
         leagues = self.bot.scores_cache[channel.id]
         await self.update_channel(channel.id, leagues)
 
-    # Autocomplete
-    async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
-        """Autocomplete from list of stored leagues"""
-        lgs = self.bot.competitions.values()
-        return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
-
     @livescores.command()
-    @describe(league_name="league name to search for", channel="Target Channel")
     @autocomplete(league_name=lg_ac)
-    @has_permissions(manage_channels=True)
-    @bot_has_permissions(manage_channels=True)
-    async def add(self, interaction: Interaction, league_name: str, channel: Optional[TextChannel]):
+    @describe(league_name="league name to search for", channel="Target Channel")
+    async def add(self, interaction: Interaction, league_name: str, channel: TextChannel = None):
         """Add a league to an existing live-scores channel"""
         if channel is None:
             channel = interaction.channel
@@ -801,8 +821,8 @@ class Scores(Cog, name="LiveScores"):
         await view.update(content=f"Added tracked league for {channel.mention}```yaml\n{res}```")
 
     @livescores.command(name="worldcup")
-    @has_permissions(manage_channels=True)
     @bot_has_permissions(manage_channels=True)
+    @describe(channel="which channel are you editing")
     async def addwc(self, interaction: Interaction, channel: TextChannel = None):
         """Add the qualifying tournaments for the World Cup to a live score channel"""
         if channel is None:
@@ -814,16 +834,14 @@ class Scores(Cog, name="LiveScores"):
             async with connection.transaction():
                 row = await connection.fetchrow(q, channel.id)
                 if not row:
-                    err = "This command can only be ran in a live-scores channel."
-                    return await self.bot.error(interaction, err)
+                    return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
             q = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
-            try:
-                async with connection.transaction():
-                    for x in WORLD_CUP_LEAGUES:
-                        await connection.execute(q, channel.id, x)
-            except UniqueViolationError:
-                pass
+            async with connection.transaction():
+                for x in WORLD_CUP_LEAGUES:
+                    await connection.execute(q, channel.id, x)
+        except UniqueViolationError:
+            pass
         finally:
             await self.bot.db.release(connection)
 
@@ -841,13 +859,13 @@ class Scores(Cog, name="LiveScores"):
         e: Embed = Embed(colour=Colour.og_blurple(), description="[ADMIN] Cleared global games cache.")
         return await self.bot.reply(interaction, embed=e)
 
-    async def on_guild_channel_update(self, before: TextChannel, after: TextChannel):
+    async def on_guild_channel_update(self, before: TextChannel, after: TextChannel) -> Optional[Message]:
         """Warn on stupidity."""
         if not after.is_news():
             return
 
         if before.id in self.bot.scores_messages:
-            await after.send("You have set this channel as a 'news' channel, live scores will no longer work.")
+            return await after.send("You have set this channel as a 'news' channel, live scores will no longer work.")
 
 
 async def setup(bot: 'Bot'):

@@ -4,18 +4,18 @@ from asyncio import sleep
 from math import ceil
 from pathlib import Path
 from re import sub, DOTALL
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from PIL import Image
 from asyncpraw.models import Subreddit
-from discord import Attachment, Embed, File, Interaction
-from discord.app_commands import command, describe, guilds
-from discord.app_commands.checks import has_role
+from asyncprawcore import TooLarge
+from discord import Attachment, Embed, Interaction
+from discord.app_commands import command, describe, guilds, default_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from lxml import html
 
-from ext.utils.football import Team
+from ext.utils.football import Team, Fixture
 
 if TYPE_CHECKING:
     from core import Bot
@@ -53,7 +53,7 @@ class NUFCSidebar(Cog):
     """Edit the r/NUFC sidebar"""
 
     def __init__(self, bot: 'Bot') -> None:
-        self.bot = bot
+        self.bot: Bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
 
     async def cog_unload(self) -> None:
@@ -91,17 +91,14 @@ class NUFCSidebar(Cog):
         srd = await self.bot.reddit.subreddit(subreddit)
         wiki = await srd.wiki.get_page('sidebar')
 
-        top = wiki.content_md
+        wiki_content = wiki.content_md
 
         fsr: Team = self.bot.teams[team_id]
 
-        page = await self.bot.browser.newPage()
-        try:
-            fixtures = await fsr.get_fixtures(page, "/fixtures")
-            results = await fsr.get_fixtures(page, "/results")
-        finally:
-            await page.close()
+        fixtures: List[Fixture] = await fsr.get_fixtures(subpage="/fixtures")
+        results: List[Fixture] = await fsr.get_fixtures(subpage="/results")
 
+        print("MTB: Results found:", len(results))
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             match resp.status:
                 case 200:
@@ -164,43 +161,43 @@ class NUFCSidebar(Cog):
         else:
             post = "Post"
 
+        # Top bar
         match_threads = f"\n\n### {pre} - {match} - {post}"
+        target_game = results[0] if results else fixtures[0]
+
+        home = next((i for i in self.bot.reddit_teams if i['name'] == target_game.home.name), None)
+        away = next((i for i in self.bot.reddit_teams if i['name'] == target_game.away.name), None)
+        home_sub = home['subreddit']
+        away_sub = away['subreddit']
+
+        h = f"[{target_game.home.name}]({home_sub})"
+        a = f"[{target_game.away.name}]({away_sub})"
+        top_bar = f"> {h} [{target_game.score}]({target_game.url}) {a}"
+
+        home_icon = home['icon'] if a is not None else "#temp"
+        away_icon = away['icon'] if a is not None else "#temp/"  # / Denotes post.
+
+        # Upload badge.
+        if not home_icon or not away_icon:
+            badge: str = await target_game.get_badge('home') if not home_icon else await target_game.get_badge('away')
+            if badge:
+                im = Image.open(badge)
+                im.save("TEMP_BADGE.png", "PNG")
+                s = await self.bot.reddit.subreddit("NUFC")
+                await s.stylesheet.upload("TEMP_BADGE.png", "temp")
+                await s.stylesheet.update(s.stylesheet().stylesheet, reason="Upload a badge")
 
         # Check if we need to upload a temporary badge.
-        top_bar = ""
-        count = 0
         if fixtures:
             rows = []
             for f in fixtures:
                 home = next((i for i in self.bot.reddit_teams if i['name'] == f.home.name), None)
                 away = next((i for i in self.bot.reddit_teams if i['name'] == f.away.name), None)
+                h_ico = home['icon'] if home is not None else ""
+                a_ico = away['icon'] if away is not None else ""  # '/' Denotes away ::after img
                 short_home = home['short_name'] if home is not None else f.home.name
                 short_away = away['short_name'] if away is not None else f.away.name
-                home_sub = home['subreddit'] if home is not None else "#temp"
-                away_sub = away['subreddit'] if away is not None else "#temp/"  # '/' Denotes away ::after img
-
-                if count == 0:
-                    h = f"[{f.home.name}]({home_sub})"
-                    a = f"[{f.away.name}]({away_sub})"
-                    top_bar = f"> {h} [{f.score}]({f.url}) {a}"
-
-                    home_icon = home['icon'] if home is not None else ""
-                    away_icon = away['icon'] if away is not None else ""
-
-                    # Upload badge.
-                    if not home_icon or not away_icon:
-                        badge: str = await f.get_badge('home') if not home_icon else await f.get_badge('away')
-                        if badge:
-                            im = Image.open(badge)
-                            im.save("TEMP_BADGE.png", "PNG")
-                            s = await self.bot.reddit.subreddit("NUFC")
-                            await s.stylesheet.upload("TEMP_BADGE.png", "temp")
-                            await s.stylesheet.update(s.stylesheet().stylesheet, reason="Upload a badge")
-                            print("Uploaded new image to sidebar!")
-
-                count += 1
-
-                rows.append(f"{f.kickoff} | [{short_home} {f.score} {short_away}]({f.url})\n")
+                rows.append(f"{f.kickoff} | {h_ico} [{short_home} {f.score} {short_away}]({f.url}) {a_ico}\n")
             fx_markdown = "\n* Upcoming fixtures" + rows_to_md_table("\n\n Date & Time | Match\n--:|:--\n", rows)
         else:
             fx_markdown = ""
@@ -210,9 +207,10 @@ class NUFCSidebar(Cog):
         footer = timestamp + top_bar + match_threads
 
         if subreddit == "NUFC":
-            footer += "\n\n[](https://gg/" + NUFC_DISCORD_LINK + ")"
+            footer += "\n\n[](https://discord.gg/" + NUFC_DISCORD_LINK + ")"
 
-        markdown = top + table + fx_markdown
+        markdown = wiki_content + table + fx_markdown
+
         if results:
             header = "* Previous Results\n"
             markdown += header
@@ -222,9 +220,9 @@ class NUFCSidebar(Cog):
                 away = next((i for i in self.bot.reddit_teams if i['name'] == r.away.name), None)
                 short_home = home['short_name'] if home is not None else r.home.name
                 short_away = away['short_name'] if away is not None else r.away.name
-                # home_sub = home['subreddit'] if home is not None else "#temp"
-                # away_sub = away['subreddit'] if away is not None else "#temp/" # '/' Denotes away ::after img
-                rows.append(f"{r.kickoff} | [{short_home} {r.score} {short_away}]({r.url})\n")
+                h_ico = home['icon'] if home is not None else "#temp"
+                a_ico = away['icon'] if away is not None else "#temp/"  # '/' Denotes away ::after img
+                rows.append(f"{r.kickoff} | {h_ico} [{short_home} {r.score} {short_away}]({r.url}) {a_ico}\n")
             md = rows_to_md_table("\n Date | Result\n--:|:--\n", rows, max_length=10240 - len(markdown + footer))
             markdown += md
 
@@ -232,17 +230,11 @@ class NUFCSidebar(Cog):
         return markdown
 
     @command()
-    @describe(image="Upload a new sidebar image", caption="Set a new Sidebar Caption")
     @guilds(332159889587699712)
-    @has_role(332161994738368523)
-    async def sidebar(self, interaction: Interaction,
-                      caption: Optional[str] = None,
-                      image: Optional[Attachment] = None):
+    @default_permissions(manage_channels=True)
+    @describe(image="Upload a new sidebar image", caption="Set a new Sidebar Caption")
+    async def sidebar(self, interaction: Interaction, caption: str = None, image: Attachment = None):
         """Upload an image to the sidebar, or edit the caption."""
-
-        if "Subreddit Moderators" not in [i.name for i in interaction.user.roles]:
-            return await self.bot.error(interaction, "You need the 'Subreddit Moderators' role to do that")
-
         await interaction.response.defer()
         # Check if message has an attachment, for the new sidebar image.
         e: Embed = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")
@@ -260,12 +252,15 @@ class NUFCSidebar(Cog):
         if image:
             await image.save(Path('sidebar'))
             s: Subreddit = await self.bot.reddit.subreddit("NUFC")
-            await s.stylesheet.upload("sidebar", 'sidebar')
+            try:
+                await s.stylesheet.upload("sidebar", 'sidebar')
+            except TooLarge:
+                return await self.bot.error(interaction, "Image is too large.")
             style = await s.stylesheet()
             await s.stylesheet.update(style.stylesheet, reason=f"Sidebar image by {interaction.user} via discord")
 
             e.set_image(url=image.url)
-            file = File(fp="sidebar.png", filename="sidebar.png")
+            file = await image.to_file()
 
         # Build
         subreddit = await self.bot.reddit.subreddit('NUFC')
@@ -274,6 +269,6 @@ class NUFCSidebar(Cog):
         await self.bot.reply(interaction, embed=e, file=file)
 
 
-async def setup(bot):
+async def setup(bot: 'Bot') -> None:
     """Load the Sidebar Updater Cog into the bot"""
     await bot.add_cog(NUFCSidebar(bot))

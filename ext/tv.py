@@ -1,9 +1,13 @@
 """Fetch the televised matches from livesoccertv.com"""
 import datetime
 import json
-from typing import List
+from typing import List, TYPE_CHECKING
 
-from discord import Embed, app_commands, Interaction
+if TYPE_CHECKING:
+    from core import Bot
+
+from discord import Embed, app_commands, Interaction, Message
+from discord.app_commands import command, describe, autocomplete
 from discord.ext import commands
 from lxml import html
 
@@ -22,28 +26,25 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
 class Tv(commands.Cog):
     """Search for live TV matches"""
 
-    def __init__(self, bot) -> None:
-        self.bot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         with open('tv.json') as f:
             self.bot.tv = json.load(f)
 
     async def tv_ac(self, _: Interaction, current: str) -> List[app_commands.Choice[str]]:
         """Return list of live teams"""
-        matches = []
-        for x in self.bot.tv:
+        m = []
+        for x in self.bot.tv.keys():
             if current.lower() in x.lower():
-                matches.append(app_commands.Choice(name=x, value=x))
+                m.append(app_commands.Choice(name=x, value=x))
 
-        if None in matches:
-            print("None found in tv_ac")
-            print(matches)
-            matches = [i for i in matches if i is not None]
-        return matches[:25]
+        m = [i[:100] for i in m if i is not None]
+        return m[:25]
 
-    @app_commands.command()
-    @app_commands.describe(name="Search for a team")
-    @app_commands.autocomplete(name=tv_ac)
-    async def tv(self, interaction: Interaction, name: str = None):
+    @command()
+    @describe(name="Search for a team")
+    @autocomplete(name=tv_ac)
+    async def tv(self, interaction: Interaction, name: str = None) -> Message:
         """Lookup next televised games for a team"""
         await interaction.response.defer(thinking=True)
 
@@ -51,33 +52,37 @@ class Tv(commands.Cog):
         e.set_author(name="LiveSoccerTV.com")
 
         # Selection View if team is passed
-        if name:
-            matches = [i for i in self.bot.tv if str(name).lower() in i.lower()]
-
-            if not matches:
-                return await self.bot.error(interaction, f"Could not find a matching team/league for {name}.")
-
-            _ = [('📺', i, self.bot.tv[i]) for i in matches]
-
-            if len(_) > 1:
-                view = ObjectSelectView(self.bot, interaction, objects=_, timeout=30)
-                e.description = '⏬ Multiple results found, choose from the dropdown.'
-                await self.bot.reply(interaction, embed=e, view=view)
-                await view.update()
-                await view.wait()
-
-                if view.value is None:
-                    return None
-
-                result = matches[view.value]
-            else:
-                result = matches[0]
-
-            e.url = self.bot.tv[result]
-            e.title = f"Televised Fixtures for {result}"
+        if name in self.bot.tv:
+            e.url = self.bot.tv[name]
+            e.title = f"Televised Fixtures for {name}"
         else:
-            e.url = "http://www.livesoccertv.com/schedules/"
-            e.title = f"Today's Televised Matches"
+            if name:
+                matches = [i for i in self.bot.tv if name.lower() in i.lower()]
+
+                if not matches:
+                    return await self.bot.error(interaction, f"Could not find a matching team/league for {name}.")
+
+                _ = [('📺', i, self.bot.tv[i]) for i in matches]
+
+                if len(_) > 1:
+                    view = ObjectSelectView(self.bot, interaction, objects=_, timeout=30)
+                    e.description = '⏬ Multiple results found, choose from the dropdown.'
+                    await self.bot.reply(interaction, embed=e, view=view)
+                    await view.update()
+                    await view.wait()
+
+                    if view.value is None:
+                        return await self.bot.error(interaction, "Timed out waiting for you to select an option")
+
+                    result = matches[view.value]
+                else:
+                    result = matches[0]
+
+                e.url = self.bot.tv[result]
+                e.title = f"Televised Fixtures for {result}"
+            else:
+                e.url = "http://www.livesoccertv.com/schedules/"
+                e.title = f"Today's Televised Matches"
 
         rows = []
         async with self.bot.session.get(e.url, headers=HEADERS) as resp:
@@ -128,9 +133,9 @@ class Tv(commands.Cog):
             rows = [f"No televised matches found, check online at {e.url}"]
 
         view = Paginator(self.bot, interaction, rows_to_embeds(e, rows))
-        await view.update()
+        return await view.update()
 
 
-async def setup(bot) -> None:
+async def setup(bot: 'Bot') -> None:
     """Load TV Lookup Module into the bot."""
     await bot.add_cog(Tv(bot))

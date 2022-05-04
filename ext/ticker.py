@@ -1,16 +1,16 @@
 """Handler Cog for dispatched Fixture events, and database handling for channels using it."""
 from asyncio import sleep
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING, Type
 
-from discord import Colour, ButtonStyle, Interaction, Embed, TextChannel, Guild, Message, HTTPException
+from discord import Colour, ButtonStyle, Interaction, Embed, TextChannel, Guild, Message, HTTPException, Permissions
 from discord.app_commands import Choice, Group, describe, autocomplete
 from discord.app_commands.checks import has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Select, View, Button
 
 from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.football import Substitution, Penalty, Goal, VAR, RedCard, Fixture, Competition, MatchEvent, \
-    fs_search, EventType
+from ext.utils.football import Substitution, Penalty, Fixture, Competition, MatchEvent, \
+    fs_search, EventType, Team
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
@@ -305,17 +305,11 @@ class TickerEvent:
         self.channels_long: List[TextChannel] = channels_long
         self.home: bool = home
 
-        # dynamic properties
-        self.retry: int = 0
-        self.messages: List[Message] = []
-        self.needs_refresh: bool = True
-
         # For exact event.
         self.event: Optional[MatchEvent] = None
-        self.event_index: Optional[int] = None
 
         # Begin loop on init
-        bot.loop.create_task(self.event_loop())
+        self.bot.loop.create_task(self.event_loop())
 
     @property
     async def embed(self) -> Embed:
@@ -347,6 +341,10 @@ class TickerEvent:
                     value = "\n".join([str(i) for i in shootout if i.team == _])
                     if value:
                         e.add_field(name=_, value=value)
+            case EventType.PERIOD_BEGIN:
+                m = self.event_type.value.replace('#PERIOD#', self.fixture.breaks + 1)
+                e.description = f"**{m}** | {self.fixture.bold_markdown}\n"
+                e.colour = self.event_type.colour
             case _:
                 m = self.event_type.value
                 e.description = f"**{m}** | {self.fixture.bold_markdown}\n"
@@ -355,8 +353,8 @@ class TickerEvent:
         # Append our event
         if self.event is not None:
             e.description += str(self.event)
-            if self.event.note:
-                e.description += f"\n\n{self.event.note}"
+            if self.event.description:
+                e.description += f"\n\n{self.event.description}"
 
         # Append extra info
         if self.fixture.infobox is not None:
@@ -374,7 +372,7 @@ class TickerEvent:
                 if isinstance(i, Substitution):
                     continue  # skip subs, they're just spam.
 
-                # Penalties are handled later on.
+                # Penalty Shootouts are handled in self.embed, we don't need to duplicate.
                 if self.fixture.penalties_away:
                     if isinstance(i, Penalty) and i.shootout:
                         continue
@@ -384,33 +382,25 @@ class TickerEvent:
                 e.description += f"{str(i)}\n"
         return e
 
-    async def retract_event(self) -> List[Message]:
-        """Handle corrections for erroneous events"""
-        match self.event_type:
-            case EventType.GOAL:
-                return await self.bulk_edit(EventType.GOAL_OVERTURNED)
-            case EventType.RED_CARD:
-                return await self.bulk_edit(EventType.RED_CARD_OVERTURNED)
-            case _:
-                print(f"Event Warning: {self.event}")
-                print(f'[WARNING] {self.fixture} Ticker: Attempted to retract missing event_type: {self.event_type}')
-
     async def send_messages(self) -> List[Message]:
         """Dispatch the latest event embed to all applicable channels"""
 
-        async def dispatch(target_embed: Embed, channels: List[TextChannel]):
+        async def dispatch(embed: Embed, channels: List[TextChannel]) -> List[Message]:
             """Send target embed to target channels"""
+            these_messages = []
             for channel in channels:
                 try:
-                    self.messages.append(await channel.send(embed=target_embed))
+                    these_messages.append(await channel.send(embed=embed))
                 except HTTPException:
                     continue
+            return these_messages
 
-        await dispatch(await self.embed, self.channels_short)
-        await dispatch(await self.full_embed, self.channels_long)
-        return self.messages
+        messages: List[Message] = []
+        messages += await dispatch(await self.embed, self.channels_short)
+        messages += await dispatch(await self.full_embed, self.channels_long)
+        return messages
 
-    async def bulk_edit(self, new_event_type: EventType = None) -> List[Message]:
+    async def bulk_edit(self, messages: List[Message], new_event_type: EventType = None) -> List[Message]:
         """Edit existing messages"""
         if new_event_type is not None:
             self.event_type = new_event_type
@@ -418,10 +408,8 @@ class TickerEvent:
         short_embed = await self.embed
         long_embed = await self.full_embed
 
-        old_messages = self.messages.copy()
-
-        for message in old_messages:
-            self.messages.remove(message)
+        for message in messages.copy():
+            messages.remove(message)
 
             e = short_embed if message.channel in self.channels_short else long_embed
 
@@ -431,69 +419,60 @@ class TickerEvent:
                 old_embed.description = e.description
                 try:
                     message = await message.edit(embed=e)
-                except HTTPException:
+                except HTTPException:  # If we can't find a message, we don't try again to update it.
                     continue
 
-            self.messages.append(message)
-        return self.messages
+            messages.append(message)
+        return messages
 
     async def event_loop(self) -> List[Message]:
         """The Fixture event's internal loop"""
-        # Handle full time only events.
+        # Handle Match Events with no game events.
         if self.event_type == EventType.KICK_OFF:
             return await self.send_messages()
 
-        while self.needs_refresh & self.retry < 5:
-            await sleep(self.retry * 120)
-            self.retry += 1
+        retry: int = 0
+        index: Optional[int] = None
+        messages: List[Message] = []
+        while retry < 5:
+            await sleep(retry * 120)
+            retry += 1
             await self.fixture.refresh()
 
             # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
-            if self.event_index is None:
-                if self.fixture.events:
-                    match self.event_type:
-                        case EventType.RED_CARD:
-                            events = [i for i in self.fixture.events if isinstance(i, RedCard)]
-                        case EventType.GOAL:
-                            events = [i for i in self.fixture.events if isinstance(i, (Goal, VAR))]
-                        case EventType.VAR_GOAL | EventType.VAR_RED_CARD:
-                            events = [i for i in self.fixture.events if isinstance(i, VAR)]
-                        case _:
-                            events = []
-
-                    if events:
-                        _ = self.fixture.home if self.home else self.fixture.away
-                        event = [i for i in events if i.team == _].pop()
-                        self.event_index = self.fixture.events.index(event)
-                        self.event = event
-
-                        if self.channels_long:
-                            if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
-                                self.needs_refresh = False
-                        elif event.player:
-                            self.needs_refresh = False
-
+            if index is not None:
+                self.event = self.fixture.events[index]
             else:
-                if self.event not in self.fixture.events:
-                    print(f"could not find event {self.event} in {self.fixture.events}")
-                    return await self.retract_event()
-
-                if self.channels_long:
-                    if all([i.player for i in self.fixture.events[:self.event_index + 1]]):
-                        self.needs_refresh = False
+                team: Team = self.fixture.home if self.home else self.fixture.away
+                if team is not None:
+                    events: List = [i for i in self.fixture.events if i.team.name == team.name]
                 else:
-                    if self.event.player:
-                        self.needs_refresh = False
+                    events = self.fixture.events
 
-            if self.messages:
-                if not self.needs_refresh:
-                    return await self.bulk_edit()
+                valid: Type[MatchEvent] = self.event_type.valid_events
+                if valid is not None and events:
+                    try:
+                        self.event = [i for i in events if isinstance(i, valid)][-1]
+                        index = self.fixture.events.index(self.event)
+                    except IndexError:
+                        pass
+
+            if self.channels_long and index is not None:
+                if all([i.player for i in self.fixture.events[:index + 1]]):
+                    break
+            elif self.event is False:
+                break
+            elif self.event:
+                if self.event.player:
+                    break
+
+            if not messages:
+                messages = await self.send_messages()
             else:
-                await self.send_messages()
-                if not self.needs_refresh:
-                    return self.messages
-        else:
-            return await self.bulk_edit()
+                messages = await self.bulk_edit(messages)
+        if not messages:
+            return await self.send_messages()
+        return await self.bulk_edit(messages)
 
 
 class TickerCog(Cog, name="Ticker"):
@@ -506,7 +485,7 @@ class TickerCog(Cog, name="Ticker"):
     async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
         """Autocomplete from list of stored leagues"""
         lgs = self.bot.competitions.values()
-        return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
+        return [Choice(name=i.title[:100], value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     @Cog.listener()
     async def on_fixture_event(self, event_type: EventType, f: Fixture, home: bool = True):
@@ -551,7 +530,7 @@ class TickerCog(Cog, name="Ticker"):
 
     # Event listeners for channel deletion or guild removal.
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel):
+    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Handle deletion of channel data from database upon channel deletion."""
         q = f"""DELETE FROM ticker_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -562,7 +541,7 @@ class TickerCog(Cog, name="Ticker"):
             await self.bot.db.release(connection)
 
     @Cog.listener()
-    async def on_guild_remove(self, guild: Guild):
+    async def on_guild_remove(self, guild: Guild) -> None:
         """Delete all data related to a guild from the database upon guild leave."""
         q = f"""DELETE FROM ticker_channels WHERE guild_id = $1"""
         connection = await self.bot.db.acquire()
@@ -570,15 +549,14 @@ class TickerCog(Cog, name="Ticker"):
             await connection.execute(q, guild.id)
         await self.bot.db.release(connection)
 
-    ticker = Group(name="ticker", description="match event ticker")
+    # Ticker command is available to those who have manage messages permissions.
+    tkr_perms = Permissions(manage_channels=True)
+    ticker = Group(name="ticker", description="match event ticker", guild_only=True, default_permissions=tkr_perms)
 
     @ticker.command()
     async def manage(self, interaction: Interaction, channel: Optional[TextChannel]):
         """View the config of this channel's Match Event Ticker"""
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "This command cannot be ran in DMs")
-
-        if not interaction.permissions:
+        if not interaction.permissions.manage_messages:
             return await self.bot.error(interaction, "You need manage messages permissions to edit a ticker")
 
         channel = interaction.channel if channel is None else channel
@@ -630,7 +608,6 @@ class TickerCog(Cog, name="Ticker"):
         await TickerConfig(self.bot, interaction, channel).update(f"Added {res} tracked leagues for {channel.mention}")
 
     @ticker.command()
-    @has_permissions(manage_channels=True)
     async def add_world_cup(self, interaction: Interaction, channel: TextChannel = None):
         """Add the qualifying tournaments for the World Cup to a channel's ticker"""
         if channel is None:

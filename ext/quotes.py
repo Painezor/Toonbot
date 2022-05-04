@@ -4,7 +4,7 @@ from typing import List, TYPE_CHECKING, Optional, Union
 
 from asyncpg import UniqueViolationError, Record
 from discord import Embed, ButtonStyle, Interaction, Colour, Message, Member
-from discord.app_commands import Group, context_menu, describe, autocomplete, Choice, AppCommandError, NoPrivateMessage
+from discord.app_commands import Group, context_menu, describe, autocomplete, Choice, AppCommandError
 from discord.ext import commands
 from discord.ui import Button, View
 
@@ -29,14 +29,6 @@ class TargetOptedOutError(AppCommandError):
 
     def __init__(self, user: Member):
         self.message = f"{user.mention} has opted out of the quote DB."
-        super().__init__(self.message)
-
-
-class NoSelfQuotesError(AppCommandError):
-    """User tried to quote their self"""
-
-    def __init__(self):
-        self.message = f"You can't quote yourself"
         super().__init__(self.message)
 
 
@@ -217,9 +209,9 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
     if message.author.id in blacklist:
         raise TargetOptedOutError(message.author)
     if interaction.guild is None:
-        raise NoPrivateMessage
+        return await interaction.client.error(interaction, 'This command cannot be used in DMs.')
     if message.author.id == interaction.user.id:
-        raise NoSelfQuotesError
+        return await interaction.client.error(interaction, 'You cannot quote yourself.')
     if message.author.bot:
         return await interaction.client.error(interaction, 'You cannot quote a bot.')
     if not message.content:
@@ -312,7 +304,7 @@ class QuoteDB(commands.Cog):
         await self.opt_outs()
         await self.cache_quotes()
 
-    async def opt_outs(self):
+    async def opt_outs(self) -> None:
         """Cache the list of users who have opted out of the quote DB"""
         connection = await self.bot.db.acquire()
         try:
@@ -322,7 +314,7 @@ class QuoteDB(commands.Cog):
         finally:
             await self.bot.db.release(connection)
 
-    async def cache_quotes(self):
+    async def cache_quotes(self) -> None:
         """Cache the Quote DB inside the bot for autocomplete etc."""
         connection = await self.bot.db.acquire()
         try:
@@ -360,14 +352,18 @@ class QuoteDB(commands.Cog):
     @quotes.command()
     @autocomplete(text=quote_ac)
     @describe(text="Search by quote text")
-    async def search(self, interaction: Interaction, text: int, user: Optional[Member]) -> Message:
+    async def search(self, interaction: Interaction, text: str, user: Optional[Member]) -> Message:
         """Search for a quote by quote text"""
         if interaction.user.id in self.bot.quote_blacklist:
             raise OptedOutError
-        if user.id in self.bot.quote_blacklist:
-            raise TargetOptedOutError(user)
-        if text:
-            return await QuotesView(interaction, quotes=[self.bot.quotes[text]]).update()
+        if user is not None:
+            if user.id in self.bot.quote_blacklist:
+                raise TargetOptedOutError(user)
+        try:
+            quotes = [self.bot.quotes[int(text)]]
+        except ValueError:
+            quotes = [i for i in self.bot.quotes if text.lower() in i['message_content'].lower()]
+        return await QuotesView(interaction, quotes=quotes).update()
 
     @quotes.command()
     @describe(quote_id="Enter quote ID#")

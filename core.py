@@ -4,7 +4,7 @@ from collections import defaultdict
 from datetime import datetime
 from json import load
 from logging import basicConfig, INFO
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Callable
 
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import Record, Pool, create_pool
@@ -58,9 +58,9 @@ class Bot(AutoShardedBot):
         )
 
         # Reply Handling
-        self.reply = reply
-        self.error = error
-        self.dump_image = dump_image
+        self.reply: Callable = reply
+        self.error: Callable = error
+        self.dump_image: Callable = dump_image
 
         # Database & Credentials
         self.db: Pool = kwargs.pop("database")

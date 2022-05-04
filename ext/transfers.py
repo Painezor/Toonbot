@@ -1,9 +1,8 @@
 """Automated fetching of the latest football transfer information from transfermarkt"""
 from typing import TYPE_CHECKING, List
 
-from discord import ButtonStyle, Interaction, Embed, Colour, HTTPException, TextChannel, Message
+from discord import ButtonStyle, Interaction, Embed, Colour, HTTPException, TextChannel, Message, Permissions
 from discord.app_commands import Group, describe
-from discord.app_commands.checks import has_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View, Button, Select
@@ -56,15 +55,17 @@ class DeleteTicker(Button):
         self.bot: Bot = bot
         super().__init__(label="Delete ticker", style=ButtonStyle.red)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
         await interaction.response.defer()
         connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            q = """DELETE FROM transfers_channels WHERE channel_id = $1"""
-            await connection.execute(q, self.view.channel.id)
-        await self.bot.db.release(connection)
-        await self.view.update(content=f"The transfer ticker for {self.view.channel.mention} was deleted.")
+        try:
+            async with connection.transaction():
+                q = """DELETE FROM transfers_channels WHERE channel_id = $1"""
+                await connection.execute(q, self.view.channel.id)
+        finally:
+            await self.bot.db.release(connection)
+        return await self.view.update(content=f"The transfer ticker for {self.view.channel.mention} was deleted.")
 
 
 class RemoveLeague(Select):
@@ -88,11 +89,13 @@ class RemoveLeague(Select):
         await interaction.response.defer()
 
         connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            q = """DELETE from transfers_leagues WHERE (channel_id, item) = ($1, $2)"""
-            for x in self.values:
-                await connection.execute(q, self.view.channel.id, x)
-        await self.bot.db.release(connection)
+        try:
+            async with connection.transaction():
+                q = """DELETE from transfers_leagues WHERE (channel_id, item) = ($1, $2)"""
+                for x in self.values:
+                    await connection.execute(q, self.view.channel.id, x)
+        finally:
+            await self.bot.db.release(connection)
         await self.view.update()
 
 
@@ -204,11 +207,11 @@ class TransfersCog(Cog):
         self.bot: Bot = bot
         self.bot.transfers = self.transfers_loop.start()
 
-    async def cog_unload(self):
+    async def cog_unload(self) -> None:
         """Cancel transfers task on Cog Unload."""
         self.bot.transfers.cancel()
 
-    async def _get_team_league(self, link):
+    async def _get_team_league(self, link) -> Competition:
         """Fetch additional data for parsed player"""
         async with self.bot.session.get(link) as resp:
             src = await resp.text()
@@ -218,7 +221,7 @@ class TransfersCog(Cog):
         link = ''.join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/@href'))
 
         link = TF + link if link else ""
-        return name, link
+        return Competition(name=name, link=link)
 
     @loop(seconds=60)
     async def transfers_loop(self) -> None:
@@ -260,9 +263,7 @@ class TransfersCog(Cog):
             team = ''.join(i.xpath('.//td[5]//td[2]/a/text()')).strip()
             team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
 
-            lg, lg_link = await self._get_team_league(team_link)
-            league = Competition(name=lg, link=lg_link)
-
+            league = await self._get_team_league(team_link)
             new_team = Team(team, team_link, league)
             new_team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
 
@@ -316,29 +317,29 @@ class TransfersCog(Cog):
         await self.bot.db.release(connection)
 
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel) -> None:
+    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Delete all transfer info for a channel from database upon deletion"""
         connection = await self.bot.db.acquire()
         async with connection.transaction():
             await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
         await self.bot.db.release(connection)
 
-    tf = Group(name="transfer_ticker", description="Create or manage a Transfer Ticker")
+    tf = Group(name="transfer_ticker",
+               description="Create or manage a Transfer Ticker",
+               default_permissions=Permissions(manage_channels=True))
 
     @tf.command()
-    @has_permissions(manage_channels=True)
     async def manage(self, interaction, channel: TextChannel = None) -> Message:
         """View the config of this channel's transfer ticker"""
+        await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel
 
-        await interaction.response.defer(thinking=True)
         return await TransfersConfig(self.bot, interaction, channel).update()
 
     # TODO: Creation Dialogue from within add.
     @tf.command()
     @describe(league_name="Search for a league name")
-    @has_permissions(manage_channels=True)
     async def add(self, interaction: Interaction, league_name: str, channel: TextChannel = None):
         """Add a league to your transfer ticker channel(s)"""
         await interaction.response.defer(thinking=True)
@@ -346,10 +347,12 @@ class TransfersCog(Cog):
             channel = interaction.channel
 
         connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            q = """SELECT * FROM transfers_channels WHERE channel_id = $1"""
-            r = await connection.fetchrow(q, channel.id)
-        await self.bot.db.release(connection)
+        try:
+            async with connection.transaction():
+                q = """SELECT * FROM transfers_channels WHERE channel_id = $1"""
+                r = await connection.fetchrow(q, channel.id)
+        finally:
+            await self.bot.db.release(connection)
 
         if r is None or r['channel_id'] is None:
             err = f"{channel.mention} does not have a transfer ticker set. Please make one first."

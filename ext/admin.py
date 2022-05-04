@@ -4,11 +4,11 @@ from inspect import isawaitable
 from os import system
 from sys import version
 from traceback import format_exception
-from typing import Optional, TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Union
 
 from discord import Interaction, Embed, Colour, Activity, Attachment, Message, Object
 from discord.app_commands import Choice, describe, autocomplete, Group, command, guilds
-from discord.ext.commands import Cog, NotOwner
+from discord.ext.commands import Cog
 
 if TYPE_CHECKING:
     from core import Bot
@@ -37,7 +37,7 @@ class Admin(Cog):
 
     @command()
     @describe(guild="enter guild ID to sync")
-    async def sync(self, interaction: Interaction, guild: Optional[str] = None) -> Message:
+    async def sync(self, interaction: Interaction, guild: str = None) -> Message:
         """Sync the command tree with discord"""
         await interaction.response.defer(thinking=True)
 
@@ -63,8 +63,8 @@ class Admin(Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @cogs.command()
-    @describe(cog="pick a cog to load")
     @autocomplete(cog=cg_ac)
+    @describe(cog="pick a cog to load")
     async def load(self, interaction: Interaction, cog: str) -> Message:
         """Loads a module."""
         try:
@@ -120,8 +120,8 @@ class Admin(Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @command()
-    @describe(code=">>> Code Go Here")
     @guilds(250252535699341312)
+    @describe(code=">>> Code Go Here")
     async def debug(self, interaction: Interaction, code: str) -> Message:
         """Evaluates code."""
         if interaction.user.id != self.bot.owner_id:
@@ -148,8 +148,8 @@ class Admin(Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @command()
-    @describe(notification="Message to send to aLL servers.")
     @guilds(250252535699341312)
+    @describe(notification="Message to send to aLL servers.")
     async def notify(self, interaction: Interaction, notification: str) -> Message:
         """Send a global notification to channels that track it."""
         if interaction.user.id != self.bot.owner_id:
@@ -164,10 +164,10 @@ class Admin(Cog):
 
     @edit_bot.command()
     @describe(file='The file to upload', link="Provide a link")
-    async def avatar(self, interaction: Interaction,
-                     file: Optional[Attachment] = None,
-                     link: Optional[str] = None) -> Message:
+    async def avatar(self, interaction: Interaction, file: Attachment = None, link: str = None) -> Message:
         """Change the avatar of the bot"""
+        if interaction.user.id != self.bot.owner_id:
+            return await self.bot.error(interaction, "You do not own this bot.")
         avatar = file if file else link
 
         if avatar is None:
@@ -223,19 +223,6 @@ class Admin(Cog):
         e: Embed = Embed(title="Activity", colour=Colour.og_blurple())
         e.description = f"Set status to {act.type} {act.name}"
         return await self.bot.reply(interaction, embed=e)
-
-    @command()
-    @describe(channel_id="Channel ID to check messages of.")
-    @guilds(250252535699341312)
-    async def ratecheck(self, interaction, channel_id: str):
-        """Check the fucking ratelimit of some dickhead"""
-        if not interaction.user.id == self.bot.owner_id:
-            raise NotOwner
-
-        channel = self.bot.get_channel(int(channel_id))
-        count = 0
-        async for message in channel.history(limit=20):
-            print(count, message.content, message.author, len(message.embeds), "Embeds in this message.")
 
 
 async def setup(bot: Union['Bot', 'PBot']) -> None:
