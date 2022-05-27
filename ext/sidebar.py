@@ -1,6 +1,7 @@
 """Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
 import datetime
 from asyncio import sleep
+from importlib import reload
 from math import ceil
 from pathlib import Path
 from re import sub, DOTALL
@@ -15,7 +16,7 @@ from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from lxml import html
 
-from ext.utils.football import Team, Fixture
+from ext.utils import football
 
 if TYPE_CHECKING:
     from core import Bot
@@ -55,6 +56,7 @@ class NUFCSidebar(Cog):
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
+        reload(football)
 
     async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
@@ -63,9 +65,7 @@ class NUFCSidebar(Cog):
     @loop(hours=6)
     async def sidebar_loop(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
-        try:
-            self.bot.teams['p6ahwuwJ']
-        except KeyError:
+        if not self.bot.get_team('p6ahwuwJ'):
             await sleep(60)
             return await self.sidebar_loop()
 
@@ -93,12 +93,11 @@ class NUFCSidebar(Cog):
 
         wiki_content = wiki.content_md
 
-        fsr: Team = self.bot.teams[team_id]
+        fsr: football.Team = self.bot.get_team(team_id)
 
-        fixtures: List[Fixture] = await fsr.get_fixtures(subpage="/fixtures")
-        results: List[Fixture] = await fsr.get_fixtures(subpage="/results")
+        fixtures: List[football.Fixture] = await fsr.fixtures()
+        results: List[football.Fixture] = await fsr.results()
 
-        print("MTB: Results found:", len(results))
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             match resp.status:
                 case 200:

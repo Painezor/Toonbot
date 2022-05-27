@@ -1,17 +1,21 @@
 """Various image manipulation """
+import datetime
 from asyncio import to_thread
+from copy import deepcopy
 from io import BytesIO
 from json import dumps
 from random import choice
-from typing import Optional, TYPE_CHECKING, Union
+from re import findall
+from typing import Optional, TYPE_CHECKING, Union, List
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
-from discord import Embed, Colour, Member, Attachment, Interaction, User, Message
+from discord import Embed, Colour, Member, Attachment, Interaction, User, Message, PartialEmoji
 from discord.app_commands import command, describe, guild_only
 from discord.ext.commands import Cog
 from discord.ui import View
 
-from ext.utils.embed_utils import embed_image
+from ext.utils.embed_utils import embed_image, get_colour
+from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
@@ -19,6 +23,12 @@ if TYPE_CHECKING:
 
 KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_TV_%28Hungary%29.svg" \
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
+
+
+def message_emojis(s: str) -> List[PartialEmoji]:
+    """ Returns a list of custom emojis in a message. """
+    emojis = findall('<(?P<animated>a?):(?P<name>[a-zA-Z0-9_]{2,32}):(?P<id>[0-9]{18,22})>', s)
+    return [PartialEmoji(animated=bool(animated), name=name, id=e_id) for animated, name, e_id in emojis]
 
 
 def get_target(user: User | Member = None, link: str = None, file: Attachment = None) -> str:
@@ -276,6 +286,19 @@ class Images(Cog):
         self.bot: Bot | PBot = bot
 
     @command()
+    @describe(user="Select a user to fetch their avatar")
+    async def avatar(self, interaction: Interaction, user: User | Member = None) -> Message:
+        """Shows a member's avatar"""
+        user = interaction.user if user is None else user
+
+        e: Embed = Embed(description=f"{user}'s avatar", colour=user.colour)
+        e.colour = user.color
+        e.set_footer(text=user.display_avatar.url)
+        e.set_image(url=user.display_avatar.url)
+        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        return await self.bot.reply(interaction, embed=e)
+
+    @command()
     @describe(user="pick a user", link="provide a link", file="upload a file")
     async def eyes(self, interaction: Interaction, user: Member | User = None, link: str = None,
                    file: Attachment = None) -> Message:
@@ -361,81 +384,29 @@ class Images(Cog):
         e.set_author(name="Tinder", icon_url=icon)
         return await embed_image(interaction, e, output, filename="Tinder.png")
 
-    # @command()
-    # @describe(quote="enter quote text", target="pick a user")
-    # async def tard(self, interaction: Interaction, quote: str, target: Optional[User | Member] = None) -> Message:
-    #     """Generate an "oh no, it's retarded" image with a user's avatar and a quote"""
-    #     await interaction.response.defer(thinking=True)
-    #     target = interaction.user if target is None else target
-    #
-    #     if target is None or target.id == self.bot.owner_id:
-    #         target = interaction.user
-    #
-    #     image = await target.display_avatar.with_format("png").read()
-    #
-    #     def draw_tard(img: bytes, txt: str) -> BytesIO:
-    #         """Draws the "it's retarded" image"""
-    #         # Open Files
-    #         img: Image = Image.open(BytesIO(img))
-    #         base: Image = Image.open("Images/retarded base.png")
-    #         mask: Image = Image.open("Images/circle mask.png").convert('L')
-    #
-    #         # Resize avatar, make circle, paste
-    #         img = ImageOps.fit(img, (250, 250))
-    #         img.putalpha(mask)
-    #         mask = mask.resize((35, 40))
-    #         small = img.resize((35, 40))
-    #
-    #         base.paste(small, box=(175, 160, 210, 200), mask=small)
-    #         small.close()
-    #
-    #         mask = mask.resize((100, 100))
-    #         large = img.resize((100, 100)).rotate(-20)
-    #
-    #         base.paste(large, box=(325, 90, 425, 190), mask=mask)
-    #         large.close()
-    #         mask.close()
-    #
-    #         # Drawing tex
-    #         d = ImageDraw.Draw(base)
-    #
-    #         # Get best size for text
-    #         def get_first_size(quote_text):
-    #             """Measure font and shrink it to appropriate size."""
-    #             font_size = 72
-    #             ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
-    #             width = 300
-    #             quote_text = fill(quote_text, width=width)
-    #             while font_size > 0:
-    #                 # Make lines thinner if too wide.
-    #                 while width > 1:
-    #                     if ft.getsize(quote_text)[0] < 237 and ft.getsize(quote)[1] < 89:
-    #                         return width, ft
-    #                     width -= 1
-    #                     quote_text = fill(quote, width=width)
-    #                     ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
-    #                 font_size -= 1
-    #                 ft = ImageFont.truetype('Whitney-Medium.ttf', font_size)
-    #                 width = 40
-    #
-    #         wid, font = get_first_size(txt)
-    #
-    #         quote_fill = fill(txt, width=wid)
-    #         # Write lines.
-    #         move_up = font.getsize(quote_fill)[1]
-    #         d.text((245, (80 - move_up)), quote_fill, font=font, fill="#000000")
-    #
-    #         # Prepare for sending
-    #         output = BytesIO()
-    #         base.save(output, "PNG")
-    #         output.seek(0)
-    #         base.close()
-    #         img.close()
-    #         return output
-    #
-    #     image = await to_thread(draw_tard, image, quote)
-    #     return await embed_image(interaction, Embed(colour=Colour.blue()), image, filename="tard.png")
+    @command()
+    @describe(emoji="enter a list of emotes")
+    async def emote(self, interaction: Interaction, emoji: str) -> Message:
+        """View a bigger version of an Emoji"""
+        await interaction.response.defer(thinking=True)
+        emojis = message_emojis(emoji)
 
+        if not emojis:
+            return await self.bot.error(interaction, f"No emotes found in {emoji}")
+
+        embeds = []
+        for emoji in emojis:
+            e: Embed = Embed(title=emoji.name)
+            if emoji.animated:
+                e.description = "This is an animated emoji."
+
+            e.colour = await get_colour(emoji.url)
+            e.set_image(url=emoji.url)
+            e.set_footer(text=emoji.url)
+            embeds.append(deepcopy(e))
+
+        view = Paginator(self.bot, interaction, embeds)
+        return await view.update()
 
 async def setup(bot: Union['Bot', 'PBot']) -> None:
     """Load the Images Cog into the bot"""

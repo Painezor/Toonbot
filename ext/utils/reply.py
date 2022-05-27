@@ -19,7 +19,7 @@ async def dump_image(bot: 'Bot', img: BytesIO) -> str | None:
 async def error(i: Interaction, e: str, message: Message = None, ephemeral: bool = True, followup=True) -> Message:
 	"""Send a Generic Error Embed"""
 	e: Embed = Embed(title="An Error occurred.", colour=Colour.red(), description=e)
-	return await reply(i, embed=e, message=message, ephemeral=ephemeral, followup=followup)
+	return await reply(i, embed=e, ephemeral=ephemeral, followup=followup)
 
 
 async def reply(i: Interaction, message: Message = None, followup: bool = True, **kwargs) -> Message:

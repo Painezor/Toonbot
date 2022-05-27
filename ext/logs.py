@@ -87,9 +87,7 @@ class LogsConfig(View):
 
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
-        self.clear_items()
-        self.stop()
-        return await self.bot.reply(self.interaction, view=self, followup=False)
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def update(self, content: str = "") -> Message:
         """Regenerate view and push to message"""
@@ -261,8 +259,7 @@ class Logs(Cog):
                     f"attachment url: {z.proxy_url}"
                 e.add_field(name="Attachment info", value=v)
             else:
-                print("Deletion log - unspecified attachment info [No HEIGHT found]")
-                print(z.__dict__)
+                print("Deletion log - unspecified attachment info [No HEIGHT found]\n", z.__dict__)
 
         for x in [i for i in self.bot.notifications_cache
                   if i['guild_id'] == message.guild.id and i['message_deletes']]:

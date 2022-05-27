@@ -23,6 +23,17 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
 # TODO: Team / League Split
 
 
+async def tv_ac(interaction: Interaction, current: str) -> List[app_commands.Choice[str]]:
+    """Return list of live teams"""
+    tv = getattr(interaction.client, "tv", {})
+    m = []
+    for x in tv.keys():
+        if current.lower() in x.lower():
+            m.append(app_commands.Choice(name=x[:100], value=x))
+
+    return m[:25]
+
+
 class Tv(commands.Cog):
     """Search for live TV matches"""
 
@@ -30,16 +41,6 @@ class Tv(commands.Cog):
         self.bot: Bot = bot
         with open('tv.json') as f:
             self.bot.tv = json.load(f)
-
-    async def tv_ac(self, _: Interaction, current: str) -> List[app_commands.Choice[str]]:
-        """Return list of live teams"""
-        m = []
-        for x in self.bot.tv.keys():
-            if current.lower() in x.lower():
-                m.append(app_commands.Choice(name=x, value=x))
-
-        m = [i[:100] for i in m if i is not None]
-        return m[:25]
 
     @command()
     @describe(name="Search for a team")

@@ -1,4 +1,5 @@
 """Automated fetching of the latest football transfer information from transfermarkt"""
+import traceback
 from typing import TYPE_CHECKING, List
 
 from discord import ButtonStyle, Interaction, Embed, Colour, HTTPException, TextChannel, Message, Permissions
@@ -116,6 +117,16 @@ class TransfersConfig(View):
 
     async def creation_dialogue(self):
         """Send a dialogue to check if the user wishes to create a new ticker."""
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
+                invalidate = await connection.fetchrow(q, self.channel.id)
+                if invalidate:
+                    return await self.bot.error(self.interaction, 'You cannot add a ticker to a livescores channel.')
+        finally:
+            await self.bot.db.release(connection)
+
         self.clear_items()
         view = Confirmation(self.interaction, colour_a=ButtonStyle.green, label_a=f"Create ticker", label_b="Cancel")
         notfound = f"{self.channel.mention} does not have a ticker, would you like to create one?"
@@ -124,32 +135,31 @@ class TransfersConfig(View):
 
         if view.value:
             connection = await self.bot.db.acquire()
-            q = """INSERT INTO transfers_leagues (channel_id, item, alias) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
-            qq = """INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1,$2)"""
+
             try:
+                q = """INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1,$2)"""
                 async with connection.transaction():
-                    await connection.execute(qq, self.interaction.guild.id, self.channel.id)
-                # TODO: Executemany
-                async with connection.transaction():
-                    for alias, link in LG:
-                        await connection.execute(q, self.channel.id, link, alias)
-            except Exception as err:
+                    await connection.execute(q, self.interaction.guild.id, self.channel.id)
+                q = """INSERT INTO transfers_leagues (channel_id, item, alias) VALUES ($1, $2, $3) 
+                ON CONFLICT DO NOTHING"""
+                leagues = [(self.channel.id,) + i for i in LG]
+                await connection.executemany(q, leagues)
+            except Exception:
+                traceback.print_exc()
                 txt = f"Error occurred creating {self.channel.mention} ticker"
-                await self.bot.error(self.interaction, txt)
-                raise err
+                return await self.bot.error(self.interaction, txt)
+            else:
+                return await self.update(content=f"A ticker was created for {self.channel.mention}")
             finally:
                 await self.bot.db.release(connection)
-            await self.update(content=f"A ticker was created for {self.channel.mention}")
         else:
             err = f"Cancelled ticker creation for {self.channel.mention}"
-            await self.bot.error(self.interaction, err)
             self.stop()
+            return await self.bot.error(self.interaction, err)
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
-        self.clear_items()
-        await self.bot.reply(self.interaction, view=self, followup=False)
-        self.stop()
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def update(self, content: str = "") -> Message:
         """Push the latest version of the embed to view."""
@@ -175,10 +185,11 @@ class TransfersConfig(View):
             e: Embed = Embed(title="Transfers Ticker config", color=Colour.dark_blue())
             e.description = f"{self.channel.mention} has no tracked leagues."
         else:
-            e: Embed = Embed(title="Toonbot Transfer Ticker config", color=Colour.dark_teal())
+            e: Embed = Embed(title=f"{self.interaction.client.user.name} Transfer Ticker config",
+                             color=Colour.dark_teal())
             e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
             header = f'Tracked leagues for {self.channel.mention}\n'
-            embeds = rows_to_embeds(e, sorted(links), header=header, rows_per=25)
+            embeds = rows_to_embeds(e, sorted(links), header=header, max_rows=25)
             self.pages = embeds
 
             add_page_buttons(self)
@@ -264,7 +275,7 @@ class TransfersCog(Cog):
             team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
 
             league = await self._get_team_league(team_link)
-            new_team = Team(team, team_link, league)
+            new_team = Team(name=team, link=team_link, league=league)
             new_team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
 
             player.team = new_team
@@ -272,9 +283,8 @@ class TransfersCog(Cog):
             team = ''.join(i.xpath('.//td[4]//td[2]/a/text()')).strip()
             team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[4]//td[2]/a/@href')).strip()
 
-            lg, lg_link = await self._get_team_league(team_link)
-            league = Competition(name=lg, link=lg_link)
-            old_team = Team(team, team_link, league)
+            league = await self._get_team_league(team_link)
+            old_team = Team(name=team, link=team_link, league=league)
             old_team.country = ''.join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
 
             fee = ''.join(i.xpath('.//td[6]//a/text()'))
@@ -287,6 +297,10 @@ class TransfersCog(Cog):
             transfer.fee_link = fee_link
 
             connection = await self.bot.db.acquire()
+
+            old_link = old_team.league.link if old_team.league is not None else None
+            new_link = new_team.league.link if new_team.league is not None else None
+
             try:
                 async with connection.transaction():
                     records = await connection.fetch("""
@@ -294,7 +308,7 @@ class TransfersCog(Cog):
                     FROM transfers_channels LEFT OUTER JOIN transfers_leagues
                     ON transfers_channels.channel_id = transfers_leagues.channel_id
                     WHERE item in ($1, $2)
-                    """, old_team.league.link, new_team.league.link)
+                    """, old_link, new_link)
             finally:
                 await self.bot.db.release(connection)
 

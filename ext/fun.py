@@ -38,11 +38,9 @@ class CoinView(View):
         for x in range(count):
             self.results.append(choice(['Heads', 'Tails']))
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Clear view"""
-        self.clear_items()
-        await self.bot.reply(self.interaction, view=self, followup=False)
-        self.stop()
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
@@ -109,6 +107,9 @@ class PollModal(Modal, title="Make a Decision"):
 @context_menu(name="MoCk")
 async def mock(interaction: Interaction, message: Message) -> Message:
     """AlTeRnAtInG cApS"""
+    if not message.content:
+        return await interaction.client.error(interaction, "That message has no content.")
+
     content = ''.join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
     return await interaction.client.reply(interaction, content=content)
 

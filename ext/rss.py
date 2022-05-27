@@ -38,23 +38,17 @@ async def parse(bot: 'PBot', url: str):
     e.timestamp = datetime.datetime.now(datetime.timezone.utc)
     e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
     e.description = ""
-    main_image = None
     output = ""
 
     def fmt(node):
         """Format the passed node"""
-        if n.tag == "img" and main_image is None:
-            e.set_image(url=n.attrib['src'])
-
         try:
             txt = node.text if node.text.strip() else ""
             txt = sub(r'\s{2,}', ' ', txt)
         except AttributeError:
             txt = ""
 
-        if not txt:
-            out = ""
-        else:
+        if txt:
             match node.tag:
                 case "p" | "div" | "ul":
                     out = txt
@@ -82,6 +76,8 @@ async def parse(bot: 'PBot', url: str):
                 case _:
                     print(f"Unhandled node tag found: {node.tag} | {txt} | {tail}")
                     out = txt
+        else:
+            out = ""
 
         try:
             tl = node.tail if node.tail.strip() else ""
@@ -93,6 +89,9 @@ async def parse(bot: 'PBot', url: str):
         return out
 
     for n in article_html.iterchildren():  # Top Level Children Only.
+        if n.tag == "img":
+            e.set_image(url=n.attrib['src'])
+
         try:
             text = n.text if n.text.strip() else ""
             text = sub(r'\s{2,}', ' ', text)
@@ -160,6 +159,14 @@ class DevBlogView(View):
         return await self.bot.reply(self.interaction, embed=e)
 
 
+async def db_ac(interaction: Interaction, current: str) -> List[Choice]:
+    """Autocomplete dev blog by text"""
+    cache = getattr(interaction.client, 'dev_blog_cache', [])
+    blogs = [i for i in cache if current.lower() in i['title'].lower() + i['text'].lower()]
+    return [Choice(name=f"{i['id']}: {i['title']}"[:100], value=str(i['id'])) for i in blogs][:-25:-1]
+    # Last 25 items reversed
+
+
 class RSS(Cog):
     """RSS Commands"""
 
@@ -168,8 +175,6 @@ class RSS(Cog):
         self.bot.eu_news = self.eu_news.start()
         self.bot.dev_blog_task = self.blog_loop.start()
         self.bot.dev_blog_cache = []
-        self.bot.news_cached = False
-
         self.bot.dev_blog_channels = []
 
     async def cog_load(self) -> None:
@@ -237,12 +242,6 @@ class RSS(Cog):
         finally:
             await self.bot.db.release(connection)
 
-    async def db_ac(self, _: Interaction, current: str) -> List[Choice]:
-        """Autocomplete dev blog by text"""
-        blogs = [i for i in self.bot.dev_blog_cache if current.lower() in i['title'].lower() + i['text'].lower()]
-        return [Choice(name=f"{i['id']}: {i['title']}"[:100], value=str(i['id'])) for i in blogs][:-25:-1]
-        # Last 25 items reversed
-
     @command()
     @guild_only()
     @default_permissions(manage_channels=True)
@@ -287,26 +286,19 @@ class RSS(Cog):
     @command()
     @autocomplete(search=db_ac)
     @describe(search="Search for a dev blog by text content")
-    async def dev_blog(self, interaction: Interaction, search: str):
+    async def blog(self, interaction: Interaction, search: str):
         """Fetch a World of Warships dev blog, either search for text or leave blank to get latest."""
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         try:
             int(search)
             e = await parse(self.bot, "https://blog.worldofwarships.com/blog/" + search)
-
-            text = f"{interaction.user.mention} looked up Dev Blog {search}. Feel free to discuss it in the thread."
-            message = await interaction.channel.send(text)
-
-            name = self.bot.dev_blog_cache[int(search)]['title']
-
-            # 100 char limit on thread name.
-            thread = await message.create_thread(name=f"{search}: {name}"[:100])
-            await thread.send(embed=e)
+            return await self.bot.reply(interaction, embed=e)
         except ValueError:
+            # If a specific blog is not selected, send the browser view.
             matches = [i for i in self.bot.dev_blog_cache if search.lower() in i['title'].lower() + i['text'].lower()]
             view = DevBlogView(self.bot, interaction, pages=matches)
-            await view.update()
+            return await view.update()
 
     async def dispatch_eu_news(self, link: str, date=None, title=None, category=None, desc=None) -> Optional[Message]:
         """Handle dispatching of news article."""
@@ -364,13 +356,17 @@ class RSS(Cog):
             tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
 
         articles = tree.xpath('.//item')
+
+        # If we already have parsed the articles, flag it now.
+        cached = bool(self.bot.news_cache)
+
         for i in articles:
             link = ''.join(i.xpath('.//guid/text()'))
             if link in self.bot.news_cache:
                 continue
 
             self.bot.news_cache.append(link)
-            if not self.bot.news_cached:
+            if not cached:
                 continue  # Skip on population
 
             date = ''.join(i.xpath('.//pubdate/text()'))
@@ -378,9 +374,6 @@ class RSS(Cog):
             desc = " ".join(''.join(i.xpath('.//description/text()')).split()).replace(' ]]>', '')
             title = ''.join(i.xpath('.//title/text()'))
             await self.dispatch_eu_news(link, date=date, title=title, desc=desc, category=category)
-
-        if articles:
-            self.bot.news_cached = True
 
     @loop(seconds=60)
     async def blog_loop(self) -> None:

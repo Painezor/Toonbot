@@ -5,10 +5,9 @@ if TYPE_CHECKING:
     from core import Bot
 
 from discord import Interaction, Message
-from discord.app_commands import command, describe, guilds
+from discord.app_commands import command, describe
 from discord.ext.commands import Cog
 from ext.utils.transfer_tools import TeamView, CompetitionView, SearchView
-
 
 # TODO: HTTP Autocomplete
 
@@ -76,7 +75,6 @@ class Lookups(Cog):
 
     @command()
     @describe(query="league name to search for")
-    @guilds(250252535699341312)
     async def attendance(self, interaction: Interaction, query: str) -> Message:
         """Get a list of a league's average attendances."""
         view = SearchView(self.bot, interaction, query, category="competition", fetch=True)
@@ -84,7 +82,7 @@ class Lookups(Cog):
         await view.wait()
 
         if view.value:
-            return await CompetitionView(self.bot, interaction, view.value).push_attendance()
+            return await CompetitionView(self.bot, interaction, view.value).attendance()
 
 
 async def setup(bot: 'Bot') -> None:

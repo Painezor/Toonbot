@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-NO_SLASH_COMM = ("Due to changes with discord, Toonbot will soon be unable to parse messages to find commands\n"
+NO_SLASH_COMM = ("Due to changes with discord, I will soon be unable to parse messages to find commands\n"
                  "All commands have been moved to use the new /slashcommands system, bots must be re-invited to servers"
                  " with a new scope to use them. Use the link below to re-invite me. All old prefixes are disabled.")
 
@@ -25,15 +25,17 @@ def error_to_codeblock(error):
            f'{"".join(format_exception(type(error), error, error.__traceback__))}```'
 
 
+async def cg_ac(interaction: Interaction, current: str) -> List[Choice]:
+    """Autocomplete from list of cogs"""
+    cogs = getattr(interaction.client, "COGS")
+    return [Choice(name=c, value=c) for c in sorted(cogs) if current.lower() in c.lower()]
+
+
 class Admin(Cog):
     """Code debug & loading of modules"""
 
     def __init__(self, bot: Union['Bot', 'PBot']) -> None:
         self.bot: Bot | PBot = bot
-
-    async def cg_ac(self, _: Interaction, value: str) -> List[Choice]:
-        """Autocomplete from list of cogs"""
-        return [Choice(name=c, value=c) for c in sorted(self.bot.COGS) if value.lower() in c.lower()]
 
     @command()
     @describe(guild="enter guild ID to sync")
@@ -101,7 +103,7 @@ class Admin(Cog):
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
 
-        print(to_print)
+        print("Print command output\n", to_print)
         e: Embed = Embed(colour=Colour.og_blurple(), description=f"```\n{to_print}```")
         return await self.bot.reply(interaction, embed=e)
 
@@ -143,7 +145,8 @@ class Admin(Cog):
 
         e.description = f"**Input**```py\n>>> {code}```**Output**```py\n{result}```"
         if len(e.description) > 4000:
-            print(e.description)
+            print("DEBUG command input\n", code)
+            print("DEBUG command output\n", e.description)
             e.description = 'Too long for discord, output sent to console.'
         return await self.bot.reply(interaction, embed=e)
 

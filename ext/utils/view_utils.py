@@ -13,6 +13,10 @@ if TYPE_CHECKING:
 
 def add_page_buttons(view: View, row: int = 0) -> View:
     """Helper function to bulk add page buttons"""
+    if hasattr(view, "parent"):
+        if view.parent:
+            view.add_item(Parent())
+
     index = getattr(view, "index", 1)
     pages = len(getattr(view, "pages", []))
 
@@ -31,6 +35,17 @@ def add_page_buttons(view: View, row: int = 0) -> View:
     return view
 
 
+class Parent(Button):
+    """If a view has a "parent" view, add a button to allow user to go to it."""
+
+    def __init__(self, row: int = 0) -> None:
+        super().__init__(label="Back", emoji='🏠', row=row)
+
+    async def callback(self, interaction: Interaction) -> Message:
+        """When clicked, call the parent view's update button"""
+        return await self.view.parent.update()
+
+
 class First(Button):
     """Get the first item in a Pagination View"""
 
@@ -46,7 +61,6 @@ class First(Button):
 
 class Previous(Button):
     """Get the previous item in a Pagination View"""
-
     def __init__(self, row: int = 0) -> None:
         super().__init__(label="Previous", emoji="◀", row=row)
 
@@ -59,7 +73,6 @@ class Previous(Button):
 
 class Jump(Button):
     """Jump to a specific page in a Pagination view"""
-
     def __init__(self, label: str = "Jump to page", row: int = 0):
         super().__init__(label=label, style=ButtonStyle.blurple, emoji='⤴', row=row)
 
@@ -211,7 +224,7 @@ class MultipleSelect(Select):
 
         super().__init__(placeholder=placeholder, max_values=len(list(options)), row=row)
         for emoji, label, description in options:
-            self.add_option(label=label, emoji=emoji, description=description, value=label)
+            self.add_option(label=label, emoji=emoji, description=description[:100], value=label)
 
     async def callback(self, interaction: Interaction) -> Message:
         """When selected assign view's requested attribute to value of selection."""
@@ -231,7 +244,7 @@ class ItemSelect(Select):
             if not label:
                 print("Item Select [ERROR]: No label for passed object", index, emoji, label, description)
                 continue
-            self.add_option(emoji=emoji, label=label, description=description, value=str(index))
+            self.add_option(emoji=emoji, label=label, description=description[:100], value=str(index))
 
     async def callback(self, interaction: Interaction) -> None:
         """Response object for view"""
@@ -250,7 +263,7 @@ class FuncButton(Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """A Generic Callback"""
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
         return await self.func()
 
 
@@ -266,9 +279,7 @@ class Paginator(View):
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
-        self.clear_items()
-        self.stop()
-        return await self.bot.reply(self.interaction, view=self, followup=False)
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""

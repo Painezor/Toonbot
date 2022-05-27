@@ -1,13 +1,11 @@
 """Commands about the meta-state of the bot and information about users and servers"""
 import datetime
 from copy import deepcopy
-from re import findall
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, Union
 
-from discord import Member, Embed, Colour, TextChannel, ButtonStyle, Forbidden, User, Interaction, PartialEmoji, Message
-from discord.app_commands import CommandAlreadyRegistered, context_menu, command, describe, guild_only
+from discord import Member, Embed, Colour, TextChannel, Forbidden, Interaction, Message
+from discord.app_commands import CommandAlreadyRegistered, context_menu, command, guild_only
 from discord.ext.commands import Cog
-from discord.ui import View, Button
 
 from ext.utils import timed_events
 from ext.utils.embed_utils import get_colour, rows_to_embeds
@@ -17,15 +15,6 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-INV = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
-      "&scope=bot%20applications.commands"
-
-
-def get_message_emojis(s: str) -> List[PartialEmoji]:
-    """ Returns a list of custom emojis in a message. """
-    emojis = findall('<(?P<animated>a?):(?P<name>[a-zA-Z0-9_]{2,32}):(?P<id>[0-9]{18,22})>', s)
-    return [PartialEmoji(animated=bool(animated), name=name, id=e_id) for animated, name, e_id in emojis]
-
 
 @context_menu(name="Get User Info")
 async def u_info(interaction: Interaction, member: Member) -> Message:
@@ -34,35 +23,36 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
     await interaction.response.defer(thinking=True)
 
     e: Embed = Embed(colour=member.colour)
-    e.set_author(name=member)
-    if member.avatar:
+
+    try:
+        ico = member.display_icon.url
+    except AttributeError:
+        ico = None
+
+    e.set_author(name=member, icon_url=ico)
+    if member.display_avatar:
         e.set_thumbnail(url=member.display_avatar.url)
     e.description = f"{'🤖 ' if member.bot else ''}{member.mention}\nUser ID: {member.id}"
-    try:
-        e.description += "\n📱 Using mobile app." if member.is_on_mobile() else ""
-        voice = member.voice
-        if voice is not None:
-            voice = voice.channel
-            voice_other = len(voice.members) - 1
-            voice = f'In voice channel {voice.mention} {f"with {voice_other} others" if voice_other else "alone"}'
-            e.description += f'\n\n{voice}'
-    except AttributeError:  # User.
-        pass
+
+    if hasattr(member, 'is_on_mobile') and member.is_on_mobile():
+        e.description += "\n📱 Using mobile app."
+
+    if hasattr(member, 'voice') and member.voice:
+        voice = member.voice.channel
+        voice_other = len(voice.members) - 1
+
+        voice = f'In voice channel {voice.mention} {f"with {voice_other} others" if voice_other else "alone"}'
+        e.add_field(name="Connected to voice chat", value=voice)
 
     try:
         roles = [role.mention for role in reversed(member.roles) if not role.position == 0]
+        if roles:
+            e.add_field(name='Roles', value=' '.join(roles))
     except AttributeError:
-        roles = []
+        pass
 
-    if roles:
-        e.add_field(name='Roles', value=' '.join(roles))
-
-    if member.banner is not None:
+    if hasattr(member, "banner") and member.banner:
         e.set_image(url=member.banner.url)
-
-    shared = sum(1 for m in interaction.client.get_all_members() if m.id == member.id) - 1
-    if shared:
-        e.set_footer(text=f"User shares {shared} discords with Toonbot")
 
     try:
         e.description += f'\nJoined Server: {timed_events.Timestamp(member.joined_at).countdown}'
@@ -71,11 +61,14 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
     e.description += f'\nCreated Account: {timed_events.Timestamp(member.created_at).countdown}'
 
     # Embed 2 - User Permissions
-    permissions = interaction.channel.permissions_for(member)
-    permissions = "\n".join([f"{i[0]} : {i[1]}" for i in permissions])
-    perm_embed = deepcopy(e)
-    perm_embed.description = permissions
-    perm_embed.title = "Member Permissions"
+    try:
+        permissions = interaction.channel.permissions_for(member)
+        permissions = "\n".join([f"{i[0]} : {i[1]}" for i in permissions])
+        perm_embed = deepcopy(e)
+        perm_embed.description = permissions
+        perm_embed.title = "Member Permissions"
+    except AttributeError:
+        perm_embed = None
 
     # Embed 3 - User Avatar
     av = Embed(colour=member.color, description=f"{member.mention}'s avatar")
@@ -83,15 +76,14 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
     av.set_image(url=member.display_avatar.url)
     av.timestamp = datetime.datetime.now(datetime.timezone.utc)
 
-    # Rest of embeds:
+    # Shared Servers.
     matches = [f"`{i.id}:` **{i.name}**" for i in interaction.client.guilds if i.get_member(member.id) is not None]
 
     sh = Embed(colour=Colour.og_blurple())
     sh.set_footer(text=f"{member} (ID: {member})", icon_url=member.display_avatar.url)
-
     embeds = rows_to_embeds(sh, matches, 20, header=f"User found on {len(matches)} servers.")
 
-    v = Paginator(interaction.client, interaction, [e, perm_embed, av] + embeds)
+    v = Paginator(interaction.client, interaction, [i for i in [e, perm_embed, av] if i is not None] + embeds)
     return await v.update()
 
 
@@ -104,26 +96,6 @@ class Info(Cog):
             self.bot.tree.add_command(u_info)
         except CommandAlreadyRegistered:
             pass
-
-    @command()
-    @describe(emoji="enter a list of emotes")
-    async def emote(self, interaction: Interaction, emoji: str) -> Message:
-        """View a bigger version of an Emoji"""
-        await interaction.response.defer(thinking=True)
-        emojis = get_message_emojis(emoji)
-
-        embeds = []
-        for emoji in emojis:
-            e: Embed = Embed(title=emoji.name)
-            if emoji.animated:
-                e.description = "This is an animated emoji."
-
-            e.colour = await get_colour(emoji.url)
-            e.set_image(url=emoji.url)
-            e.set_footer(text=emoji.url)
-            embeds.append(e)
-        view = Paginator(self.bot, interaction, embeds)
-        return await view.update()
 
     @command()
     @guild_only()
@@ -185,50 +157,6 @@ class Info(Cog):
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
         e.add_field(name="Creation Date", value=timed_events.Timestamp(interaction.guild.created_at).date_relative)
         return await self.bot.reply(interaction, embed=e)
-
-    @command()
-    async def avatar(self, interaction: Interaction, user: User | Member = None) -> Message:
-        """Shows a member's avatar"""
-        user = interaction.user if user is None else user
-
-        e: Embed = Embed(description=f"{user}'s avatar", colour=user.colour)
-        e.colour = user.color
-        e.set_footer(text=user.display_avatar.url)
-        e.set_image(url=user.display_avatar.url)
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        return await self.bot.reply(interaction, embed=e)
-
-    @command()
-    async def invite(self, interaction: Interaction) -> Message:
-        """Get the bots invite link"""
-        view = View()
-        view.add_item(Button(style=ButtonStyle.url, url=INV, label="Invite me to your server"))
-        e: Embed = Embed(description="Use the button below to invite me to your server.")
-        return await self.bot.reply(interaction, embed=e, view=view, ephemeral=True)
-
-    @command()
-    async def about(self, interaction: Interaction) -> Message:
-        """Tells you information about the bot itself."""
-        e: Embed = Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
-        e.set_footer(text=f"Toonbot is coded by Painezor and was created on ")
-
-        me = self.bot.user
-        e.set_thumbnail(url=me.display_avatar.url)
-        e.title = "About Toonbot"
-
-        # statistics
-        total_members = sum(len(s.members) for s in self.bot.guilds)
-        members = f"{total_members} Members across {len(self.bot.guilds)} servers."
-
-        e.description = f"I do football lookup related things.\n I have {members}"
-
-        view = View()
-        s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx", "<:Toonbot:952717855474991126>")
-        i = ("Invite me to your server", INV, None)
-        d = ("Donate", "https://paypal.me/Toonbot", None)
-        for label, link, emoji in [s, i, d]:
-            view.add_item(Button(url=link, label=label, emoji=emoji))
-        return await self.bot.reply(interaction, embed=e, view=view)
 
 
 async def setup(bot: Union['Bot', 'PBot']) -> None:

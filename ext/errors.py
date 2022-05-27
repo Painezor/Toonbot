@@ -1,10 +1,9 @@
 """Error Handling for Commands"""
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Union
 
-from discord import Message, Embed, Colour, Interaction, ButtonStyle
-from discord.app_commands import ContextMenu, Command, CommandInvokeError, BotMissingPermissions, MissingPermissions
-from discord.ext.commands import Context, Cog
-from discord.ui import View, Button
+from discord import Message, Interaction
+from discord.app_commands import CommandInvokeError, BotMissingPermissions, MissingPermissions
+from discord.ext.commands import Cog
 
 from ext.quotes import OptedOutError, TargetOptedOutError
 
@@ -20,20 +19,7 @@ class Errors(Cog):
         self.bot: Bot | PBot = bot
         self.bot.tree.on_error = self.error_handler
 
-    @Cog.listener()
-    async def on_command_error(self, ctx: Context, _) -> Optional[Message]:
-        """Event listener for .tb commands"""
-        e: Embed = Embed(title="Toonbot now uses Slash Commands", color=Colour.blurple())
-        e.set_thumbnail(url=ctx.bot.user.avatar.url)
-        e.description = f'{ctx.bot.user.name} no longer supports using commands starting with {ctx.prefix}\n\n' \
-                        'Instead due to discord changes, all commands have been moved to /slash_commands\n\n' \
-                        'If you are the server owner and do not see any slash commands listed, re-invite the bot' \
-                        ' using the link below.'
-
-        v = View().add_item(Button(style=ButtonStyle.url, url=self.bot.invite, label="Colour picker."))
-        return await ctx.reply(embed=e, view=v)
-
-    async def error_handler(self, i: Interaction, _: Command | ContextMenu, error) -> Message:
+    async def error_handler(self, i: Interaction, error) -> Message:
         """Event listener for when commands raise exceptions"""
         # Unpack CIE
         if isinstance(error, CommandInvokeError):
@@ -52,6 +38,8 @@ class Errors(Cog):
                 try:
                     return await self.bot.error(i, 'An Internal error occurred.')
                 finally:
+
+                    print("Error occurred when running a command\n", i.__repr__())
                     raise error
 
 

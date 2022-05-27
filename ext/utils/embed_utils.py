@@ -10,13 +10,12 @@ from colorthief import ColorThief
 from discord import Message, File, Colour, Embed, Interaction
 
 
-async def embed_image(interaction: Interaction, e: Embed, image: BytesIO | bytes, filename: str = None,
-                      message: Message = None) -> Message:
+async def embed_image(interaction: Interaction, e: Embed, image: BytesIO | bytes, filename: str = None) -> Message:
     """Utility / Shortcut to upload image & set it within an embed."""
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     e.set_image(url=f"attachment://{filename}")
     file = File(fp=image, filename=filename)
-    return await interaction.client.reply(interaction, file=file, embed=e, message=message)
+    return await interaction.client.reply(interaction, file=file, embed=e)
 
 
 async def get_colour(url: str) -> Colour | int:
@@ -35,19 +34,29 @@ async def get_colour(url: str) -> Colour | int:
                 return Colour.og_blurple()
 
 
-def rows_to_embeds(e: Embed, rows: List[str], rows_per: int = 10, header: str = "", footer: str = "") -> List[Embed]:
+def rows_to_embeds(e: Embed, rows: List[str], max_rows: int = 10, header: str = "", footer: str = "") -> List[Embed]:
     """Create evenly distributed rows of text from a list of data"""
-    desc, count = header + "\n", 0
-    embeds = []
+    desc: str = header + "\n" if header else ""
+    count: int = 0
+    embeds: list[Embed] = []
+
     for row in rows:
-        if len(desc + footer + row) <= 4096 and (count + 1 <= rows_per if rows_per is not None else True):
-            desc += f"{row}\n"
-            count += 1
-        else:
+        # If we hit embed size limit or max count (max_rows)
+        if len(desc + footer + row) <= 4096:
+            if count < max_rows:
+                desc += f"{row}\n"
+                count += 1
+                continue
+
+        if footer:  # Usually "```" to end a codeblock
             desc += footer
-            e.description = desc
-            embeds.append(deepcopy(e))
-            desc, count = f"{header}\n{row}\n", 0
+
+        e.description = desc
+        embeds.append(deepcopy(e))
+
+        # Reset loop
+        desc = f"{header}\n{row}\n" if header else f"{row}\n"
+        count = 1
 
     desc += footer
     e.description = desc

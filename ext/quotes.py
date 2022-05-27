@@ -126,9 +126,7 @@ class QuotesView(View):
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
-        self.clear_items()
-        self.stop()
-        return await self.bot.reply(self.interaction, view=self, followup=False)
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of interaction"""
@@ -290,6 +288,19 @@ async def quote_stats(interaction: Interaction, member: Member):
     await interaction.client.reply(interaction, embed=e)
 
 
+async def quote_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+    """Autocomplete from guild quotes"""
+    quotes = getattr(interaction.client, "quotes")
+
+    results = [i for i in quotes if i['guild_id'] == interaction.guild.id]
+    if interaction.namespace.user is not None:
+        results = [i for i in results if i['author_user_id'] == interaction.namespace.user.id]
+
+    results = [Choice(name=f"#{r['quote_id']}: {r['message_content']}"[:100],
+                      value=str(r['quote_id'])) for r in results if current.lower() in r['message_content'].lower()]
+    return results[:25]
+
+
 class QuoteDB(commands.Cog):
     """Quote Database module"""
 
@@ -339,16 +350,6 @@ class QuoteDB(commands.Cog):
             raise OptedOutError
         return await QuotesView(interaction, self.bot.quotes, last=True).update()
 
-    async def quote_ac(self, interaction: Interaction, current: str):
-        """Autocomplete from guild quotes"""
-        results = [i for i in self.bot.quotes if i['guild_id'] == interaction.guild.id]
-        if interaction.namespace.user is not None:
-            results = [i for i in results if i['author_id'] == interaction.namespace.user.id]
-
-        results = [Choice(name=f"#{r['quote_id']}: {r['message_content']}"[:100],
-                          value=r['quote_id']) for r in results if current.lower() in r['message_content'].lower()]
-        return results[:25]
-
     @quotes.command()
     @autocomplete(text=quote_ac)
     @describe(text="Search by quote text")
@@ -371,10 +372,11 @@ class QuoteDB(commands.Cog):
         """Get a quote by its ID Number"""
         if interaction.user.id in self.bot.quote_blacklist:
             raise OptedOutError
-        try:
-            return await QuotesView(interaction, quotes=[self.bot.quotes[quote_id]]).update()
-        except KeyError:
-            return await self.bot.error(interaction, f"Quote #{quote_id} was not found.")
+
+        quotes = [i for i in self.bot.quotes if i['quote_id'] == quote_id]
+        if quotes:
+            return await QuotesView(interaction, quotes=quotes).update()
+        return await self.bot.error(interaction, f"Quote #{quote_id} was not found.")
 
     @quotes.command()
     async def opt_out(self, i: Interaction):

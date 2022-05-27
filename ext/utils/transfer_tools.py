@@ -57,6 +57,7 @@ country_dict = {
     "Palästina": "ps",
     "Palestine": "pa",
     "Republic of the Congo": "cd",
+    "Rumänien": "ro",
     "Russia": "ru",
     "Sao Tome and Principe": "st",
     "Sao Tome and Princip": "st",
@@ -121,7 +122,7 @@ def get_flag(country: str) -> str:
     except KeyError:
         country = country.split(" ")[0]
         try:
-            if country.strip() != "":
+            if country.strip():
                 country = try_country(country)
         except KeyError:
             print(f'No flag found for country: {country}')
@@ -169,6 +170,7 @@ class TransferResult:
 @dataclass
 class Competition(TransferResult):
     """An Object representing a competition from transfermarkt"""
+    emoji: str = '🏆'
     country: List[str] = None
 
     def __str__(self) -> str:
@@ -182,6 +184,7 @@ class Competition(TransferResult):
 @dataclass
 class Team(TransferResult):
     """An object representing a Team from Transfermarkt"""
+    emoji: str = '👕'
     league: Competition = None
     country: List[str] = field(default_factory=list)
 
@@ -385,11 +388,9 @@ class TeamView(View):
         self.pages: List[Embed] = []
         self.bot: Bot = bot
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Clean up"""
-        self.clear_items()
-        await self.bot.reply(self.interaction, view=self, followup=False)
-        self.stop()
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify user of view is correct user."""
@@ -653,8 +654,23 @@ class StadiumAttendance:
 
     def __str__(self) -> str:
         """Formatted markdown for Stadium Attendance"""
-        return f"{self.average} [{self.name}]({self.link}) ({self.team.markdown})" \
-               f"\n*Capacity: {self.capacity} | Total: {self.total}*"
+        return f"[{self.name}]({self.link}) {self.average} ({self.team.markdown})" \
+               f"\n*Capacity: {self.capacity} | Total: {self.total}*\n"
+
+    @property
+    def capacity_row(self) -> str:
+        """Formatted markdown for a stadium's max capacity"""
+        return f"[{self.name}]({self.link}) {self.capacity} ({self.team.markdown})"
+
+    @property
+    def average_row(self) -> str:
+        """Formatted markdown for a stadium's average attendance"""
+        return f"[{self.name}]({self.link}) {self.average} ({self.team.markdown})"
+
+    @property
+    def total_row(self) -> str:
+        """Formatted markdown for a stadium's total attendance"""
+        return f"[{self.name}]({self.link}) {self.total} ({self.team.markdown})"
 
 
 class CompetitionView(View):
@@ -670,9 +686,7 @@ class CompetitionView(View):
 
     async def on_timeout(self) -> Message:
         """Clean up"""
-        self.clear_items()
-        self.stop()
-        return await self.bot.reply(self.interaction, view=self, followup=False)
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify user of view is correct user."""
@@ -683,45 +697,69 @@ class CompetitionView(View):
         self.clear_items()
         add_page_buttons(self)
 
-        for _ in [FuncButton(label="Attendances", func=self.push_attendance, emoji='🏟️')]:
+        for _ in [FuncButton(label="Attendances", func=self.attendance, emoji='🏟️')]:
             self.add_item(_)
         return await self.bot.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
-    async def push_attendance(self) -> Message:
+    async def attendance(self) -> Message:
         """Fetch attendances for league's stadiums."""
         url = self.comp.link.replace('startseite', 'besucherzahlen')
-        print(url)
         async with self.bot.session.get(url) as resp:
             match resp.status:
                 case 200:
-                    pass
+                    tree = html.fromstring(await resp.text())
                 case _:
-                    i = self.interaction
-                    return await self.bot.error(i, f"HTTP Error {resp.status} accessing transfermarkt")
-            tree = html.fromstring(await resp.text())
+                    return await self.bot.error(self.interaction, f"HTTP Error {resp.status} accessing transfermarkt")
 
         rows = []
+        for i in tree.xpath('.//table[@class="items"]/tbody/tr[@class="odd" or @class="even"]'):
+            # Two sub rows.
+            try:
+                stadium = i.xpath('.//td/table//tr[1]')[0]
+                team = i.xpath('.//td/table//tr[2]')[0]
+            except IndexError:
+                continue
 
-        for i in tree.xpath('.//table[@class="items"]/tbody/tr'):
-            print("Found a row.")
-            stad = "".join(i.xpath('.//td[2]//tbody/tr[1]/td[@class="hauptlink"]/a/text()'))
-            stad_link = TF + "".join(i.xpath('.//td[2]//tbody/tr[1]/td[@class="hauptlink"]/a/@href'))
-
-            team_name = "".join(i.xpath('.//td[2]//tbody/tr[2]/a/text()'))
-            team_link = TF + "".join(i.xpath('.//td[2]//tbody/tr[2]/a/@href'))
-
-            avg = int("".join(i.xpath('.//td[5]/teext()')).replace('.', ''))
-            tot = int("".join(i.xpath('.//td[4]/teext()')).replace('.', ''))
-            cap = int("".join(i.xpath('.//td[3]/teext()')).replace('.', ''))
+            # Stadium info
+            stad = "".join(stadium.xpath('.//a/text()'))
+            stad_link = TF + "".join(stadium.xpath('.//@href'))
+            # Team info
+            team_name = "".join(team.xpath('.//a/text()'))
+            team_link = TF + "".join(i.xpath('.//a/@href'))
+            try:
+                cap = int("".join(i.xpath('.//td[@class="rechts"][1]/text()')).replace('.', ''))
+                tot = int("".join(i.xpath('.//td[@class="rechts"][2]/text()')).replace('.', ''))
+                avg = int("".join(i.xpath('.//td[@class="rechts"][3]/text()')).replace('.', ''))
+            except ValueError:
+                continue
 
             team = Team(team_name, team_link)
             rows.append(StadiumAttendance(name=stad, link=stad_link, capacity=cap, average=avg, total=tot, team=team))
 
-        print(len(rows), "StadiumAttendance objects found.")
-        ranked = sorted(rows, key=lambda x: x.average)
+        embeds = []
+        # Average
+        e = self.comp.base_embed
+        e.title = f"Average Attendance data for {self.comp.name}"
+        e.url = url
+        ranked = sorted(rows, key=lambda x: x.average, reverse=True)
+        enumerated = [f"{i[0]}: {i[1].average_row}" for i in enumerate(ranked, 1)]
+        embeds += rows_to_embeds(e, [i for i in enumerated], 25)
 
         e = self.comp.base_embed
-        self.pages = rows_to_embeds(e, [str(i) for i in ranked])
+        e.title = f"Total Attendance data for {self.comp.name}"
+        e.url = url
+        ranked = sorted(rows, key=lambda x: x.total, reverse=True)
+        enumerated = [f"{i[0]}: {i[1].total_row}" for i in enumerate(ranked, 1)]
+        embeds += rows_to_embeds(e, [i for i in enumerated], 25)
+
+        e = self.comp.base_embed
+        e.title = f"Max Capacity data for {self.comp.name}"
+        e.url = url
+        ranked = sorted(rows, key=lambda x: x.capacity, reverse=True)
+        enumerated = [f"{i[0]}: {i[1].capacity_row}" for i in enumerate(ranked, 1)]
+        embeds += rows_to_embeds(e, [i for i in enumerated], 25)
+
+        self.pages = embeds
         await self.update()
 
 
@@ -765,11 +803,11 @@ class SearchSelect(Select):
     def __init__(self, objects: List) -> None:
         super().__init__(row=3, placeholder="Select correct option")
         self.objects: List[Team | Competition] = objects
-        for n, _ in enumerate(objects):
-            if isinstance(_, Team):
-                self.add_option(label=_.name, description=f"{_.country[0]}: {_.league.name}", value=str(n), emoji='👕')
-            elif isinstance(_, Competition):
-                self.add_option(label=_.name, description=_.country[0] if _.country else None, value=str(n), emoji='🏆')
+        for n, obj in enumerate(objects):
+            desc = obj.country[0] if obj.country else ""
+            if isinstance(obj, Team):
+                desc += f": {obj.league.name}" if obj.league else ""
+            self.add_option(label=obj.name, description=desc[:100], value=str(n), emoji=obj.emoji)
 
     async def callback(self, interaction: Interaction) -> Competition | Team:
         """Set view value to item."""
@@ -927,11 +965,7 @@ class SearchView(View):
 
     async def on_error(self, error, item, interaction):
         """Error handling & logging."""
-        print("Error in transfer_tools.SearchView")
-        print(self.interaction.message.content)
-        print(item)
-        print(item.__dict__)
-        print(interaction)
+        print("Error in SearchView\n", self.interaction.message.content, item, item.__dict__, interaction)
         raise error
 
     async def on_timeout(self) -> Message:

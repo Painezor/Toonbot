@@ -5,7 +5,7 @@ from collections import defaultdict
 from copy import deepcopy
 from itertools import zip_longest
 # Type Hinting
-from typing import List, Optional, Dict, TYPE_CHECKING, Set
+from typing import List, Optional, TYPE_CHECKING
 
 # Error Handling
 from asyncpg import UniqueViolationError, ForeignKeyViolationError
@@ -68,6 +68,127 @@ WORLD_CUP_LEAGUES = [
 ]
 
 
+class ScoreChannel:
+    """A livescore channel object, containing it's properties."""
+    __slots__ = {'bot': "a Bot instance",
+                 'leagues': "A list of leagues the score channel is requesting",
+                 'channel_id': "The target channel's ID number",
+                 'embeds': "Paginated list of Embeds for the current iteration.",
+                 '_cached_embeds': "The previous Paginated list of Embeds of the channels embeds",
+                 'messages': "A list of message objects for the channel"}
+
+    def __init__(self, bot: 'Bot', channel_id: int):
+        self.bot: Bot = bot
+        self.channel_id = channel_id
+
+    channel_id: int
+
+    leagues: List[str] = []
+    embeds: List[List[Embed]]
+    _cached_embeds: List[List[Embed]]
+    messages: List[Message | None]
+
+    async def update(self) -> None:
+        """Edit a live-score channel to have the latest scores"""
+        channel: TextChannel = self.bot.get_channel(self.channel_id)
+        if channel is None:
+            return
+
+        # Does league exist in both whitelist and found games
+        embeds = []
+        for comp in set(i.competition for i in self.bot.games):
+            for tracked in self.leagues:
+                if tracked == comp.title:
+                    embeds += getattr(comp, "score_embeds", [])
+                    break
+                elif tracked + " -" in comp.title:  # For Competitions Such as EUROPE: Champions League - Playoffs
+                    embeds += getattr(comp, "score_embeds", [])
+                    break
+
+        # Type Hinting for loop
+        messages: List[Message]
+        old_embeds: List[Embed]
+
+        embed_new: Embed
+        embed_old: Embed
+        length: int = 0
+        count: int = 1
+
+        if not embeds:
+            embeds = [Embed(description=NO_GAMES_FOUND)]
+        if channel.is_news():
+            embeds = [Embed(description=NO_NEWS, colour=Color.red())]
+
+        # Paginate into maxsize 6000 / max number 10 chunks.
+        stacked_embeds: List[Embed] = []
+        for x in embeds:
+            if length + len(x) < 6000 and count < 10:
+                length += len(x)
+                count += 1
+                stacked_embeds.append(x)
+            else:
+                self.embeds.append(stacked_embeds)
+                stacked_embeds = [x]
+                length = len(x)
+                count = 1
+
+        self.embeds.append(stacked_embeds)
+
+        # Unpack Lists to Variables.
+        tuples = list(zip_longest(self.messages, self._cached_embeds, self.embeds))
+
+        # Zip longest will give (, None) in slot [0] // self.messages if we do not have enough messages for the embeds.
+        # Check for None in tuples[0] to see if we need a new message.
+        if None in tuples[0]:
+            # we need a new message
+            try:
+                if not channel.is_news():
+                    # Purge up to 10 messages from last 7 days because fuck you ratelimiting.
+                    ts = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=7)
+                    await channel.purge(after=ts, limit=10, reason="Clean livescores channel")
+            except HTTPException:
+                pass
+
+        message: Optional[Message]
+        old_embeds: List[Embed]
+        new_embeds: List[Embed]
+        for message, old_embeds, new_embeds in tuples:
+            if message is None:  # No message exists in cache, or we need an additional message.
+                try:
+                    self.messages.remove(message)
+                    message = await channel.send(embeds=new_embeds)
+                except HTTPException:
+                    message = None
+                self.messages.append(message)
+
+            elif new_embeds is None:
+                if not message.flags.suppress_embeds:
+                    try:
+                        await message.edit(suppress=True)  # Suppress Message embeds until they're needed again.
+                    except HTTPException:
+                        self.messages.remove(message)
+
+            elif old_embeds is None:
+                try:
+                    if message.flags.suppress_embeds:
+                        await message.edit(embeds=new_embeds, suppress=False)
+                    else:
+                        await message.edit(embeds=new_embeds)
+                except HTTPException:  # Forbidden, NotFound
+                    continue
+
+            elif not set([i.description for i in new_embeds]) == set([i.description for i in old_embeds]):
+                # We now have a Message, a list of old_embeds, and a list of new_embeds
+                try:
+                    if message.flags.suppress_embeds:
+                        await message.edit(embeds=new_embeds, suppress=False)
+                    else:
+                        await message.edit(embeds=new_embeds)
+                except HTTPException:  # Forbidden, NotFound
+                    continue
+            self._cached_embeds = self.embeds
+
+
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
 # TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
 
@@ -112,9 +233,7 @@ class ScoresConfig(View):
 
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
-        self.clear_items()
-        self.stop()
-        return await self.bot.reply(self.interaction, view=self, followup=False)
+        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify user of view is correct user."""
@@ -134,7 +253,8 @@ class ScoresConfig(View):
         self.clear_items()
         leagues = await self.get_leagues()
 
-        embed: Embed = Embed(colour=Colour.dark_teal(), title="Toonbot Live Scores config")
+        embed: Embed = Embed(colour=Colour.dark_teal())
+        embed.title = f"{self.interaction.client.user.name} Live Scores config"
 
         if leagues:
             embed.set_thumbnail(url=self.bot.user.display_avatar.url)
@@ -144,7 +264,7 @@ class ScoresConfig(View):
             if not leagues:
                 leagues = ["```css\n[WARNING]: Your tracked leagues is completely empty! Nothing is being output!```"]
 
-            embeds = rows_to_embeds(embed, sorted(leagues), header=header, footer="```", rows_per=25)
+            embeds = rows_to_embeds(embed, sorted(leagues), header=header, footer="```", max_rows=25)
             self.pages = embeds
             add_page_buttons(self)
             embed = self.pages[self.index]
@@ -193,6 +313,12 @@ class ScoresConfig(View):
         return await self.update(content=f"Tracked leagues for {self.channel.mention} reset")
 
 
+async def lg_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+    """Autocomplete from list of stored leagues"""
+    lgs = getattr(interaction.client, "competitions")
+    return [Choice(name=i.title[:100], value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
+
+
 class Scores(Cog, name="LiveScores"):
     """Live Scores channel module"""
 
@@ -201,137 +327,50 @@ class Scores(Cog, name="LiveScores"):
 
         # Score loops.
         self.bot.score_loop = self.score_loop.start()
-        # Don't bother with this just yet...
-        # self.bot.fs_score_loop = self.fs_score_loop.start()
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
         self.bot.score_loop.cancel()
-        # self.bot.fs_score_loop.cancel()
-
-    # @tasks.loop(minutes=1)
-    # async def fs_score_loop(self):
-    #     """Flashscore loop."""
-    #     self.bot.fs_games = await self.get_games()  # FS Version
 
     # Core Loop
     @loop(minutes=1)
     async def score_loop(self) -> None:
         """Score Checker Loop"""
         if self.bot.db is None:
-            print("[INF] Bot.db is None in scores loop.")
             return
 
         await self.update_cache()
         if self.bot.session is None:
-            print("[INF] Bot.session is None in scores loop.")
             return
 
         await self.fetch_games()
 
-        games: dict[Competition, List[Fixture]] = dict()
+        games: List[Fixture]
 
         # Copy to avoid size change in iteration.
-        for k, i in self.bot.games.copy().items():
-            if i.expires == datetime.datetime.now().toordinal():
-                self.bot.games.pop(k)
-                continue  # Fixture is expired.
+        games = [i for i in self.bot.games if getattr(i, 'expires') != datetime.datetime.now().toordinal()]
 
-            games.setdefault(i.competition, []).append(i)
-
-        self.bot.scores_embeds = defaultdict(set)
-
-        for comp, fixtures in games.copy().items():
+        comps = set(i.competition for i in games)
+        for comp in comps:
             _ = await comp.live_score_embed
             e = deepcopy(_)
             e.description = ""
 
+            fixtures = [i for i in games if i.competition == comp]
+            comp.score_embeds = []
             for f in fixtures:
                 if len(e) + len(f.live_score_text + "\n") < 4096:
                     e.description += f.live_score_text + "\n"
                 else:
-                    self.bot.scores_embeds[comp].add(e)
+                    comp.score_embeds.append(e)
                     e = deepcopy(_)
                     e.description = f.live_score_text + "\n"
+
             if e.description:
-                self.bot.scores_embeds[comp].add(e)
+                comp.score_embeds.append(e)
 
-        for channel_id, leagues in self.bot.scores_cache.copy().items():  # copy avoids RunTimeError
-            await self.update_channel(channel_id, leagues)
-
-    # async def get_games(self) -> List[Fixture]:
-    #     """Grab current scores from flashscore using Pyppeteer"""
-    #     if self.page is None or self.page.isClosed():
-    #         if self.bot.browser is None:
-    #             return self.bot.fs_games  # Return until browser is actually loaded.
-    #         self.page = await self.bot.browser.newPage()
-    #
-    #     if self.page.url != "http://www.flashscore.co.uk/":
-    #         await self.page.goto("http://www.flashscore.co.uk/")
-    #
-    #     show_more = await self.page.xpath("//div[contains(@title, 'Display all matches')]")
-    #     for x in show_more:
-    #         try:
-    #             await x.click()
-    #         except ElementHandleError:
-    #             break
-    #
-    #     tree = html.fromstring(await self.page.content())
-    #
-    #     rows = tree.xpath('.//div[@class="sportName soccer"]/div')
-    #     competition: Competition = Competition()
-    #     for row in rows:
-    #         # This is a competition Header, update competition Info.
-    #         if "event__header" in row.classes:
-    #             country = ''.join(row.xpath('.//span[@class="event__title--type"]/text()'))
-    #             lg = ''.join(row.xpath('.//span[@class="event__title--name"]/text()'))
-    #
-    #             long = f"{country.upper()}: {lg}"
-    #             if long in self.bot.competitions:
-    #                 competition = self.bot.competitions[long]
-    #             else:
-    #                 competition = Competition(name=lg, country=country)
-    #             continue
-    #
-    #         # Fetch the Basic required Info to create our Fixture object.
-    #
-    #         fixture_id = row.get("id").split('_')[-1]
-    #         url = "http://www.flashscore.com/match/" + fixture_id
-    #
-    #         # Get index of existing fixture, or create new one.
-    #         if url not in self.bot.fs_games:
-    #             home = ''.join(row.xpath('.//div[contains(@class, "participant--home")]//text()'))
-    #             away = ''.join(row.xpath('.//div[contains(@class, "participant--away")]//text()'))
-    #             self.bot.fs_games[url] = Fixture(home=Team(name=home), away=Team(name=away), competition=competition)
-    #
-    #         # Get scores & dispatch goals.
-    #         try:
-    #             sh = str(row.xpath('.//div[contains(@class, "score--home")]/text()')[0])
-    #             if sh != self.bot.fs_games[url].score_home:
-    #                 self.bot.fs_games[url].score_home = sh
-    #                 # self.bot.fs_games[url].set_score(sh)
-    #         except (IndexError, ValueError):
-    #             pass
-    #
-    #         try:
-    #             sa = str(row.xpath('.//div[contains(@class, "score--away")]/text()')[0])
-    #             if sa != self.bot.fs_games[url].score_away:
-    #                 self.bot.fs_games[url].score_away = sa
-    #                 # self.bot.fs_games[url].set_score(sa, home=False)
-    #         except (IndexError, ValueError):
-    #             pass
-    #         a = ".//div[@class="event__stage--block"]/text()"
-    #         b = ".//div[@class="event__time"]/text()"
-    #         t = ''.join(row.xpath(f'{a} | {b}'))
-    #
-    #         if not t:
-    #             t = None
-    #
-    #         self.bot.fs_games[url].time = GameTime(t)
-    #         # Set Red Cards
-    #         self.bot.fs_games[url].home_cards = len(row.xpath('.//div[contains(@class, "participant--home")]//svg'))
-    #         self.bot.fs_games[url].away_cards = len(row.xpath('.//div[contains(@class, "participant--away")]//svg'))
-    #     return self.bot.fs_games
+        for channel in self.bot.score_channels:
+            await channel.update()
 
     async def fetch_games(self) -> None:
         """Grab current scores from flashscore using aiohttp"""
@@ -349,6 +388,7 @@ class Scores(Cog, name="LiveScores"):
         string: str = byt.decode('utf8')
         chunks = str(string).split('<br/>')
         competition: Competition = Competition(self.bot)
+
         for game in chunks:
             try:
                 tree = html.fromstring(game)
@@ -356,71 +396,83 @@ class Scores(Cog, name="LiveScores"):
                 continue
 
             # Check if chunk has header row:
-            header = ''.join(tree.xpath('.//h4/text()')).strip()
-            if header:
+            competition_name = ''.join(tree.xpath('.//h4/text()')).strip()
+            if competition_name:
                 # Loop over bot.competitions to see if we can find the right Competition object for base_embed.
-                comps = self.bot.competitions.copy().values()
 
-                match = next((x for x in comps if x.title == header), None)  # Exact match.
-                if match is not None:
-                    competition = match
+                exact = [i for i in self.bot.competitions if i.title == competition_name]
+
+                if exact:
+                    competition = exact[0]
                 else:
-                    partial = [x for x in comps if x.title in header]  # Partial Matches
+                    print("Did not find exact stored competition for", competition_name)
+                    partial = [x for x in self.bot.competitions if x.title in competition_name]  # Partial Matches
+                    print("Found partial matches", partial)
                     for substring in ['women', 'u18']:  # Filter...
-                        if substring in header.lower():
+                        if substring in competition_name.lower():
                             partial = [i for i in partial if "women" in i.name.lower()]
 
                     if partial:
                         competition = partial[0]
                         if len(partial) > 2:
-                            print(f"Warning, found multiple partial matches for {header}")
-                            print(header, f"{[c.title for c in partial]}")
+                            print(f"[SCORES] found multiple partial matches for {competition_name}"
+                                  f" {[c.title for c in partial]}")
                     else:
-                        country, name = header.split(':', 1)
-                        competition = Competition(self.bot, country=country.strip(), name=name.strip())
+                        country, name = competition_name.split(':', 1)
+                        competition = Competition(self.bot)
+                        competition.country = country.strip()
+                        competition.name = name.strip()
 
             lnk = ''.join(tree.xpath('.//a/@href'))
 
             try:
                 match_id = lnk.split('/')[-2]
+                url = "http://www.flashscore.com" + lnk
             except IndexError:
                 continue
 
             # Set & forget: Competition, Teams
-            if match_id not in self.bot.games:
+            fixture = self.bot.get_fixture(match_id)
+            if fixture is None:
                 # These values never need to be updated.
                 teams = [i.strip() for i in tree.xpath('./text()') if i.strip()]
 
                 if teams[0].startswith('updates'):  # ???
                     teams[0] = teams[0].replace('updates', '')
 
-                if len(teams) == 1:
-                    teams = teams[0].split(' - ')  # Teams such as Al-Whatever exist.
-                if len(teams) != 2:
-                    match teams:
-                        case _, "La Duchere", _:
-                            teams = [teams[0] + teams[1], teams[2]]
-                        case _, _, "La Duchere":
-                            teams = [teams[0], teams[1] + teams[2]]
-                        case "Banik Most", _, _:
-                            teams = [teams[0], teams[1] + teams[2]]
-                        case _, "Banik Most", _:
-                            teams = [teams[0] + teams[1], teams[2]]
-                        case _:
-                            print("Fetch games team problem", len(teams), "teams found:", teams)
+                home = Team(self.bot)
+                away = Team(self.bot)
+                match len(teams):
+                    case 1:
+                        home.name, away.name = "".join(teams).split(' - ')
+                    case 2:
+                        home.name = teams[0]
+                        away.name = teams[1]
+                    case 3:
+                        match teams:
+                            case _, "La Duchere", _:
+                                home.name, away.name = f"{teams[0]} {teams[1]}", teams[2]
+                            case _, _, "La Duchere":
+                                home.name, away.name = teams[0], f"{teams[1]} {teams[2]}"
+                            case "Banik Most", _, _:
+                                home.name, away.name = f"{teams[0]} {teams[1]}", teams[2]
+                            case _, "Banik Most", _:
+                                home.name, away.name = teams[0], f"{teams[1]} {teams[2]}"
+                            case _:
+                                print("Fetch games team problem", len(teams), "teams found:", teams)
+                                continue
+                    case _:
+                        print("Fetch games team problem", len(teams), "teams found:", teams)
+                        continue
 
-                url = "http://www.flashscore.com" + lnk
-
-                if len(teams) != 2:
-                    print("[mobi rewrite] Found erroneous number of teams in fixture", url, teams)
-                    continue
-
-                self.bot.games[match_id] = Fixture(self.bot, url=url, id=match_id)
-                self.bot.games[match_id].home = Team(self.bot, name=teams[0])
-                self.bot.games[match_id].away = Team(self.bot, name=teams[1])
+                fixture = Fixture(self.bot)
+                fixture.url = url
+                fixture.id = match_id
+                fixture.home = home
+                fixture.away = away
 
             # Get the latest version of the competition because we edit it with stuff.
-            self.bot.games[match_id].competition = competition
+            fixture.competition = competition
 
             # Game Time Logic.
             state = ''.join(tree.xpath('./a/@class')).strip()
@@ -432,31 +484,9 @@ class Scores(Cog, name="LiveScores"):
                 # "Awaiting <br/> Updates" line split breaks this
                 continue
 
+            # If there is still remaining stage data.
             if stage:
                 state = str(stage.pop(0))
-
-            match state:
-                case "Postponed":
-                    time = GameState.POSTPONED
-                case "Cancelled":
-                    time = GameState.CANCELLED
-                case "Delayed":
-                    time = GameState.DELAYED
-                case "Interrupted":
-                    time = GameState.INTERRUPTED
-                case "Abandoned":
-                    time = GameState.ABANDONED
-                case "sched" | "scheduled":
-                    state = GameState.SCHEDULED
-                case "fin":
-                    if self.bot.games[match_id].penalties_home:
-                        state = GameState.AFTER_PENS
-                    else:
-                        state = GameState.FULL_TIME
-                case "live":
-                    pass
-                case _:
-                    print("scores.py: Unhandled state", state)
 
             # Get match score, and parse additional states.
             score_line = ''.join(tree.xpath('.//a/text()')).split(':')
@@ -465,23 +495,68 @@ class Scores(Cog, name="LiveScores"):
 
                 if a_score.endswith('aet'):
                     a_score = a_score.replace('aet', '')
-                    time = GameState.AFTER_EXTRA_TIME
+                    state = GameState.AFTER_EXTRA_TIME
                 elif a_score.endswith('pen'):
                     a_score = a_score.replace('pen', '')
-                    time = GameState.AFTER_PENS
+                    state = GameState.AFTER_PENS
                 elif a_score.endswith('WO'):
                     a_score = a_score.replace('WO', '')
-                    time = GameState.WALKOVER
+                    state = GameState.WALKOVER
 
-                # Replace with set_score
-                sh = None if h_score == "-" else int(h_score)
-                sa = None if a_score == "-" else int(a_score)
+                try:
+                    fixture.score_home = int(h_score)
+                except ValueError:
+                    pass
+                try:
+                    fixture.score_away = int(a_score)
+                except ValueError:
+                    pass
             except (IndexError, ValueError):
-                sh = sa = None
+                pass
+
+            match state:
+                case GameState():
+                    pass
+                case "Postponed":
+                    state = GameState.POSTPONED
+                case "Cancelled":
+                    state = GameState.CANCELLED
+                case "Delayed":
+                    state = GameState.DELAYED
+                case "Interrupted":
+                    state = GameState.INTERRUPTED
+                case "Abandoned":
+                    state = GameState.ABANDONED
+                case "sched" | "scheduled":
+                    state = GameState.SCHEDULED
+                case "fin":
+                    if hasattr(fixture, "penalties_home"):
+                        state = GameState.AFTER_PENS
+                    else:
+                        state = GameState.FULL_TIME
+                case "live":
+                    pass
+                case _:
+                    print("scores.py: Unhandled state", state)
+
+            # Get Red Card Data
+            cards = [i.replace('rcard-', '') for i in tree.xpath('./img/@class')]
+            if cards:
+                try:
+                    home_cards, away_cards = [int(card) for card in cards]
+                except ValueError:
+                    if len(tree.xpath('./text()')) == 2:
+                        home_cards, away_cards = int(cards[0]), None
+                    else:
+                        home_cards, away_cards = None, int(cards[0])
+
+                if home_cards:
+                    fixture.cards_home = home_cards
+
+                if away_cards:
+                    fixture.cards_away = away_cards
 
             match time:
-                case GameState():
-                    state = time
                 case 'Extra Time':
                     state = GameState.EXTRA_TIME
                 case 'Break Time':
@@ -494,9 +569,9 @@ class Scores(Cog, name="LiveScores"):
                     state = GameState.LIVE
                 case time if "+" in time:
                     state = GameState.STOPPAGE_TIME
-                case time if ":" in time:  # We figure out
-                    self.bot.games[match_id].set_time(GameTime(state))
-                    if self.bot.games[match_id].kickoff is None:
+                case time if ":" in time:  # This is a kickoff.
+                    # self.bot.games[match_id].time = GameTime(state)
+                    if not hasattr(fixture, "kickoff"):
                         ko = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
                         now = datetime.datetime.now()
                         ko = now.replace(hour=ko.hour, minute=ko.minute, second=0, microsecond=0)  # Discard micros
@@ -505,39 +580,16 @@ class Scores(Cog, name="LiveScores"):
                         if now.timestamp() > ko.timestamp():
                             ko += datetime.timedelta(days=1)
                         expiry = ko + datetime.timedelta(days=1)
-                        self.bot.games[match_id].kickoff = ko
-                        self.bot.games[match_id].expires = expiry.toordinal()
+                        fixture.kickoff = ko
+                        fixture.expires = expiry.toordinal()
 
             # State must be set before Score
             match state:
-                case GameState.LIVE:
-                    self.bot.games[match_id].set_time(GameTime(time))
                 # If it is already an instance of GameState
                 case GameState():
-                    self.bot.games[match_id].set_time(GameTime(state))
+                    fixture.time = GameTime(state)
                 case _:
                     print(f"Scores.py - GameState not handled {state} | {time}")
-
-            if sh is not None:
-                await self.bot.games[match_id].set_score(sh)
-            if sa is not None:
-                await self.bot.games[match_id].set_score(sa, home=False)
-
-            # Get Red Card Data
-            cards = [i.replace('rcard-', '') for i in tree.xpath('./img/@class')]
-            if cards:
-                if len(cards) == 2:
-                    home_cards, away_cards = [int(card) for card in cards]
-                else:
-                    if len(tree.xpath('./text()')) == 2:
-                        home_cards, away_cards = int(cards[0]), None
-                    else:
-                        home_cards, away_cards = None, int(cards[0])
-
-                if home_cards != self.bot.games[match_id].home_cards:
-                    self.bot.games[match_id].set_cards(home_cards)
-                if away_cards != self.bot.games[match_id].away_cards:
-                    self.bot.games[match_id].set_cards(away_cards, home=False)
 
     async def update_cache(self) -> None:
         """Grab the most recent data for all channel configurations"""
@@ -551,129 +603,36 @@ class Scores(Cog, name="LiveScores"):
             await self.bot.db.release(connection)
 
         for c in comps:
-            comp = Competition(self.bot, id=c['id'], url=c['url'], name=c['name'], country=c['country'],
-                               logo_url=c['logo_url'])
-            self.bot.competitions[comp.id] = comp
+            comp = Competition(self.bot)
+            comp.id = c['id']
+            comp.url = c['url']
+            comp.name = c['name']
+            comp.country = c['country']
+            comp.logo_url = c['logo_url']
+            self.bot.competitions.append(comp)
 
         for t in teams:
-            team = Team(self.bot, id=t['id'], url=t['url'], name=t['name'], logo_url=t['logo_url'])
-            self.bot.teams[team.id] = team
+            team = Team(self.bot)
+            team.id = t['id']
+            team.url = t['url']
+            team.name = t['name']
+            team.logo_url = t['logo_url']
+            self.bot.teams.append(team)
+
+        self.bot.score_channels.clear()
 
         # Repopulate.
         for r in records:
-            self.bot.scores_cache[r["channel_id"]].add(r["league"])
+            channel = next((i for i in self.bot.score_channels if i.channel_id == r['channel_id']), None)
+            if channel is None:
+                channel = ScoreChannel(self.bot, r['channel_id'])
+                self.bot.score_channels.append(channel)
+            channel.leagues.append(r["league"])
 
-        for ch in self.bot.scores_cache.copy().keys():
-            channel = self.bot.get_channel(ch)
+        for ch in self.bot.score_channels.copy():
+            channel = self.bot.get_channel(ch.channel_id)
             if channel is None or channel.is_news():
-                self.bot.scores_cache.pop(ch)
-                continue
-
-    async def update_channel(self, channel_id: int, leagues: Set[str]) -> None:
-        """Edit a live-score channel to have the latest scores"""
-        channel: TextChannel = self.bot.get_channel(channel_id)
-        if channel is None:
-            return
-
-        # Does league exist in both whitelist and found games
-        guild_embeds: List[Embed] = []
-        for comp, embeds in self.bot.scores_embeds.items():
-            for tracked in leagues:
-                if tracked == comp.title:
-                    guild_embeds += embeds
-                    break
-                elif tracked + " -" in comp.title:  # For Competitions Such as EUROPE: Champions League - Playoffs
-                    guild_embeds += embeds
-                    break
-
-        # Type Hinting for loop
-        messages: dict[Message, List[Embed]]
-        new_embeds_paged: List[List[Embed]] = []
-        old_embeds: List[Embed]
-        new_embeds: List[Embed] = []
-        embed_new: Embed
-        embed_old: Embed
-        length: int = 0
-        count: int = 1
-
-        if not guild_embeds:
-            guild_embeds = [Embed(description=NO_GAMES_FOUND)]
-        if channel.is_news():
-            guild_embeds = [Embed(description=NO_NEWS, colour=Color.red())]
-
-        # Paginate into maxsize 6000 / max number 10 chunks.
-
-        for x in guild_embeds:
-            if length + len(x) < 6000 and count < 10:
-                length += len(x)
-                count += 1
-                new_embeds.append(x)
-            else:
-                new_embeds_paged.append(new_embeds)
-                new_embeds = [x]
-                length = len(x)
-                count = 1
-        new_embeds_paged.append(new_embeds)
-
-        # Copy so we don't fucking nuke it.
-        try:
-            messages = self.bot.scores_messages.pop(channel_id)
-            msg_list, old_embeds_paged = zip(*messages.items())
-        except (KeyError, ValueError):
-            msg_list, old_embeds_paged = [], []
-
-        # Unpack Lists to Variables.
-        tuples = list(zip_longest(msg_list, old_embeds_paged, new_embeds_paged))
-        if None in tuples[0]:
-            # we need a new message
-            try:
-                if not channel.is_news():
-                    # Purge only from last 7 days because fuck you ratelimiting.
-                    ts = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=7)
-
-                    # LOOK BEFORE YOU LEAP.
-                    await channel.purge(after=ts, limit=10, reason="Clean livescores channel")
-            except HTTPException:
-                pass
-
-        self.bot.scores_messages[channel_id]: Dict[Message, List[Embed]] = defaultdict(list)
-
-        message: Optional[Message]
-        old_embeds: List[Embed]
-        new_embeds: List[Embed]
-        for message, old_embeds, new_embeds in tuples:
-            if message is None:  # No message exists in cache, or we need an additional message.
-                try:
-                    message = await channel.send(embeds=new_embeds)
-                except HTTPException:
-                    message = None
-
-            elif new_embeds is None:
-                if not message.flags.suppress_embeds:
-                    try:
-                        await message.edit(suppress=True)  # Suppress Message embeds until they're needed again.
-                    except HTTPException:
-                        message = None
-
-            elif old_embeds is None:
-                try:
-                    if message.flags.suppress_embeds:
-                        await message.edit(embeds=new_embeds, suppress=False)
-                    else:
-                        await message.edit(embeds=new_embeds)
-                except HTTPException:  # Forbidden, NotFound
-                    continue
-
-            elif not set([i.description for i in new_embeds]) == set([i.description for i in old_embeds]):
-                # We now have a Message, a list of old_embeds, and a list of new_embeds
-                try:
-                    if message.flags.suppress_embeds:
-                        await message.edit(embeds=new_embeds, suppress=False)
-                    else:
-                        await message.edit(embeds=new_embeds)
-                except HTTPException:  # Forbidden, NotFound
-                    continue
-            self.bot.scores_messages[channel_id][message] = new_embeds
+                self.bot.score_channels.remove(ch)
 
     # Event listeners for channel deletion or guild removal.
     @Cog.listener()
@@ -693,12 +652,6 @@ class Scores(Cog, name="LiveScores"):
         async with connection.transaction():
             await connection.execute("""DELETE FROM scores_channels WHERE guild_id = $1""", guild.id)
         await self.bot.db.release(connection)
-
-    # Autocomplete
-    async def lg_ac(self, _: Interaction, current: str) -> List[Choice[str]]:
-        """Autocomplete from list of stored leagues"""
-        lgs = self.bot.competitions.values()
-        return [Choice(name=i.title, value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
     livescores = Group(
         guild_only=True,
@@ -729,14 +682,12 @@ class Scores(Cog, name="LiveScores"):
 
     @livescores.command()
     @describe(name="Enter a name for the channel")
-    async def create(self, interaction: Interaction, name: str = None):
+    async def create(self, interaction: Interaction, name: str = "live-scores"):
         """Create a live-scores channel for your server."""
-        reason = f'{interaction.user} (ID: {interaction.user.id}) created a Toonbot live-scores channel.'
+        reason = f'{interaction.user} (ID: {interaction.user.id}) created a live-scores channel.'
         topic = "Live Scores from around the world"
-        name = "live-scores" if name is None else name
 
         try:
-
             channel = await interaction.guild.create_text_channel(name=name, reason=reason, topic=topic)
         except Forbidden:
             return await self.bot.error(interaction, 'I need manage_channels permissions to make a channel.')
@@ -769,14 +720,17 @@ class Scores(Cog, name="LiveScores"):
         await self.bot.reply(interaction, content=f"The {channel.mention} channel was created")
 
         await self.update_cache()
-        leagues = self.bot.scores_cache[channel.id]
-        await self.update_channel(channel.id, leagues)
+
+        for channel in self.bot.score_channels:
+            await channel.update()
 
     @livescores.command()
     @autocomplete(league_name=lg_ac)
     @describe(league_name="league name to search for", channel="Target Channel")
     async def add(self, interaction: Interaction, league_name: str, channel: TextChannel = None):
         """Add a league to an existing live-scores channel"""
+        await interaction.response.defer(thinking=True)
+
         if channel is None:
             channel = interaction.channel
 
@@ -792,8 +746,9 @@ class Scores(Cog, name="LiveScores"):
         if not row:
             return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
-        if league_name in self.bot.competitions:
-            res = self.bot.competitions[league_name]
+        comp = self.bot.get_competition(league_name)
+        if comp:
+            res = comp
         elif "http" not in league_name:
             res = await fs_search(self.bot, interaction, league_name, competitions=True)
             if isinstance(res, Message):
@@ -864,7 +819,7 @@ class Scores(Cog, name="LiveScores"):
         if not after.is_news():
             return
 
-        if before.id in self.bot.scores_messages:
+        if before.id in [i.channel_id for i in self.bot.score_channels]:
             return await after.send("You have set this channel as a 'news' channel, live scores will no longer work.")
 
 

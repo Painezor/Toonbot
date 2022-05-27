@@ -24,7 +24,7 @@ with open('credentials.json') as f:
 
 COGS = [  # Utility Cogs
 	'errors',
-
+	'meta-painezbot',
 	# Slash commands.
 	'admin', 'fun', 'images', 'info', 'logs', 'mod', 'poll', 'quotes', 'reminders', 'rss', 'twitchtracker',
 	'warships',
@@ -32,9 +32,6 @@ COGS = [  # Utility Cogs
 	# Testing
 	'testing'
 ]
-
-INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=964870918738419752&permissions=1514244730006" \
-             "&scope=bot%20applications.commands"
 
 
 class PBot(AutoShardedBot):
@@ -63,7 +60,6 @@ class PBot(AutoShardedBot):
 		self.db: Pool = kwargs.pop("database")
 		self.credentials: dict = credentials
 		self.initialised_at = datetime.utcnow()
-		self.invite: str = INVITE_URL
 
 		# Notifications
 		self.notifications_cache: List[Record] = []
@@ -77,7 +73,6 @@ class PBot(AutoShardedBot):
 		self.dev_blog_cache: List[Record] = []
 		self.dev_blog_channels = List[int]
 		self.news_cache: List[str] = []
-		self.news_cached: bool = False
 
 		# Session // Scraping
 		self.browser: Optional[Browser] = None

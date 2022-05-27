@@ -49,11 +49,11 @@ class PollView(View):
             row = x // 5
             self.add_item(PollButton(emoji=y[0], label=y[1], row=row))
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
         return await self.finalise()
 
-    async def finalise(self) -> None:
+    async def finalise(self) -> Message:
         """Finalise the view"""
         e = Embed(colour=Colour.green(), title=self.question + "?", description="")
         e.set_author(name=f"{self.interaction.user.name} asked...", icon_url=self.interaction.user.display_avatar.url)
@@ -72,8 +72,8 @@ class PollView(View):
 
         votes = f"{len(self.votes)} responses"
         e.set_footer(text=f"Final Results | {votes} votes")
-        await self.bot.reply(self.interaction, view=None, embed=e)
         self.stop()
+        return await self.bot.reply(self.interaction, view=None, embed=e)
 
     async def update(self, content: str = "") -> Message:
         """Refresh the view and send to user"""

@@ -4,35 +4,31 @@ from collections import defaultdict
 from datetime import datetime
 from json import load
 from logging import basicConfig, INFO
-from typing import Dict, List, Set, Optional, Callable
+from typing import Dict, List, Optional, Callable
 
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import Record, Pool, create_pool
 from asyncpraw import Reddit
-from discord import Intents, Game, Embed, Message, http
+from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot
 from pyppeteer.browser import Browser
 
+from ext.scores import ScoreChannel
+from ext.utils import football
 from ext.utils.browser_utils import make_browser
-from ext.utils.football import Fixture, Competition, Team
 from ext.utils.reply import reply, error, dump_image
 
 basicConfig(level=INFO)
 
 # TODO: New logging commands
-# TODO: Fix News command
-# TODO: Verify that new attendance command is working
-# TODO: Verify ruins command
-# TODO: Verify tard command
 
-
-http._set_api_version(9)
 
 with open('credentials.json') as f:
     credentials = load(f)
 
 COGS = ['errors',  # Utility Cogs
         # Slash commands.
+        'meta-toonbot',
         'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv', 'logs', 'lookup', 'mod',
         'nufc', 'poll', 'quotes', 'reminders', 'sidebar', 'streams',
         # Testing
@@ -58,6 +54,7 @@ class Bot(AutoShardedBot):
         )
 
         # Reply Handling
+
         self.reply: Callable = reply
         self.error: Callable = error
         self.dump_image: Callable = dump_image
@@ -72,15 +69,11 @@ class Bot(AutoShardedBot):
         self.COGS = COGS
 
         # Livescores
-        self.games: Dict[str, Fixture] = dict()
-        self.teams: Dict[str, Team] = dict()
-        self.competitions: Dict[str, Competition] = dict()
-        self.fs_games: Dict[str, Fixture] = dict()
-        self.scores_embeds: Dict[str | Competition, List[Embed]] = {}
-        self.scores_messages: Dict[int, Dict[Message, List[Embed]]] = defaultdict(dict)
-        self.scores_cache: Dict[int, Set[str]] = defaultdict(set)
+        self.games: List[football.Fixture] = []
+        self.teams: List[football.Team] = []
+        self.competitions: List[football.Competition] = []
+        self.score_channels: List[ScoreChannel] = []
         self.score_loop: Task | None = None
-        self.fs_score_loop: Task | None = None
 
         # Notifications
         self.notifications_cache: List[Record] = []
@@ -91,13 +84,6 @@ class Bot(AutoShardedBot):
 
         # Reminders
         self.reminders: List[Task] = []
-
-        # RSS
-        self.eu_news: Optional[Task] = None
-        self.dev_blog: Optional[Task] = None
-        self.blog_cache: List[Record] = []
-        self.news_cache: List[str] = []
-        self.news_cached: bool = False
 
         # Session // Scraping
         self.browser: Optional[Browser] = None
@@ -132,6 +118,18 @@ class Bot(AutoShardedBot):
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
             else:
                 print(f"Loaded extension {c}")
+
+    def get_competition(self, comp_id: str) -> Optional[football.Competition]:
+        """Retrieve a competition from the ones stored in the bot."""
+        return next((i for i in self.competitions if i.id == comp_id), None)
+
+    def get_team(self, team_id: str) -> Optional[football.Team]:
+        """Retrieve a Team from the ones stored in the bot."""
+        return next((i for i in self.teams if i.id == team_id), None)
+
+    def get_fixture(self, fixture_id: str) -> Optional[football.Fixture]:
+        """Retrieve a Fixture from the ones stored in the bot."""
+        return next((i for i in self.games if i.id == fixture_id), None)
 
 
 async def run():

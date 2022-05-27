@@ -1,23 +1,8 @@
 """Bot browser Session"""
 from io import BytesIO
-from typing import List, NoReturn
 
 from pyppeteer import launch
 from pyppeteer.browser import Browser
-from pyppeteer.errors import TimeoutError
-
-
-async def click(page, xpath: List[str]) -> NoReturn:
-    """Click on all designated items"""
-    for selector in xpath:
-        try:
-            await page.waitForSelector(selector, {"timeout": 1000})
-        except TimeoutError:  # Nested exception.
-            continue
-
-        elements = await page.querySelectorAll(selector)
-        for e in elements:
-            await e.click()
 
 
 async def screenshot(page, xpath: str) -> BytesIO | None:

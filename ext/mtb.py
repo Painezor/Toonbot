@@ -12,7 +12,6 @@ from discord.ext import tasks
 from lxml import html
 
 from ext.utils import football
-from ext.utils.football import GameState
 
 if TYPE_CHECKING:
     from core import Bot
@@ -92,7 +91,7 @@ class MatchThread:
         if isinstance(self.fixture.time, datetime.datetime):
             os = self.settings["match_offset"]
             _ = 15 if os is None else os
-            await discord.utils.sleep_until(self.fixture.time - datetime.timedelta(minutes=_))
+            await discord.utils.sleep_until(self.fixture.kickoff - datetime.timedelta(minutes=_))
 
         # Refresh fixture at kickoff.
         await self.fixture.refresh(self.page)
@@ -127,7 +126,7 @@ class MatchThread:
                 await match.edit(markdown)
                 self.old_markdown = markdown
 
-            if self.fixture.time.state == GameState.FULL_TIME:
+            if self.fixture.time.state.colour in [0xffffff, 0xFF0000]:
                 break
 
             await asyncio.sleep(60)
@@ -403,14 +402,13 @@ class MatchThreadCommands(commands.Cog):
         page = await self.bot.browser.newPage()
         for r in records:
             # Get upcoming games from flashscore.
-            if r["team_flashscore_id"] in self.bot.teams:
-                team = self.bot.teams[r['team_flashscore_id']]
-            else:
+            team = self.bot.get_team(r["team_flashscore_id"])
+            if team is None:
                 team = await football.Team.by_id(self.bot, r["team_flashscore_id"], page=page)
                 if team is None:
                     continue
 
-            fx = await team.get_fixtures(page, subpage="/fixtures")
+            fx = await team.fixtures(page)
 
             for fixture in fx:
                 await self.spool_thread(fixture, r)
