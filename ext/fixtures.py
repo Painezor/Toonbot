@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 # TODO: League.Form table.
 
 
-async def tm_ac(interaction: Interaction, current) -> List[Choice]:
+async def tm_ac(interaction: Interaction, current: str) -> List[Choice]:
     """Autocomplete from list of stored teams"""
-    await interaction.response.defer(thinking=True)
+    await interaction.response.defer()
     teams = sorted(getattr(interaction.client, 'teams'), key=lambda x: x.name)
 
     if not hasattr(interaction.extras, "default"):
@@ -51,13 +51,15 @@ async def tm_ac(interaction: Interaction, current) -> List[Choice]:
                 interaction.extras['default'] = t
 
     opts = [Choice(name=t.name[:100], value=t.id) for t in teams if f"{current}".lower() in t.name.lower()]
-    if interaction.extras['default'] is not None:
-        opts = [interaction.extras['default']] + opts
+
+    if opts:
+        if interaction.extras['default'] is not None:
+            opts = [interaction.extras['default']] + opts
 
     return list(opts[:25])
 
 
-async def lg_ac(interaction: Interaction, current) -> List[Choice]:
+async def lg_ac(interaction: Interaction, current: str) -> List[Choice]:
     """Autocomplete from list of stored leagues"""
     lgs = sorted(getattr(interaction.client, 'competitions'), key=lambda x: x.title)
 
@@ -83,13 +85,16 @@ async def lg_ac(interaction: Interaction, current) -> List[Choice]:
                 t = Choice(name=f"Server default: {default.title}"[:100], value=default.id)
                 interaction.extras['default'] = t
 
-    opts = [Choice(name=t.title[:100], value=t.id) for t in lgs if f"{current}".lower() in t.name.lower()]
-    if interaction.extras['default'] is not None:
-        opts = [interaction.extras['default']] + opts
+    matches = [i for i in lgs if getattr(i, 'id', None) is not None]
+
+    opts = [Choice(name=lg.title[:100], value=lg.id) for lg in matches if f"{current}".lower() in lg.name.lower()]
+    if opts:
+        if interaction.extras['default'] is not None:
+            opts = [interaction.extras['default']] + opts
     return opts[:25]
 
 
-async def tm_lg_ac(interaction: Interaction, current) -> List[Choice]:
+async def tm_lg_ac(interaction: Interaction, current: str) -> List[Choice]:
     """An Autocomplete that checks whether team or league is selected, then return appropriate autocompletes"""
     if interaction.namespace.mode == "team":
         return await tm_ac(interaction, current)
@@ -99,7 +104,7 @@ async def tm_lg_ac(interaction: Interaction, current) -> List[Choice]:
         return []
 
 
-async def fx_ac(interaction: Interaction, current) -> List[Choice]:
+async def fx_ac(interaction: Interaction, current: str) -> List[Choice]:
     """Check if user's typing is in list of live games"""
     games = getattr(interaction.client, "games", [])
 
@@ -149,8 +154,6 @@ class Fixtures(Cog):
 
         return items[view.value]
 
-    # Autocompletes
-
     @command()
     @guild_only()
     @autocomplete(query=tm_lg_ac)
@@ -199,11 +202,12 @@ class Fixtures(Cog):
             fsr = self.bot.get_team(query)
             if fsr is None:
                 fsr = await self.search(i, query, mode=mode)
-                if isinstance(fsr, Message):
-                    return fsr
+
+        if isinstance(fsr, Message):
+            return fsr
 
         # Spawn Browser & Go.
-        view = fsr.view(i, await self.bot.browser.newPage())
+        view = fsr.view(i)
         return await view.push_fixtures()
 
     @command()
@@ -223,7 +227,7 @@ class Fixtures(Cog):
                     return fsr
 
         # Spawn Browser & Go.
-        view = fsr.view(i, await self.bot.browser.newPage())
+        view = fsr.view(i)
         return await view.push_results()
 
     @command()
@@ -243,7 +247,7 @@ class Fixtures(Cog):
                     return fsr
 
         # Spawn Browser & Go.
-        view = fsr.view(i, await self.bot.browser.newPage())
+        view = fsr.view(i)
         try:
             return await view.select_table()
         except AttributeError:
@@ -266,25 +270,28 @@ class Fixtures(Cog):
                     return fsr
 
         # Spawn Browser & Go.
-        view = fsr.view(i, await self.bot.browser.newPage())
+        view = fsr.view(i)
         return await view.push_scorers()
 
     # LEAGUE only
     @command()
     @describe(query="enter a search query")
     @autocomplete(query=lg_ac)
-    async def scores(self, interaction: Interaction, query: str) -> Message | View:
+    async def scores(self, interaction: Interaction, query: str = None) -> Message | View:
         """Fetch current scores for a specified league"""
         await interaction.response.defer(thinking=True)
 
-        if query is None:
-            matches = self.bot.games
+        if query:
+            matches = [i for i in self.bot.games if getattr(i.competition, 'id', None) == query]
+
+            if not matches:
+                _ = str(query).lower()
+                matches = [i for i in self.bot.games if _.lower() in i.competition.title.lower()]
         else:
-            _ = str(query).lower()
-            matches = [i for i in self.bot.games if _ in (str(i.competition)).lower()]
+            matches = self.bot.games
 
         if not matches:
-            err = "No live games found!"
+            err = "No live games found"
             if query is not None:
                 err += f" matching search query `{query}`"
             return await self.bot.error(interaction, err)
@@ -327,8 +334,7 @@ class Fixtures(Cog):
             if isinstance(fsr, Message | None):
                 return fsr
 
-        # Spawn Browser & Go.
-        view = fsr.view(interaction, await self.bot.browser.newPage())
+        view = fsr.view(interaction)
         return await view.push_news()
 
     @command()
@@ -345,7 +351,7 @@ class Fixtures(Cog):
                 return fsr
 
         # Spawn Browser & Go.
-        view = fsr.view(interaction, await self.bot.browser.newPage())
+        view = fsr.view(interaction)
         return await view.push_injuries()
 
     @command()
@@ -362,7 +368,7 @@ class Fixtures(Cog):
                 return fsr
 
         # Spawn Browser & Go.
-        view = fsr.view(interaction, await self.bot.browser.newPage())
+        view = fsr.view(interaction)
         return await view.push_squad()
 
     # FIXTURE commands
@@ -383,7 +389,7 @@ class Fixtures(Cog):
         if isinstance(fsr, Message):
             return fsr
 
-        view = fsr.view(interaction, await self.bot.browser.newPage())
+        view = fsr.view(interaction)
         return await view.push_stats()
 
     @command()
@@ -395,8 +401,7 @@ class Fixtures(Cog):
 
         fsr = self.bot.get_fixture(query)
         if fsr:
-            page = await self.bot.browser.newPage()
-            view = fsr.view(interaction, page)
+            view = fsr.view(interaction)
             return await view.push_lineups()
 
         fsr = await self.search(interaction, query, mode="team")
@@ -407,8 +412,7 @@ class Fixtures(Cog):
         if isinstance(fsr, Message):
             return fsr
 
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction)
         return await view.push_lineups()
 
     @command()
@@ -428,8 +432,7 @@ class Fixtures(Cog):
         if isinstance(fsr, Message):
             return fsr
 
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction)
         return await view.push_summary()
 
     @command()
@@ -449,8 +452,7 @@ class Fixtures(Cog):
         if isinstance(fsr, Message):
             return fsr
 
-        page = await self.bot.browser.newPage()
-        view = fsr.view(interaction, page)
+        view = fsr.view(interaction)
         return await view.push_head_to_head()
 
     # UNIQUE commands

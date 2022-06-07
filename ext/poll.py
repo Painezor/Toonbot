@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 class PollButton(Button):
     """A Voting Button"""
 
-    def __init__(self, emoji: str = None, label: str = None, row: int = 0):
-        super().__init__(emoji=emoji, label=label, row=row, style=ButtonStyle.primary)
+    def __init__(self, custom_id: str, emoji: str = None, label: str = None, row: int = 0):
+        super().__init__(emoji=emoji, label=label, row=row, style=ButtonStyle.primary, custom_id=custom_id)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Reply to user to let them know their vote has changed."""
@@ -47,7 +47,8 @@ class PollView(View):
         buttons = [(None, i) for i in answers if i] if answers else [('👍', 'Yes'), ('👎', 'No')]
         for x, y in enumerate(buttons):
             row = x // 5
-            self.add_item(PollButton(emoji=y[0], label=y[1], row=row))
+            custom_id = f"{interaction.id}::{x}"
+            self.add_item(PollButton(custom_id=custom_id, emoji=y[0], label=y[1], row=row))
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""

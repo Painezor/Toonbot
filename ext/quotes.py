@@ -51,8 +51,13 @@ class Delete(Button):
         _ = self.view.interaction.user.id in [r["author_user_id"], r["submitter_user_id"]]
         if _ or interaction.permissions.manage_messages:
             view = Confirmation(self.view.interaction, label_a="Delete", colour_a=ButtonStyle.red, label_b="Cancel")
-            await self.bot.reply(interaction, content="Delete this quote?", view=view)
+            m = await self.bot.reply(interaction, content="Delete this quote?", view=view)
             await view.wait()
+
+            try:
+                await m.delete()
+            except AttributeError:
+                pass
 
             if view.value:
                 connection = await self.bot.db.acquire()
@@ -200,6 +205,7 @@ OPT_IN = "You are currently opted out of quotes, opting back in will allow " \
 @context_menu(name="Add to QuoteDB")
 async def quote_add(interaction: Interaction, message: Message) -> Message:
     """Add a quote, either by message ID or grabs the last message a user sent"""
+    await interaction.response.defer(thinking=True)
     blacklist: List = getattr(interaction.client, "quote_blacklist")  # We can't use dot notation because client != bot
 
     if interaction.user.id in blacklist:
@@ -214,8 +220,6 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
         return await interaction.client.error(interaction, 'You cannot quote a bot.')
     if not message.content:
         return await interaction.client.error(interaction, 'That message has no content.')
-
-    await interaction.response.defer(thinking=True)
 
     connection = await interaction.client.db.acquire()
 
@@ -360,9 +364,9 @@ class QuoteDB(commands.Cog):
         if user is not None:
             if user.id in self.bot.quote_blacklist:
                 raise TargetOptedOutError(user)
-        try:
-            quotes = [self.bot.quotes[int(text)]]
-        except ValueError:
+
+        quotes = [i for i in self.bot.quotes if i['quote_id'] == int(text)]
+        if not quotes:
             quotes = [i for i in self.bot.quotes if text.lower() in i['message_content'].lower()]
         return await QuotesView(interaction, quotes=quotes).update()
 

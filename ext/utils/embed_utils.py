@@ -5,7 +5,6 @@ from io import BytesIO
 from typing import List
 
 import aiohttp
-from PIL import UnidentifiedImageError
 from colorthief import ColorThief
 from discord import Message, File, Colour, Embed, Interaction
 
@@ -25,13 +24,14 @@ async def get_colour(url: str) -> Colour | int:
     async with aiohttp.ClientSession() as cs:
         async with cs.get(url) as resp:
             r = await resp.read()
-            f = BytesIO(r)
-            try:
-                c = await to_thread(ColorThief(f).get_color)
-                # Convert to base 16 int.
-                return int('%02x%02x%02x' % c, 16)
-            except UnidentifiedImageError:
-                return Colour.og_blurple()
+
+    try:
+        f = BytesIO(r)
+        c = await to_thread(ColorThief(f).get_color)
+        # Convert to base 16 int.
+        return int('%02x%02x%02x' % c, 16)
+    finally:
+        return Colour.og_blurple()
 
 
 def rows_to_embeds(e: Embed, rows: List[str], max_rows: int = 10, header: str = "", footer: str = "") -> List[Embed]:
@@ -62,3 +62,25 @@ def rows_to_embeds(e: Embed, rows: List[str], max_rows: int = 10, header: str = 
     e.description = desc
     embeds.append(deepcopy(e))
     return embeds
+
+
+def stack_embeds(embeds: List[Embed]) -> List[List[Embed]]:
+    """Paginate a list of embeds up to the maximum size for a discord Message"""
+    this_iter: List[Embed] = []
+    output: List[List[Embed]] = []
+    length: int = 0
+    count: int = 1
+
+    for x in embeds:
+        if length + len(x) < 6000 and count < 10:
+            length += len(x)
+            count += 1
+            this_iter.append(x)
+        else:
+            output.append(this_iter)
+            output = [x]
+            length = len(x)
+            count = 1
+
+    output.append(this_iter)
+    return output

@@ -1,3 +1,4 @@
+"""Track when users begin streaming"""
 from typing import Union, TYPE_CHECKING
 
 from discord import Member, ActivityType
@@ -17,8 +18,9 @@ class TwitchTracker(Cog):
 		self.bot: Bot | PBot = bot
 
 	@Cog.listener()
-	async def on_presence_update(self, before: Member, after: Member):
-		"""When the user updates their presence, we check against the DB to find if they have began streaming"""
+	async def on_presence_update(self, _: Member, after: Member):
+		"""When the user updates their presence, we check if they started streaming
+		We then check if they are in the channel's list of tracked users."""
 		if after.guild.id != 250252535699341312:
 			return
 
@@ -27,7 +29,7 @@ class TwitchTracker(Cog):
 
 		match after.activity.type:
 			case ActivityType.streaming:
-				print("Status changed to streaming, displaying dict\n====\n", after.__dict__)
+				print("Status changed to streaming, displaying dict\n====\n", after.activity.__dict__)
 		return
 
 

@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 class MatchThread:
     """Tool for updating a reddit post with the latest information about a match."""
 
-    def __init__(self, bot, fixture: football.Fixture, settings, record, page):
-        self.bot = bot
+    def __init__(self, bot: 'Bot', fixture: football.Fixture, settings, record, page):
+        self.bot: Bot = bot
         self.fixture = fixture
         self.settings = settings
         self.record = record
@@ -49,7 +49,7 @@ class MatchThread:
         """The core loop for the match thread bot."""
         print(f"Match Thread Loop Started: {self.fixture} | {self.settings['subreddit']}")
         # Gather initial data
-        await self.fixture.refresh(self.page)
+        await self.fixture.refresh()
 
         # Post Pre-Match Thread if required
         title, markdown = await self.pre_match()
@@ -82,7 +82,7 @@ class MatchThread:
         c = self.bot.get_channel(self.settings['notify_channel'])
         if c:
             e = self.base_embed
-            e.title = f"r/{self.settings['subreddit']} Pre-Match Thread: {self.fixture.bold_score}"
+            e.title = f"r/{self.settings['subreddit']} Pre-Match Thread: {self.fixture.score_line}"
             e.url = pre.url
             e.description = f"[Flashscore Link]({self.fixture.url})"
             await c.send(embed=e)
@@ -94,7 +94,7 @@ class MatchThread:
             await discord.utils.sleep_until(self.fixture.kickoff - datetime.timedelta(minutes=_))
 
         # Refresh fixture at kickoff.
-        await self.fixture.refresh(self.page)
+        await self.fixture.refresh()
         title, markdown = await self.write_markdown()
 
         # Post initial thread or resume existing thread.
@@ -118,7 +118,7 @@ class MatchThread:
                 await self.page.close()
                 return
 
-            await self.fixture.refresh(self.page)
+            await self.fixture.refresh()
 
             title, markdown = await self.write_markdown()
             # Only need to update if something has changed.
@@ -202,8 +202,8 @@ class MatchThread:
         markdown = f"# {home_icon}[{home}]({home_link}) vs [{away}]({away_link}){away_icon}\n\n"
         markdown += f"#### {self.fixture.kickoff} | {self.fixture.competition} | *Pre* | *Match* | *Post*\n\n"
 
-        title = f"Pre-Match Thread: {self.fixture.bold_score}"
-        markdown += await self.fixture.get_preview(self.page)
+        title = f"Pre-Match Thread: {self.fixture.score_line}"
+        markdown += await self.fixture.preview()
         return title, markdown
 
     async def fetch_tv(self):
@@ -258,7 +258,7 @@ class MatchThread:
 
     async def write_markdown(self, post_match=False):
         """Write markdown for the current fixture"""
-        await self.fixture.refresh(self.page)
+        await self.fixture.refresh()
 
         # Alias for easy replacing.
         home = self.fixture.home.name
@@ -346,9 +346,9 @@ class MatchThread:
             print("MTB DEBUG TV:", self.tv)
             markdown += self.tv
 
-        markdown += f"* [Formation]({await self.fixture.get_formation(self.page)})\n"
-        markdown += f"* [Stats]({await self.fixture.get_stats(self.page)})\n"
-        markdown += f"* [Table]({await self.fixture.get_table(self.page)})\n"
+        markdown += f"* [Formation]({await self.fixture.formation()})\n"
+        markdown += f"* [Stats]({await self.fixture.stats()})\n"
+        markdown += f"* [Table]({await self.fixture.table()})\n"
 
         if self.fixture.images:
             markdown += "## Match Pictures\n"
@@ -399,20 +399,18 @@ class MatchThreadCommands(commands.Cog):
         finally:
             await self.bot.db.release(connection)
 
-        page = await self.bot.browser.newPage()
         for r in records:
             # Get upcoming games from flashscore.
             team = self.bot.get_team(r["team_flashscore_id"])
             if team is None:
-                team = await football.Team.by_id(self.bot, r["team_flashscore_id"], page=page)
+                team = await football.Team.by_id(self.bot, r["team_flashscore_id"])
                 if team is None:
                     continue
 
-            fx = await team.fixtures(page)
+            fx = await team.fixtures()
 
             for fixture in fx:
                 await self.spool_thread(fixture, r)
-        await page.close()
 
     async def spool_thread(self, f: football.Fixture, settings: asyncpg.Record) -> None:
         """Create match threads for all scheduled games."""
@@ -437,8 +435,7 @@ class MatchThreadCommands(commands.Cog):
                 record = await con.fetchrow(_, sub, f.url)
         await self.bot.db.release(con)
 
-        page = await self.bot.browser.newPage()
-        _ = MatchThread(self.bot, f, settings, record, page)
+        _ = MatchThread(self.bot, f, settings, record)
         self.active_threads.append(_)
         print("Starting thread...")
         await _.start()

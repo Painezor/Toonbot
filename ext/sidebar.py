@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, List
 from PIL import Image
 from asyncpraw.models import Subreddit
 from asyncprawcore import TooLarge
-from discord import Attachment, Embed, Interaction
+from discord import Attachment, Embed, Interaction, Message
 from discord.app_commands import command, describe, guilds, default_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -232,9 +232,9 @@ class NUFCSidebar(Cog):
     @guilds(332159889587699712)
     @default_permissions(manage_channels=True)
     @describe(image="Upload a new sidebar image", caption="Set a new Sidebar Caption")
-    async def sidebar(self, interaction: Interaction, caption: str = None, image: Attachment = None):
+    async def sidebar(self, interaction: Interaction, caption: str = None, image: Attachment = None) -> Message:
         """Upload an image to the sidebar, or edit the caption."""
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
         # Check if message has an attachment, for the new sidebar image.
         e: Embed = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"

@@ -33,10 +33,10 @@ class CoinView(View):
     def __init__(self, bot: Union['Bot', 'PBot'], interaction: Interaction, count: int = 1) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
-        self.results: List[str] = []
+        self.flip_results: List[str] = []
         self.bot: Bot | PBot = bot
         for x in range(count):
-            self.results.append(choice(['Heads', 'Tails']))
+            self.flip_results.append(choice(['Heads', 'Tails']))
 
     async def on_timeout(self) -> Message:
         """Clear view"""
@@ -48,16 +48,17 @@ class CoinView(View):
 
     async def update(self, content: str = "") -> Message:
         """Update embed and push to view"""
-        e: Embed = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(), description=f"**{self.results[-1]}**\n\n")
+        e: Embed = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(),
+                         description=f"**{self.flip_results[-1]}**\n\n")
         e.set_thumbnail(url=COIN_IMAGE)
 
-        if len(self.results) > 1:
-            counter = Counter(self.results)
+        if len(self.flip_results) > 1:
+            counter = Counter(self.flip_results)
             for c in counter.most_common():
                 e.add_field(name=f"Total {c[0]}", value=c[1])
 
-            e.description += "\n" + f"{'...' if len(self.results) > 200 else ''}"
-            e.description += ', '.join([f'*{i}*' for i in self.results[-200:]])
+            e.description += "\n" + f"{'...' if len(self.flip_results) > 200 else ''}"
+            e.description += ', '.join([f'*{i}*' for i in self.flip_results[-200:]])
         return await self.bot.reply(self.interaction, content=content, view=self, embed=e)
 
 
@@ -68,15 +69,15 @@ class FlipButton(Button):
         super().__init__(label=label, emoji="🪙", style=ButtonStyle.primary)
         self.count: int = count
 
-    async def callback(self, interaction) -> View:
+    async def callback(self, interaction: Interaction) -> View:
         """When clicked roll"""
         await interaction.response.defer()
         for x in range(self.count):
-            self.view.results.append(choice(['Heads', 'Tails']))
+            self.view.flip_results.append(choice(['Heads', 'Tails']))
         return await self.view.update()
 
 
-class PollModal(Modal, title="Make a Decision"):
+class ChoiceModal(Modal, title="Make a Decision"):
     """Send a Modal to the User to enter their options in."""
     question = TextInput(label="Enter a question", placeholder="What should I do?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
@@ -225,7 +226,7 @@ class Fun(Cog):
             embeds.append(embed)
 
         if not embeds:
-            e.description = f"🚫 No results found for {query}."
+            e.description = f"🚫 No flip_results found for {query}."
             embeds = [e]
 
         view = Paginator(self.bot, interaction, embeds=embeds)
@@ -343,9 +344,9 @@ class Fun(Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @command()
-    async def choose(self, interaction: Interaction) -> PollModal:
+    async def choose(self, interaction: Interaction) -> ChoiceModal:
         """Make a decision for you (separate choices with new lines)"""
-        return await interaction.response.send_modal(PollModal(self.bot))
+        return await interaction.response.send_modal(ChoiceModal(self.bot))
 
     @command(name="f")
     async def press_f(self, interaction) -> Message:

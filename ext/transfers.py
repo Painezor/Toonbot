@@ -36,7 +36,7 @@ class ResetLeagues(Button):
         self.bot: Bot = bot
         super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
         await interaction.response.defer()
         connection = await self.bot.db.acquire()
@@ -46,7 +46,7 @@ class ResetLeagues(Button):
                                             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING""",
                                          self.view.channel.id, link, alias)
         await self.bot.db.release(connection)
-        await self.view.update(content=f"The tracked transfers for {self.view.channel.mention} were reset")
+        return await self.view.update(content=f"The tracked transfers for {self.view.channel.mention} were reset")
 
 
 class DeleteTicker(Button):
@@ -85,7 +85,7 @@ class RemoveLeague(Select):
 
             self.add_option(label=league, value=value)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """When a league is selected"""
         await interaction.response.defer()
 
@@ -97,7 +97,7 @@ class RemoveLeague(Select):
                     await connection.execute(q, self.view.channel.id, x)
         finally:
             await self.bot.db.release(connection)
-        await self.view.update()
+        return await self.view.update()
 
 
 class TransfersConfig(View):
@@ -142,7 +142,7 @@ class TransfersConfig(View):
                     await connection.execute(q, self.interaction.guild.id, self.channel.id)
                 q = """INSERT INTO transfers_leagues (channel_id, item, alias) VALUES ($1, $2, $3) 
                 ON CONFLICT DO NOTHING"""
-                leagues = [(self.channel.id,) + i for i in LG]
+                leagues = [(self.channel.id, i) for i in LG]
                 await connection.executemany(q, leagues)
             except Exception:
                 traceback.print_exc()
@@ -343,6 +343,7 @@ class TransfersCog(Cog):
                default_permissions=Permissions(manage_channels=True))
 
     @tf.command()
+    @describe(channel="View config for which channel?")
     async def manage(self, interaction, channel: TextChannel = None) -> Message:
         """View the config of this channel's transfer ticker"""
         await interaction.response.defer(thinking=True)
@@ -354,7 +355,7 @@ class TransfersCog(Cog):
     # TODO: Creation Dialogue from within add.
     @tf.command()
     @describe(league_name="Search for a league name")
-    async def add(self, interaction: Interaction, league_name: str, channel: TextChannel = None):
+    async def add(self, interaction: Interaction, league_name: str, channel: TextChannel = None) -> Message:
         """Add a league to your transfer ticker channel(s)"""
         await interaction.response.defer(thinking=True)
         if channel is None:

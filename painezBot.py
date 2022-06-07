@@ -11,6 +11,7 @@ from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot, when_mentioned
 from pyppeteer.browser import Browser
 
+from ext.newstracker import NewsChannel, Article
 from ext.utils.browser_utils import make_browser
 from ext.utils.reply import reply, error, dump_image
 
@@ -22,12 +23,13 @@ basicConfig(level=INFO)
 with open('credentials.json') as f:
 	credentials = load(f)
 
-COGS = [  # Utility Cogs
+COGS = [
+	# Utility Cogs
 	'errors',
 	'meta-painezbot',
 	# Slash commands.
-	'admin', 'fun', 'images', 'info', 'logs', 'mod', 'poll', 'quotes', 'reminders', 'rss', 'twitchtracker',
-	'warships',
+	'admin', 'devblog', 'fun', 'images', 'info', 'logs', 'mod', 'poll', 'quotes', 'reminders', 'newstracker',
+	'twitchtracker', 'warships',
 
 	# Testing
 	'testing'
@@ -67,12 +69,15 @@ class PBot(AutoShardedBot):
 		# Reminders
 		self.reminders: List[Task] = []
 
-		# RSS
-		self.eu_news: Optional[Task] = None
-		self.dev_blog_task: Optional[Task] = None
+		# Dev BLog
+		self.dev_blog: Optional[Task] = None
 		self.dev_blog_cache: List[Record] = []
 		self.dev_blog_channels = List[int]
-		self.news_cache: List[str] = []
+
+		# RSS: Cache & Channels
+		self.news: Optional[Task] = None
+		self.news_cache: List[Article] = []
+		self.news_channels: List[NewsChannel] = []
 
 		# Session // Scraping
 		self.browser: Optional[Browser] = None

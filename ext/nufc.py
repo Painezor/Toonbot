@@ -271,7 +271,7 @@ class NUFC(Cog):
 
         # Cleanup old roles.
         [await i.delete() for i in remove_list if not i.members]
-        await self.bot.reply(interaction, embed=e, ephemeral=True)
+        await self.bot.reply(interaction, embed=e)
 
     @command()
     @guilds(332159889587699712)

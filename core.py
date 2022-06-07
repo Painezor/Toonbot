@@ -54,7 +54,6 @@ class Bot(AutoShardedBot):
         )
 
         # Reply Handling
-
         self.reply: Callable = reply
         self.error: Callable = error
         self.dump_image: Callable = dump_image
@@ -73,7 +72,7 @@ class Bot(AutoShardedBot):
         self.teams: List[football.Team] = []
         self.competitions: List[football.Competition] = []
         self.score_channels: List[ScoreChannel] = []
-        self.score_loop: Task | None = None
+        self.scores: Task | None = None
 
         # Notifications
         self.notifications_cache: List[Record] = []
@@ -121,15 +120,15 @@ class Bot(AutoShardedBot):
 
     def get_competition(self, comp_id: str) -> Optional[football.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
-        return next((i for i in self.competitions if i.id == comp_id), None)
+        return next((i for i in self.competitions if getattr(i, 'id', None) == comp_id), None)
 
     def get_team(self, team_id: str) -> Optional[football.Team]:
         """Retrieve a Team from the ones stored in the bot."""
-        return next((i for i in self.teams if i.id == team_id), None)
+        return next((i for i in self.teams if getattr(i, 'id', None) == team_id), None)
 
     def get_fixture(self, fixture_id: str) -> Optional[football.Fixture]:
         """Retrieve a Fixture from the ones stored in the bot."""
-        return next((i for i in self.games if i.id == fixture_id), None)
+        return next((i for i in self.games if getattr(i, 'id', None) == fixture_id), None)
 
 
 async def run():

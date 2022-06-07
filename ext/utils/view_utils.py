@@ -93,7 +93,7 @@ class JumpModal(Modal):
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """Validate entered data & set parent index."""
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
 
         pages: List = getattr(self.view, "pages", [])
         update: Callable = getattr(self.view, "update")
@@ -263,7 +263,7 @@ class FuncButton(Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """A Generic Callback"""
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer()
         return await self.func()
 
 

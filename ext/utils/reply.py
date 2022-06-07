@@ -11,6 +11,9 @@ if TYPE_CHECKING:
 async def dump_image(bot: 'Bot', img: BytesIO) -> str | None:
 	"""Dump an image to discord & return its URL to be used in embeds"""
 	ch = bot.get_channel(874655045633843240)
+	if ch is None:
+		return None
+
 	img_msg = await ch.send(file=File(fp=img, filename="dumped_image.png"))
 	url = img_msg.attachments[0].url
 	return None if url == "none" else url

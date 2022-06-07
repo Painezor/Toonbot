@@ -2,6 +2,7 @@
 from asyncio import sleep
 from typing import List, Optional, TYPE_CHECKING, Type, Literal
 
+from asyncpg import Record
 from discord import Colour, ButtonStyle, Interaction, Embed, TextChannel, Guild, Message, HTTPException, Permissions
 from discord.app_commands import Choice, Group, describe, autocomplete
 from discord.ext.commands import Cog
@@ -45,6 +46,213 @@ WORLD_CUP_LEAGUES = [
 ]
 
 
+class TickerEvent:
+    """Handles dispatching and editing messages for a fixture event."""
+
+    def __init__(
+            self,
+            bot: 'Bot',
+            fixture: Fixture,
+            event_type: EventType,
+            channels_short: List[TextChannel],
+            channels_long: List[TextChannel],
+            home: bool = False
+    ) -> None:
+
+        self.bot: Bot = bot
+        self.fixture: Fixture = fixture
+        self.event_type: EventType = event_type
+        self.channels_short: List[TextChannel] = channels_short
+        self.channels_long: List[TextChannel] = channels_long
+        self.home: bool = home
+
+        # For exact event.
+        self.event: Optional[MatchEvent] = None
+
+        # Begin loop on init
+        self.bot.loop.create_task(self.event_loop())
+
+    @property
+    async def embed(self) -> Embed:
+        """The embed for the fixture event."""
+        e = await self.fixture.base_embed()
+        e.title = None
+        e.remove_author()
+
+        match self.event_type:
+            case EventType.GOAL | EventType.VAR_GOAL | EventType.RED_CARD | EventType.VAR_RED_CARD:
+                h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
+                home = f"{h}{self.fixture.home.name}{h}"
+                away = f"{a}{self.fixture.away.name}{a}"
+                score = f"{self.fixture.score_home} - {self.fixture.score_away}"
+                e.description = f"**{self.event_type.value}** | {home} [{score}]({self.fixture.url}) {away}\n"
+            case EventType.PENALTY_RESULTS:
+                try:
+                    h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
+                    home = f"{h}{self.fixture.home.name}{h}"
+                    away = f"{a}{self.fixture.away.name}{a}"
+                    score = f"{self.fixture.penalties_home} - {self.fixture.penalties_away}"
+                    e.description = f"**Penalty Results** | {home} [{score}]({self.fixture.url}) {away}\n"
+                except (TypeError, AttributeError):  # If penalties_home / penalties_away are NoneType or not found.
+                    e.description = f"**Penalty Results** | {self.fixture.bold_markdown}\n"
+
+                shootout = [i for i in self.fixture.events if hasattr(i, "shootout") and i.shootout]
+                # iterate through everything after penalty header
+                for _ in [self.fixture.home, self.fixture.away]:
+                    value = "\n".join([str(i) for i in shootout if i.team == _])
+                    if value:
+                        e.add_field(name=_, value=value)
+            case EventType.PERIOD_BEGIN:
+                m = self.event_type.value.replace('#PERIOD#', self.fixture.breaks + 1)
+                e.description = f"**{m}** | {self.fixture.bold_markdown}\n"
+                e.colour = self.event_type.colour
+            case _:
+                m = self.event_type.value
+                e.description = f"**{m}** | {self.fixture.bold_markdown}\n"
+                e.colour = self.event_type.colour
+
+        # Append our event
+        if self.event is not None:
+            e.description += str(self.event)
+            try:
+                e.description += f"\n\n{self.event.description}"
+            except AttributeError:
+                pass
+
+        # Append extra info
+        if getattr(self.fixture, 'infobox', False):
+            e.description += f"```yaml\n{self.fixture.infobox}```"
+
+        e.set_footer(text=self.fixture.time.state.shorthand)
+        return e
+
+    @property
+    async def full_embed(self) -> Embed:
+        """Extended Embed with all events for Extended output event_type"""
+        e = await self.embed
+        if self.fixture.events:
+            for i in self.fixture.events:
+                if isinstance(i, Substitution):
+                    continue  # skip subs, they're just spam.
+
+                # Penalty Shootouts are handled in self.embed, we don't need to duplicate.
+                if hasattr(self.fixture, 'penalties_away'):
+                    if isinstance(i, Penalty) and i.shootout:
+                        continue
+
+                if str(i) not in e.description:  # Dupes bug.
+                    e.description += f"{str(i)}\n"
+        return e
+
+    async def send_messages(self) -> List[Message]:
+        """Dispatch the latest event embed to all applicable channels"""
+
+        async def dispatch(embed: Embed, channels: List[TextChannel]) -> List[Message]:
+            """Send target embed to target channels"""
+            these_messages = []
+            for channel in channels:
+                try:
+                    these_messages.append(await channel.send(embed=embed))
+                except HTTPException:
+                    continue
+            return these_messages
+
+        messages: List[Message] = []
+        messages += await dispatch(await self.embed, self.channels_short)
+        messages += await dispatch(await self.full_embed, self.channels_long)
+        return messages
+
+    async def bulk_edit(self, messages: List[Message], new_event_type: EventType = None) -> List[Message]:
+        """Edit existing messages"""
+        if new_event_type is not None:
+            self.event_type = new_event_type
+
+        short_embed = await self.embed
+        long_embed = await self.full_embed
+
+        for message in messages.copy():
+            messages.remove(message)
+
+            e = short_embed if message.channel in self.channels_short else long_embed
+
+            if message.embeds[0].description != e.description:
+                # Transpose the data from the new embed onto the old one. (Do not overwrite footer with timestamp)
+                old_embed = message.embeds[0]
+                old_embed.description = e.description
+                try:
+                    message = await message.edit(embed=e)
+                except HTTPException:  # If we can't find a message, we don't try again to update it.
+                    continue
+
+            messages.append(message)
+        return messages
+
+    async def event_loop(self) -> List[Message]:
+        """The Fixture event's internal loop"""
+        # Handle Match Events with no game events.
+        if self.event_type == EventType.KICK_OFF:
+            return await self.send_messages()
+
+        retry: int = 0
+        index: Optional[int] = None
+        messages: List[Message] = []
+        while retry < 5:
+            await sleep(retry * 120)
+            retry += 1
+            await self.fixture.refresh()
+
+            # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
+            if index is not None:
+                try:
+                    self.event = self.fixture.events[index]
+                except IndexError:
+                    self.event = None
+                    break
+            else:
+                team: Team = self.fixture.home if self.home else self.fixture.away
+                if team is not None:
+                    events: List = [i for i in self.fixture.events if i.team.name == team.name]
+                else:
+                    events = self.fixture.events
+
+                valid: Type[MatchEvent] = self.event_type.valid_events
+                if valid is not None and events:
+                    try:
+                        self.event = [i for i in events if isinstance(i, valid)][-1]
+                        index = self.fixture.events.index(self.event)
+                    except IndexError:
+                        pass
+
+            if self.channels_long and index is not None:
+                if all([hasattr(i, 'player') for i in self.fixture.events[:index + 1]]):
+                    break
+            elif not self.event:
+                break
+            else:
+                if hasattr(self.event, 'player'):
+                    break
+
+            if not messages:
+                messages = await self.send_messages()
+            else:
+                messages = await self.bulk_edit(messages)
+        if not messages:
+            return await self.send_messages()
+        return await self.bulk_edit(messages)
+
+
+class TickerChannel:
+    """A ticker channel object."""
+
+    def __init__(self, bot: 'Bot', channel_id: int):
+        self.bot: Bot = bot
+        self.channel_id: int = channel_id
+
+    async def dispatch(self, event: TickerEvent):
+        """Event Dispatcher Go Here"""
+        return  # TODO.
+
+
 class ToggleButton(Button):
     """A Button to toggle the ticker settings."""
 
@@ -76,7 +284,7 @@ class ToggleButton(Button):
 
         super().__init__(label=f"{title} ({label})", emoji=emoji, row=row)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
         await interaction.response.defer()
 
@@ -95,7 +303,7 @@ class ToggleButton(Button):
                 await connection.execute(q, new_value, self.view.channel.id)
         finally:
             await self.bot.db.release(connection)
-        await self.view.update()
+        return await self.view.update()
 
 
 class ResetLeagues(Button):
@@ -105,7 +313,7 @@ class ResetLeagues(Button):
         self.bot: Bot = bot
         super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
         await interaction.response.defer()
         connection = await self.bot.db.acquire()
@@ -114,7 +322,7 @@ class ResetLeagues(Button):
             for x in DEFAULT_LEAGUES:
                 await connection.execute(q, self.view.channel.id, x)
         await self.bot.db.release(connection)
-        await self.view.update(content=f"The tracked leagues for {self.view.channel.mention} were reset")
+        return await self.view.update(content=f"The tracked leagues for {self.view.channel.mention} were reset")
 
 
 class DeleteTicker(Button):
@@ -124,7 +332,7 @@ class DeleteTicker(Button):
         self.bot: Bot = bot
         super().__init__(label="Delete ticker", style=ButtonStyle.red)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
         await interaction.response.defer()
         connection = await self.bot.db.acquire()
@@ -132,8 +340,7 @@ class DeleteTicker(Button):
             q = """DELETE FROM ticker_channels WHERE channel_id = $1"""
             await connection.execute(q, self.view.channel.id)
         await self.bot.db.release(connection)
-        txt = f"The match events ticker for {self.view.channel.mention} was deleted."
-        await self.view.update(content=txt)
+        return await self.view.update(content=f"The match events ticker for {self.view.channel.mention} was deleted.")
 
 
 class RemoveLeague(Select):
@@ -147,7 +354,7 @@ class RemoveLeague(Select):
         for lg in sorted(leagues):
             self.add_option(label=lg)
 
-    async def callback(self, interaction: Interaction):
+    async def callback(self, interaction: Interaction) -> Message:
         """When button is pushed, delete channel / league row from DB"""
         await interaction.response.defer()
 
@@ -157,7 +364,7 @@ class RemoveLeague(Select):
             for x in self.values:
                 await connection.execute(q, self.view.channel.id, x)
         await self.bot.db.release(connection)
-        await self.view.update()
+        return await self.view.update()
 
 
 class TickerConfig(View):
@@ -167,12 +374,12 @@ class TickerConfig(View):
         super().__init__()
         self.interaction: Interaction = interaction
         self.channel: TextChannel = channel
-        self.index = 0
+        self.index: int = 0
         self.pages: List[Embed] = []
         self.settings = None
         self.value = None
 
-        self.bot = bot
+        self.bot: Bot = bot
 
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
@@ -290,203 +497,10 @@ class TickerConfig(View):
         await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
-class TickerEvent:
-    """Handles dispatching and editing messages for a fixture event."""
-
-    def __init__(
-            self,
-            bot: 'Bot',
-            fixture: Fixture,
-            event_type: EventType,
-            channels_short: List[TextChannel],
-            channels_long: List[TextChannel],
-            home: bool = False
-    ) -> None:
-
-        self.bot: Bot = bot
-        self.fixture: Fixture = fixture
-        self.event_type: EventType = event_type
-        self.channels_short: List[TextChannel] = channels_short
-        self.channels_long: List[TextChannel] = channels_long
-        self.home: bool = home
-
-        # For exact event.
-        self.event: Optional[MatchEvent] = None
-
-        # Begin loop on init
-        self.bot.loop.create_task(self.event_loop())
-
-    @property
-    async def embed(self) -> Embed:
-        """The embed for the fixture event."""
-        e = await self.fixture.base_embed()
-        e.title = None
-        e.remove_author()
-
-        match self.event_type:
-            case EventType.GOAL | EventType.VAR_GOAL | EventType.RED_CARD | EventType.VAR_RED_CARD:
-                h, a = ('**', '') if self.home else ('', '**')  # Bold Home or Away Team Name.
-                home = f"{h}{self.fixture.home.name}{h}"
-                away = f"{a}{self.fixture.away.name}{a}"
-                score = f"{self.fixture.score_home} - {self.fixture.score_away}"
-                e.description = f"**{self.event_type.value}** | {home} [{score}]({self.fixture.url}) {away}\n"
-            case EventType.PENALTY_RESULTS:
-                try:
-                    h, a = ("**", "") if self.fixture.penalties_home > self.fixture.penalties_away else ("", "**")
-                    home = f"{h}{self.fixture.home.name}{h}"
-                    away = f"{a}{self.fixture.away.name}{a}"
-                    score = f"{self.fixture.penalties_home} - {self.fixture.penalties_away}"
-                    e.description = f"**Penalty Results** | {home} [{score}]({self.fixture.url}) {away}\n"
-                except (TypeError, AttributeError):  # If penalties_home / penalties_away are NoneType or not found.
-                    e.description = f"**Penalty Results** | {self.fixture.bold_markdown}\n"
-
-                shootout = [i for i in self.fixture.events if hasattr(i, "shootout") and i.shootout]
-                # iterate through everything after penalty header
-                for _ in [self.fixture.home, self.fixture.away]:
-                    value = "\n".join([str(i) for i in shootout if i.team == _])
-                    if value:
-                        e.add_field(name=_, value=value)
-            case EventType.PERIOD_BEGIN:
-                m = self.event_type.value.replace('#PERIOD#', self.fixture.breaks + 1)
-                e.description = f"**{m}** | {self.fixture.bold_markdown}\n"
-                e.colour = self.event_type.colour
-            case _:
-                m = self.event_type.value
-                e.description = f"**{m}** | {self.fixture.bold_markdown}\n"
-                e.colour = self.event_type.colour
-
-        # Append our event
-        if self.event is not None:
-            e.description += str(self.event)
-            if self.event.description:
-                e.description += f"\n\n{self.event.description}"
-
-        # Append extra info
-        if self.fixture.infobox is not None:
-            e.description += f"```yaml\n{self.fixture.infobox}```"
-
-        e.set_footer(text=self.fixture.time.state.shorthand)
-        return e
-
-    @property
-    async def full_embed(self) -> Embed:
-        """Extended Embed with all events for Extended output event_type"""
-        e = await self.embed
-        if self.fixture.events:
-            for i in self.fixture.events:
-                if isinstance(i, Substitution):
-                    continue  # skip subs, they're just spam.
-
-                # Penalty Shootouts are handled in self.embed, we don't need to duplicate.
-                if self.fixture.penalties_away:
-                    if isinstance(i, Penalty) and i.shootout:
-                        continue
-
-                if str(i) in e.description:  # Dupes bug.
-                    continue
-                e.description += f"{str(i)}\n"
-        return e
-
-    async def send_messages(self) -> List[Message]:
-        """Dispatch the latest event embed to all applicable channels"""
-
-        async def dispatch(embed: Embed, channels: List[TextChannel]) -> List[Message]:
-            """Send target embed to target channels"""
-            these_messages = []
-            for channel in channels:
-                try:
-                    these_messages.append(await channel.send(embed=embed))
-                except HTTPException:
-                    continue
-            return these_messages
-
-        messages: List[Message] = []
-        messages += await dispatch(await self.embed, self.channels_short)
-        messages += await dispatch(await self.full_embed, self.channels_long)
-        return messages
-
-    async def bulk_edit(self, messages: List[Message], new_event_type: EventType = None) -> List[Message]:
-        """Edit existing messages"""
-        if new_event_type is not None:
-            self.event_type = new_event_type
-
-        short_embed = await self.embed
-        long_embed = await self.full_embed
-
-        for message in messages.copy():
-            messages.remove(message)
-
-            e = short_embed if message.channel in self.channels_short else long_embed
-
-            if message.embeds[0].description != e.description:
-                # Transpose the data from the new embed onto the old one. (Do not overwrite footer with timestamp)
-                old_embed = message.embeds[0]
-                old_embed.description = e.description
-                try:
-                    message = await message.edit(embed=e)
-                except HTTPException:  # If we can't find a message, we don't try again to update it.
-                    continue
-
-            messages.append(message)
-        return messages
-
-    async def event_loop(self) -> List[Message]:
-        """The Fixture event's internal loop"""
-        # Handle Match Events with no game events.
-        if self.event_type == EventType.KICK_OFF:
-            return await self.send_messages()
-
-        retry: int = 0
-        index: Optional[int] = None
-        messages: List[Message] = []
-        while retry < 5:
-            await sleep(retry * 120)
-            retry += 1
-            await self.fixture.refresh()
-
-            # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
-            if index is not None:
-                try:
-                    self.event = self.fixture.events[index]
-                except IndexError:
-                    self.event = None
-                    break
-            else:
-                team: Team = self.fixture.home if self.home else self.fixture.away
-                if team is not None:
-                    events: List = [i for i in self.fixture.events if i.team.name == team.name]
-                else:
-                    events = self.fixture.events
-
-                valid: Type[MatchEvent] = self.event_type.valid_events
-                if valid is not None and events:
-                    try:
-                        self.event = [i for i in events if isinstance(i, valid)][-1]
-                        index = self.fixture.events.index(self.event)
-                    except IndexError:
-                        pass
-
-            if self.channels_long and index is not None:
-                if all([i.player for i in self.fixture.events[:index + 1]]):
-                    break
-            elif self.event is False:
-                break
-            elif self.event:
-                if self.event.player:
-                    break
-
-            if not messages:
-                messages = await self.send_messages()
-            else:
-                messages = await self.bulk_edit(messages)
-        if not messages:
-            return await self.send_messages()
-        return await self.bulk_edit(messages)
-
-
 async def lg_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Autocomplete from list of stored leagues"""
     lgs = getattr(interaction.client, 'competitions')
+    lgs = [i for i in lgs if getattr(i, 'id', None) is not None]
     return [Choice(name=i.title[:100], value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
 
@@ -518,7 +532,8 @@ class TickerCog(Cog, name="Ticker"):
         short: List[TextChannel] = []
         long: List[TextChannel] = []
 
-        for r in list(records):
+        r: Record
+        for r in records:
             try:
                 channel = self.bot.get_channel(r['channel_id'])
                 assert channel
@@ -531,7 +546,7 @@ class TickerCog(Cog, name="Ticker"):
             except AssertionError:
                 pass
 
-        if not short and not long:  # skip fetch if unwanted.
+        if not short + long:  # skip fetch if unwanted.
             return
 
         # Settings for those IDs
@@ -584,7 +599,7 @@ class TickerCog(Cog, name="Ticker"):
     @ticker.command()
     @autocomplete(query=lg_ac)
     @describe(query="Search for a league by name")
-    async def add(self, interaction: Interaction, query: str, channel: TextChannel = None):
+    async def add(self, interaction: Interaction, query: str, channel: TextChannel = None) -> Message:
         """Add a league to your Match Event Ticker"""
         await interaction.response.defer(thinking=True)
         channel = interaction.channel if channel is None else channel
@@ -598,7 +613,7 @@ class TickerCog(Cog, name="Ticker"):
             if "http" not in query:
                 res = await fs_search(self.bot, interaction, query, competitions=True)
                 if isinstance(res, Message):
-                    return
+                    return res
             else:
                 if "flashscore" not in query:
                     return await self.bot.error(interaction, '🚫 Invalid link provided')
