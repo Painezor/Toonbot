@@ -1,7 +1,7 @@
 """Moderation Commands"""
 from typing import Optional, Literal, TYPE_CHECKING, Union
 
-from discord import Interaction, Member, Colour, Embed, TextChannel, HTTPException, Forbidden, Object, Message, \
+from discord import Guild, Member, TextChannel, Interaction, Colour, Embed, HTTPException, Forbidden, Object, Message, \
     TextStyle, NotFound
 from discord.app_commands import command, describe, default_permissions
 from discord.app_commands.checks import bot_has_permissions
@@ -268,7 +268,7 @@ class Mod(Cog):
             await self.bot.db.release(connection)
 
     @Cog.listener()
-    async def on_guild_remove(self, guild) -> None:
+    async def on_guild_remove(self, guild: Guild) -> None:
         """Delete guild's info upon leaving one."""
         connection = await self.bot.db.acquire()
         try:

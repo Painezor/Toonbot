@@ -41,6 +41,8 @@ class Errors(Cog):
                     print("Error occurred when running a command, printing dir of interaction\n", dir(i))
                     print(i.command)
                     print(i.channel)
+                    print(i.message)
+                    print(i.extras)
 
 
 async def setup(bot: Union['Bot', 'PBot']) -> None:

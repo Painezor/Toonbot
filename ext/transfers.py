@@ -185,9 +185,9 @@ class TransfersConfig(View):
             e: Embed = Embed(title="Transfers Ticker config", color=Colour.dark_blue())
             e.description = f"{self.channel.mention} has no tracked leagues."
         else:
-            e: Embed = Embed(title=f"{self.interaction.client.user.name} Transfer Ticker config",
+            e: Embed = Embed(title=f"{self.bot.user.name} Transfer Ticker config",
                              color=Colour.dark_teal())
-            e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
+            e.set_thumbnail(url=self.bot.user.display_avatar.url)
             header = f'Tracked leagues for {self.channel.mention}\n'
             embeds = rows_to_embeds(e, sorted(links), header=header, max_rows=25)
             self.pages = embeds
@@ -380,7 +380,7 @@ class TransfersCog(Cog):
         result = view.value
 
         if result is None:
-            return
+            return await self.bot.reply(interaction, "Your channel was not modified.")
 
         alias = f"{result.flag} {result.name}"
 

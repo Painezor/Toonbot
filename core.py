@@ -1,22 +1,28 @@
 """Master file for toonbot."""
-from asyncio import Task, new_event_loop
+from asyncio import new_event_loop
 from collections import defaultdict
 from datetime import datetime
 from json import load
 from logging import basicConfig, INFO
-from typing import Dict, List, Optional, Callable
+from typing import Dict, List, Optional, Callable, TYPE_CHECKING
 
 from aiohttp import ClientSession, TCPConnector
-from asyncpg import Record, Pool, create_pool
+from asyncpg import create_pool
 from asyncpraw import Reddit
 from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot
-from pyppeteer.browser import Browser
 
-from ext.scores import ScoreChannel
-from ext.utils import football
 from ext.utils.browser_utils import make_browser
+from ext.utils.football import Team, Competition, Fixture
 from ext.utils.reply import reply, error, dump_image
+
+if TYPE_CHECKING:
+    from ext.scores import ScoreChannel
+    from ext.ticker import TickerChannel
+    from asyncio import Task
+    from asyncpg import Record, Pool
+
+    from pyppeteer.browser import Browser
 
 basicConfig(level=INFO)
 
@@ -68,9 +74,9 @@ class Bot(AutoShardedBot):
         self.COGS = COGS
 
         # Livescores
-        self.games: List[football.Fixture] = []
-        self.teams: List[football.Team] = []
-        self.competitions: List[football.Competition] = []
+        self.games: List[Fixture] = []
+        self.teams: List[Team] = []
+        self.competitions: List[Competition] = []
         self.score_channels: List[ScoreChannel] = []
         self.scores: Task | None = None
 
@@ -96,6 +102,9 @@ class Bot(AutoShardedBot):
         # Streams
         self.streams: Dict[int, List] = defaultdict(list)
 
+        # Ticker
+        self.ticker_channels: List[TickerChannel] = []
+
         # Transfers
         self.transfers: Optional[Task] | None = None
         self.parsed_transfers: List[str] = []
@@ -118,15 +127,15 @@ class Bot(AutoShardedBot):
             else:
                 print(f"Loaded extension {c}")
 
-    def get_competition(self, comp_id: str) -> Optional[football.Competition]:
+    def get_competition(self, comp_id: str) -> Optional[Competition]:
         """Retrieve a competition from the ones stored in the bot."""
         return next((i for i in self.competitions if getattr(i, 'id', None) == comp_id), None)
 
-    def get_team(self, team_id: str) -> Optional[football.Team]:
+    def get_team(self, team_id: str) -> Optional[Team]:
         """Retrieve a Team from the ones stored in the bot."""
         return next((i for i in self.teams if getattr(i, 'id', None) == team_id), None)
 
-    def get_fixture(self, fixture_id: str) -> Optional[football.Fixture]:
+    def get_fixture(self, fixture_id: str) -> Optional[Fixture]:
         """Retrieve a Fixture from the ones stored in the bot."""
         return next((i for i in self.games if getattr(i, 'id', None) == fixture_id), None)
 
@@ -139,7 +148,7 @@ async def run():
         await bot.start(credentials['bot']['token'])
     except KeyboardInterrupt:
         for i in bot.cogs:
-            await bot.unload_extension(i.name)
+            await bot.unload_extension(i)
         await db.close()
         await bot.close()
 

@@ -1,4 +1,12 @@
 """A Utility tool for fetching and structuring data from the Flashscore Website"""
+# TODO: Bring in _ac functions
+# TODO: Rename to flashscore
+# TODO: Team dropdown on Competitions
+# TODO: Create .embed attribute for events.
+# TODO: Move away from buttons to dropdowns for view subcommands.
+# TODO: Move GameState / GameTime to own util Cog
+# TODO: Move stadiums to own util cog.
+
 from __future__ import annotations  # Cyclic Type Hinting
 
 import datetime
@@ -30,10 +38,35 @@ if TYPE_CHECKING:
 
 FLASHSCORE = 'http://www.flashscore.com'
 INJURY_EMOJI = "<:injury:682714608972464187>"
+DEFAULT_LEAGUES = [
+    "WORLD: Friendly international",
+    "EUROPE: Champions League",
+    "EUROPE: Euro",
+    "EUROPE: Europa League",
+    "EUROPE: UEFA Nations League",
+    "ENGLAND: Premier League",
+    "ENGLAND: Championship",
+    "ENGLAND: League One",
+    "ENGLAND: FA Cup",
+    "ENGLAND: EFL Cup",
+    "FRANCE: Ligue 1",
+    "FRANCE: Coupe de France",
+    "GERMANY: Bundesliga",
+    "ITALY: Serie A",
+    "NETHERLANDS: Eredivisie",
+    "SCOTLAND: Premiership",
+    "SPAIN: Copa del Rey",
+    "SPAIN: LaLiga",
+    "USA: MLS"
+]
 
-# TODO: Team dropdown on Competitions
-# TODO: Create .embed attribute for events.
-# TODO: Move away from buttons to dropdowns for view subcommands.
+WORLD_CUP_LEAGUES = [
+    "EUROPE: World Cup",
+    "ASIA: World Cup",
+    "AFRICA: World Cup",
+    "NORTH & CENTRAL AMERICA: World Cup",
+    "SOUTH AMERICA: World Cup"
+]
 
 
 async def delete_ads(page: Page) -> NoReturn:
@@ -1574,7 +1607,7 @@ class Fixture(FlashScoreItem):
 
         return preview
 
-    async def refresh(self) -> NoReturn:
+    async def refresh(self) -> None:
         """Perform an intensive full lookup for a fixture"""
         page = await self.bot.browser.newPage()
         tree = None
@@ -1589,7 +1622,6 @@ class Fixture(FlashScoreItem):
             except Exception as err:
                 print(f'Retry ({i}) Error refreshing fixture {self.home.name} v {self.away.name}: {type(err)}')
                 continue
-
         await page.close()
 
         if tree is None:
@@ -1756,7 +1788,7 @@ class Fixture(FlashScoreItem):
 
     def view(self, interaction: Interaction) -> FixtureView:
         """Return a view representing this Fixture"""
-        return FixtureView(self.bot, interaction, self.id)
+        return FixtureView(self.bot, interaction, self)
 
 
 class Player(FlashScoreItem):
@@ -1866,8 +1898,8 @@ class ViewErrorHandling(object):
 class FixtureView(View, ViewErrorHandling):
     """The View sent to users about a fixture."""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, fixture_id: str) -> NoReturn:
-        self.fixture_id: str = fixture_id
+    def __init__(self, bot: 'Bot', interaction: Interaction, fixture: Fixture) -> NoReturn:
+        self.fixture: Fixture = fixture
         self.interaction: Interaction = interaction
         self.bot = bot
 
@@ -1880,11 +1912,6 @@ class FixtureView(View, ViewErrorHandling):
 
         # Button Disabling
         self._disabled = None
-
-    @property
-    def fixture(self) -> Fixture:
-        """Always fetch the latest version of the fixture"""
-        return self.bot.get_fixture(self.fixture_id)
 
     async def on_timeout(self) -> Message:
         """Cleanup"""
@@ -1987,7 +2014,7 @@ class FixtureView(View, ViewErrorHandling):
 class CompetitionView(View, ViewErrorHandling):
     """The view sent to a user about a Competition"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, competition: Competition) -> NoReturn:
+    def __init__(self, bot: 'Bot', interaction: Interaction, competition: Competition, parent: View = None) -> NoReturn:
         super().__init__()
         self.bot: Bot = bot
         self.competition: Competition = competition
@@ -1997,13 +2024,14 @@ class CompetitionView(View, ViewErrorHandling):
         # Embed and internal index.
         self.pages: List[Embed] = []
         self.index: int = 0
+        self.parent: View = parent
 
         # Button Disabling
         self._disabled: str = ""
 
         # Player Filtering
-        self._nationality_filter: str = ""
-        self._team_filter: str = ""
+        self._nationality_filter: List[str] = []
+        self._team_filter: List[str] = []
         self._filter_mode: str = "goals"
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -2119,8 +2147,8 @@ class CompetitionView(View, ViewErrorHandling):
         self.index = 0
         self._filter_mode = "assists"
         self._disabled = "Assists"
-        self._nationality_filter = None
-        self._team_filter = None
+        self._nationality_filter = []
+        self._team_filter = []
         return await self.update()
 
     async def push_fixtures(self) -> Message:
@@ -2322,6 +2350,8 @@ class LeagueTableSelect(Select):
         return await v.push_table(self.objects[int(self.values[0])])
 
 
+# TODO: Kill off this being a dataclass, switch to slots.
+# TODO: Begin storing stadiums to database to allow for autocompletes
 @dataclass
 class Stadium:
     """An object representing a football Stadium from football ground map.com"""

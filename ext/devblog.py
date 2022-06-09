@@ -328,13 +328,12 @@ class DevBlog(Cog):
             await self.bot.db.release(connection)
 
     @Cog.listener()
-    async def on_guild_remove(self, guild: Guild):
+    async def on_guild_remove(self, guild: Guild) -> None:
         """Purge news trackers for deleted guilds"""
-        q = f"""DELETE FROM dev_blog_channels WHERE guild_id = $1"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                await connection.execute(q, guild.id)
+                await connection.execute(f"""DELETE FROM dev_blog_channels WHERE guild_id = $1""", guild.id)
         finally:
             await self.bot.db.release(connection)
 

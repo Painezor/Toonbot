@@ -1,8 +1,9 @@
 """Allow guilds to add a list of their own streams to keep track of events."""
 from dataclasses import dataclass
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
-from discord import Embed, Member, Interaction, Message, Permissions
+from discord import Embed, Permissions
+from discord import Member, Interaction, Message
 from discord.app_commands import autocomplete, Choice, Group, describe
 from discord.ext.commands import Cog
 
@@ -23,7 +24,7 @@ class Stream:
 
 async def st_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Return List of Guild Streams"""
-    guild_streams = interaction.client.streams[interaction.guild.id]
+    guild_streams = interaction.client.streams.get(interaction.guild.id, {})
     m = [i.name[:100] for i in guild_streams if current.lower() in i.name.lower() + i.link.lower()]
     return [Choice(name=item, value=item) for item in m if current.lower() in item.lower()][:25]
 
@@ -40,7 +41,7 @@ class GuildStreams(Cog):
     @streams.command()
     async def list(self, interaction: Interaction) -> Message:
         """List all streams for the match added by users."""
-        guild_streams = self.bot.streams[interaction.guild.id]
+        guild_streams = self.bot.streams.get(interaction.guild.id, {})
 
         if not guild_streams:
             return await self.bot.reply(interaction, content="Nobody has added any streams yet.")
@@ -53,7 +54,9 @@ class GuildStreams(Cog):
     async def add(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
 
-        guild_streams = self.bot.streams[interaction.guild.id]
+        guild_streams = self.bot.streams.get(interaction.guild.id, {})
+        if not guild_streams:
+            self.bot.streams[interaction.guild.id] = []
 
         if link in [i.link for i in guild_streams]:
             return await self.bot.error(interaction, "Already in stream list.")
@@ -74,7 +77,7 @@ class GuildStreams(Cog):
     @autocomplete(stream=st_ac)
     async def delete(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""
-        guild_streams = self.bot.streams[interaction.guild.id]
+        guild_streams = self.bot.streams.get(interaction.guild.id, {})
         matches = [i for i in guild_streams if stream.lower() in i.name.lower() + i.link.lower()]
         if not matches:
             err = f"Couldn't find that stream in {interaction.guild.name} stream list."
@@ -86,7 +89,7 @@ class GuildStreams(Cog):
                 err = "You cannot remove a stream you did not add unless you have manage_messages permissions"
                 return await self.bot.error(interaction, err)
 
-        s = self.bot.streams[interaction.guild.id]
+        s = self.bot.streams.get(interaction.guild.id, {})
         self.bot.streams[interaction.guild.id] = [i for i in s if i not in matches]
 
         msg = "Removed " + "\n".join([f"<{i.link}>" for i in matches]) + f" from {interaction.guild.name} stream list"

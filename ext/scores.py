@@ -7,11 +7,10 @@ from itertools import zip_longest
 from typing import List, Optional, TYPE_CHECKING
 
 # Error Handling
-from asyncpg import UniqueViolationError, ForeignKeyViolationError, Record
+from asyncpg import ForeignKeyViolationError, Record
 # Discord
-from discord import ButtonStyle, Interaction, Colour, Embed, PermissionOverwrite, Message, TextChannel, Color, \
-    Permissions, Guild
-from discord import HTTPException, Forbidden
+from discord import Interaction, Message, TextChannel, ButtonStyle, Colour, Embed, PermissionOverwrite, Color, \
+    Permissions, Guild, HTTPException, Forbidden
 from discord.app_commands import Group, describe, Choice, autocomplete
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
@@ -20,9 +19,10 @@ from discord.ui import Button, Select, View
 from lxml import html, etree
 from lxml.etree import ParserError
 
-# Utils
-from ext.utils import football
 from ext.utils.embed_utils import rows_to_embeds, stack_embeds
+# Utils
+from ext.utils.football import Competition, WORLD_CUP_LEAGUES, DEFAULT_LEAGUES, Team, Fixture, GameTime, GameState, \
+    fs_search
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
@@ -33,34 +33,6 @@ NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
                  "\n\nYou can add more leagues with `/livescores add`" \
                  "\nTo find out which leagues currently have games, use `/scores`"
 NO_NEWS = "Could not send livescores to this channel. Do not set livescores channels as 'announcement' channels."
-DEFAULT_LEAGUES = [
-    "WORLD: Friendly international",
-    "EUROPE: Champions League",
-    "EUROPE: Euro",
-    "EUROPE: Europa League",
-    "EUROPE: UEFA Nations League",
-    "ENGLAND: Premier League",
-    "ENGLAND: Championship",
-    "ENGLAND: League One",
-    "ENGLAND: FA Cup",
-    "ENGLAND: EFL Cup",
-    "FRANCE: Ligue 1",
-    "FRANCE: Coupe de France",
-    "GERMANY: Bundesliga",
-    "ITALY: Serie A",
-    "NETHERLANDS: Eredivisie",
-    "SCOTLAND: Premiership",
-    "SPAIN: Copa del Rey",
-    "SPAIN: LaLiga",
-    "USA: MLS"
-]
-WORLD_CUP_LEAGUES = [
-    "EUROPE: World Cup",
-    "ASIA: World Cup",
-    "AFRICA: World Cup",
-    "NORTH & CENTRAL AMERICA: World Cup",
-    "SOUTH AMERICA: World Cup"
-]
 
 
 class ScoreChannel:
@@ -77,11 +49,6 @@ class ScoreChannel:
     embeds: List[List[Embed]] = []
     _cached_embeds: List[List[Embed]] = []
     messages: List[Message | None] = []
-
-    @property
-    def mention(self) -> str:
-        """Abstract away from a lower level operation, basically pretend we're inheriting despite us not"""
-        return self.channel.mention
 
     def generate_embeds(self, leagues: List[str]) -> List[Embed]:
         """Have each Competition generate it's livescore embeds"""
@@ -120,7 +87,7 @@ class ScoreChannel:
         return self.leagues
 
     async def reset_leagues(self) -> None:
-        """Reset the channel to the list of default leagues."""
+        """Reset the Score Channel to the list of default leagues."""
         sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
         connection = await self.bot.db.acquire()
         try:
@@ -131,29 +98,17 @@ class ScoreChannel:
 
         self.leagues = DEFAULT_LEAGUES
 
-    async def add_league(self, res: football.Competition):
+    async def add_leagues(self, leagues: List[str]):
         """Add a league to the ScoreChannel's tracked list"""
         sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                await connection.execute(sql, self.channel.id, res.title)
+                await connection.executemany(sql, [(self.channel.id, x) for x in leagues])
         finally:
             await self.bot.db.release(connection)
 
-    async def add_world_cup(self) -> None:
-        """Add the World Cup Competitions to the ScoreChannel"""
-        sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
-        connection = await self.bot.db.acquire()
-        try:
-            async with connection.transaction():
-                await connection.executemany(sql, [(self.channel.id, x) for x in WORLD_CUP_LEAGUES])
-        except UniqueViolationError:
-            pass
-        finally:
-            await self.bot.db.release(connection)
-
-        self.leagues += WORLD_CUP_LEAGUES
+        self.leagues += leagues
 
     async def remove_leagues(self, leagues: List[str]):
         """Remove a list of leagues for the channel from the database"""
@@ -202,7 +157,6 @@ class ScoreChannel:
         new_embeds: List[Embed]
 
         # Zip longest will give (, None) in slot [0] // self.messages if we do not have enough messages for the embeds.
-        print("Entering loop for", len(tuples), "length tuple")
         for message, old_embeds, new_embeds in tuples:
             try:
                 if message is None:  # No message exists in cache, or we need an additional message.
@@ -233,10 +187,12 @@ class ScoresConfig(View):
     def __init__(self, bot: 'Bot', interaction: Interaction, channel: ScoreChannel) -> None:
         super().__init__()
         self.bot: Bot = bot
-        self.channel: ScoreChannel = channel
+        self.sc: ScoreChannel = channel
         self.interaction: Interaction = interaction
         self.pages: List[Embed] = []
         self.index: int = 0
+
+        self.channel: None
 
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
@@ -249,14 +205,14 @@ class ScoresConfig(View):
     async def update(self, content: str = "") -> Message:
         """Push the newest version of view to message"""
         self.clear_items()
-        leagues = await self.channel.get_leagues()
+        leagues = await self.sc.get_leagues()
 
         embed: Embed = Embed(colour=Colour.dark_teal())
         embed.title = f"{self.interaction.client.user.name} Live Scores config"
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
 
         if leagues:
-            header = f'Tracked leagues for {self.channel.mention}```yaml\n'
+            header = f'Tracked leagues for {self.sc.channel.mention}```yaml\n'
             embeds = rows_to_embeds(embed, sorted(leagues), header=header, footer="```", max_rows=25)
             self.pages = embeds
             add_page_buttons(self)
@@ -270,7 +226,7 @@ class ScoresConfig(View):
             self.add_item(RemoveLeague(leagues))
         else:
             self.add_item(ResetLeagues())
-            embed.description = f"No tracked leagues for {self.channel.mention}" \
+            embed.description = f"No tracked leagues for {self.sc.channel.mention}" \
                                 f", would you like to reset it?"
 
         return await self.bot.reply(self.interaction, content=content, embed=embed, view=self)
@@ -280,19 +236,19 @@ class ScoresConfig(View):
         # Ask user to confirm their choice.
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
         lg_text = "```yaml\n" + '\n'.join(sorted(leagues)) + "```"
-        txt = f"Remove these leagues from {self.channel.mention}? {lg_text}"
+        txt = f"Remove these leagues from {self.sc.channel.mention}? {lg_text}"
         await self.bot.reply(self.interaction, content=txt, view=view)
         await view.wait()
 
         if not view.value:
             return await self.update(content="No leagues were removed")
 
-        await self.channel.remove_leagues(leagues)
-        return await self.update(content=f"Removed {self.channel.mention} tracked leagues: {lg_text}")
+        await self.sc.remove_leagues(leagues)
+        return await self.update(content=f"Removed {self.sc.channel.mention} tracked leagues: {lg_text}")
 
 
 class ResetLeagues(Button):
-    """Button to reset a live score channel back to it's default leagues"""
+    """Button to reset a live score channel back to the default leagues"""
     view: ScoresConfig
 
     def __init__(self) -> None:
@@ -301,8 +257,8 @@ class ResetLeagues(Button):
     async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
         await interaction.response.defer()
-        await self.view.channel.reset_leagues()
-        return await self.view.update(content=f"Tracked leagues for {self.view.channel.mention} reset")
+        await self.view.sc.reset_leagues()
+        return await self.view.update(content=f"Tracked leagues for {self.view.sc.channel.mention} reset")
 
 
 class RemoveLeague(Select):
@@ -325,7 +281,6 @@ async def lg_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Autocomplete from list of stored leagues"""
     lgs = getattr(interaction.client, "competitions")
     lgs = [i for i in lgs if getattr(i, 'id', None) is not None]
-
     return [Choice(name=i.title[:100], value=i.id) for i in lgs if current.lower() in i.title.lower()][:25]
 
 
@@ -354,15 +309,13 @@ class Scores(Cog, name="LiveScores"):
             return
 
         if not self.bot.score_channels:
-            print("[INF] Updating cache of score channels...")
             await self.update_cache()
-            print("Found", len(self.bot.score_channels), "channels")
 
         await self.fetch_games()
 
         # Copy to avoid size change in iteration.
         now = datetime.datetime.now().toordinal()
-        games: List[football.Fixture] = []
+        games: List[Fixture] = []
         for x in self.bot.games.copy():
             try:
                 assert x.kickoff.toordinal() != now
@@ -401,7 +354,7 @@ class Scores(Cog, name="LiveScores"):
         byt: bytes = etree.tostring(inner_html)
         string: str = byt.decode('utf8')
         chunks = str(string).split('<br/>')
-        competition: football.Competition = football.Competition(self.bot)  # Generic
+        competition: Competition = Competition(self.bot)  # Generic
         competition.name = "Unrecognised competition"
 
         for game in chunks:
@@ -434,7 +387,7 @@ class Scores(Cog, name="LiveScores"):
                             print(f"[SCORES] found multiple partial matches for {competition_name}\n",
                                   "\n".join([p.title for p in partial]))
                     else:
-                        competition = football.Competition(self.bot)
+                        competition = Competition(self.bot)
                         if country:
                             competition.country = country.strip()
                         if name:
@@ -447,7 +400,6 @@ class Scores(Cog, name="LiveScores"):
                 match_id = lnk.split('/')[-2]
                 url = "http://www.flashscore.com" + lnk
             except IndexError:
-                print("IndexError when fetching match_id from ", lnk)
                 continue
 
             # Set & forget: Competition, Teams
@@ -459,8 +411,8 @@ class Scores(Cog, name="LiveScores"):
                 if teams[0].startswith('updates'):  # ???
                     teams[0] = teams[0].replace('updates', '')
 
-                home = football.Team(self.bot)
-                away = football.Team(self.bot)
+                home = Team(self.bot)
+                away = Team(self.bot)
 
                 if len(teams) == 1:
                     teams = teams[0].split(' - ')
@@ -486,7 +438,7 @@ class Scores(Cog, name="LiveScores"):
                         print("Fetch games team problem", len(teams), "teams found:", teams)
                         continue
 
-                fixture = football.Fixture(self.bot)
+                fixture = Fixture(self.bot)
                 fixture.url = url
                 fixture.id = match_id
                 fixture.home = home
@@ -559,11 +511,11 @@ class Scores(Cog, name="LiveScores"):
                 if state_override:
                     match state_override:
                         case 'aet':
-                            fixture.time = football.GameTime(football.GameState.AFTER_EXTRA_TIME)
+                            fixture.time = GameTime(GameState.AFTER_EXTRA_TIME)
                         case 'pen':
-                            fixture.time = football.GameTime(football.GameState.AFTER_PENS)
+                            fixture.time = GameTime(GameState.AFTER_PENS)
                         case 'WO':
-                            fixture.time = football.GameTime(football.GameState.WALKOVER)
+                            fixture.time = GameTime(GameState.WALKOVER)
                         case _:
                             print("Unhandled state override", state_override)
                     continue
@@ -575,32 +527,32 @@ class Scores(Cog, name="LiveScores"):
                         case "live":
                             match time_block[0]:
                                 case 'Half Time':
-                                    fixture.time = football.GameTime(football.GameState.HALF_TIME)
+                                    fixture.time = GameTime(GameState.HALF_TIME)
                                 case 'Break Time':
-                                    fixture.time = football.GameTime(football.GameState.BREAK_TIME)
+                                    fixture.time = GameTime(GameState.BREAK_TIME)
+                                case 'Penalties':
+                                    fixture.time = GameTime(GameState.PENALTIES)
                                 case _:
-                                    fixture.time = football.GameTime(time_block[0])
+                                    fixture.time = GameTime(time_block[0])
                         case "sched":
-                            fixture.time = football.GameTime(football.GameState.SCHEDULED)
+                            fixture.time = GameTime(GameState.SCHEDULED)
                         case "fin":
-                            fixture.time = football.GameTime(football.GameState.FULL_TIME)
+                            fixture.time = GameTime(GameState.FULL_TIME)
                 # If we have a 2 part item, the second part will give us additional information
                 case 2:
                     match time_block[-1]:
                         case "Cancelled":
-                            fixture.time = football.GameTime(football.GameState.CANCELLED)
+                            fixture.time = GameTime(GameState.CANCELLED)
                         case "Postponed":
-                            fixture.time = football.GameTime(football.GameState.POSTPONED)
+                            fixture.time = GameTime(GameState.POSTPONED)
                         case "Delayed":
-                            fixture.time = football.GameTime(football.GameState.DELAYED)
+                            fixture.time = GameTime(GameState.DELAYED)
                         case "Interrupted":
-                            fixture.time = football.GameTime(football.GameState.INTERRUPTED)
+                            fixture.time = GameTime(GameState.INTERRUPTED)
                         case "Abandoned":
-                            fixture.time = football.GameTime(football.GameState.ABANDONED)
+                            fixture.time = GameTime(GameState.ABANDONED)
                         case 'Extra Time':
-                            fixture.time = football.GameTime(football.GameState.EXTRA_TIME)
-                        case 'Penalties':
-                            fixture.time = football.GameTime(football.GameState.PENALTIES)
+                            fixture.time = GameTime(GameState.EXTRA_TIME)
                         case _:
                             print("Unhandled 2 part time block found", time_block)
 
@@ -617,7 +569,7 @@ class Scores(Cog, name="LiveScores"):
 
         for c in comps:
             if self.bot.get_competition(c['id']) is None:
-                comp = football.Competition(self.bot)
+                comp = Competition(self.bot)
                 comp.id = c['id']
                 comp.url = c['url']
                 comp.name = c['name']
@@ -627,7 +579,7 @@ class Scores(Cog, name="LiveScores"):
 
         for t in teams:
             if self.bot.get_team(t['id']) is None:
-                team = football.Team(self.bot)
+                team = Team(self.bot)
                 team.id = t['id']
                 team.url = t['url']
                 team.name = t['name']
@@ -675,9 +627,9 @@ class Scores(Cog, name="LiveScores"):
         if not row:
             return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
-        channel = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
-        v = ScoresConfig(self.bot, interaction, channel)
-        return await v.update(content=f"Fetching config for {channel.mention}...")
+        sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
+        v = ScoresConfig(self.bot, interaction, sc)
+        return await v.update(content=f"Fetching config for {sc.channel.mention}...")
 
     @livescores.command()
     @describe(name="Enter a name for the channel")
@@ -739,7 +691,7 @@ class Scores(Cog, name="LiveScores"):
         if comp:
             res = comp
         elif "http" not in league_name:
-            res = await football.fs_search(self.bot, interaction, league_name, competitions=True)
+            res = await fs_search(self.bot, interaction, league_name, competitions=True)
             if isinstance(res, Message):
                 return res
         else:
@@ -747,15 +699,15 @@ class Scores(Cog, name="LiveScores"):
                 return await self.bot.error(interaction, "Invalid link provided.")
 
             qry = str(league_name).strip('[]<>')  # idiots
-            res = await football.Competition.by_link(self.bot, qry)
+            res = await Competition.by_link(self.bot, qry)
 
             if res is None:
                 err = f"Failed to get data for {qry} channel not modified."
                 return await self.bot.error(interaction, err)
 
-        await target.add_league(res)
+        await target.add_leagues([res.title])
         view = ScoresConfig(self.bot, interaction, target)
-        await view.update(content=f"Added tracked league for {target.mention}```yaml\n{res}```")
+        await view.update(content=f"Added tracked league for {target.channel.mention}```yaml\n{res}```")
         await target.update()
 
     @livescores.command(name="worldcup")
@@ -773,9 +725,8 @@ class Scores(Cog, name="LiveScores"):
         if target is None:
             return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
-        await target.add_world_cup()
-
-        res = f"{target.mention} ```yaml\n" + "\n".join(WORLD_CUP_LEAGUES) + "```"
+        await target.add_leagues(WORLD_CUP_LEAGUES)
+        res = f"{target.channel.mention} ```yaml\n" + "\n".join(WORLD_CUP_LEAGUES) + "```"
         await ScoresConfig(self.bot, interaction, target).update(content=f"Added to tracked leagues for {res}")
 
     # Event listeners for channel deletion or guild removal.
