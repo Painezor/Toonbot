@@ -1,43 +1,22 @@
 """Cog for fetching World of Warships Portal Articles from each region"""
-# TODO: Add DB Table for news articles (url, image, title, text)
-# TODO: Search News
+# TODO: DB Table for news articles (url, image, title, text)
 from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
-from enum import Enum
-from typing import TYPE_CHECKING, Optional, Dict
+from typing import TYPE_CHECKING, Optional, Dict, List
 
-from discord import Embed, Interaction, Message, Colour, TextChannel, Guild, ButtonStyle
-from discord.app_commands import command, describe, guild_only, default_permissions
+from discord import Embed, Interaction, Message, Colour, TextChannel, Guild, ButtonStyle, HTTPException
+from discord.app_commands import command, describe, guild_only, default_permissions, autocomplete, Choice
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View, Button
 from lxml import html
 
+from ext.utils.view_utils import Stop
+from ext.utils.wows_utils import Region
+
 if TYPE_CHECKING:
     from painezBot import PBot
-
-
-class Region(Enum):
-    """A Generic object representing a region"""
-
-    def __new__(cls, *args, **kwargs):
-        value = len(cls.__members__) + 1
-        obj = object.__new__(cls)
-        obj._value_ = value
-        return obj
-
-    def __init__(self, db_key: str, url: str, emote: str, colour: Colour) -> None:
-        self.db_key: str = db_key
-        self.domain: str = url
-        self.emote: str = emote
-        self.colour: Colour = colour
-
-    #     db_key  | domain                       | emote                             | colour
-    EU = ('eu', 'https://worldofwarships.eu/', "<:painezBot:928654001279471697>", 0xffffff)
-    NA = ('na', 'https://worldofwarships.com/', "<:Bonk:746376831296471060>", 0xff0000)
-    SEA = ('sea', 'https://worldofwarships.asia/', "<:painezRaid:928653997680754739>", 0x00ff00)
-    CIS = ('cis', 'https://worldofwarships.ru/', "<:Button:826154019654991882>", 0x0000ff)
 
 
 class ToggleButton(Button):
@@ -59,41 +38,34 @@ class ToggleButton(Button):
         await interaction.response.defer()
         new_value: bool = False if self.value else True
 
+        sql = f"""UPDATE news_trackers SET {self.region.db_key} = $1 WHERE channel_id = $2"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                q = f"""UPDATE news_trackers SET {self.region.db_key} = $1 WHERE channel_id = $2"""
-                await connection.execute(q, new_value, self.view.channel.id)
+                await connection.execute(sql, new_value, self.view.channel.id)
         finally:
             await self.bot.db.release(connection)
 
         on = "Enabled" if new_value else "Disabled"
-        return await self.view.update(f'{on} tracking of articles for {self.label} in {self.view.channel.mention}')
+        r = self.region.db_key.upper()
+        return await self.view.update(f'{on} tracking of articles for {r} in {self.view.channel.mention}')
 
 
 class Article:
     """An Object representing a World of Warships News Article"""
-    __slots__ = {'date': "The original publication date of the article",
-                 'category': "The Category of the article",
-                 'description': "The article's written description",
-                 'title': "The title of the article",
-                 'image': "A link to the background image of the article",
-                 'embed': "The generated embed for the article"
-                 }
-
     bot: PBot
-    link: str
+    link: str = ""
 
     # Stored Data
-    title: str
-    category: str
-    description: str
-    image: str
-    date: datetime.datetime
+    title: str = ""
+    category: str = ""
+    description: str = ""
+    image: str = ""
+    date: datetime.datetime = None
 
     # Generated
-    embed: Embed
-    view: View
+    embed: Embed = None
+    view: View = None
 
     # A flag for each region the article has been found in.
     eu: bool = False
@@ -101,7 +73,7 @@ class Article:
     cis: bool = False
     sea: bool = False
 
-    def __init__(self, bot: 'PBot', partial: str):
+    def __init__(self, bot: 'PBot', partial: str) -> None:
         self.bot = bot
         # Partial is the trailing part of the URL.
         self.partial: str = partial
@@ -112,33 +84,28 @@ class Article:
 
         # CHeck if we need to do a full refresh on the article.
         try:
-            assert hasattr(self, 'title')
-            assert hasattr(self, 'category')
-            assert hasattr(self, 'image')
-            assert hasattr(self, 'description')
+            assert self.title != ""
+            assert self.category != ""
+            assert self.image != ""
+            assert self.description != ""
         except AssertionError:
             page = await self.bot.browser.newPage()
 
             try:
+                print(self.link)
                 await page.goto(self.link)
                 await page.waitForXPath(".//div[@class='header__background']", {"timeout": 5000})
                 tree = html.fromstring(await page.content())
             finally:
                 await page.close()
 
-            try:
-                self.title
-            except AttributeError:
+            if not self.title:
                 self.title = tree.xpath('.//div[@class="title"]/text()')[0]
 
-            try:
-                self.category
-            except AttributeError:
+            if not self.category:
                 self.category = tree.xpath('.//nav/div/a/span/text()')[-1]
 
-            try:
-                self.description
-            except AttributeError:
+            if not self.description:
                 self.description = tree.xpath('.//span[@class="text__intro"]/text()')[-1]
 
             try:
@@ -156,10 +123,17 @@ class Article:
         except AttributeError:
             pass
 
+        for region in Region:
+            if getattr(self, region.db_key):
+                e.colour = region.colour
+                break
+
         v = View()
         for region in Region:
             if getattr(self, region.db_key):
-                v.add_item(Button(url=f"{region.domain}en/{self.partial})", style=ButtonStyle.url, emoji=region.emote))
+                url = f"{region.domain}en/{self.partial}"
+                b = Button(style=ButtonStyle.url, label=f"{region.db_key.upper()} article", emoji=region.emote, url=url)
+                v.add_item(b)
 
         self.embed = e
         self.view = v
@@ -202,6 +176,7 @@ class NewsChannel:
             message = await self.channel.send(embed=article.embed, view=article.view)
 
         self.sent_articles[article] = message
+        return message
 
     async def send_config(self, interaction: Interaction) -> Message:
         """Send the config view to the requesting user"""
@@ -212,7 +187,7 @@ class NewsChannel:
 class NewsConfig(View):
     """News Tracker Config View"""
 
-    def __init__(self, bot: 'PBot', interaction: Interaction, channel: TextChannel):
+    def __init__(self, bot: 'PBot', interaction: Interaction, channel: TextChannel) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.channel: TextChannel = channel
@@ -231,24 +206,40 @@ class NewsConfig(View):
         """Regenerate view and push to message"""
         self.clear_items()
 
+        sql = """SELECT * FROM news_trackers WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                q = """SELECT * FROM news_trackers WHERE channel_id = $1"""
-                channel = await connection.fetchrow(q, self.channel.id)
+                record = await connection.fetchrow(sql, self.channel.id)
         finally:
             await self.bot.db.release(connection)
 
         e: Embed = Embed(colour=Colour.dark_teal())
         e.title = f"World of Warships News Tracker config"
+        e.description = "```yaml\nClick on the buttons below to enable tracking for a region.\n\n" \
+                        "Duplicate articles from different regions will not be output multiple times.```"
         e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
 
-        for k, v in sorted(channel.items()):
+        for k, v in sorted(record.items()):
             if k != 'channel_id':
                 region = next(i for i in Region if k == i.db_key)
+
+                if v:  # Bool: True/False
+                    e.description += f"\n**{region.emote} {region.db_key.upper()} News is currently being tracked.**"
+                else:
+                    e.description += f"\n{region.emote} {region.db_key.upper()} News is not being tracked."
+
                 self.add_item(ToggleButton(self.bot, region=region, value=v))
 
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
+
+
+async def news_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+    """An Autocomplete that fetches from recent news articles"""
+    articles: List[Article] = getattr(interaction.client, 'news_cache')
+    matches = [i for i in articles if current.lower() in f"{i.title}: {i.description}".lower()]
+    matches = sorted(matches, key=lambda x: x.date, reverse=True)
+    return [Choice(name=f"{i.title}: {i.description}"[:100], value=i.link) for i in matches][:25]
 
 
 class NewsTracker(Cog):
@@ -258,6 +249,7 @@ class NewsTracker(Cog):
         self.bot: PBot = bot
         self.bot.news = self.news_loop.start()
         self.bot.news_channels = []
+        self.cached = False
 
     async def cog_load(self) -> None:
         """Do this on Cog Load"""
@@ -296,56 +288,52 @@ class NewsTracker(Cog):
     @loop(seconds=60)
     async def news_loop(self) -> None:
         """Loop to get the latest EU news articles"""
-        if self.bot.session is None:
-            return
+        assert self.bot.session is not None
+
+        if not self.bot.news_channels:
+            await self.update_cache()
 
         # If we already have parsed the articles once, flag it now.
-        cached = bool(self.bot.news_cache)
-
         region: Region
         for region in Region:
-            async with self.bot.session.get(region.domain + '/en/rss/news/') as resp:
+            async with self.bot.session.get(region.domain + 'en/rss/news/') as resp:
                 tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
 
-            articles = tree.xpath('.//item')
-
-            for i in articles:
+            for i in tree.xpath('.//item'):
                 link = ''.join(i.xpath('.//guid/text()'))
                 partial = link.split('/en/')[-1]
-
                 article = next((i for i in self.bot.news_cache if i.partial == partial), None)
 
                 if article is not None:
                     # If we have already dispatched this article for this region, we are no longer interested
                     if getattr(article, region.db_key):
                         continue
+                    else:
+                        setattr(article, region.db_key, True)
                 else:
                     article = Article(self.bot, partial)
                     setattr(article, region.db_key, True)
                     self.bot.news_cache.append(article)
 
-                # If we are simply populating, we are not interested.
-                if not cached:
-                    continue  # Skip on population
-
                 # At this point, we either have a new article, or a new region for an existing article.
                 # In which case, we check if we need to extract additional data from the RSS.
 
-                if not hasattr(article, 'link'):
+                if not article.link:
                     article.link = link  # Original Link
 
+                if article.date is None:
                     date = ''.join(i.xpath('.//pubdate/text()'))
                     if date:
                         article.date = datetime.datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %Z")
                     else:
-                        article.date = datetime.datetime.now()
+                        article.date = datetime.datetime.now(datetime.timezone.utc)
 
-                if not hasattr(article, 'category'):
+                if not article.category:
                     category = ''.join(i.xpath('.//category//text()'))
                     if category:
                         article.category = category
 
-                if not hasattr(article, 'description'):
+                if not article.description:
                     # Extract article description
                     desc = ''.join(i.xpath('.//description/text()'))
                     # Sanitise it
@@ -354,15 +342,41 @@ class NewsTracker(Cog):
                     if desc:
                         article.description = desc
 
-                if not hasattr(article, 'title'):
+                if not article.title:
                     title = ''.join(i.xpath('.//title/text()'))
                     if title:
                         article.title = title
 
                 await article.generate_embed()
 
+                # If we are simply populating, we are not interested.
+                if not self.cached:
+                    continue  # Skip on population
+
                 for channel in self.bot.news_channels:
-                    await channel.dispatch(region, article)
+                    try:
+                        await channel.dispatch(region, article)
+                    except HTTPException:
+                        print("HTTP Exception trying to dispatch article")
+                        print(article.__dict__)
+        self.cached = True
+
+    @command()
+    @describe(text="Search by article title")
+    @autocomplete(text=news_ac)
+    async def newspost(self, interaction: Interaction, text: str):
+        """Search for a recent World of Warships news article"""
+        await interaction.response.defer(thinking=True)
+
+        article = next((i for i in self.bot.news_cache if i.link == text), None)
+        if article is None:
+            return await self.bot.error(interaction, content=f"Didn't find article matching {text}", ephemeral=True)
+        await article.generate_embed()
+
+        v = article.view
+        v.add_item(Stop())
+
+        await self.bot.reply(interaction, view=v, embed=article.embed)
 
     # Command for tracker management.
     @command()
@@ -378,8 +392,8 @@ class NewsTracker(Cog):
         target = next((i for i in self.bot.news_channels if i.channel.id == channel.id), None)
 
         if target is None:
-            connection = await self.bot.db.acquire()
             sql = """INSERT INTO news_trackers (channel_id) VALUES ($1)"""
+            connection = await self.bot.db.acquire()
 
             try:
                 async with connection.transaction():
@@ -388,11 +402,12 @@ class NewsTracker(Cog):
                 await self.bot.db.release(connection)
 
             target = NewsChannel(self.bot, channel=channel)
+            self.bot.news_channels.append(target)
         return await target.send_config(interaction)
 
     # Event Listeners for database cleanup.
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel):
+    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM news_trackers WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -403,7 +418,7 @@ class NewsTracker(Cog):
             await self.bot.db.release(connection)
 
     @Cog.listener()
-    async def on_guild_remove(self, guild: Guild):
+    async def on_guild_remove(self, guild: Guild) -> None:
         """Purge news trackers for deleted guilds"""
         q = f"""DELETE FROM news_trackers WHERE guild_id = $1"""
         connection = await self.bot.db.acquire()

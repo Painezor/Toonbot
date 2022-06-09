@@ -33,6 +33,7 @@ INJURY_EMOJI = "<:injury:682714608972464187>"
 
 # TODO: Team dropdown on Competitions
 # TODO: Create .embed attribute for events.
+# TODO: Move away from buttons to dropdowns for view subcommands.
 
 
 async def delete_ads(page: Page) -> NoReturn:
@@ -165,7 +166,6 @@ class Penalty(Goal):
 
     def __str__(self) -> str:
         emoji = "⚽" if getattr(self, 'missed', False) else "❌"
-
         time = "" if getattr(self, 'shootout', False) else f" {self.time.value}"
         output = f"`{emoji} {time}`:"
 
@@ -241,7 +241,7 @@ class VAR(MatchEvent):
     assist: Player
 
     def __str__(self) -> str:
-        output = f'`📹 {self.time}`: VAR Review'
+        output = f'`📹 {self.time.value}`: VAR Review'
         try:
             output += f" {self.player.markdown}"
         except AttributeError:
@@ -864,6 +864,8 @@ class Competition(FlashScoreItem):
                 image = await self.bot.dump_image(self.bot, data)
                 if image:
                     return image
+        except TimeoutError:  # Some competitions don't have tables.
+            return None
         finally:
             await page.close()
 
@@ -1126,7 +1128,7 @@ class Fixture(FlashScoreItem):
         self._update_cards("_cards_away", value)
 
     async def fixtures(self, page: Page = None) -> List[Fixture]:
-        """Fixture objects do not have fixtures."""
+        """Fixture objects do not have fixtures, so we Raise."""
         raise NotImplementedError
 
     @property
@@ -1302,8 +1304,16 @@ class Fixture(FlashScoreItem):
             return output + f" {self.home.name} [{ph} - {pa}]({self.link}) {self.away.name} (FT: {s} - {s})"
 
         if hasattr(self, "_score_home"):
-            ch = "" if not self.cards_home else f"`{self.cards_home * '🟥'}` "
-            ca = "" if not self.cards_away else f" `{self.cards_away * '🟥'}`"
+            if not self.cards_home:
+                ch = ''
+            else:
+                ch = '`🟥`' if self.cards_home == 1 else f'`🟥 x{self.cards_home}`'
+
+            if not self.cards_away:
+                ca = ""
+            else:
+                ca = '`🟥`' if self.cards_away == 1 else f'`🟥 x{self.cards_away}`'
+
             return output + f" {ch}{self.bold_markdown}{ca}"
 
         return output + f" [{self.home.name} vs {self.away.name}]({self.link}) "
@@ -1328,7 +1338,7 @@ class Fixture(FlashScoreItem):
         potential_badges = "".join(tree.xpath(f'.//div[contains(@class, "tlogo-{team}")]//img/@src'))
         return potential_badges[0]
 
-    async def table(self) -> str:
+    async def table(self) -> Optional[str]:
         """Fetch an image of the league table appropriate to the fixture as a bytesIO object"""
         page = await self.bot.browser.newPage()
 
@@ -1341,6 +1351,8 @@ class Fixture(FlashScoreItem):
                 image = await self.bot.dump_image(self.bot, data)
                 if data is not None:
                     return image
+        except TimeoutError:
+            return None
         finally:
             await page.close()
 
@@ -2156,7 +2168,7 @@ class TeamView(View, ViewErrorHandling):
         self.value = None
 
         # Specific Selection
-        self.league_select: List[Competition] | False = False
+        self.league_select: List[Competition] = []
 
         # Disable buttons when changing pages.
         # Page buttons have their own callbacks so cannot be directly passed to update
@@ -2180,7 +2192,7 @@ class TeamView(View, ViewErrorHandling):
             else:
                 add_page_buttons(self)
 
-                for _ in [FuncButton(label="Squad", func=self.push_squad),
+                for _ in [FuncButton(label="Squad", func=self.push_squad, emoji='🏃‍'),
                           FuncButton(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI),
                           FuncButton(label="Scorers", func=self.push_scorers, emoji='⚽'),
                           FuncButton(label="Table", func=self.select_table, row=3),

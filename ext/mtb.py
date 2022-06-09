@@ -20,12 +20,11 @@ if TYPE_CHECKING:
 class MatchThread:
     """Tool for updating a reddit post with the latest information about a match."""
 
-    def __init__(self, bot: 'Bot', fixture: football.Fixture, settings, record, page):
+    def __init__(self, bot: 'Bot', fixture: football.Fixture, settings, record):
         self.bot: Bot = bot
         self.fixture = fixture
         self.settings = settings
         self.record = record
-        self.page = page
 
         # Fetch once
         self.tv = None
@@ -115,8 +114,7 @@ class MatchThread:
 
         for i in range(300):  # Maximum number of loops.
             if self.stop:
-                await self.page.close()
-                return
+                break
 
             await self.fixture.refresh()
 
@@ -172,7 +170,6 @@ class MatchThread:
 
         if c:
             await c.send(f'{self.settings["subreddit"]} Match Thread Loop Completed: {post.url} | <{self.fixture.url}>')
-        await self.page.close()
 
     async def pre_match(self):
         """Create a pre-match thread"""
@@ -251,7 +248,7 @@ class MatchThread:
 
     async def send_notification(self, channel_id, post: asyncpraw.Reddit.post):
         """Announce new posts to designated channels."""
-        channel = await self.bot.get_channel(channel_id)
+        channel = self.bot.get_channel(channel_id)
         if channel is None:
             return  # Rip
         await channel.send(embed=discord.Embed(colour=0xFF4500, title=post.title, url=post.url))

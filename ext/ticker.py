@@ -130,7 +130,7 @@ class TickerEvent:
     async def full_embed(self) -> Embed:
         """Extended Embed with all events for Extended output event_type"""
         e = await self.embed
-        if self.fixture.events:
+        if hasattr(self.fixture, 'events'):
             for i in self.fixture.events:
                 if isinstance(i, Substitution):
                     continue  # skip subs, they're just spam.
@@ -395,7 +395,7 @@ class TickerConfig(View):
         self.clear_items()
 
         # Ticker Verify -- NOT A SCORES CHANNEL
-        if self.channel.id in [i.channel_id for i in self.bot.score_channels]:
+        if self.channel.id in [i.channel.id for i in self.bot.score_channels]:
             return await self.bot.error(self.interaction, 'You cannot create a ticker in a livescores channel.')
 
         view = Confirmation(self.interaction, colour_a=ButtonStyle.green, label_b="Cancel",
@@ -431,7 +431,7 @@ class TickerConfig(View):
                     await connection.execute(qqq, self.channel.id, x)
             return await self.update(content=f"A ticker was created for {self.channel.mention}")
         except Exception as err:
-            _ = f"An error occurred while creating a ticker for {self.channel.mention}"
+            _ = f"oi, dickhead, An error occurred while creating a ticker for {self.channel.mention}"
             self.stop()
             await self.bot.error(self.interaction, _)
             raise err
@@ -515,6 +515,11 @@ class TickerCog(Cog, name="Ticker"):
         """Event handler for when something occurs during a fixture."""
         connection = await self.bot.db.acquire()
 
+        # Update the competition's Table.
+        match event_type:
+            case EventType.GOAL:
+                await f.competition.table()
+
         c: str = ", ".join(event_type.db_fields)
         not_nulls = " AND ".join([f'({x} IS NOT NULL)' for x in event_type.db_fields])
         sql = f"""SELECT {c}, ticker_settings.channel_id FROM ticker_settings LEFT JOIN ticker_leagues 
@@ -539,7 +544,7 @@ class TickerCog(Cog, name="Ticker"):
                 assert channel
                 assert channel.permissions_for(channel.guild.me).send_messages
                 assert channel.permissions_for(channel.guild.me).embed_links
-                assert channel.id not in [i.channel_id for i in self.bot.score_channels]
+                assert channel.id not in [i.channel.id for i in self.bot.score_channels]
                 assert not channel.is_news()
 
                 long.append(channel) if all(x for x in r) else short.append(channel)

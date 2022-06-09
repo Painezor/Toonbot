@@ -249,7 +249,7 @@ class Logs(Cog):
             return []  # Ignore DMs & Do not log message deletions from bots.
 
         e: Embed = Embed(colour=Colour.dark_red())
-        t = timed_events.Timestamp(datetime.datetime.now()).datetime
+        t = timed_events.Timestamp(datetime.datetime.now(datetime.timezone.utc)).datetime
         e.description = f"{t}\n{message.channel.mention} {message.author.mention}\n> {message.content}"
         e.set_footer(text=f"Deleted Message from UserID: {message.author.id}")
 

@@ -39,15 +39,15 @@ class Admin(Cog):
 
     @command()
     @describe(guild="enter guild ID to sync")
-    async def sync(self, interaction: Interaction, guild: str = None) -> Message:
+    async def sync(self, interaction: Interaction, guild: bool = False) -> Message:
         """Sync the command tree with discord"""
         await interaction.response.defer(thinking=True)
 
-        if guild is None:
+        if not guild:
             await self.bot.tree.sync()
             return await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")
         else:
-            await self.bot.tree.sync(guild=Object(int(guild)))
+            await self.bot.tree.sync(guild=Object(id=interaction.guild.id))
             return await self.bot.reply(interaction, content="Guild synced")
 
     cogs = Group(name="cogs", description="Load and unload modules", guild_ids=[250252535699341312])
@@ -57,6 +57,8 @@ class Admin(Cog):
     @autocomplete(cog=cg_ac)
     async def reload(self, interaction: Interaction, cog: str) -> Message:
         """Reloads a module."""
+        await interaction.response.defer(thinking=True)
+
         try:
             await self.bot.reload_extension(f'ext.{cog}')
         except Exception as err:
@@ -69,6 +71,8 @@ class Admin(Cog):
     @describe(cog="pick a cog to load")
     async def load(self, interaction: Interaction, cog: str) -> Message:
         """Loads a module."""
+        await interaction.response.defer(thinking=True)
+
         try:
             await self.bot.load_extension('ext.' + cog)
         except Exception as err:
@@ -81,6 +85,8 @@ class Admin(Cog):
     @autocomplete(cog=cg_ac)
     async def unload(self, interaction: Interaction, cog: str) -> Message:
         """Unloads a module."""
+        await interaction.response.defer(thinking=True)
+
         try:
             await self.bot.unload_extension('ext.' + cog)
         except Exception as err:
@@ -92,6 +98,8 @@ class Admin(Cog):
     @cogs.command()
     async def list(self, interaction: Interaction) -> Message:
         """List all currently loaded modules"""
+        await interaction.response.defer(thinking=True)
+
         loaded = sorted([i for i in self.bot.cogs])
         e: Embed = Embed(title="Currently loaded Cogs", colour=Colour.og_blurple(), description="\n".join(loaded))
         return await self.bot.reply(interaction, embed=e)
@@ -100,6 +108,8 @@ class Admin(Cog):
     @guilds(250252535699341312)
     async def _print(self, interaction: Interaction, to_print: str) -> Message:
         """Print something to console."""
+        await interaction.response.defer(thinking=True)
+
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
 
@@ -111,6 +121,8 @@ class Admin(Cog):
     @guilds(250252535699341312)
     async def cc(self, interaction: Interaction) -> Message:
         """Clear the command window."""
+        await interaction.response.defer(thinking=True)
+
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
 
@@ -126,6 +138,8 @@ class Admin(Cog):
     @describe(code=">>> Code Go Here")
     async def debug(self, interaction: Interaction, code: str) -> Message:
         """Evaluates code."""
+        await interaction.response.defer(thinking=True)
+
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
 
@@ -158,6 +172,8 @@ class Admin(Cog):
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
 
+        await interaction.response.defer(thinking=True)
+
         self.bot.dispatch("bot_notification", notification)
         e: Embed = Embed(title="Bot notification dispatched", description=notification)
         e.set_thumbnail(url=self.bot.user.avatar.url)
@@ -169,6 +185,8 @@ class Admin(Cog):
     @describe(file='The file to upload', link="Provide a link")
     async def avatar(self, interaction: Interaction, file: Attachment = None, link: str = None) -> Message:
         """Change the avatar of the bot"""
+        await interaction.response.defer(thinking=True)
+
         if interaction.user.id != self.bot.owner_id:
             return await self.bot.error(interaction, "You do not own this bot.")
         avatar = file if file else link
@@ -197,24 +215,32 @@ class Admin(Cog):
     @describe(status="What game is the bot playing")
     async def playing(self, interaction: Interaction, status: str) -> Message:
         """Set bot status to playing {status}"""
+        await interaction.response.defer(thinking=True)
+
         return await self.update_presence(interaction, Activity(type=0, name=status))
 
     @status.command()
     @describe(status="What is the bot streaming")
     async def streaming(self, interaction: Interaction, status: str) -> Message:
         """Change status to streaming {status}"""
+        await interaction.response.defer(thinking=True)
+
         return await self.update_presence(interaction, Activity(type=1, name=status))
 
     @status.command()
     @describe(status="What is the bot watching")
     async def watching(self, interaction: Interaction, status: str) -> Message:
         """Change status to watching {status}"""
+        await interaction.response.defer(thinking=True)
+
         return await self.update_presence(interaction, Activity(type=2, name=status))
 
     @status.command()
     @describe(status="What is the bot listening to")
     async def listening(self, interaction: Interaction, status: str) -> Message:
         """Change status to listening to {status}"""
+        await interaction.response.defer(thinking=True)
+
         return await self.update_presence(interaction, Activity(type=3, name=status))
 
     async def update_presence(self, interaction: Interaction, act: Activity) -> Message:

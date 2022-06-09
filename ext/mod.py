@@ -231,9 +231,12 @@ class Mod(Cog):
 
         number = 10 if number is None else number
 
-        deleted = await interaction.channel.purge(limit=number, check=is_me, reason=f"/clean ran by {interaction.user}")
-        c = f'♻ Deleted {len(deleted)} bot message{"s" if len(deleted) > 1 else ""}'
-        await self.bot.reply(interaction, content=c)
+        try:
+            d = await interaction.channel.purge(limit=number, check=is_me, reason=f"/clean ran by {interaction.user}")
+            c = f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}'
+            await self.bot.reply(interaction, content=c)
+        except NotFound:
+            pass
 
     @command()
     @default_permissions(moderate_members=True)

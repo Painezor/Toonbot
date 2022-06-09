@@ -38,9 +38,9 @@ class Errors(Cog):
                 try:
                     return await self.bot.error(i, 'An Internal error occurred.')
                 finally:
-
-                    print("Error occurred when running a command\n", i.__repr__())
-                    raise error
+                    print("Error occurred when running a command, printing dir of interaction\n", dir(i))
+                    print(i.command)
+                    print(i.channel)
 
 
 async def setup(bot: Union['Bot', 'PBot']) -> None:

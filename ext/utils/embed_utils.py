@@ -69,18 +69,15 @@ def stack_embeds(embeds: List[Embed]) -> List[List[Embed]]:
     this_iter: List[Embed] = []
     output: List[List[Embed]] = []
     length: int = 0
-    count: int = 1
 
     for x in embeds:
-        if length + len(x) < 6000 and count < 10:
+        if length + len(x) < 6000 and len(this_iter) < 10:
             length += len(x)
-            count += 1
             this_iter.append(x)
         else:
             output.append(this_iter)
-            output = [x]
+            this_iter = [x]
             length = len(x)
-            count = 1
 
     output.append(this_iter)
     return output

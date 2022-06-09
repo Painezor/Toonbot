@@ -20,17 +20,18 @@ def add_page_buttons(view: View, row: int = 0) -> View:
     index = getattr(view, "index", 1)
     pages = len(getattr(view, "pages", []))
 
-    p = Previous(row=row)
-    p.disabled = True if index == 0 else False
-    view.add_item(p)
+    if pages > 1:
+        p = Previous(row=row)
+        p.disabled = True if index == 0 else False
+        view.add_item(p)
 
-    j = Jump(row=row, label=f"Page {index + 1} of {pages}")
-    j.disabled = True if pages < 3 else False
-    view.add_item(j)
+        j = Jump(row=row, label=f"Page {index + 1} of {pages}")
+        j.disabled = True if pages < 3 else False
+        view.add_item(j)
 
-    n = Next(row=row)
-    n.disabled = True if index + 1 >= pages else False  # index 0 plus 1, len pages = 1
-    view.add_item(n)
+        n = Next(row=row)
+        n.disabled = True if index + 1 >= pages else False  # index 0 plus 1, len pages = 1
+        view.add_item(n)
     view.add_item(Stop(row=row))
     return view
 
