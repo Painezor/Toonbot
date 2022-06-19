@@ -142,7 +142,7 @@ class Info(Cog):
         if emojis:
             e.add_field(name="Emotes", value=emojis, inline=False)
 
-        e.description += f"\n**Emotes**: {len(emojis)} / {interaction.guild.emoji_limit} slots used."
+        e.description += f"\n**Emotes**: {len(interaction.guild.emojis)} / {interaction.guild.emoji_limit}  slots used."
         e.description += f"\n**Stickers**: {len(interaction.guild.stickers)} " \
                          f"/ {interaction.guild.sticker_limit} slots used."
 

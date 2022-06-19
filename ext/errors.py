@@ -22,6 +22,10 @@ class Errors(Cog):
     async def error_handler(self, i: Interaction, error) -> Message:
         """Event listener for when commands raise exceptions"""
         # Unpack CIE
+        if isinstance(error, AssertionError):
+            error = error.args[0]
+            return await self.bot.error(i, error)
+
         if isinstance(error, CommandInvokeError):
             error = error.original
 
@@ -29,20 +33,21 @@ class Errors(Cog):
             case TargetOptedOutError() | OptedOutError():  # QuoteDB Specific
                 return await self.bot.error(i, error.args[0])
             case BotMissingPermissions():
-                miss = ''.join(error.missing_permissions)
+                miss = ', '.join(error.missing_permissions)
                 return await self.bot.error(i, f"The bot requires the {miss} permissions to run this command")
             case MissingPermissions():
-                miss = ''.join(error.missing_permissions)
+                miss = ', '.join(error.missing_permissions)
                 return await self.bot.error(i, f"You required {miss} permissions to run this command")
             case _:
                 try:
                     return await self.bot.error(i, 'An Internal error occurred.')
                 finally:
-                    print("Error occurred when running a command, printing dir of interaction\n", dir(i))
-                    print(i.command)
-                    print(i.channel)
-                    print(i.message)
-                    print(i.extras)
+                    print("Error occurred when running a command, printing interaction data\n")
+                    if i.command.parent:
+                        print(f'/{i.command.parent.name} {i.command.name}')
+                    else:
+                        print(f'/{i.command.name})')
+                    raise error
 
 
 async def setup(bot: Union['Bot', 'PBot']) -> None:

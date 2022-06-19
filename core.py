@@ -13,20 +13,19 @@ from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot
 
 from ext.utils.browser_utils import make_browser
-from ext.utils.football import Team, Competition, Fixture
+from ext.utils.flashscore import Team, Competition, Fixture
 from ext.utils.reply import reply, error, dump_image
 
 if TYPE_CHECKING:
     from ext.scores import ScoreChannel
     from ext.ticker import TickerChannel
-    from asyncio import Task
-    from asyncpg import Record, Pool
+    from ext.transfers import TransferChannel
 
+    from asyncio import Task, Semaphore
+    from asyncpg import Record, Pool
     from pyppeteer.browser import Browser
 
 basicConfig(level=INFO)
-
-# TODO: New logging commands
 
 
 with open('credentials.json') as f:
@@ -37,18 +36,18 @@ COGS = ['errors',  # Utility Cogs
         'meta-toonbot',
         'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv', 'logs', 'lookup', 'mod',
         'nufc', 'poll', 'quotes', 'reminders', 'sidebar', 'streams',
-        # Testing
-        'testing'
         ]
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
              "&scope=bot%20applications.commands"
 
 
+# TODO: Global Speed optimisation -- Replace all += strings with a .join() method
+
 class Bot(AutoShardedBot):
     """The core functionality of the bot."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
 
         super().__init__(
             description="Football lookup bot by Painezor#8489",
@@ -60,6 +59,7 @@ class Bot(AutoShardedBot):
         )
 
         # Reply Handling
+        self.ticker_semaphore: Semaphore = None
         self.reply: Callable = reply
         self.error: Callable = error
         self.dump_image: Callable = dump_image
@@ -106,6 +106,7 @@ class Bot(AutoShardedBot):
         self.ticker_channels: List[TickerChannel] = []
 
         # Transfers
+        self.transfer_channels: List[TransferChannel] = []
         self.transfers: Optional[Task] | None = None
         self.parsed_transfers: List[str] = []
 
@@ -114,7 +115,7 @@ class Bot(AutoShardedBot):
 
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
         """Load Cogs asynchronously"""
         self.browser = await make_browser()
         self.session = ClientSession(loop=self.loop, connector=TCPConnector(ssl=False))
@@ -126,6 +127,7 @@ class Bot(AutoShardedBot):
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
             else:
                 print(f"Loaded extension {c}")
+        return
 
     def get_competition(self, comp_id: str) -> Optional[Competition]:
         """Retrieve a competition from the ones stored in the bot."""
@@ -140,7 +142,7 @@ class Bot(AutoShardedBot):
         return next((i for i in self.games if getattr(i, 'id', None) == fixture_id), None)
 
 
-async def run():
+async def run() -> None:
     """Start the bot running, loading all credentials and the database."""
     db = await create_pool(**credentials['ToonbotDB'])
     bot = Bot(database=db)

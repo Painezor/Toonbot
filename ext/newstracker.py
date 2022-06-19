@@ -1,10 +1,10 @@
 """Cog for fetching World of Warships Portal Articles from each region"""
-# TODO: DB Table for news articles (url, image, title, text)
 from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
 from typing import TYPE_CHECKING, Optional, Dict, List
 
+from asyncpg import Record
 from discord import Embed, Interaction, Message, Colour, TextChannel, Guild, ButtonStyle, HTTPException
 from discord.app_commands import command, describe, guild_only, default_permissions, autocomplete, Choice
 from discord.ext.commands import Cog
@@ -47,36 +47,55 @@ class ToggleButton(Button):
             await self.bot.db.release(connection)
 
         on = "Enabled" if new_value else "Disabled"
-        r = self.region.db_key.upper()
+        r = self.region.name
         return await self.view.update(f'{on} tracking of articles for {r} in {self.view.channel.mention}')
 
 
 class Article:
     """An Object representing a World of Warships News Article"""
     bot: PBot
-    link: str = ""
-
-    # Stored Data
-    title: str = ""
-    category: str = ""
-    description: str = ""
-    image: str = ""
-    date: datetime.datetime = None
-
-    # Generated
-    embed: Embed = None
-    view: View = None
-
-    # A flag for each region the article has been found in.
-    eu: bool = False
-    na: bool = False
-    cis: bool = False
-    sea: bool = False
+    embed: Embed
+    view: View
 
     def __init__(self, bot: 'PBot', partial: str) -> None:
         self.bot = bot
         # Partial is the trailing part of the URL.
         self.partial: str = partial
+        self.link: str = ""
+
+        # Stored Data
+        self.title: str = ""
+        self.category: str = ""
+        self.description: str = ""
+        self.image: str = ""
+
+        # A flag for each region the article has been found in.
+        self.eu: bool = False
+        self.na: bool = False
+        self.cis: bool = False
+        self.sea: bool = False
+
+        self.date: Optional[datetime.datetime] = None
+
+    async def save_to_db(self) -> None:
+        """Store the article in the database for quicker retrieval in future"""
+        sql = """INSERT INTO news_articles 
+                 (title, description, partial, link, image, category, date, eu, na, cis, sea)
+                 VALUES 
+                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+                 ON CONFLICT (partial) DO UPDATE SET 
+                 (title, description, link, image, category, date, eu, na, cis, sea) = 
+                 (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link, EXCLUDED.image, EXCLUDED.category, EXCLUDED.date,
+                 EXCLUDED.eu, EXCLUDED.na, EXCLUDED.cis, EXCLUDED.sea)
+                 """
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                await connection.execute(sql, self.title, self.description, self.partial, self.link, self.image,
+                                         self.category, self.date, self.eu, self.na, self.cis, self.sea)
+        finally:
+            await self.bot.db.release(connection)
+        return
 
     async def generate_embed(self) -> Embed:
         """Handle dispatching of news article."""
@@ -132,7 +151,7 @@ class Article:
         for region in Region:
             if getattr(self, region.db_key):
                 url = f"{region.domain}en/{self.partial}"
-                b = Button(style=ButtonStyle.url, label=f"{region.db_key.upper()} article", emoji=region.emote, url=url)
+                b = Button(style=ButtonStyle.url, label=f"{region.name} article", emoji=region.emote, url=url)
                 v.add_item(b)
 
         self.embed = e
@@ -225,12 +244,12 @@ class NewsConfig(View):
                 region = next(i for i in Region if k == i.db_key)
 
                 if v:  # Bool: True/False
-                    e.description += f"\n**{region.emote} {region.db_key.upper()} News is currently being tracked.**"
+                    e.description += f"\n**{region.emote} {region.name} News is currently being tracked.**"
                 else:
-                    e.description += f"\n{region.emote} {region.db_key.upper()} News is not being tracked."
+                    e.description += f"\n{region.emote} {region.name} News is not being tracked."
 
                 self.add_item(ToggleButton(self.bot, region=region, value=v))
-
+        self.add_item(Stop())
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
@@ -249,7 +268,6 @@ class NewsTracker(Cog):
         self.bot: PBot = bot
         self.bot.news = self.news_loop.start()
         self.bot.news_channels = []
-        self.cached = False
 
     async def cog_load(self) -> None:
         """Do this on Cog Load"""
@@ -264,19 +282,28 @@ class NewsTracker(Cog):
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                records = await connection.fetch("""SELECT * FROM news_trackers""")
+                channels = await connection.fetch("""SELECT * FROM news_trackers""")
+                articles = await connection.fetch("""SELECT * FROM news_articles""")
         finally:
             await self.bot.db.release(connection)
 
-        # Remove 'dead' channels.
-        new_ids = [r['channel_id'] for r in records]
-        for x in self.bot.news_channels.copy():
-            if x.channel.id not in new_ids:
-                self.bot.news_channels.remove(x)
+        partials = [i.partial for i in self.bot.news_cache]
+
+        r: Record
+        for r in articles:
+            if r['partial'] in partials:
+                continue
+            else:
+                article = Article(self.bot, partial=r['partial'])
+                for k, v in r.items():
+                    if k == "partial":
+                        continue
+                    setattr(article, k, v)
+                self.bot.news_cache.append(article)
 
         # Append new ones.
         cached_ids = [x.channel.id for x in self.bot.news_channels]
-        for r in records:
+        for r in channels:
             if r['channel_id'] not in cached_ids:
                 channel = self.bot.get_channel(r['channel_id'])
                 if channel is None:
@@ -302,8 +329,8 @@ class NewsTracker(Cog):
             for i in tree.xpath('.//item'):
                 link = ''.join(i.xpath('.//guid/text()'))
                 partial = link.split('/en/')[-1]
-                article = next((i for i in self.bot.news_cache if i.partial == partial), None)
 
+                article = next((i for i in self.bot.news_cache if i.partial == partial), None)
                 if article is not None:
                     # If we have already dispatched this article for this region, we are no longer interested
                     if getattr(article, region.db_key):
@@ -317,7 +344,6 @@ class NewsTracker(Cog):
 
                 # At this point, we either have a new article, or a new region for an existing article.
                 # In which case, we check if we need to extract additional data from the RSS.
-
                 if not article.link:
                     article.link = link  # Original Link
 
@@ -350,8 +376,7 @@ class NewsTracker(Cog):
                 await article.generate_embed()
 
                 # If we are simply populating, we are not interested.
-                if not self.cached:
-                    continue  # Skip on population
+                await article.save_to_db()
 
                 for channel in self.bot.news_channels:
                     try:
@@ -359,7 +384,6 @@ class NewsTracker(Cog):
                     except HTTPException:
                         print("HTTP Exception trying to dispatch article")
                         print(article.__dict__)
-        self.cached = True
 
     @command()
     @describe(text="Search by article title")

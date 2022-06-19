@@ -11,7 +11,7 @@ from discord.ext.commands import Cog
 from discord.ui import View
 
 # Custom Utils
-from ext.utils.football import Competition, Team, Stadium, Fixture, fs_search, get_stadiums, FlashScoreItem
+from ext.utils.flashscore import Competition, Team, Stadium, Fixture, search, get_stadiums, FlashScoreItem, fx_ac
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import ObjectSelectView, Paginator
 
@@ -50,7 +50,7 @@ async def tm_ac(interaction: Interaction, current: str) -> List[Choice]:
                 t = Choice(name=f"Server default: {default.name}"[:100], value=default.id)
                 interaction.extras['default'] = t
 
-    opts = [Choice(name=t.name[:100], value=t.id) for t in teams if f"{current}".lower() in t.name.lower()]
+    opts = [Choice(name=t.name[:100], value=t.id) for t in teams if current.lower() in t.name.lower()]
 
     if opts:
         if interaction.extras['default'] is not None:
@@ -59,7 +59,7 @@ async def tm_ac(interaction: Interaction, current: str) -> List[Choice]:
     return list(opts[:25])
 
 
-async def lg_ac(interaction: Interaction, current: str) -> List[Choice]:
+async def lg_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Autocomplete from list of stored leagues"""
     lgs = sorted(getattr(interaction.client, 'competitions'), key=lambda x: x.title)
 
@@ -87,7 +87,7 @@ async def lg_ac(interaction: Interaction, current: str) -> List[Choice]:
 
     matches = [i for i in lgs if getattr(i, 'id', None) is not None]
 
-    opts = [Choice(name=lg.title[:100], value=lg.id) for lg in matches if f"{current}".lower() in lg.name.lower()]
+    opts = [Choice(name=lg.title[:100], value=lg.id) for lg in matches if current.lower() in lg.name.lower()]
     if opts:
         if interaction.extras['default'] is not None:
             opts = [interaction.extras['default']] + opts
@@ -104,24 +104,6 @@ async def tm_lg_ac(interaction: Interaction, current: str) -> List[Choice]:
         return []
 
 
-async def fx_ac(interaction: Interaction, current: str) -> List[Choice]:
-    """Check if user's typing is in list of live games"""
-    games = getattr(interaction.client, "games", [])
-
-    matches = []
-    for g in games:
-        try:
-            if current.lower() not in f"{g.home.name.lower()} {g.away.name.lower()} {g.competition.title.lower()}":
-                continue
-        except AttributeError:
-            print(f'DEBUG Could not find lower for: {g.home.name} | {g.away.name} | {g.competition.title}')
-            continue
-
-        out = f"⚽ {g.home.name} {g.score} {g.away.name} ({g.competition.title})"[:100]
-        matches.append(Choice(name=out, value=g.id))
-    return matches[:25]
-
-
 class Fixtures(Cog):
     """Lookups for past, present and future football matches."""
 
@@ -133,7 +115,7 @@ class Fixtures(Cog):
             -> FlashScoreItem | Message:
         """Get Matches from Live Games & FlashScore Search Results"""
         # Gather Other Search Results
-        return await fs_search(self.bot, interaction, qry, competitions=mode == "league", teams=mode == "team")
+        return await search(self.bot, interaction, qry, competitions=mode == "league", teams=mode == "team")
 
     # Get Recent Game
     async def pick_recent_game(self, i: Interaction, fsr: Competition | Team) -> Fixture | Message:
@@ -165,11 +147,12 @@ class Fixtures(Cog):
 
         # Receive Autocomplete.
         fsr = self.bot.get_competition(query)
-        if not fsr:
+        if fsr is None:
             fsr = self.bot.get_team(query)
 
-            if not fsr:
+            if fsr is None:
                 fsr = await self.search(i, query, mode=mode)
+
                 if isinstance(fsr, Message):
                     return fsr  # Not Found
 
@@ -198,17 +181,16 @@ class Fixtures(Cog):
 
         # Receive Autocomplete.
         fsr = self.bot.get_competition(query)
-        if not fsr:
+        if fsr is None:
             fsr = self.bot.get_team(query)
+
             if fsr is None:
                 fsr = await self.search(i, query, mode=mode)
 
-        if isinstance(fsr, Message):
-            return fsr
+                if isinstance(fsr, Message):
+                    return fsr
 
-        # Spawn Browser & Go.
-        view = fsr.view(i)
-        return await view.push_fixtures()
+        return await fsr.view(i).push_fixtures()
 
     @command()
     @describe(mode="search for a team or a league?", query="enter a search query")
@@ -219,16 +201,15 @@ class Fixtures(Cog):
 
         # Receive Autocomplete.
         fsr = self.bot.get_competition(query)
-        if not fsr:
+        if fsr is None:
             fsr = self.bot.get_team(query)
             if fsr is None:
                 fsr = await self.search(i, query, mode=mode)
+
                 if isinstance(fsr, Message):
                     return fsr
 
-        # Spawn Browser & Go.
-        view = fsr.view(i)
-        return await view.push_results()
+        return await fsr.view(i).push_results()
 
     @command()
     @autocomplete(query=tm_lg_ac)
@@ -239,10 +220,12 @@ class Fixtures(Cog):
 
         # Receive Autocomplete.
         fsr = self.bot.get_competition(query)
-        if not fsr:
+        if fsr is None:
             fsr = self.bot.get_team(query)
+
             if fsr is None:
                 fsr = await self.search(i, query, mode=mode)
+
                 if isinstance(fsr, Message | None):
                     return fsr
 
@@ -262,10 +245,12 @@ class Fixtures(Cog):
 
         # Receive Autocomplete.
         fsr = self.bot.get_competition(query)
-        if not fsr:
+        if fsr is None:
             fsr = self.bot.get_team(query)
+
             if fsr is None:
                 fsr = await self.search(i, query, mode=mode)
+
                 if isinstance(fsr, Message):
                     return fsr
 
@@ -473,7 +458,7 @@ class Fixtures(Cog):
         await view.wait()
 
         if view.value is None:
-            return await self.bot.error(interaction, "Timed out waiting for you to reply", followup=False)
+            return await self.bot.error(interaction, content="Timed out waiting for you to reply", followup=False)
 
         embed = await stadiums[view.value].to_embed
         return await self.bot.reply(interaction, embed=embed)

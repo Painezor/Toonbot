@@ -1,6 +1,6 @@
 """Commands related to the Quote Database Functionality"""
 from random import randrange
-from typing import List, TYPE_CHECKING, Optional, Union
+from typing import List, TYPE_CHECKING, Optional
 
 from asyncpg import UniqueViolationError, Record
 from discord import Embed, ButtonStyle, Interaction, Colour, Message, Member
@@ -12,8 +12,6 @@ from ext.utils.view_utils import Confirmation, add_page_buttons
 
 if TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
-    from discord import Client
 
 
 class OptedOutError(AppCommandError):
@@ -36,8 +34,8 @@ class TargetOptedOutError(AppCommandError):
 class Delete(Button):
     """Button to spawn a new view to delete a quote."""
 
-    def __init__(self, bot: Union['Bot', 'PBot'], row: int = None) -> None:
-        self.bot: Bot | PBot = bot
+    def __init__(self, bot: 'Bot', row: int = None) -> None:
+        self.bot: Bot = bot
         super().__init__(style=ButtonStyle.red, label="Delete", emoji="🗑️", row=row)
 
     async def callback(self, interaction: Interaction):
@@ -46,7 +44,7 @@ class Delete(Button):
 
         if r["guild_id"] != interaction.guild.id or interaction.guild.id is None:
             if interaction.user.id not in [r["author_user_id"], r["submitter_user_id"], self.bot.owner_id]:
-                return await self.view.update(f"You can't delete other servers quotes.")
+                return await self.view.update(content=f"You can't delete other servers quotes.")
 
         _ = self.view.interaction.user.id in [r["author_user_id"], r["submitter_user_id"]]
         if _ or interaction.permissions.manage_messages:
@@ -83,9 +81,7 @@ class Global(Button):
     async def callback(self, interaction: Interaction) -> Message:
         """Flip the bool."""
         await interaction.response.defer()
-
         self.view.all_guilds = not self.view.all_guilds
-
         self.view.index = 0
         return await self.view.update()
 
@@ -116,7 +112,7 @@ class QuotesView(View):
         self.pages: List[Record] = list(filter(lambda x: x['guild_id'] == interaction.guild.id, quotes))
         self.all: List[Record] = quotes
         self.interaction = interaction
-        self.bot: Bot | PBot | Client = bot if bot is not None else interaction.client
+        self.bot: Bot = bot if bot is not None else interaction.client
         self.index: int = 0
 
         try:
@@ -213,13 +209,13 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
     if message.author.id in blacklist:
         raise TargetOptedOutError(message.author)
     if interaction.guild is None:
-        return await interaction.client.error(interaction, 'This command cannot be used in DMs.')
+        return await interaction.client.error(interaction, content='This command cannot be used in DMs.')
     if message.author.id == interaction.user.id:
-        return await interaction.client.error(interaction, 'You cannot quote yourself.')
+        return await interaction.client.error(interaction, content='You cannot quote yourself.')
     if message.author.bot:
-        return await interaction.client.error(interaction, 'You cannot quote a bot.')
+        return await interaction.client.error(interaction, content='You cannot quote a bot.')
     if not message.content:
-        return await interaction.client.error(interaction, 'That message has no content.')
+        return await interaction.client.error(interaction, content='That message has no content.')
 
     connection = await interaction.client.db.acquire()
 
@@ -234,7 +230,7 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
 
         await QuotesView(interaction, [r]).update(content="Quote added to database.")
     except UniqueViolationError:
-        await interaction.client.error(interaction, "That quote is already in the database!")
+        await interaction.client.error(interaction, content="That quote is already in the database!")
     finally:
         await interaction.client.db.release(connection)
 
@@ -308,11 +304,11 @@ async def quote_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
 class QuoteDB(commands.Cog):
     """Quote Database module"""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+    def __init__(self, bot: 'Bot') -> None:
         bot.tree.add_command(quote_add)
         bot.tree.add_command(quote_stats)
         bot.tree.add_command(u_quote)
-        self.bot: Bot | PBot = bot
+        self.bot: Bot = bot
 
     async def cog_load(self) -> None:
         """When the cog loads..."""
@@ -448,6 +444,6 @@ class QuoteDB(commands.Cog):
             await self.bot.reply(i, content=f"You were opted out of the quote DB", embed=e)
 
 
-async def setup(bot: Union['Bot', 'PBot']):
+async def setup(bot: 'Bot'):
     """Load the quote database module into the bot"""
     await bot.add_cog(QuoteDB(bot))

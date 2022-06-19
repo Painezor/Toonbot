@@ -1,5 +1,6 @@
 """Notify server moderators about specific events"""
 import datetime
+from copy import deepcopy
 from typing import List, Sequence, TYPE_CHECKING, Union, Callable
 
 from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, Member, User, Message
@@ -338,6 +339,9 @@ class Logs(Cog):
         e: Embed = Embed()
         # Find if it was addition or removal.
         new_emoji = [i for i in after if i not in before]
+
+        embeds: List[Embed] = []
+
         if new_emoji:
             for emoji in new_emoji:
                 if emoji.user is not None:
@@ -346,11 +350,13 @@ class Logs(Cog):
                 if emoji.managed:
                     e.set_author(name="Twitch Integration", icon_url=TWITCH_LOGO)
                     if emoji.roles:
-                        e.add_field(name='Available to roles', value=''.join([i.mention for i in emoji.roles]))
+                        e.add_field(name='Available to roles', value=' '.join([i.mention for i in emoji.roles]))
 
                 e.title = f"New {'animated ' if emoji.animated else ''}emote: {emoji.name}"
                 e.set_image(url=emoji.url)
                 e.set_footer(text=emoji.url)
+                embeds.append(deepcopy(e))
+                e.clear_fields()
         else:
             try:
                 removed_emoji = [i for i in before if i.id not in [i.id for i in after]][0]
@@ -363,7 +369,7 @@ class Logs(Cog):
         for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['emote_changes']]:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
-                await ch.send(embed=e)
+                await ch.send(embeds=embeds)
             except (AttributeError, HTTPException):
                 continue
 

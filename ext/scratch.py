@@ -55,7 +55,7 @@
 #     async def dice_tray(self, interaction):
 #         """Roll dice with clicky buttons"""
 #         if interaction.user.id != self.bot.owner_id:
-#             return await interaction.client.error(interaction, "You do not own this bot.")
+#             return await interaction.client.error(interaction, content="You do not own this bot.")
 #         view = DiceRoller(ctx)
 #         for num, x in enumerate([4, 6, 8, 10, 12, 20]):
 #             row = num // 5

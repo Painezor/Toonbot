@@ -16,7 +16,7 @@ from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from lxml import html
 
-from ext.utils import football
+from ext.utils import flashscore
 
 if TYPE_CHECKING:
     from core import Bot
@@ -56,7 +56,7 @@ class NUFCSidebar(Cog):
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
-        reload(football)
+        reload(flashscore)
 
     async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
@@ -93,18 +93,17 @@ class NUFCSidebar(Cog):
 
         wiki_content = wiki.content_md
 
-        fsr: football.Team = self.bot.get_team(team_id)
+        fsr: flashscore.Team = self.bot.get_team(team_id)
 
-        fixtures: List[football.Fixture] = await fsr.fixtures()
-        results: List[football.Fixture] = await fsr.results()
+        fixtures: List[flashscore.Fixture] = await fsr.fixtures()
+        results: List[flashscore.Fixture] = await fsr.results()
 
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             match resp.status:
                 case 200:
-                    pass
+                    tree = html.fromstring(await resp.text())
                 case _:
                     return
-            tree = html.fromstring(await resp.text())
 
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{'|:--:' * 6}\n"
         for i in tree.xpath('.//table[contains(@class,"gs-o-table")]//tbody/tr')[:20]:
@@ -254,7 +253,7 @@ class NUFCSidebar(Cog):
             try:
                 await s.stylesheet.upload("sidebar", 'sidebar')
             except TooLarge:
-                return await self.bot.error(interaction, "Image is too large.")
+                return await self.bot.error(interaction, content="Image is too large.")
             style = await s.stylesheet()
             await s.stylesheet.update(style.stylesheet, reason=f"Sidebar image by {interaction.user} via discord")
 

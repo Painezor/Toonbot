@@ -59,7 +59,7 @@ class GuildStreams(Cog):
             self.bot.streams[interaction.guild.id] = []
 
         if link in [i.link for i in guild_streams]:
-            return await self.bot.error(interaction, "Already in stream list.")
+            return await self.bot.error(interaction, content="Already in stream list.")
 
         stream = Stream(name=name, link=link, added_by=interaction.user)
         self.bot.streams[interaction.guild.id].append(stream)

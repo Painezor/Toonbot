@@ -74,7 +74,7 @@ class Admin(Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.load_extension('ext.' + cog)
+            await self.bot.load_extension(f'ext.{cog}')
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
@@ -88,7 +88,7 @@ class Admin(Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.unload_extension('ext.' + cog)
+            await self.bot.unload_extension(f'ext.{cog}')
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
@@ -109,22 +109,18 @@ class Admin(Cog):
     async def _print(self, interaction: Interaction, to_print: str) -> Message:
         """Print something to console."""
         await interaction.response.defer(thinking=True)
+        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
 
-        if interaction.user.id != self.bot.owner_id:
-            return await self.bot.error(interaction, "You do not own this bot.")
-
-        print("Print command output\n", to_print)
+        print(f"Print command output\n{to_print}")
         e: Embed = Embed(colour=Colour.og_blurple(), description=f"```\n{to_print}```")
         return await self.bot.reply(interaction, embed=e)
 
     @command()
     @guilds(250252535699341312)
-    async def cc(self, interaction: Interaction) -> Message:
+    async def clear(self, interaction: Interaction) -> Message:
         """Clear the command window."""
         await interaction.response.defer(thinking=True)
-
-        if interaction.user.id != self.bot.owner_id:
-            return await self.bot.error(interaction, "You do not own this bot.")
+        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
 
         system('cls')
         _ = f'{self.bot.user}: {self.bot.initialised_at}'
@@ -140,8 +136,7 @@ class Admin(Cog):
         """Evaluates code."""
         await interaction.response.defer(thinking=True)
 
-        if interaction.user.id != self.bot.owner_id:
-            return await self.bot.error(interaction, "You do not own this bot.")
+        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
 
         code = code.strip('` ')
         env = {'bot': self.bot, 'ctx': interaction, 'interaction': interaction}
@@ -169,8 +164,7 @@ class Admin(Cog):
     @describe(notification="Message to send to aLL servers.")
     async def notify(self, interaction: Interaction, notification: str) -> Message:
         """Send a global notification to channels that track it."""
-        if interaction.user.id != self.bot.owner_id:
-            return await self.bot.error(interaction, "You do not own this bot.")
+        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
 
         await interaction.response.defer(thinking=True)
 
@@ -186,22 +180,18 @@ class Admin(Cog):
     async def avatar(self, interaction: Interaction, file: Attachment = None, link: str = None) -> Message:
         """Change the avatar of the bot"""
         await interaction.response.defer(thinking=True)
-
-        if interaction.user.id != self.bot.owner_id:
-            return await self.bot.error(interaction, "You do not own this bot.")
+        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
         avatar = file if file else link
 
         if avatar is None:
-            return await self.bot.error(interaction, "You need to provide either a link or an attachment.")
+            return await self.bot.error(interaction, content="You need to provide either a link or an attachment.")
 
         async with self.bot.session.get(avatar) as resp:
             match resp.status:
                 case 200:
-                    pass
+                    new_avatar = await resp.read()  # Needs to be bytes.
                 case _:
                     return await self.bot.reply(interaction, content=f"HTTP Error: Status Code {resp.status}")
-
-            new_avatar = await resp.read()  # Needs to be bytes.
 
         await self.bot.user.edit(avatar=new_avatar)
         e: Embed = Embed(title="Avatar Updated", colour=Colour.og_blurple())
@@ -245,8 +235,7 @@ class Admin(Cog):
 
     async def update_presence(self, interaction: Interaction, act: Activity) -> Message:
         """Pass the updated status."""
-        if interaction.user.id != self.bot.owner_id:
-            return await self.bot.error(interaction, "You do not own this bot.")
+        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
         await self.bot.change_presence(activity=act)
 
         e: Embed = Embed(title="Activity", colour=Colour.og_blurple())

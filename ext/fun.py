@@ -3,7 +3,7 @@ from collections import Counter
 from copy import deepcopy
 from random import choice, randint, randrange, shuffle
 from re import finditer
-from typing import List, TYPE_CHECKING, Union
+from typing import List, TYPE_CHECKING
 
 from discord import ButtonStyle, Colour, Embed, Interaction, TextStyle, Message, File
 from discord.app_commands import command, context_menu, describe
@@ -14,7 +14,6 @@ from ext.utils.view_utils import Stop, Paginator
 
 if TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
 
 EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" \
                   "thumbs/120/samsung/265/pool-8-ball_1f3b1.png"
@@ -22,6 +21,8 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 
 
 # TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
+# Add Timestamp of the last roll.
+
 # Send modal for custom roll
 # TODO: Slash attachments pass
 # TODO: Macros Command OPTION enum for command.
@@ -30,11 +31,11 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 class CoinView(View):
     """A View with a counter for 2 results"""
 
-    def __init__(self, bot: Union['Bot', 'PBot'], interaction: Interaction, count: int = 1) -> None:
+    def __init__(self, bot: 'Bot', interaction: Interaction, count: int = 1) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.flip_results: List[str] = []
-        self.bot: Bot | PBot = bot
+        self.bot: Bot = bot
         for x in range(count):
             self.flip_results.append(choice(['Heads', 'Tails']))
 
@@ -57,7 +58,7 @@ class CoinView(View):
             for c in counter.most_common():
                 e.add_field(name=f"Total {c[0]}", value=c[1])
 
-            e.description += "\n" + f"{'...' if len(self.flip_results) > 200 else ''}"
+            e.description += f"\n{'...' if len(self.flip_results) > 200 else ''}"
             e.description += ', '.join([f'*{i}*' for i in self.flip_results[-200:]])
         return await self.bot.reply(self.interaction, content=content, view=self, embed=e)
 
@@ -82,9 +83,9 @@ class ChoiceModal(Modal, title="Make a Decision"):
     question = TextInput(label="Enter a question", placeholder="What should I do?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
 
-    def __init__(self, bot: Union['Bot', 'PBot']):
+    def __init__(self, bot: 'Bot'):
         super().__init__()
-        self.bot: Bot | PBot = bot
+        self.bot: Bot = bot
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
@@ -109,7 +110,7 @@ class ChoiceModal(Modal, title="Make a Decision"):
 async def mock(interaction: Interaction, message: Message) -> Message:
     """AlTeRnAtInG cApS"""
     if not message.content:
-        return await interaction.client.error(interaction, "That message has no content.")
+        return await interaction.client.error(interaction, content="That message has no content.")
 
     content = ''.join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
     return await interaction.client.reply(interaction, content=content)
@@ -118,8 +119,8 @@ async def mock(interaction: Interaction, message: Message) -> Message:
 class Fun(Cog):
     """Various Toys for you to play with."""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
-        self.bot: Bot | PBot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
         self.bot.tree.add_command(mock)  # Must be free floating.
 
     @command(name="8ball")
@@ -137,7 +138,7 @@ class Fun(Cog):
                ]
 
         if len(question) > 256:
-            question = question[:253] + "..."
+            question = f"{question[:253]}..."
 
         e: Embed = Embed(title=question, colour=0x000001, description=choice(res))
         e.set_author(icon_url=self.bot.user.display_avatar.url, name=f'🎱 8 Ball')
@@ -172,7 +173,7 @@ class Fun(Cog):
     async def coin(self, interaction: Interaction, count: int = 1) -> Message:
         """Flip a coin"""
         if count > 10000:
-            return await self.bot.error(interaction, 'Too many coins.')
+            return await self.bot.error(interaction, content='Too many coins.')
 
         v = CoinView(self.bot, interaction, count=count)
         v.add_item(FlipButton())
@@ -209,7 +210,7 @@ class Fun(Cog):
                 z = z.group()
                 de = de.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
 
-            de = de[:2044] + "..." if len(rde) > 2048 else rde
+            de = f"{de[:2044]} ..." if len(rde) > 2048 else rde
 
             if i["example"]:
                 ex = rex = i['example']
@@ -218,7 +219,7 @@ class Fun(Cog):
                     z = z.group()
                     rex = ex.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
 
-                ex = ex[:1020] + "..." if len(rex) > 1024 else rex
+                ex = f"{ex[:1020]}..." if len(rex) > 1024 else rex
 
                 embed.add_field(name="Example", value=ex)
 
@@ -239,11 +240,12 @@ class Fun(Cog):
         advantage = True if dice.startswith("adv") else False
         disadvantage = True if dice.startswith("dis") else False
 
-        e: Embed = Embed(title="🎲 Dice Roller")
         if advantage:
-            e.title += " (Advantage)"
-        if disadvantage:
-            e.title += " (Disadvantage)"
+            e: Embed = Embed(title="🎲 Dice Roller (Advantage)")
+        elif disadvantage:
+            e: Embed = Embed(title="🎲 Dice Roller (Disadvantage)")
+        else:
+            e: Embed = Embed(title="🎲 Dice Roller")
 
         e.description = ""
 
@@ -294,11 +296,11 @@ class Fun(Cog):
                     sides = int(sides)
 
                 if dice > 1000:
-                    return await self.bot.error(interaction, 'Too many dice')
+                    return await self.bot.error(interaction, content='Too many dice')
                 if sides > 1000000:
-                    return await self.bot.error(interaction, 'Too many sides')
+                    return await self.bot.error(interaction, content='Too many sides')
                 if sides < 1:
-                    return await self.bot.error(interaction, 'Not enough sides')
+                    return await self.bot.error(interaction, content='Not enough sides')
 
             e.description += f"{r}: "
             total_roll = 0
@@ -332,9 +334,9 @@ class Fun(Cog):
             roll_info += ", ".join(curr_rolls)
 
             if bonus:
-                roll_info += f" + {str(bonus)}" if bonus > 0 else f" {str(bonus).replace('-', ' - ')}"
+                roll_info += f" + {bonus}" if bonus > 0 else f" {str(bonus).replace('-', ' - ')}"
             total_roll += bonus
-            e.description += f"{roll_info} = **{total_roll}**" + "\n"
+            e.description += f"{roll_info} = **{total_roll}**\n"
 
             total += total_roll
 
@@ -354,6 +356,6 @@ class Fun(Cog):
         return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
 
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+async def setup(bot: 'Bot') -> None:
     """Load the Fun cog into the bot"""
     return await bot.add_cog(Fun(bot))

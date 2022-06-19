@@ -94,7 +94,7 @@ class JumpModal(Modal):
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """Validate entered data & set parent index."""
-        await interaction.response.defer(thinking=True)
+        await interaction.response.defer()
 
         pages: List = getattr(self.view, "pages", [])
         update: Callable = getattr(self.view, "update")
@@ -257,15 +257,16 @@ class ItemSelect(Select):
 class FuncButton(Button):
     """A Generic Button with a passed through function."""
 
-    def __init__(self, label: str, func: Callable, emoji: str = None,
+    def __init__(self, label: str, func: Callable, kwargs: dict = None, emoji: str = None,
                  style: ButtonStyle = ButtonStyle.secondary, row: int = 2, disabled: bool = False) -> None:
         super().__init__(label=label, emoji=emoji, style=style, row=row, disabled=disabled)
         self.func: Callable = func
+        self.kwargs: dict = {} if kwargs is None else kwargs
 
     async def callback(self, interaction: Interaction) -> None:
         """A Generic Callback"""
         await interaction.response.defer()
-        return await self.func()
+        return await self.func(**self.kwargs)
 
 
 class Paginator(View):

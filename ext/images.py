@@ -6,7 +6,7 @@ from io import BytesIO
 from json import dumps
 from random import choice
 from re import findall
-from typing import Optional, TYPE_CHECKING, Union, List
+from typing import Optional, TYPE_CHECKING, List
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord import Embed, Colour, Member, Attachment, Interaction, User, Message, PartialEmoji
@@ -19,7 +19,6 @@ from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
 
 KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_TV_%28Hungary%29.svg" \
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
@@ -107,13 +106,13 @@ def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
 class ImageView(View):
     """Holder View for Image Manipulation functions."""
 
-    def __init__(self, bot: Union['Bot', 'PBot'], interaction: Interaction, target: str) -> None:
+    def __init__(self, bot: 'Bot', interaction: Interaction, target: str) -> None:
         self.interaction: Interaction = interaction
         self.coordinates: dict = {}
         self.embed: Embed | None = None
         self.image: bytes | None = None
         self.target_url: str = target
-        self.bot: Bot | PBot = bot
+        self.bot: Bot = bot
         super().__init__()
 
     def draw_knob(self) -> BytesIO:
@@ -229,11 +228,10 @@ class ImageView(View):
         async with self.bot.session.get(self.target_url) as resp:
             match resp.status:
                 case 200:
-                    pass
+                    self.image = await resp.content.read()
                 case _:
                     err = f"HTTP Error {resp.status} opening {self.target_url}."
                     return await self.bot.error(self.interaction, err)
-            self.image = await resp.content.read()
 
     async def push_eyes(self) -> Message:
         """Draw the googly eyes"""
@@ -282,8 +280,8 @@ class ImageView(View):
 class Images(Cog):
     """Image manipulation commands"""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
-        self.bot: Bot | PBot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
     @command()
     @describe(user="Select a user to fetch their avatar")
@@ -321,10 +319,9 @@ class Images(Cog):
         async with self.bot.session.get(link) as resp:
             match resp.status:
                 case 200:
-                    pass
+                    image = await resp.content.read()
                 case _:
                     return await self.bot.error(interaction, f"HTTP Error {resp.status} opening {link}.")
-            image = await resp.content.read()
 
         def ruin(img: bytes):
             """Generates the Image"""
@@ -370,7 +367,7 @@ class Images(Cog):
             except AttributeError:
                 continue
         else:
-            return await self.bot.error(interaction, "Nobody swiped right on you.")
+            return await self.bot.error(interaction, content="Nobody swiped right on you.")
 
         output = await to_thread(draw_tinder, target, av, name)
         if match.id == interaction.user.id:
@@ -408,6 +405,7 @@ class Images(Cog):
         view = Paginator(self.bot, interaction, embeds)
         return await view.update()
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+
+async def setup(bot: 'Bot') -> None:
     """Load the Images Cog into the bot"""
     await bot.add_cog(Images(bot))

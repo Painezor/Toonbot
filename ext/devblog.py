@@ -4,7 +4,7 @@ from re import sub
 from typing import List, TYPE_CHECKING
 
 from asyncpg import Record
-from discord import Interaction, Message, Colour, Embed, HTTPException, TextChannel, Guild
+from discord import Interaction, Message, Colour, Embed, HTTPException, TextChannel
 from discord.app_commands import Choice, command, autocomplete, describe, default_permissions, guild_only
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -114,7 +114,7 @@ async def parse_blog(bot: 'PBot', url: str):
             tail = ""
 
         if text or tail:
-            output += f"{fmt(n)}"
+            output += fmt(n)
 
         for child in n.iterdescendants():
             # Force Linebreak on new section.
@@ -132,7 +132,7 @@ async def parse_blog(bot: 'PBot', url: str):
 
             if child_text or child_tail:
                 output += "\n" if child.tag == "li" else ""
-                output += f"{fmt(child)}"
+                output += fmt(child)
                 if child.tag == "li" and child.getnext() is None and not child.getchildren():
                     output += "\n\n"  # Extra line after lists.
                 output += "\n\n" if child.tag == "p" else ""
@@ -153,7 +153,7 @@ async def parse_blog(bot: 'PBot', url: str):
 async def db_ac(interaction: Interaction, current: str) -> List[Choice]:
     """Autocomplete dev blog by text"""
     cache = getattr(interaction.client, 'dev_blog_cache', [])
-    blogs = [i for i in cache if current.lower() in i['title'].lower() + i['text'].lower()]
+    blogs = [i for i in cache if current.lower() in f"{i['title']} {i['text']}".lower()]
     return [Choice(name=f"{i['id']}: {i['title']}"[:100], value=str(i['id'])) for i in blogs][:-25:-1]
     # Last 25 items reversed
 
@@ -302,38 +302,29 @@ class DevBlog(Cog):
     @command()
     @autocomplete(search=db_ac)
     @describe(search="Search for a dev blog by text content")
-    async def blog(self, interaction: Interaction, search: str) -> Message:
+    async def devblog(self, interaction: Interaction, search: str) -> Message:
         """Fetch a World of Warships dev blog, either search for text or leave blank to get latest."""
         await interaction.response.defer()
 
         try:
             int(search)
-            e = await parse_blog(self.bot, "https://blog.worldofwarships.com/blog/" + search)
+            e = await parse_blog(self.bot, f"https://blog.worldofwarships.com/blog/{search}")
             return await self.bot.reply(interaction, embed=e, ephemeral=True)
         except ValueError:
             # If a specific blog is not selected, send the browser view.
-            matches = [i for i in self.bot.dev_blog_cache if search.lower() in i['title'].lower() + i['text'].lower()]
+            s = search.lower()
+            matches = [i for i in self.bot.dev_blog_cache if s in f"{i['title'].lower()}{i['text'].lower()}"]
             view = DevBlogView(self.bot, interaction, pages=matches)
             return await view.update()
 
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel):
+    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM dev_blog_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 await connection.execute(q, channel.id)
-        finally:
-            await self.bot.db.release(connection)
-
-    @Cog.listener()
-    async def on_guild_remove(self, guild: Guild) -> None:
-        """Purge news trackers for deleted guilds"""
-        connection = await self.bot.db.acquire()
-        try:
-            async with connection.transaction():
-                await connection.execute(f"""DELETE FROM dev_blog_channels WHERE guild_id = $1""", guild.id)
         finally:
             await self.bot.db.release(connection)
 

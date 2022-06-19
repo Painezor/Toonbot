@@ -73,7 +73,8 @@ class Tv(commands.Cog):
                     await view.wait()
 
                     if view.value is None:
-                        return await self.bot.error(interaction, "Timed out waiting for you to select an option")
+                        return await self.bot.error(interaction,
+                                                    content="Timed out waiting for you to select an option")
 
                     result = matches[view.value]
                 else:
@@ -89,10 +90,9 @@ class Tv(commands.Cog):
         async with self.bot.session.get(e.url, headers=HEADERS) as resp:
             match resp.status:
                 case 200:
-                    pass
+	                tree = html.fromstring(await resp.text())
                 case _:
                     return await self.bot.error(interaction, f"{e.url} returned a HTTP {resp.status} error.")
-            tree = html.fromstring(await resp.text())
 
         # match_column = 3 if not team else 5
         match_column = 3

@@ -36,13 +36,13 @@ async def get_colour(url: str) -> Colour | int:
 
 def rows_to_embeds(e: Embed, rows: List[str], max_rows: int = 10, header: str = "", footer: str = "") -> List[Embed]:
     """Create evenly distributed rows of text from a list of data"""
-    desc: str = header + "\n" if header else ""
+    desc: str = f"{header}\n" if header else ""
     count: int = 0
     embeds: list[Embed] = []
 
     for row in rows:
         # If we hit embed size limit or max count (max_rows)
-        if len(desc + footer + row) <= 4096:
+        if len(f"{desc}{footer}{row}") <= 4096:
             if count < max_rows:
                 desc += f"{row}\n"
                 count += 1

@@ -1,6 +1,6 @@
 """Reply Handling for bots"""
 from io import BytesIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from discord import Embed, Interaction, Message, NotFound, Colour, File
 
@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 	from core import Bot
 
 
-async def dump_image(bot: 'Bot', img: BytesIO) -> str | None:
+async def dump_image(bot: 'Bot', img: BytesIO) -> Optional[str]:
 	"""Dump an image to discord & return its URL to be used in embeds"""
 	ch = bot.get_channel(874655045633843240)
 	if ch is None:
@@ -22,7 +22,7 @@ async def dump_image(bot: 'Bot', img: BytesIO) -> str | None:
 async def error(i: Interaction, e: str, message: Message = None, ephemeral: bool = True, followup=True) -> Message:
 	"""Send a Generic Error Embed"""
 	e: Embed = Embed(title="An Error occurred.", colour=Colour.red(), description=e)
-	return await reply(i, embed=e, ephemeral=ephemeral, followup=followup)
+	return await reply(i, message=message, embed=e, ephemeral=ephemeral, followup=followup)
 
 
 async def reply(i: Interaction, message: Message = None, followup: bool = True, **kwargs) -> Message:

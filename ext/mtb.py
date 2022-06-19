@@ -11,7 +11,7 @@ from discord.ext import commands
 from discord.ext import tasks
 from lxml import html
 
-from ext.utils import football
+from ext.utils import flashscore
 
 if TYPE_CHECKING:
     from core import Bot
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class MatchThread:
     """Tool for updating a reddit post with the latest information about a match."""
 
-    def __init__(self, bot: 'Bot', fixture: football.Fixture, settings, record):
+    def __init__(self, bot: 'Bot', fixture: flashscore.Fixture, settings, record):
         self.bot: Bot = bot
         self.fixture = fixture
         self.settings = settings
@@ -209,42 +209,43 @@ class MatchThread:
         async with self.bot.session.get(f"https://www.livesoccertv.com/") as resp:
             match resp.status:
                 case 200:
-                    pass
+                    tree = html.fromstring(await resp.text())
                 case _:
                     print(f"{resp.status} received when trying to fetch TV url {resp.url}")
                     return None
-            tree = html.fromstring(await resp.text())
-            for i in tree.xpath(".//tr//a"):
-                if self.fixture.home.name in ''.join(i.xpath(".//text()")):
-                    lnk = ''.join(i.xpath(".//@href"))
-                    tv.update({"link": f"http://www.livesoccertv.com{lnk}"})
-                    break
+
+        for i in tree.xpath(".//tr//a"):
+            if self.fixture.home.name in ''.join(i.xpath(".//text()")):
+                lnk = i.xpath(".//@href")
+                tv.update({"link": f"http://www.livesoccertv.com{lnk}"})
+                break
+
         if not tv:
             return ""
 
         async with self.bot.session.get(tv["link"]) as resp:
             match resp.status:
                 case 200:
-                    pass
+                    tree = html.fromstring(await resp.text())
                 case _:
                     return tv
-            tree = html.fromstring(await resp.text())
-            tv_table = tree.xpath('.//table[@id="wc_channels"]//tr')
 
-            if not tv_table:
-                tv.update({"uk_tv": ""})
-                return tv
+        tv_table = tree.xpath('.//table[@id="wc_channels"]//tr')
 
-            for i in tv_table:
-                country = i.xpath('.//td[1]/span/text()')
-                if "United Kingdom" not in country:
-                    continue
-                uk_tv_channels = i.xpath('.//td[2]/a/text()')
-                uk_tv_links = i.xpath('.//td[2]/a/@href')
-                uk_tv_links = [f'http://www.livesoccertv.com/{i}' for i in uk_tv_links]
-                uk_tv = list(zip(uk_tv_channels, uk_tv_links))
-                tv.update({"uk_tv": [f"[{i}]({j})" for i, j in uk_tv]})
+        if not tv_table:
+            tv.update({"uk_tv": ""})
             return tv
+
+        for i in tv_table:
+            country = i.xpath('.//td[1]/span/text()')
+            if "United Kingdom" not in country:
+                continue
+            uk_tv_channels = i.xpath('.//td[2]/a/text()')
+            uk_tv_links = i.xpath('.//td[2]/a/@href')
+            uk_tv_links = [f'http://www.livesoccertv.com/{i}' for i in uk_tv_links]
+            uk_tv = list(zip(uk_tv_channels, uk_tv_links))
+            tv.update({"uk_tv": [f"[{i}]({j})" for i, j in uk_tv]})
+        return tv
 
     async def send_notification(self, channel_id, post: asyncpraw.Reddit.post):
         """Announce new posts to designated channels."""
@@ -323,7 +324,8 @@ class MatchThread:
 
         threads = [i for i in [pre, match, post, archive] if i]
         if threads:
-            markdown += "---\n\n##" + " - ".join(threads) + "\n\n---\n\n"
+            threads = " - ".join(threads)
+            markdown += f"---\n\n##{threads}\n\n---\n\n"
 
         # Radio, TV.
         if not post_match:
@@ -400,7 +402,7 @@ class MatchThreadCommands(commands.Cog):
             # Get upcoming games from flashscore.
             team = self.bot.get_team(r["team_flashscore_id"])
             if team is None:
-                team = await football.Team.by_id(self.bot, r["team_flashscore_id"])
+                team = await flashscore.Team.by_id(self.bot, r["team_flashscore_id"])
                 if team is None:
                     continue
 
@@ -409,7 +411,7 @@ class MatchThreadCommands(commands.Cog):
             for fixture in fx:
                 await self.spool_thread(fixture, r)
 
-    async def spool_thread(self, f: football.Fixture, settings: asyncpg.Record) -> None:
+    async def spool_thread(self, f: flashscore.Fixture, settings: asyncpg.Record) -> None:
         """Create match threads for all scheduled games."""
         diff = f.kickoff - datetime.datetime.now()
         if diff.days > 7:

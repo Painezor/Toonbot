@@ -79,7 +79,7 @@ class EmbedModal(Modal, title="Send an Embed"):
             await self.destination.send(embed=e)
             await self.bot.reply(interaction, content="Message sent.", ephemeral=True)
         except Forbidden:
-            await self.bot.error(interaction, "I can't send messages to that channel.")
+            await self.bot.error(interaction, content="I can't send messages to that channel.")
 
 
 class Mod(Cog):
@@ -99,7 +99,7 @@ class Mod(Cog):
         destination = interaction.channel if destination is None else destination
 
         if destination.guild.id != interaction.guild.id:
-            return await self.bot.error(interaction, "You cannot send messages to other servers.")
+            return await self.bot.error(interaction, content="You cannot send messages to other servers.")
 
         match colour:
             case 'red':
@@ -123,18 +123,18 @@ class Mod(Cog):
     async def say(self, interaction: Interaction, message: str, destination: Optional[TextChannel] = None) -> Message:
         """Say something as the bot in specified channel"""
         if len(message) > 2000:
-            return await self.bot.error(interaction, "Message too long. Keep it under 2000.")
+            return await self.bot.error(interaction, content="Message too long. Keep it under 2000.")
 
         destination = interaction.channel if destination is None else destination
 
         if destination.guild.id != interaction.guild.id:
-            return await self.bot.error(interaction, "You cannot send messages to other servers.")
+            return await self.bot.error(interaction, content="You cannot send messages to other servers.")
 
         try:
             await destination.send(message)
             await self.bot.reply(interaction, content="Message sent.", ephemeral=True)
         except Forbidden:
-            return await self.bot.error(interaction, "I can't send messages to that channel.")
+            return await self.bot.error(interaction, content="I can't send messages to that channel.")
 
     @command()
     @default_permissions(manage_channels=True)
@@ -163,9 +163,9 @@ class Mod(Cog):
         try:
             await member.edit(nick=new_nickname)
         except Forbidden:
-            await self.bot.error(interaction, "I can't change that member's nickname.")
+            await self.bot.error(interaction, content="I can't change that member's nickname.")
         except HTTPException:
-            await self.bot.error(interaction, "❔ Member edit failed.")
+            await self.bot.error(interaction, content="❔ Member edit failed.")
         else:
             e = Embed(colour=Colour.og_blurple(), description=f"{member.mention} has been renamed.")
             await self.bot.reply(interaction, embed=e, ephemeral=True)
@@ -186,9 +186,9 @@ class Mod(Cog):
         try:
             await interaction.guild.unban(Object(int(user_id)))
         except ValueError:
-            return await self.bot.error(interaction, "Invalid user ID provided.")
+            return await self.bot.error(interaction, content="Invalid user ID provided.")
         except HTTPException:
-            await self.bot.error(interaction, "I can't unban that user.")
+            await self.bot.error(interaction, content="I can't unban that user.")
         else:
             target = await self.bot.fetch_user(int(user_id))
             e = Embed(title=user_id, description=f"User ID: {user_id} ({target}) was unbanned", colour=Colour.green())
@@ -245,7 +245,7 @@ class Mod(Cog):
     async def untimeout(self, interaction: Interaction, member: Member, reason: str = "Not provided"):
         """End the timeout for a user."""
         if not member.is_timed_out():
-            return await self.bot.error(interaction, "That user is not timed out.")
+            return await self.bot.error(interaction, content="That user is not timed out.")
 
         try:
             await member.timeout(None, reason=f"{interaction.user}: {reason}")
@@ -253,7 +253,7 @@ class Mod(Cog):
             e.description = f"{member.mention} is no longer timed out."
             await self.bot.reply(interaction, embed=e)
         except HTTPException:
-            await self.bot.error(interaction, "I can't un-timeout that user.")
+            await self.bot.error(interaction, content="I can't un-timeout that user.")
 
     # Listeners
     @Cog.listener()

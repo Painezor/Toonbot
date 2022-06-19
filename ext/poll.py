@@ -1,6 +1,6 @@
 """User Created Polls"""
 from collections import Counter
-from typing import List, TYPE_CHECKING, Union
+from typing import List, TYPE_CHECKING
 
 from discord import ButtonStyle, Embed, Colour, TextStyle, Interaction, Message
 from discord.app_commands import command
@@ -9,7 +9,6 @@ from discord.ui import Button, View, Modal, TextInput
 
 if TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
 
 
 # TODO: Database table, persistent views
@@ -37,11 +36,11 @@ class PollButton(Button):
 class PollView(View):
     """View for a poll commands"""
 
-    def __init__(self, bot: Union['Bot', 'PBot'], interaction: Interaction, question: str, answers: List[str]):
+    def __init__(self, bot: 'Bot', interaction: Interaction, question: str, answers: List[str]):
         self.interaction: Interaction = interaction
         self.question: str = question
         self.votes: dict = {}
-        self.bot: Bot | PBot = bot
+        self.bot: Bot = bot
         super().__init__(timeout=3600)
 
         buttons = [(None, i) for i in answers if i] if answers else [('👍', 'Yes'), ('👎', 'No')]
@@ -73,7 +72,6 @@ class PollView(View):
 
         votes = f"{len(self.votes)} responses"
         e.set_footer(text=f"Final Results | {votes} votes")
-        self.stop()
         return await self.bot.reply(self.interaction, view=None, embed=e)
 
     async def update(self, content: str = "") -> Message:
@@ -103,25 +101,22 @@ class PollModal(Modal, title="Create a poll"):
     question = TextInput(label="Enter a question", placeholder="What is your favourite colour?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Red\nBlue\nYellow")
 
-    def __init__(self, bot: Union['Bot', 'PBot']):
-        self.bot: Bot | PBot = bot
+    def __init__(self, bot: 'Bot'):
+        self.bot: Bot = bot
         super().__init__()
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
         question = self.question.value
-        answers = self.answers.value.split('\n')
-
-        if len(answers) > 25:
-            return await self.bot.error(interaction, 'Too many answers provided. 25 is more than enough thanks.')
+        answers = self.answers.value.split('\n')[:25]
         return await PollView(self.bot, interaction, question=question, answers=answers).update()
 
 
 class Poll(Cog):
     """User Created Polls"""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
-        self.bot: Bot | PBot = bot
+    def __init__(self, bot: 'Bot') -> None:
+        self.bot: Bot = bot
 
     @command()
     async def poll(self, interaction: Interaction) -> PollModal:
@@ -129,6 +124,6 @@ class Poll(Cog):
         return await interaction.response.send_modal(PollModal(self.bot))
 
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+async def setup(bot: 'Bot') -> None:
     """Add the Poll cog to the Bot"""
     await bot.add_cog(Poll(bot))
