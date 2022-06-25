@@ -131,6 +131,14 @@ class Admin(Cog):
 
     @command()
     @guilds(250252535699341312)
+    async def quit(self, interaction: Interaction) -> Message:
+        """Log the bot out gracefully."""
+        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        await self.bot.reply(interaction, 'Logging out.')
+        return await self.bot.close()
+
+    @command()
+    @guilds(250252535699341312)
     @describe(code=">>> Code Go Here")
     async def debug(self, interaction: Interaction, code: str) -> Message:
         """Evaluates code."""
@@ -181,9 +189,10 @@ class Admin(Cog):
         """Change the avatar of the bot"""
         await interaction.response.defer(thinking=True)
         assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
-        avatar = file if file else link
 
-        if avatar is None:
+        try:
+            avatar = next(i for i in [getattr(file, 'url', None), link] if i is not None)
+        except StopIteration:
             return await self.bot.error(interaction, content="You need to provide either a link or an attachment.")
 
         async with self.bot.session.get(avatar) as resp:

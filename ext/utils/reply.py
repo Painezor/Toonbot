@@ -1,27 +1,11 @@
 """Reply Handling for bots"""
-from io import BytesIO
-from typing import TYPE_CHECKING, Optional
-
-from discord import Embed, Interaction, Message, NotFound, Colour, File
-
-if TYPE_CHECKING:
-	from core import Bot
+from discord import Embed, Interaction, Message, NotFound, Colour
 
 
-async def dump_image(bot: 'Bot', img: BytesIO) -> Optional[str]:
-	"""Dump an image to discord & return its URL to be used in embeds"""
-	ch = bot.get_channel(874655045633843240)
-	if ch is None:
-		return None
-
-	img_msg = await ch.send(file=File(fp=img, filename="dumped_image.png"))
-	url = img_msg.attachments[0].url
-	return None if url == "none" else url
-
-
-async def error(i: Interaction, e: str, message: Message = None, ephemeral: bool = True, followup=True) -> Message:
+async def error(i: Interaction, content: str, message: Message = None, ephemeral: bool = True,
+                followup: bool = True) -> Message:
 	"""Send a Generic Error Embed"""
-	e: Embed = Embed(title="An Error occurred.", colour=Colour.red(), description=e)
+	e: Embed = Embed(title="An Error occurred.", colour=Colour.red(), description=content)
 	return await reply(i, message=message, embed=e, ephemeral=ephemeral, followup=followup)
 
 
@@ -31,17 +15,13 @@ async def reply(i: Interaction, message: Message = None, followup: bool = True, 
 		await i.response.send_message(**kwargs)
 		return await i.original_message()
 
+	kwargs.pop("ephemeral", None)
 	try:
 		message = await i.original_message() if message is None else message
-		try_edit = kwargs.copy()
-
-		if "ephemeral" in kwargs:
-			try_edit.pop("ephemeral")
-
-		if "file" in kwargs:
-			try_edit['attachments'] = [try_edit.pop('file')]
-
-		return await message.edit(**try_edit)
+		f = kwargs.pop('file', None)
+		if f is not None:
+			kwargs['attachments'] = [f]
+		return await message.edit(**kwargs)
 	except NotFound:
 		if followup:  # Don't send messages if the message has previously been deleted.
 			return await i.followup.send(**kwargs, wait=True)  # Return the message.

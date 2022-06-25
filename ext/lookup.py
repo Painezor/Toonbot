@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from discord import Interaction, Message
 from discord.app_commands import command, describe
 from discord.ext.commands import Cog
-from ext.utils.transfer_tools import TeamView, CompetitionView, SearchView
+from ext.utils.transfer_tools import SearchView
 
 # TODO: HTTP Autocomplete
 
@@ -24,19 +24,19 @@ class Lookups(Cog):
     @describe(category='search within a category', query='enter search query')
     async def lookup(self, interaction: Interaction, category: Optional[opts], query: str) -> Message:
         """Perform a transfermarkt search for the designated category."""
-        return await SearchView(self.bot, interaction, query, category).update()
+        return await SearchView(interaction, query, category).update()
 
     @command()
     @describe(team_name="enter a team name to search for")
     async def transfers(self, interaction: Interaction, team_name: str) -> Message:
         """Get this window's transfers for a team on transfermarkt"""
         await interaction.response.defer(thinking=True)
-        view = SearchView(self.bot, interaction, team_name, category="team", fetch=True)
+        view = SearchView(interaction, team_name, category="team", fetch=True)
         await view.update()
         await view.wait()
 
         if view.value:
-            return await TeamView(self.bot, interaction, view.value).push_transfers()
+	        return await view.value.view(interaction).push_transfers()
 
     @command()
     @describe(team_name="name of a team")
@@ -44,45 +44,45 @@ class Lookups(Cog):
         """Get the latest transfer rumours for a team"""
         await interaction.response.defer(thinking=True)
 
-        view = SearchView(self.bot, interaction, team_name, category="team", fetch=True)
+        view = SearchView(interaction, team_name, category="team", fetch=True)
         await view.update()
         await view.wait()
 
         if view.value:
-            return await TeamView(self.bot, interaction, view.value).push_rumours()
+	        return await view.value.view(interaction).push_rumours()
 
     @command()
     @describe(team_name="name of a team")
     async def contracts(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's expiring contracts"""
-        view = SearchView(self.bot, interaction, team_name, category="team", fetch=True)
+        view = SearchView(interaction, team_name, category="team", fetch=True)
         await view.update()
         await view.wait()
 
         if view.value:
-            return await TeamView(self.bot, interaction, view.value).push_contracts()
+	        return await view.value.view(interaction).push_contracts()
 
     @command()
     @describe(team_name="name of a team")
     async def trophies(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's trophy case"""
-        view = SearchView(self.bot, interaction, team_name, category="team", fetch=True)
+        view = SearchView(interaction, team_name, category="team", fetch=True)
         await view.update()
         await view.wait()
 
         if view.value:
-            return await TeamView(self.bot, interaction, view.value).push_trophies()
+	        return await view.value.view(interaction).push_trophies()
 
     @command()
     @describe(query="league name to search for")
     async def attendance(self, interaction: Interaction, query: str) -> Message:
         """Get a list of a league's average attendances."""
-        view = SearchView(self.bot, interaction, query, category="competition", fetch=True)
+        view = SearchView(interaction, query, category="competition", fetch=True)
         await view.update()
         await view.wait()
 
         if view.value:
-            return await CompetitionView(self.bot, interaction, view.value).attendance()
+	        return await view.value.view(interaction).attendance()
 
 
 async def setup(bot: 'Bot') -> None:

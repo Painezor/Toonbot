@@ -2,7 +2,7 @@
 from __future__ import annotations  # Cyclic Type hinting
 
 from asyncio import sleep, Semaphore
-from typing import List, Optional, TYPE_CHECKING, Type, Dict
+from typing import List, Optional, TYPE_CHECKING, Type, Dict, ClassVar
 
 from asyncpg import ForeignKeyViolationError, Record
 from discord import Colour, ButtonStyle, Embed, HTTPException, Permissions, Interaction, TextChannel, Guild, Message
@@ -29,12 +29,14 @@ semaphore = Semaphore(value=5)
 # TODO: Migrate Event embed generation to the individual Events
 class TickerEvent:
     """Handles dispatching and editing messages for a fixture event."""
-    bot: Bot
+    bot: ClassVar[Bot]
 
     def __init__(self, bot: 'Bot', fixture: Fixture, event_type: EventType, channels: List[TickerChannel], long: bool,
                  home: bool = False) -> None:
 
-        self.bot: Bot = bot
+        if not hasattr(self.__class__, 'bot'):
+            self.__class__.bot = bot
+
         self.fixture: Fixture = fixture
         self.event_type: EventType = event_type
         self.channels: List[TickerChannel] = channels
@@ -75,7 +77,7 @@ class TickerEvent:
                 except (TypeError, AttributeError):  # If penalties_home / penalties_away are NoneType or not found.
                     e.description = f"**Penalty Results** | {self.fixture.bold_markdown}\n"
 
-                shootout = [i for i in getattr(self.fixture, 'events', []) if getattr(i, "shootout", False)]
+                shootout = [i for i in self.fixture.events if isinstance(i, Penalty) and i.shootout]
                 # iterate through everything after penalty header
                 for _ in [self.fixture.home, self.fixture.away]:
                     value = "\n".join([str(i) for i in shootout if i.team == _])
@@ -99,7 +101,7 @@ class TickerEvent:
                 pass
 
         # Append extra info
-        if hasattr(self.fixture, 'infobox'):
+        if self.fixture.infobox is not None:
             e.description += f"```yaml\n{self.fixture.infobox}```"
 
         e.set_footer(text=self.fixture.time.state.shorthand)
@@ -110,12 +112,12 @@ class TickerEvent:
     async def _full_embed(self) -> Embed:
         """Extended Embed with all events for Extended output event_type"""
         e = await self._embed
-        for i in getattr(self.fixture, 'events', []):
+        for i in self.fixture.events:
             if isinstance(i, Substitution):
                 continue  # skip subs, they're just spam.
 
             # Penalty Shootouts are handled in self.embed, we don't need to duplicate.
-            if hasattr(self.fixture, 'penalties_away'):
+            if self.fixture.penalties_away is not None:
                 if isinstance(i, Penalty) and i.shootout:
                     continue
 
@@ -157,25 +159,26 @@ class TickerEvent:
             else:
                 team: Team = self.fixture.home if self.home else self.fixture.away
 
-                events = getattr(self.fixture, 'events', [])
+                events = self.fixture.events
                 if team is not None:
-                    events: List = [i for i in events if i.team.name == team.name]
+                    events: List = [i for i in self.fixture.events if i.team.name == team.name]
 
                 valid: Type[MatchEvent] = self.event_type.valid_events
                 if valid is not None and events:
                     try:
-                        self.event = [i for i in events if isinstance(i, valid)][-1]
+                        events.reverse()
+                        self.event = next(i for i in events if isinstance(i, valid))
                         index = self.fixture.events.index(self.event)
-                    except IndexError:
+                    except StopIteration:
                         pass
 
             if self.long and index is not None:
-                if all([hasattr(i, 'player') for i in self.fixture.events[:index + 1]]):
+                if all((i.player is not None) for i in self.fixture.events[:index + 1]):
                     break
             elif not self.event:
                 break
             else:
-                if hasattr(self.event, 'player'):
+                if self.event.player is not None:
                     break
 
             if self.long:
@@ -426,9 +429,10 @@ class RemoveLeague(Select):
     """Dropdown to remove leagues from a match event ticker."""
 
     def __init__(self, leagues: List[str], row: int = 2) -> None:
+        leagues = sorted(set(leagues))
         super().__init__(placeholder="Remove tracked league(s)", row=row, max_values=len(leagues))
         # No idea how we're getting duplicates here but fuck it I don't care.
-        for lg in sorted(set(leagues)):
+        for lg in leagues:
             self.add_option(label=lg)
 
     async def callback(self, interaction: Interaction) -> Message:
@@ -578,22 +582,21 @@ class TickerCog(Cog, name="Ticker"):
             await self.bot.db.release(connection)
 
         # Purge dead
-        cached = set([r['channel_id'] for r in records])
+        fresh = set([r['channel_id'] for r in records])
         for tc in self.bot.ticker_channels.copy():
-            if tc.channel.id not in cached:
+            if tc.channel.id not in fresh:
                 self.bot.ticker_channels.remove(tc)
 
         # Bring in new
-        for cid in cached:
-            tc = next((i for i in self.bot.ticker_channels if i.channel.id == cid), None)
-            if tc is None:
-                channel = self.bot.get_channel(cid)
-                if channel is None:
-                    continue
+        missing = [i for i in fresh if i not in [tc.channel.id for tc in self.bot.ticker_channels]]
+        for cid in missing:
+            channel = self.bot.get_channel(cid)
+            if channel is None:
+                continue
 
-                tc = TickerChannel(self.bot, channel)
-                await tc.get_settings()
-                self.bot.ticker_channels.append(tc)
+            tc = TickerChannel(self.bot, channel)
+            await tc.get_settings()
+            self.bot.ticker_channels.append(tc)
 
     @Cog.listener()
     async def on_fixture_event(self, event_type: EventType, f: Fixture, home: bool = True) -> Optional[TickerEvent]:
@@ -624,6 +627,7 @@ class TickerCog(Cog, name="Ticker"):
         r: Record
         score_channels = [i.channel.id for i in self.bot.score_channels]
         tickers = self.bot.ticker_channels.copy()
+
         for r in records:
             try:
                 # Validate this channel is suitable for message output.
@@ -636,9 +640,11 @@ class TickerCog(Cog, name="Ticker"):
                 if all(x for x in r):
                     long = True
 
-                tc = next((i for i in tickers if i.channel.id == channel.id), None)
-                if tc is None:
+                try:
+                    tc = next(i for i in tickers if i.channel.id == channel.id)
+                except StopIteration:
                     continue
+                channels.append(tc)
             except AssertionError:
                 continue
 
@@ -649,21 +655,22 @@ class TickerCog(Cog, name="Ticker"):
     ticker = Group(name="ticker", description="match event ticker", guild_only=True, default_permissions=tkr_perms)
 
     @ticker.command()
+    @describe(channel="Manage which channel?")
     async def manage(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View the config of this channel's Match Event Ticker"""
         if channel is None:
             channel = interaction.channel
 
-        tc = next((i for i in self.bot.ticker_channels if i.channel.id == channel.id), None)
         # Validate channel is a ticker channel.
-        if tc is None:
+        try:
+            tc = next(i for i in self.bot.ticker_channels if i.channel.id == channel.id)
+            return await TickerConfig(self.bot, interaction, tc).update()
+        except StopIteration:
             return await TickerChannel(self.bot, channel).view(interaction).creation_dialogue()
-
-        return await TickerConfig(self.bot, interaction, tc).update()
 
     @ticker.command()
     @autocomplete(query=lg_ac)
-    @describe(query="Search for a league by name")
+    @describe(query="Search for a league by name", channel="Add to which channel?")
     async def add(self, interaction: Interaction, query: str, channel: TextChannel = None) -> Message:
         """Add a league to your Match Event Ticker"""
         await interaction.response.defer(thinking=True)
@@ -671,10 +678,9 @@ class TickerCog(Cog, name="Ticker"):
         if channel is None:
             channel = interaction.channel
 
-        tc = next((i for i in self.bot.ticker_channels if i.channel.id == channel.id), None)
-
-        # Validate channel is a ticker channel.
-        if tc is None:
+        try:
+            tc = next(i for i in self.bot.ticker_channels if i.channel.id == channel.id)
+        except StopIteration:
             return await TickerChannel(self.bot, channel).view(interaction).creation_dialogue()
 
         # Find the Competition Object.
@@ -700,6 +706,7 @@ class TickerCog(Cog, name="Ticker"):
         await tc.view(interaction).update(f"Added {fsr.title} to {channel.mention} tracked leagues")
 
     @ticker.command()
+    @describe(channel="Add to which channel?")
     async def add_world_cup(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """Add the qualifying tournaments for the World Cup to a channel's ticker"""
         await interaction.response.defer(thinking=True)
@@ -707,9 +714,10 @@ class TickerCog(Cog, name="Ticker"):
         if channel is None:
             channel = interaction.channel
 
-        tc = next((i for i in self.bot.ticker_channels if i.channel.id == channel.id), None)
         # Validate channel is a ticker channel.
-        if tc is None:
+        try:
+            tc = next(i for i in self.bot.ticker_channels if i.channel.id == channel.id)
+        except StopIteration:
             return await TickerChannel(self.bot, channel).view(interaction).creation_dialogue()
 
         await tc.add_leagues(WORLD_CUP_LEAGUES)

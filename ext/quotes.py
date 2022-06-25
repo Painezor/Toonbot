@@ -65,7 +65,8 @@ class Delete(Button):
                 finally:
                     await self.bot.db.release(connection)
                 await self.view.update(content=f"Quote #{r['quote_id']} has been deleted.")
-                self.view.index -= 1 if self.view.index != 0 else 0
+                if self.view.index != 0:
+                    self.view.index -= 1
             else:
                 await self.view.update(content="Quote not deleted")
         else:
@@ -283,7 +284,7 @@ async def quote_stats(interaction: Interaction, member: Member):
     e.set_author(icon_url="https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png", name="Quote Stats")
     e.set_thumbnail(url=member.display_avatar.url)
     if interaction.guild:
-        e.add_field(name=interaction.guild.name, value=f"Quoted {r['auth_g']} times.\n Added {r['sub_g']} quotes.", )
+        e.add_field(name=interaction.guild.name, value=f"Quoted {r['auth_g']} times.\nAdded {r['sub_g']} quotes.", )
     e.add_field(name="Global", value=f"Quoted {r['author']} times.\n Added {r['sub']} quotes.", inline=False)
     await interaction.client.reply(interaction, embed=e)
 
@@ -311,7 +312,7 @@ class QuoteDB(commands.Cog):
         self.bot: Bot = bot
 
     async def cog_load(self) -> None:
-        """When the cog loads..."""
+        """When the cog loads…"""
         await self.opt_outs()
         await self.cache_quotes()
 
@@ -361,7 +362,11 @@ class QuoteDB(commands.Cog):
             if user.id in self.bot.quote_blacklist:
                 raise TargetOptedOutError(user)
 
-        quotes = [i for i in self.bot.quotes if i['quote_id'] == int(text)]
+        try:
+            quotes = [i for i in self.bot.quotes if i['quote_id'] == int(text)]
+        except ValueError:
+            quotes = [i for i in self.bot.quotes if text in i['message_content']]
+
         if not quotes:
             quotes = [i for i in self.bot.quotes if text.lower() in i['message_content'].lower()]
         return await QuotesView(interaction, quotes=quotes).update()
@@ -410,21 +415,22 @@ class QuoteDB(commands.Cog):
                 await self.bot.db.release(connection)
 
             # Warn about quotes that will be deleted.
-            if not all(v == 0 for v in [r['auth'], r['auth_g'], r['sub'], r['sub_g']]):
-                auth = f"You have been quoted {r['auth']} times" if r['auth'] else ""
-                if i.guild is not None:
-                    auth += f" ({r['auth_g']} times on {i.guild.name})" if r['auth_g'] else ""
+            output = []
+            if all(v == 0 for v in [r['auth'], r['auth_g'], r['sub'], r['sub_g']]):
+                e = None
+            else:
+                output.append(f"You have been quoted {r['auth']} times")
+                if r['auth'] and i.guild is not None:
+                    output.append(f" ({r['auth_g']} times on {i.guild.name})")
+                output.append('\n')
 
-                sub = f"You have submitted {r['sub']} quotes" if r['sub'] else ""
-                if i.guild is not None:
-                    sub += f" ({r['sub_g']} times on {i.guild.name})" if r['sub_g'] else ""
+                output.append(f"You have submitted {r['sub']} quotes")
+                if r['sub'] and i.guild is not None:
+                    output.append(f" ({r['sub_g']} times on {i.guild.name})")
 
-                msg = ("\n".join([i for i in [auth, sub] if i]) +
-                       "\n\n**ALL of these quotes will be deleted if you opt out.**")
+                msg = "".join(output) + "\n\n**ALL of these quotes will be deleted if you opt out.**"
                 title = "Your quotes will be deleted if you opt out."
                 e = Embed(colour=Colour.red(), title=title, description=msg)
-            else:
-                e = None
 
             v = Confirmation(i, label_a="Opt out", colour_a=ButtonStyle.red, label_b="Cancel")
             v.message = await self.bot.reply(i, content="Opt out of QuoteDB?", embed=e, view=v)

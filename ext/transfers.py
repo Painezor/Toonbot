@@ -13,7 +13,7 @@ from lxml import html
 
 from ext.ticker import IsLiveScoreError
 from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.transfer_tools import Player, Team, Competition, Transfer, SearchView
+from ext.utils.transfer_tools import Player, Team, Competition, Transfer, SearchView, TransferResult
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
@@ -75,7 +75,7 @@ class TransferChannel:
         finally:
             await self.bot.db.release(connection)
 
-        _ = [Competition(bot=self.bot, name=r['name'], country=r['country'], link=r['link']) for r in records]
+        _ = [Competition(name=r['name'], country=r['country'], link=r['link']) for r in records]
         self.leagues = _
         return self.leagues
 
@@ -156,7 +156,7 @@ class TransferChannel:
         finally:
             await self.bot.db.release(connection)
 
-        self.leagues = [Competition(self.bot, name=x[0], country=x[1], link=x[2]) for x in LG]
+        self.leagues = [Competition(name=x[0], country=x[1], link=x[2]) for x in LG]
         return self.leagues
 
     def view(self, interaction: Interaction) -> TransfersConfig:
@@ -232,7 +232,9 @@ class TransfersConfig(View):
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
-        lg_text = '\n'.join(sorted([f"{i.flag} {i.name}" for i in leagues], key=lambda x: x.name))
+
+        print("Remove Leagues received things that should be leagues:", leagues)
+        lg_text = '\n'.join([f"{i.flag} {i.name}" for i in sorted(leagues, key=lambda x: x.name)])
         txt = f"Remove these leagues from {self.tc.channel.mention}? {lg_text}"
         await self.bot.reply(self.interaction, content=txt, embed=None, view=view)
         await view.wait()
@@ -323,6 +325,11 @@ class TransfersCog(Cog):
         self.bot: Bot = bot
         self.bot.transfers = self.transfers_loop.start()
 
+        if not hasattr(TransferResult, 'bot'):
+            TransferResult.bot = bot
+        if not hasattr(SearchView, 'bot'):
+            SearchView.bot = bot
+
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
         await self.update_cache()
@@ -348,16 +355,15 @@ class TransfersCog(Cog):
                 self.bot.transfer_channels.remove(tc)
 
         # Bring in new
-        for cid in cached:
-            tc = next((i for i in self.bot.transfer_channels if i.channel.id == cid), None)
-            if tc is None:
-                channel = self.bot.get_channel(cid)
-                if channel is None:
-                    continue
+        missing = [i for i in cached if i not in [tc.channel.id for tc in self.bot.transfer_channels]]
+        for cid in missing:
+            channel = self.bot.get_channel(cid)
+            if channel is None:
+                continue
 
-                tc = TransferChannel(self.bot, channel)
-                await tc.get_leagues()
-                self.bot.transfer_channels.append(tc)
+            tc = TransferChannel(self.bot, channel)
+            await tc.get_leagues()
+            self.bot.transfer_channels.append(tc)
         return self.bot.transfer_channels
 
     async def _get_team_league(self, link) -> Competition:
@@ -370,7 +376,7 @@ class TransfersCog(Cog):
         link = ''.join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/@href'))
 
         link = TF + link if link else ""
-        return Competition(self.bot, name=name, link=link)
+        return Competition(name=name, link=link)
 
     @loop(seconds=60)
     async def transfers_loop(self) -> None:
@@ -395,7 +401,7 @@ class TransfersCog(Cog):
                 continue  # skip when duplicate / void.
             else:
                 self.bot.parsed_transfers.append(name)
-                player = Player(self.bot, name, link)
+                player = Player(name, link)
 
             # We don't need to output when populating after a restart.
             if skip_output:
@@ -412,7 +418,7 @@ class TransfersCog(Cog):
             team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
 
             league = await self._get_team_league(team_link)
-            new_team = Team(self.bot, name=team, link=team_link, league=league)
+            new_team = Team(name=team, link=team_link, league=league)
             new_team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
 
             player.team = new_team
@@ -421,7 +427,7 @@ class TransfersCog(Cog):
             team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[4]//td[2]/a/@href')).strip()
 
             league = await self._get_team_league(team_link)
-            old_team = Team(self.bot, name=team, link=team_link, league=league)
+            old_team = Team(name=team, link=team_link, league=league)
             old_team.country = ''.join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
 
             fee = ''.join(i.xpath('.//td[6]//a/text()'))
@@ -446,14 +452,14 @@ class TransfersCog(Cog):
                 await self.bot.db.release(connection)
 
             for r in records:
-                tc = next((i for i in self.bot.transfer_channels if r['channel_id'] == i.channel.id), None)
-                if tc is None:
+                try:
+                    tc = next(i for i in self.bot.transfer_channels if r['channel_id'] == i.channel.id)
+                except StopIteration:
                     channel = self.bot.get_channel(r['channel_id'])
                     if channel is None:
                         continue
                     tc = TransferChannel(self.bot, channel)
                     self.bot.transfer_channels.append(tc)
-
                 await tc.dispatch(transfer)
 
     tf = Group(name="transfer_ticker",
@@ -469,13 +475,13 @@ class TransfersCog(Cog):
             channel = interaction.channel
 
         # Validate channel is a ticker channel.
-        tc = next((i for i in self.bot.transfer_channels if i.channel.id == channel.id), None)
-        if tc is None:
+        try:
+            tc = next(i for i in self.bot.transfer_channels if i.channel.id == channel.id)
+            return await tc.view(interaction).update()
+        except StopIteration:
             tc = TransferChannel(self.bot, channel)
             self.bot.transfer_channels.append(tc)
             return await tc.view(interaction).creation_dialogue()
-        else:
-            return await tc.view(interaction).update()
 
     @tf.command()
     @describe(league_name="Search for a league name")
@@ -486,13 +492,14 @@ class TransfersCog(Cog):
             channel = interaction.channel
 
         # Validate channel is a ticker channel.
-        tc = next((i for i in self.bot.transfer_channels if i.channel.id == channel.id), None)
-        if tc is None:
+        try:
+            tc = next(i for i in self.bot.transfer_channels if i.channel.id == channel.id)
+        except StopIteration:
             tc = TransferChannel(self.bot, channel)
             self.bot.transfer_channels.append(tc)
             return await tc.view(interaction).creation_dialogue()
 
-        view = SearchView(self.bot, interaction, league_name, category='competition', fetch=True)
+        view = SearchView(interaction, league_name, category='competition', fetch=True)
         await view.update()
         await view.wait()
 

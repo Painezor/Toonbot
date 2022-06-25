@@ -2,6 +2,7 @@
 from asyncio import new_event_loop
 from collections import defaultdict
 from datetime import datetime
+from io import BytesIO
 from json import load
 from logging import basicConfig, INFO
 from typing import Dict, List, Optional, Callable, TYPE_CHECKING
@@ -9,12 +10,12 @@ from typing import Dict, List, Optional, Callable, TYPE_CHECKING
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from asyncpraw import Reddit
-from discord import Intents, Game
+from discord import Intents, Game, File
 from discord.ext.commands import AutoShardedBot
 
 from ext.utils.browser_utils import make_browser
 from ext.utils.flashscore import Team, Competition, Fixture
-from ext.utils.reply import reply, error, dump_image
+from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
     from ext.scores import ScoreChannel
@@ -62,7 +63,6 @@ class Bot(AutoShardedBot):
         self.ticker_semaphore: Semaphore = None
         self.reply: Callable = reply
         self.error: Callable = error
-        self.dump_image: Callable = dump_image
 
         # Database & Credentials
         self.db: Pool = kwargs.pop("database")
@@ -114,6 +114,16 @@ class Bot(AutoShardedBot):
         self.tv: dict = {}
 
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
+
+    async def dump_image(self, img: BytesIO) -> Optional[str]:
+        """Dump an image to discord & return its URL to be used in embeds"""
+        ch = self.get_channel(874655045633843240)
+        if ch is None:
+            return None
+
+        img_msg = await ch.send(file=File(fp=img, filename="dumped_image.png"))
+        url = img_msg.attachments[0].url
+        return None if url == "none" else url
 
     async def setup_hook(self) -> None:
         """Load Cogs asynchronously"""

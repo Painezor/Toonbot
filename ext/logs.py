@@ -3,7 +3,7 @@ import datetime
 from copy import deepcopy
 from typing import List, Sequence, TYPE_CHECKING, Union, Callable
 
-from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Forbidden, Member, User, Message
+from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Member, User, Message
 from discord import Guild, Emoji, GuildSticker, TextChannel
 from discord.app_commands import command, default_permissions
 from discord.ext.commands import Cog
@@ -56,13 +56,12 @@ class ToggleButton(Button):
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
         await interaction.response.defer()
-        new_value: bool = False if self.value else True
 
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
                 q = f"""UPDATE notifications_settings SET {self.db_key} = $1 WHERE channel_id = $2"""
-                await connection.execute(q, new_value, self.view.channel.id)
+                await connection.execute(q, not self.value, self.view.channel.id)
         finally:
             await self.bot.db.release(connection)
         cog: Cog = self.bot.get_cog("Logs")
@@ -224,7 +223,7 @@ class Logs(Cog):
                 if x.target.id == user.id:
                     e.add_field(name="Reason", value=f"{x.user.mention}: {x.reason}")
                     break
-        except Forbidden:
+        except HTTPException:
             pass  # We cannot see audit logs.
 
         messages: List[Message] = []
@@ -288,7 +287,7 @@ class Logs(Cog):
                         e.description = f"{member.mention} kicked by {x.user} for {x.reason}."
                         db_field = "member_kicks"
                         break
-        except Forbidden:
+        except HTTPException:
             pass  # We cannot see audit logs.
 
         for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i[db_field]]:

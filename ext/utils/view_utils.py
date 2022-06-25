@@ -1,7 +1,7 @@
 """Generic Objects for discord Views"""
-from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING, Union
+from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING, Union, Dict, Any
 
-from discord import Interaction, ButtonStyle, NotFound, Embed, Message
+from discord import Interaction, ButtonStyle, NotFound, Embed, Message, SelectOption
 from discord.ui import Button, Select, Modal, View, TextInput
 from pyppeteer.page import Page
 
@@ -22,15 +22,15 @@ def add_page_buttons(view: View, row: int = 0) -> View:
 
     if pages > 1:
         p = Previous(row=row)
-        p.disabled = True if index == 0 else False
+        p.disabled = index == 0
         view.add_item(p)
 
         j = Jump(row=row, label=f"Page {index + 1} of {pages}")
-        j.disabled = True if pages < 3 else False
+        j.disabled = pages < 3
         view.add_item(j)
 
         n = Next(row=row)
-        n.disabled = True if index + 1 >= pages else False  # index 0 plus 1, len pages = 1
+        n.disabled = index + 1 >= pages  # index 0 plus 1, len pages = 1
         view.add_item(n)
     view.add_item(Stop(row=row))
     return view
@@ -39,8 +39,8 @@ def add_page_buttons(view: View, row: int = 0) -> View:
 class Parent(Button):
     """If a view has a "parent" view, add a button to allow user to go to it."""
 
-    def __init__(self, row: int = 0) -> None:
-        super().__init__(label="Back", emoji='🏠', row=row)
+    def __init__(self, row: int = 0, label: str = "Back") -> None:
+        super().__init__(label=label, emoji='🏠', row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
         """When clicked, call the parent view's update button"""
@@ -68,7 +68,7 @@ class Previous(Button):
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
         await interaction.response.defer()
-        self.view.index = self.view.index - 1 if self.view.index > 0 else 0
+        self.view.index = max(self.view.index - 1, 0)
         return await self.view.update()
 
 
@@ -78,7 +78,7 @@ class Jump(Button):
         super().__init__(label=label, style=ButtonStyle.blurple, emoji='⤴', row=row)
 
     async def callback(self, interaction: Interaction) -> Modal:
-        """When button is clicked..."""
+        """When button is clicked…"""
         return await interaction.response.send_modal(JumpModal(self.view))
 
 
@@ -203,7 +203,7 @@ class ObjectSelectView(View):
 
         add_page_buttons(self, row=1)
 
-        _ = ItemSelect(placeholder="Select Matching Item...", options=self.pages[0])
+        _ = ItemSelect(placeholder="Select Matching Item…", options=self.pages[0])
         _.label = f"Page {self.index + 1} of {len(self.pages)}"
         self.add_item(_)
         self.add_item(Stop(row=1))
@@ -261,12 +261,37 @@ class FuncButton(Button):
                  style: ButtonStyle = ButtonStyle.secondary, row: int = 2, disabled: bool = False) -> None:
         super().__init__(label=label, emoji=emoji, style=style, row=row, disabled=disabled)
         self.func: Callable = func
-        self.kwargs: dict = {} if kwargs is None else kwargs
+        if kwargs is None:
+            kwargs = dict()
+        self.kwargs: dict = kwargs
 
     async def callback(self, interaction: Interaction) -> None:
         """A Generic Callback"""
+        for k, v in self.kwargs.items():
+            setattr(self.view, k, v)
+
         await interaction.response.defer()
-        return await self.func(**self.kwargs)
+        return await self.func()
+
+
+class FuncDropdown(Select):
+    """Perform function based on user's dropdown choice"""
+
+    def __init__(self, options: List[SelectOption], funcs: List[Callable], attrs=None,
+                 placeholder: str = None, row: int = 3) -> None:
+        self.attrs: List[Dict[str, Any]] = [] if attrs is None else attrs  # Setattr k of self.view to v
+        self.functions: List[Callable] = funcs
+        super().__init__(placeholder=placeholder, options=options, row=row)
+
+    async def callback(self, interaction: Interaction) -> Message:
+        """Set View Index"""
+        await interaction.response.defer()
+
+        index = int(self.values[0])
+        for k, v in self.attrs[index].items():
+            setattr(self.view, k, v)
+
+        return await self.functions[index]()
 
 
 class Paginator(View):
@@ -314,7 +339,8 @@ class BoolButton(Button):
     """Set View value"""
 
     def __init__(self, label="Yes", colour: ButtonStyle = None, value: bool = True) -> None:
-        colour = ButtonStyle.secondary if colour is None else colour
+        if colour is None:
+            colour = ButtonStyle.secondary
         super().__init__(label=label, style=colour)
         self.value: bool = value
 

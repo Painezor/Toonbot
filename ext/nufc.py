@@ -234,7 +234,7 @@ class NUFC(Cog):
     @command()
     @guilds(332159889587699712)
     async def mbemba(self, interaction: Interaction) -> Message:
-        """Mbemba When..."""
+        """Mbemba When…"""
         return await MbembaView(self.bot, interaction).update()
 
     @command()
@@ -276,7 +276,7 @@ class NUFC(Cog):
     @command()
     @guilds(332159889587699712)
     async def shake(self, interaction):
-        """Well to start off with..."""
+        """Well to start off with…"""
         await self.bot.reply(interaction, content=SHAKE)
 
     @command()

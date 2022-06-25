@@ -55,7 +55,6 @@ async def tm_ac(interaction: Interaction, current: str) -> List[Choice]:
     if opts:
         if interaction.extras['default'] is not None:
             opts = [interaction.extras['default']] + opts
-
     return list(opts[:25])
 
 
@@ -85,9 +84,8 @@ async def lg_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
                 t = Choice(name=f"Server default: {default.title}"[:100], value=default.id)
                 interaction.extras['default'] = t
 
-    matches = [i for i in lgs if getattr(i, 'id', None) is not None]
-
-    opts = [Choice(name=lg.title[:100], value=lg.id) for lg in matches if current.lower() in lg.name.lower()]
+    matches = [i for i in lgs if i.id is not None]
+    opts = [Choice(name=lg.title[:100], value=lg.id) for lg in matches if current.lower() in lg.title.lower()]
     if opts:
         if interaction.extras['default'] is not None:
             opts = [interaction.extras['default']] + opts
@@ -267,7 +265,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
 
         if query:
-            matches = [i for i in self.bot.games if getattr(i.competition, 'id', None) == query]
+            matches = [i for i in self.bot.games if i.competition.id == query]
 
             if not matches:
                 _ = str(query).lower()

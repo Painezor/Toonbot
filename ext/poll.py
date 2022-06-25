@@ -56,7 +56,7 @@ class PollView(View):
     async def finalise(self) -> Message:
         """Finalise the view"""
         e = Embed(colour=Colour.green(), title=self.question + "?", description="")
-        e.set_author(name=f"{self.interaction.user.name} asked...", icon_url=self.interaction.user.display_avatar.url)
+        e.set_author(name=f"{self.interaction.user.name} asked…", icon_url=self.interaction.user.display_avatar.url)
         counter = Counter(self.votes.values())
         results = sorted(counter)
         if results:
@@ -77,7 +77,7 @@ class PollView(View):
     async def update(self, content: str = "") -> Message:
         """Refresh the view and send to user"""
         e: Embed = Embed(colour=Colour.og_blurple(), title=self.question + "?", description="")
-        e.set_author(name=f"{self.interaction.user.name} asks...", icon_url=self.interaction.user.display_avatar.url)
+        e.set_author(name=f"{self.interaction.user.name} asks…", icon_url=self.interaction.user.display_avatar.url)
 
         counter = Counter(self.votes.values())
         results = sorted(counter)

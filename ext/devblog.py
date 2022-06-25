@@ -47,19 +47,16 @@ async def parse_blog(bot: 'PBot', url: str):
     e.timestamp = datetime.datetime.now(datetime.timezone.utc)
     e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
     e.description = ""
-    output = ""
+    output = []
 
     def fmt(node):
         """Format the passed node"""
-        try:
-            txt = node.text if node.text.strip() else ""
-            txt = sub(r'\s{2,}', ' ', txt)
-        except AttributeError:
-            txt = ""
-
-        if txt:
+        if node.text is None:
+            out = ""
+        else:
+            txt = sub(r'\s{2,}', ' ', node.text.strip())
             match node.tag:
-                case "p" | "div" | "ul":
+                case "p" | "div" | "ul" | "td":
                     out = txt
                 case "em":
                     out = f"*{txt}*"
@@ -83,17 +80,11 @@ async def parse_blog(bot: 'PBot', url: str):
                 case "a":
                     out = f"[{txt}]({node.attrib['href']})"
                 case _:
-                    print(f"Unhandled node tag found: {node.tag} | {txt} | {tail}")
+                    print(f"Unhandled node tag found: {node.tag} | {txt} | {node.tail}")
                     out = txt
-        else:
-            out = ""
 
-        try:
-            tl = node.tail if node.tail.strip() else ""
-            tl = sub(r'\s{2,}', ' ', tl)
-        except AttributeError:
-            tl = ""
-        out += tl
+        if node.tail is not None:
+            out += sub(r'\s{2,}', ' ', node.tail.strip())
 
         return out
 
@@ -114,36 +105,38 @@ async def parse_blog(bot: 'PBot', url: str):
             tail = ""
 
         if text or tail:
-            output += fmt(n)
+            output.append(fmt(n))
 
         for child in n.iterdescendants():
             # Force Linebreak on new section.
-            try:
-                child_text = child.text if child.text.strip() else ""
-                child_text = sub(r'\s{2,}', ' ', child_text)
-            except AttributeError:
-                child_text = ""
+            child_text = getattr(child, 'text', None)
+            if child_text is not None:
+                child_text = sub(r'\s{2,}', ' ', child_text.strip())
 
-            try:
-                child_tail = child.tail if child.tail.strip() else ""
-                child_tail = sub(r'\s{2,}', ' ', child_tail)
-            except AttributeError:
-                child_tail = ""
+            child_tail = getattr(child, 'tail', None)
+            if child.tail is not None:
+                child_tail = sub(r'\s{2,}', ' ', child_tail.strip())
 
             if child_text or child_tail:
-                output += "\n" if child.tag == "li" else ""
-                output += fmt(child)
-                if child.tag == "li" and child.getnext() is None and not child.getchildren():
-                    output += "\n\n"  # Extra line after lists.
-                output += "\n\n" if child.tag == "p" else ""
+                if child.tag == "li":
+                    output.append("\n")
+                output.append(fmt(child))
+
+            if child.tag == "li" and child.getnext() is None and not child.getchildren():
+                output.append("\n\n")  # Extra line after lists.
+
+            if child.tag == "p":
+                output.append("\n\n")
 
         if text or tail:
-            if n.tag == "p":
-                output += "\n\n" if n.itertext() else ""
-            output += "\n" if n.tag == "li" else ""
+            if n.tag == "p" and n.itertext():
+                output.append("\n\n")
+            if n.tag == "li":
+                output.append("\n")
 
+    output = ''.join(output)
     if len(output) > 4000:
-        trunc = f"...\n[Read Full Article]({url})"
+        trunc = f"…\n[Read Full Article]({url})"
         e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
     else:
         e.description = output
@@ -154,8 +147,8 @@ async def db_ac(interaction: Interaction, current: str) -> List[Choice]:
     """Autocomplete dev blog by text"""
     cache = getattr(interaction.client, 'dev_blog_cache', [])
     blogs = [i for i in cache if current.lower() in f"{i['title']} {i['text']}".lower()]
-    return [Choice(name=f"{i['id']}: {i['title']}"[:100], value=str(i['id'])) for i in blogs][:-25:-1]
-    # Last 25 items reversed
+    choices = [Choice(name=f"{i['id']}: {i['title']}"[:100], value=str(i['id'])) for i in blogs]
+    return choices[:-25:-1]  # Last 25 items reversed
 
 
 class DevBlog(Cog):

@@ -26,7 +26,7 @@ KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_T
 
 def message_emojis(s: str) -> List[PartialEmoji]:
     """ Returns a list of custom emojis in a message. """
-    emojis = findall('<(?P<animated>a?):(?P<name>[a-zA-Z0-9_]{2,32}):(?P<id>[0-9]{18,22})>', s)
+    emojis = findall(r'<(?P<animated>a?):(?P<name>\w{2,32}):(?P<id>\d{18,22})>', s)
     return [PartialEmoji(animated=bool(animated), name=name, id=e_id) for animated, name, e_id in emojis]
 
 
@@ -182,7 +182,7 @@ class ImageView(View):
         return output
 
     def draw_bob(self) -> BytesIO:
-        """Pillow Bob Rossifying"""
+        """Add bob ross overlay to image."""
         im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
         bob = Image.open("Images/ross face.png")
         for coordinates in self.coordinates:
@@ -287,7 +287,8 @@ class Images(Cog):
     @describe(user="Select a user to fetch their avatar")
     async def avatar(self, interaction: Interaction, user: User | Member = None) -> Message:
         """Shows a member's avatar"""
-        user = interaction.user if user is None else user
+        if user is None:
+            user = interaction.user
 
         e: Embed = Embed(description=f"{user}'s avatar", colour=user.colour)
         e.colour = user.color
@@ -302,7 +303,9 @@ class Images(Cog):
                    file: Attachment = None) -> Message:
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
         await interaction.response.defer(thinking=True)
-        user = interaction.user if user is None else user
+        if user is None:
+            user = interaction.user
+
         link = get_target(user, link, file)
         view = ImageView(self.bot, interaction, link)
         return await view.push_eyes()
@@ -313,7 +316,8 @@ class Images(Cog):
                     file: Attachment = None) -> Message:
         """Local man ruins everything"""
         await interaction.response.defer(thinking=True)
-        user = interaction.user if user is None else user
+        if user is None:
+            user = interaction.user
 
         link = get_target(user, link, file)
         async with self.bot.session.get(link) as resp:
@@ -346,7 +350,9 @@ class Images(Cog):
     async def bob_ross(self, interaction: Interaction, user: User | Member = None, link: str = None,
                        file: Attachment = None) -> Message:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
-        user = interaction.user if user is None else user
+        if user is None:
+            user = interaction.user
+
         await interaction.response.defer(thinking=True)
         link = get_target(user, link, file)
         view = ImageView(self.bot, interaction, link)

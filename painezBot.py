@@ -3,7 +3,7 @@ from asyncio import new_event_loop
 from datetime import datetime
 from json import load
 from logging import basicConfig, INFO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
@@ -12,10 +12,11 @@ from discord.ext.commands import AutoShardedBot, when_mentioned
 from twitchio.ext import commands
 
 from ext.utils.browser_utils import make_browser
-from ext.utils.reply import reply, error, dump_image
+from ext.utils.reply import reply, error
+from ext.utils.wows_utils import Clan, ShipSentinel
 
 if TYPE_CHECKING:
-	from ext.utils.wows_utils import Map, Ship, Player, ShipType, Clan, Module
+	from ext.utils.wows_utils import Map, Ship, Player, ShipType, Module, GameMode, Region, ClanBuilding
 	from ext.newstracker import NewsChannel, Article
 	from ext.twitchtracker import Contributor, TrackerChannel
 	from pyppeteer.browser import Browser
@@ -30,8 +31,7 @@ with open('credentials.json') as f:
 
 COGS = [
 	# Utility Cogs
-	'errors',
-	'meta-painezbot',
+	'errors', 'meta-painezbot',
 	# Slash commands.
 	'admin', 'devblog', 'info', 'logs', 'mod', 'reminders', 'newstracker',
 	'twitchtracker', 'warships'
@@ -41,7 +41,7 @@ COGS = [
 class PBot(AutoShardedBot):
 	"""The core functionality of the bot."""
 
-	def __init__(self, **kwargs):
+	def __init__(self, **kwargs) -> None:
 
 		super().__init__(
 			description="Warships utility bot by Painezor#8489",
@@ -55,7 +55,6 @@ class PBot(AutoShardedBot):
 		# Reply Handling
 		self.reply = reply
 		self.error = error
-		self.dump_image = dump_image
 
 		# Admin
 		self.COGS = COGS
@@ -94,9 +93,14 @@ class PBot(AutoShardedBot):
 
 		self.contributors: List[Contributor] = []
 		self.clans: List[Clan] = []
+		self.clan_buildings: List[ClanBuilding] = []
 		self.maps: List[Map] = []
+		self.modes: List[GameMode] = []
 		self.modules: List[Module] = []
 		self.players: List[Player] = []
+		self.pr_data: dict = {}
+		self.pr_data_updated_at: Optional[datetime] = None
+		self.pr_sums: Tuple[int, int, int]  # Dmg WR Kills
 		self.ships: List[Ship] = []
 		self.ship_types: List[ShipType] = []
 
@@ -114,12 +118,28 @@ class PBot(AutoShardedBot):
 			except Exception as e:
 				print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
 
-	async def get_ship(self, identifier: str) -> 'Ship':
+	async def get_ship(self, identifier: str | int) -> 'Ship':
 		"""Get a Ship object from a list of the bots ships"""
-		ship = next((i for i in self.ships if getattr(i, 'ship_id_str', None) == identifier), None)
-		if ship is None:  # Fallback
-			ship = next((i for i in self.ships if getattr(i, 'ship_id', None) == identifier), None)
-		return ship
+		try:
+			return next(i for i in self.ships if getattr(i, 'ship_id_str', None) == identifier)
+		except StopIteration:  # Fallback
+			try:
+				return next(i for i in self.ships if getattr(i, 'ship_id', None) == identifier)
+			except StopIteration:
+				ship = next((i for i in ShipSentinel if i.id == identifier), None)
+				if ship is None:
+					print('Get_ship failed for identifier', identifier)
+				return ship
+
+	async def get_clan(self, clan_id: int, region: 'Region') -> 'Clan':
+		"""Get a Clan object from Stored Clans"""
+		try:
+			clan = next(i for i in self.clans if i.clan_id == clan_id)
+		except StopIteration:
+			clan = Clan(self, clan_id, region)
+			await clan.get_data()
+			self.clans.append(clan)
+		return clan
 
 	def get_ship_type(self, match: str) -> 'ShipType':
 		"""Get a ShipType object matching a string"""
@@ -128,7 +148,6 @@ class PBot(AutoShardedBot):
 
 class TwitchBot(commands.Bot):
 	"""Twitch Bot."""
-
 	def __init__(self, twitch_token: str):
 		super().__init__(token=twitch_token, prefix="!")
 

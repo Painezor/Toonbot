@@ -1,7 +1,6 @@
 """Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
 import datetime
 from asyncio import sleep
-from importlib import reload
 from math import ceil
 from pathlib import Path
 from re import sub, DOTALL
@@ -56,7 +55,6 @@ class NUFCSidebar(Cog):
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
-        reload(flashscore)
 
     async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
@@ -161,8 +159,7 @@ class NUFCSidebar(Cog):
 
         # Top bar
         match_threads = f"\n\n### {pre} - {match} - {post}"
-        target_game = results[0] if results else fixtures[0]
-
+        target_game = next(i for i in results + fixtures)
         home = next((i for i in self.bot.reddit_teams if i['name'] == target_game.home.name), None)
         away = next((i for i in self.bot.reddit_teams if i['name'] == target_game.away.name), None)
         home_sub = home['subreddit']
@@ -172,8 +169,8 @@ class NUFCSidebar(Cog):
         a = f"[{target_game.away.name}]({away_sub})"
         top_bar = f"> {h} [{target_game.score}]({target_game.url}) {a}"
 
-        home_icon = home['icon'] if a is not None else "#temp"
-        away_icon = away['icon'] if a is not None else "#temp/"  # / Denotes post.
+        home_icon = "#temp" if h is None else home['icon']
+        away_icon = "#temp/" if a is None else away['icon']  # / Denotes post.
 
         # Upload badge.
         if not home_icon or not away_icon:

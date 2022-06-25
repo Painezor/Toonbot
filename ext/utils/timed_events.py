@@ -11,6 +11,7 @@ class Timestamp:
     def __init__(self, time: dt.datetime = None):
         if time is None:
             time = dt.datetime.now()
+        self.value = time
         self.time = str(time.timestamp()).split('.')[0]
 
     def __str__(self) -> str:

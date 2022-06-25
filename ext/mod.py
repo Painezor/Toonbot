@@ -21,7 +21,7 @@ class BanModal(Modal, title="Bulk ban user IDs"):
     ban_list = TextInput(
         label="Enter User IDs to ban, one per line",
         style=TextStyle.paragraph,
-        placeholder="12345678901234\n12345678901235\n12345678901236\n..."
+        placeholder="12345678901234\n12345678901235\n12345678901236\n…"
     )
     reason = TextInput(label="Enter a reason", placeholder="<Insert your reason here>", default="No reason provided")
 
@@ -75,6 +75,9 @@ class EmbedModal(Modal, title="Send an Embed"):
             e.set_image(url=self.image.value)
         if self.thumbnail.value is not None and "http:" in self.thumbnail.value:
             e.set_thumbnail(url=self.thumbnail.value)
+
+        e.description = self.destination
+
         try:
             await self.destination.send(embed=e)
             await self.bot.reply(interaction, content="Message sent.", ephemeral=True)

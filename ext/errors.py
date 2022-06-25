@@ -43,7 +43,7 @@ class Errors(Cog):
                     return await self.bot.error(i, 'An Internal error occurred.')
                 finally:
                     print("Error occurred when running a command, printing interaction data\n")
-                    if i.command.parent:
+                    if hasattr(i.command, 'parent') and i.command.parent:
                         print(f'/{i.command.parent.name} {i.command.name}')
                     else:
                         print(f'/{i.command.name})')

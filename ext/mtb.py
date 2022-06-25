@@ -436,7 +436,7 @@ class MatchThreadCommands(commands.Cog):
 
         _ = MatchThread(self.bot, f, settings, record)
         self.active_threads.append(_)
-        print("Starting thread...")
+        print("Starting thread…")
         await _.start()
 
 

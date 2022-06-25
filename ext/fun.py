@@ -58,7 +58,8 @@ class CoinView(View):
             for c in counter.most_common():
                 e.add_field(name=f"Total {c[0]}", value=c[1])
 
-            e.description += f"\n{'...' if len(self.flip_results) > 200 else ''}"
+            if len(self.flip_results) > 200:
+                e.description += "\n…"
             e.description += ', '.join([f'*{i}*' for i in self.flip_results[-200:]])
         return await self.bot.reply(self.interaction, content=content, view=self, embed=e)
 
@@ -138,7 +139,7 @@ class Fun(Cog):
                ]
 
         if len(question) > 256:
-            question = f"{question[:253]}..."
+            question = f"{question[:255]}…"
 
         e: Embed = Embed(title=question, colour=0x000001, description=choice(res))
         e.set_author(icon_url=self.bot.user.display_avatar.url, name=f'🎱 8 Ball')
@@ -210,7 +211,7 @@ class Fun(Cog):
                 z = z.group()
                 de = de.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
 
-            de = f"{de[:2044]} ..." if len(rde) > 2048 else rde
+            de = f"{de[:2046]} …" if len(rde) > 2048 else rde
 
             if i["example"]:
                 ex = rex = i['example']
@@ -219,7 +220,7 @@ class Fun(Cog):
                     z = z.group()
                     rex = ex.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
 
-                ex = f"{ex[:1020]}..." if len(rex) > 1024 else rex
+                ex = f"{ex[:1023]}…" if len(rex) > 1024 else rex
 
                 embed.add_field(name="Example", value=ex)
 
@@ -237,8 +238,8 @@ class Fun(Cog):
     @describe(dice="enter a roll (format: 1d20+3)")
     async def roll(self, interaction: Interaction, dice: str = "d20") -> Message:
         """Roll a set of dice in the format XdY+Z. Use 'adv' or 'dis' for (dis)advantage"""
-        advantage = True if dice.startswith("adv") else False
-        disadvantage = True if dice.startswith("dis") else False
+        advantage = dice.startswith("adv")
+        disadvantage = dice.startswith("dis")
 
         if advantage:
             e: Embed = Embed(title="🎲 Dice Roller (Advantage)")

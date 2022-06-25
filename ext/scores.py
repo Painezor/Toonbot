@@ -7,7 +7,7 @@ from collections import defaultdict
 from copy import deepcopy
 from itertools import zip_longest
 # Type Hinting
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 
 # Error Handling
 from asyncpg import ForeignKeyViolationError, Record
@@ -35,7 +35,6 @@ if TYPE_CHECKING:
 NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
                  "\n\nYou can add more leagues with `/livescores add`" \
                  "\nTo find out which leagues currently have games, use `/scores`"
-NO_NEWS = "Could not send livescores to this channel. Do not set livescores channels as 'announcement' channels."
 
 
 # TODO: Recall cache for ratelimit avoidance.
@@ -56,7 +55,6 @@ class ScoreChannel:
         games = self.bot.games.copy()
 
         for comp in set(i.competition for i in games):
-
             for tracked in self.leagues:
                 if tracked == comp.title:
                     embeds += getattr(comp, "score_embeds", [])
@@ -160,7 +158,7 @@ class ScoreChannel:
 
         self.messages.clear()
 
-        message: Optional[Message]
+        message: Message | None
         new_embeds: List[Embed]
         # Zip longest will give (, None) in slot [0] // self.messages if we do not have enough messages for the embeds.
         for message, new_embeds in tuples[:5]:
@@ -339,7 +337,7 @@ class Scores(Cog, name="LiveScores"):
         finally:
             await self.bot.db.release(connection)
 
-        # Generate {channel_id: [league1, league2, league3, ...]}
+        # Generate {channel_id: [league1, league2, league3, …]}
         channel_leagues = defaultdict(list)
         for r in records:
             channel_leagues[r['channel_id']].append(r['league'])
@@ -351,8 +349,9 @@ class Scores(Cog, name="LiveScores"):
             if channel.is_news():
                 continue
 
-            sc = next((i for i in self.bot.score_channels if i.channel.id == channel_id), None)
-            if sc is None:
+            try:
+                sc = next(i for i in self.bot.score_channels if i.channel.id == channel_id)
+            except StopIteration:
                 sc = ScoreChannel(self.bot, channel)
                 self.bot.score_channels.append(sc)
             sc.leagues = sorted(leagues)
@@ -372,8 +371,7 @@ class Scores(Cog, name="LiveScores"):
             return await self.update_cache()
 
         try:
-            games = await self.fetch_games()
-            games = games.copy()  # Make a shallow copy.
+            self.bot.games = await self.fetch_games()
         except ConnectionError:
             return []
 
@@ -382,18 +380,20 @@ class Scores(Cog, name="LiveScores"):
         ordinal = now.toordinal()
 
         # Copy to avoid size change in iteration.
-        for x in games:
-            try:
-                # If the game is not from 'Today', we remove it next iteration.
-                assert x.kickoff.toordinal() == ordinal
-            except (AssertionError, AttributeError):
-                self.bot.games.remove(x)
+        for x in self.bot.games.copy():
+            # If the game is not from 'Today', we remove it next iteration.
+            if x.kickoff is not None:
+                try:
+                    assert x.kickoff.toordinal() == ordinal
+                except AssertionError:
+                    self.bot.games.remove(x)
 
-        comps = set(i.competition for i in games)
+        comps = set(i.competition for i in self.bot.games)
 
         for comp in comps.copy():
             e = deepcopy(await comp.live_score_embed)
-            fixtures = sorted([i for i in games if i.competition == comp], key=lambda c: getattr(c, 'kickoff', now))
+            fixtures = sorted([i for i in self.bot.games if i.competition == comp],
+                              key=lambda c: now if c.kickoff is None else c.kickoff)
             comp.score_embeds = rows_to_embeds(e, [i.live_score_text for i in fixtures], max_rows=50)
 
         for sc in self.bot.score_channels.copy():
@@ -437,7 +437,7 @@ class Scores(Cog, name="LiveScores"):
                     competition = exact[0]
                 else:
                     partial = [x for x in self.bot.competitions if x.title in competition_name]  # Partial Matches
-                    for substring in ['women', 'u18']:  # Filter...
+                    for substring in ['women', 'u18']:  # Filter…
                         if substring in competition_name.lower():
                             partial = [i for i in partial if substring in i.name.lower()]
 
@@ -553,7 +553,7 @@ class Scores(Cog, name="LiveScores"):
                     fixture.kickoff = ko
 
             # What we now need to do, is figure out the "state" of the game.
-            # Things may then get ... more difficult. Often, the score of a fixture contains extra data.
+            # Things may then get … more difficult. Often, the score of a fixture contains extra data.
             # So, we update the match score, and parse additional states
 
             score_line = ''.join(tree.xpath('.//a/text()')).split(':')
@@ -646,7 +646,7 @@ class Scores(Cog, name="LiveScores"):
             return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
         sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
-        return await sc.view(interaction).update(content=f"Fetching config for {sc.channel.mention}...")
+        return await sc.view(interaction).update(content=f"Fetching config for {sc.channel.mention}…")
 
     @livescores.command()
     @describe(name="Enter a name for the channel")
@@ -675,7 +675,7 @@ class Scores(Cog, name="LiveScores"):
                 q = """INSERT INTO scores_channels (guild_id, channel_id) VALUES ($1, $2)"""
                 await connection.execute(q, channel.guild.id, channel.id)
         except ForeignKeyViolationError as e:
-            await self.bot.error(interaction, content="The database entry for your server was not found... somehow.")
+            await self.bot.error(interaction, content="The database entry for your server was not found.… somehow.")
             raise e
         finally:
             await self.bot.db.release(connection)
@@ -700,9 +700,9 @@ class Scores(Cog, name="LiveScores"):
         if channel is None:
             channel = interaction.channel
 
-        sc = next((i for i in self.bot.score_channels if i.channel.id == channel.id), None)
-
-        if sc is None:
+        try:
+            sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
+        except StopIteration:
             return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
         # Get the league object
@@ -738,9 +738,9 @@ class Scores(Cog, name="LiveScores"):
         if channel is None:
             channel = interaction.channel
 
-        sc = next((i for i in self.bot.score_channels if i.channel.id == channel.id), None)
-
-        if sc is None:
+        try:
+            sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
+        except StopIteration:
             return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
         await sc.add_leagues(WORLD_CUP_LEAGUES)

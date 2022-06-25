@@ -36,7 +36,7 @@ class ToggleButton(Button):
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
         await interaction.response.defer()
-        new_value: bool = False if self.value else True
+        new_value: bool = not self.value
 
         sql = f"""UPDATE news_trackers SET {self.region.db_key} = $1 WHERE channel_id = $2"""
         connection = await self.bot.db.acquire()
@@ -61,13 +61,13 @@ class Article:
         self.bot = bot
         # Partial is the trailing part of the URL.
         self.partial: str = partial
-        self.link: str = ""
+        self.link: str = None
 
         # Stored Data
-        self.title: str = ""
-        self.category: str = ""
-        self.description: str = ""
-        self.image: str = ""
+        self.title: str = None
+        self.category: str = None
+        self.description: str = None
+        self.image: str = None
 
         # A flag for each region the article has been found in.
         self.eu: bool = False
@@ -103,10 +103,10 @@ class Article:
 
         # CHeck if we need to do a full refresh on the article.
         try:
-            assert self.title != ""
-            assert self.category != ""
-            assert self.image != ""
-            assert self.description != ""
+            assert self.title is not None
+            assert self.category is not None
+            assert self.image is not None
+            assert self.description is not None
         except AssertionError:
             page = await self.bot.browser.newPage()
 
@@ -150,7 +150,7 @@ class Article:
         v = View()
         for region in Region:
             if getattr(self, region.db_key):
-                url = f"{region.domain}en/{self.partial}"
+                url = f"https://worldofwarships.{region.domain}/en/{self.partial}"
                 b = Button(style=ButtonStyle.url, label=f"{region.name} article", emoji=region.emote, url=url)
                 v.add_item(b)
 
@@ -257,7 +257,8 @@ async def news_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
     articles: List[Article] = getattr(interaction.client, 'news_cache')
     matches = [i for i in articles if current.lower() in f"{i.title}: {i.description}".lower()]
-    matches = sorted(matches, key=lambda x: x.date, reverse=True)
+    matches = sorted(matches, key=lambda x: x.date if x.date is not None
+    else datetime.datetime.now(datetime.timezone.utc), reverse=True)
     return [Choice(name=f"{i.title}: {i.description}"[:100], value=i.link) for i in matches][:25]
 
 
@@ -298,6 +299,7 @@ class NewsTracker(Cog):
                 for k, v in r.items():
                     if k == "partial":
                         continue
+
                     setattr(article, k, v)
                 self.bot.news_cache.append(article)
 
@@ -323,28 +325,28 @@ class NewsTracker(Cog):
         # If we already have parsed the articles once, flag it now.
         region: Region
         for region in Region:
-            async with self.bot.session.get(region.domain + 'en/rss/news/') as resp:
+            async with self.bot.session.get(f'https://worldofwarships.{region.domain}/en/rss/news/') as resp:
                 tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))
 
             for i in tree.xpath('.//item'):
                 link = ''.join(i.xpath('.//guid/text()'))
                 partial = link.split('/en/')[-1]
 
-                article = next((i for i in self.bot.news_cache if i.partial == partial), None)
-                if article is not None:
-                    # If we have already dispatched this article for this region, we are no longer interested
-                    if getattr(article, region.db_key):
-                        continue
-                    else:
-                        setattr(article, region.db_key, True)
-                else:
+                try:
+                    article = next(i for i in self.bot.news_cache if i.partial == partial)
+                except StopIteration:
                     article = Article(self.bot, partial)
-                    setattr(article, region.db_key, True)
                     self.bot.news_cache.append(article)
+
+                # If we have already dispatched this article for this region, we are no longer interested
+                if getattr(article, region.db_key):
+                    continue
+                else:
+                    setattr(article, region.db_key, True)
 
                 # At this point, we either have a new article, or a new region for an existing article.
                 # In which case, we check if we need to extract additional data from the RSS.
-                if not article.link:
+                if article.link is None:
                     article.link = link  # Original Link
 
                 if article.date is None:
@@ -368,7 +370,7 @@ class NewsTracker(Cog):
                     if desc:
                         article.description = desc
 
-                if not article.title:
+                if article.title is None:
                     title = ''.join(i.xpath('.//title/text()'))
                     if title:
                         article.title = title
@@ -392,14 +394,14 @@ class NewsTracker(Cog):
         """Search for a recent World of Warships news article"""
         await interaction.response.defer(thinking=True)
 
-        article = next((i for i in self.bot.news_cache if i.link == text), None)
-        if article is None:
+        try:
+            article = next(i for i in self.bot.news_cache if i.link == text)
+        except StopIteration:
             return await self.bot.error(interaction, content=f"Didn't find article matching {text}", ephemeral=True)
+
         await article.generate_embed()
 
         v = article.view
-        v.add_item(Stop())
-
         await self.bot.reply(interaction, view=v, embed=article.embed)
 
     # Command for tracker management.
@@ -413,9 +415,9 @@ class NewsTracker(Cog):
         if channel is None:
             channel = interaction.channel
 
-        target = next((i for i in self.bot.news_channels if i.channel.id == channel.id), None)
-
-        if target is None:
+        try:
+            target = next(i for i in self.bot.news_channels if i.channel.id == channel.id)
+        except StopIteration:
             sql = """INSERT INTO news_trackers (channel_id) VALUES ($1)"""
             connection = await self.bot.db.acquire()
 
@@ -431,7 +433,7 @@ class NewsTracker(Cog):
 
     # Event Listeners for database cleanup.
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
+    async def on_guild_channel_delete(self, channel: TextChannel) -> List[NewsChannel]:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM news_trackers WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -441,8 +443,11 @@ class NewsTracker(Cog):
         finally:
             await self.bot.db.release(connection)
 
+        self.bot.news_channels = [i for i in self.bot.news_channels if i.channel.id != channel.id]
+        return self.bot.news_channels
+
     @Cog.listener()
-    async def on_guild_remove(self, guild: Guild) -> None:
+    async def on_guild_remove(self, guild: Guild) -> List[NewsChannel]:
         """Purge news trackers for deleted guilds"""
         q = f"""DELETE FROM news_trackers WHERE guild_id = $1"""
         connection = await self.bot.db.acquire()
@@ -451,6 +456,9 @@ class NewsTracker(Cog):
                 await connection.execute(q, guild.id)
         finally:
             await self.bot.db.release(connection)
+
+        self.bot.news_channels = [i for i in self.bot.news_channels if i.channel.guild.id != guild.id]
+        return self.bot.news_channels
 
 
 async def setup(bot: 'PBot') -> None:

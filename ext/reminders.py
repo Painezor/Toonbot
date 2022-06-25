@@ -48,7 +48,7 @@ class RemindModal(Modal):
     days = TextInput(label="Number of days", default="0", placeholder="1", max_length=2, required=False)
     hours = TextInput(label="Number of hours", default="0", placeholder="1", max_length=2, required=False)
     minutes = TextInput(label="Number of minutes", default="0", placeholder="1", max_length=2, required=False)
-    description = TextInput(label="Reminder Description", placeholder="Remind me about...", style=TextStyle.paragraph)
+    description = TextInput(label="Reminder Description", placeholder="Remind me about…", style=TextStyle.paragraph)
 
     def __init__(self, bot: Union['Bot', 'PBot', 'Client'], title: str, target_message: Message = None):
         super().__init__(title=title)
@@ -66,8 +66,8 @@ class RemindModal(Modal):
 
         remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
         msg_id = None if self.target_message is None else self.target_message.id
+        gid = None if interaction.guild is None else interaction.guild.id
         ch_id = interaction.channel.id
-        gid = interaction.guild.id if interaction.guild is not None else None
         time = datetime.datetime.now(datetime.timezone.utc)
 
         connection = await self.bot.db.acquire()
