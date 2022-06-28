@@ -13,10 +13,12 @@ from twitchio.ext import commands
 
 from ext.utils.browser_utils import make_browser
 from ext.utils.reply import reply, error
-from ext.utils.wows_utils import Clan, ShipSentinel
+from ext.utils.ship import ShipSentinel
+from ext.utils.wows_utils import Clan
 
 if TYPE_CHECKING:
-	from ext.utils.wows_utils import Map, Ship, Player, ShipType, Module, GameMode, Region, ClanBuilding
+	from ext.utils.wows_utils import Map, Player, GameMode, Region, ClanBuilding
+	from ext.utils.ship import ShipType, Module, Ship
 	from ext.newstracker import NewsChannel, Article
 	from ext.twitchtracker import Contributor, TrackerChannel
 	from pyppeteer.browser import Browser
@@ -126,10 +128,7 @@ class PBot(AutoShardedBot):
 			try:
 				return next(i for i in self.ships if getattr(i, 'ship_id', None) == identifier)
 			except StopIteration:
-				ship = next((i for i in ShipSentinel if i.id == identifier), None)
-				if ship is None:
-					print('Get_ship failed for identifier', identifier)
-				return ship
+				return next(i for i in ShipSentinel if i.id == identifier)
 
 	async def get_clan(self, clan_id: int, region: 'Region') -> 'Clan':
 		"""Get a Clan object from Stored Clans"""

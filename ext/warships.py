@@ -7,8 +7,10 @@ from discord import Embed, ButtonStyle, Message, Colour
 from discord.app_commands import command, describe, default_permissions, autocomplete, Choice, guilds, Range
 from discord.ext.commands import Cog
 from discord.ui import View, Button
+from unidecode import unidecode
 
-from ext.utils.wows_utils import Region, Map, Ship, Player, Nation, ShipType, armor, GameMode, ClanBuilding
+from ext.utils.ship import Nation, ShipType, Ship
+from ext.utils.wows_utils import Region, Map, Player, GameMode, ClanBuilding
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -43,6 +45,56 @@ MAPS = API_PATH + 'encyclopedia/battlearenas/'
 MODES = API_PATH + 'encyclopedia/battletypes/'
 SHIPS = API_PATH + 'encyclopedia/ships/'
 PLAYERS = API_PATH + 'account/list/'
+
+# TODO: Overmatch DD/CV
+OM_BB = {13: ['Tier 2-5 Superstructure'],
+         16: ['Tier 2-5 Superstructure', 'Tier 2-3 Bow/Stern', 'Tier 3-7 British Battlecruiser Bow/Stern'],
+         19: ['Tier 2-5 Bow/Stern', 'All Superstructure', 'Tier 3-7 British Battlecruiser Bow/Stern'],
+         25: ['Tier 2-5 Bow/Stern', 'All Superstructure',
+              'Florida, Mackensen, Prinz Heinrich, Borodino, Constellation, Slava Bow/Stern',
+              'All UK BattleCruiser Bow/Stern'],
+         26: ['Tier 2-7 Bow/Stern', 'All Superstructure',
+              'Florida/Borodino/Constellation/Slava Bow/Stern',
+              'UK BattleCruiser Bow/Stern'],
+         27: ['Tier 2-7 Bow/Stern', 'All Superstructure',
+              'Florida/Borodino/Constellation/Slava Bow/Stern',
+              'UK BattleCruiser Bow/Stern',
+              'German Battlecruiser Upper Bow/Stern'],
+         32: ['All Bow/Stern except German/Kremlin/Italian Icebreaker', 'French/British Casemates',
+              'Slava Deck']}
+
+OM_CA = {6: ['Tier 1-3 Cruiser'],
+         10: ['Tier 1-3 Plating',
+              'Tier 1-5 Superstructure', ],
+         13: ['Tier 1-5 Plating',
+              'Tier 1-7 Most Superstructures',
+              'Tier 1-7 Super light (127mms) plating'],
+         16: ['Tier 1-5 Plating',
+              'Tier 1-7 Superstructure',
+              'Tier 1-7 Bow/Stern (Except Pensacola/New Orleans/Yorck)',
+              'All British CLs and Smolensk plating',
+              '127mm and below equipped super lights',
+              ''],
+         19: ['Tier 1-7 CL Side plating',
+              'Tier 1-7 Superstructure',
+              'Tier 1-7 Bow/Stern (Except Pensacola/New Orleans/Yorck). ',
+              'All British CLs and Smolensk plating',
+              '127mm super lights plating'],
+         25: ['Tier 1-7 everywhere',
+              'Tier 1-10 CL side plating',
+              'Supership bow/stern (except US & German Heavy, and icebreakers)',
+              'All British CLs and Smolensk plating',
+              ],
+         27: ['Tier 1-9 decks',
+              'Supership bow/stern',
+              'All British CLs and smolensk plating',
+              ],
+         30: ['Supership Decks',
+              'Supership bow/stern',
+              'Supership plating'],
+         32: ['Supership Decks', 'Supership bow/stern', 'Supership plating', 'Austin/Jinan Casemate'],
+         35: ['Supership Decks', 'Supership bow/stern', 'Supership plating', 'Austin/Jinan Casemate', 'Riga Deck']
+         }
 
 
 # TODO: Calculation of player's PR
@@ -140,7 +192,7 @@ async def player_ac(interaction: Interaction, current: str) -> List[Choice[str]]
 async def ship_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
     ships: List[Ship] = getattr(interaction.client, 'ships', [])
-    filtered = sorted([i for i in ships if current.lower() in i.ac_row.lower()], key=lambda x: x.name)
+    filtered = sorted([i for i in ships if current.lower() in i.ac_row.lower()], key=lambda x: unidecode(x.name))
     return [Choice(name=i.ac_row[:100], value=i.ship_id_str) for i in filtered if hasattr(i, 'ship_id_str')][:25]
 
 
@@ -227,14 +279,16 @@ class Warships(Cog):
 
             for ship, data in items['data'].items():
                 ship = Ship(self.bot)
-                for k, v in data.items():
-                    # Each Key is a ship
-                    match k:
-                        case "nation":
-                            v = next(i for i in Nation if v == i.match)
-                        case "type":
-                            v = self.bot.get_ship_type(v)
 
+                nation = data.pop("nation", None)
+                if nation:
+                    ship.nation = next(i for i in Nation if nation == i.match)
+
+                ship.type = self.bot.get_ship_type(data.pop('type'))
+
+                modules = data.pop('modules')
+                ship._modules = modules
+                for k, v in data.items():
                     setattr(ship, k, v)
                 ships.append(ship)
         return ships
@@ -339,7 +393,9 @@ class Warships(Cog):
     @command()
     async def guides(self, interaction: Interaction) -> Message:
         """Yurra's collection of guides"""
+        yurra = self.bot.get_user(192601340244000769)
         e = Embed(title="Yurra's guides", description='https://bit.ly/yurraguides')
+        e.set_thumbnail(url=yurra.avatar.url)
         return await self.bot.reply(interaction, embed=e)
 
     # Work In Progress.
@@ -386,17 +442,20 @@ class Warships(Cog):
 
         mode = next(i for i in self.bot.modes if i.tag == mode)
         v = player.view(interaction, mode, division)
-        return await v.overview()
+        return await v.mode_stats()
 
     @command()
-    @guilds(250252535699341312)
     @describe(shell_calibre='Calibre of shell to get over match value of')
     async def overmatch(self, interaction: Interaction, shell_calibre: int) -> Message:
         """Get information about what a shell's overmatch parameters"""
-        await interaction.response.defer()
-        om = {k: v for k, v in armor.items() if shell_calibre / 14.3 > k}
-        e = Embed(title="Overmatch information")
-        e.description = "\n".join("\n".join(v) for v in om.values())
+        await interaction.response.defer(thinking=True)
+        value = round(shell_calibre / 14.3)
+        e = Embed(title=f"{shell_calibre}mm Shells overmatch {value}mm of Armour", colour=0x0BCDFB)
+        e.add_field(name="Cruisers", value='\n'.join(OM_CA[max(i for i in OM_CA if i < value)]), inline=False)
+        e.add_field(name="Battleships", value='\n'.join(OM_BB[max(i for i in OM_BB if i < value)]), inline=False)
+        om_image = 'https://media.discordapp.net/attachments/303154190362869761/990588535201484800/unknown.png'
+        e.set_thumbnail(url=om_image)
+        e.set_footer(text=f"{shell_calibre}mm / 14.3 = {value}mm")
         return await self.bot.reply(interaction, embed=e)
 
     @command()

@@ -765,7 +765,8 @@ class Team(FlashScoreItem):
 class Competition(FlashScoreItem):
     """An object representing a Competition on Flashscore"""
     __slots__ = {'country': "The country or region the Competition takes place in",
-                 'score_embeds': "A list of Embed objects representing this competition's score data"}
+                 'score_embeds': "A list of Embed objects representing this competition's score data",
+                 '_table': 'A link to the table image.'}
     # Constant
     emoji: str = '🏆'
 
@@ -774,6 +775,9 @@ class Competition(FlashScoreItem):
         self.country: Optional[str] = kwargs.pop('country', None)
         self.logo_url: Optional[str] = kwargs.pop('logo_url', None)
         self.score_embeds: List[Embed] = []
+
+        # Table Imagee
+        self._table: str = None
 
     def __str__(self) -> str:
         return self.title
@@ -818,7 +822,7 @@ class Competition(FlashScoreItem):
     @property
     def flag(self) -> str:
         """Get the flag using transfer_tools util"""
-        return get_flag(getattr(self, 'country', ''))
+        return get_flag(self.country)
 
     @property
     def title(self) -> str:
@@ -829,7 +833,7 @@ class Competition(FlashScoreItem):
     async def live_score_embed(self) -> Embed:
         """Base Embed but with image"""
         e = await self.base_embed
-        return e.set_image(url=getattr(self, '_table', None))
+        return e.set_image(url=self._table)
 
     @property
     def link(self) -> str:
@@ -879,6 +883,7 @@ class Competition(FlashScoreItem):
             if data:
                 image = await self.bot.dump_image(data)
                 if image:
+                    self._table = image
                     return image
         except TimeoutError:  # Some competitions don't have tables.
             return None
@@ -901,16 +906,13 @@ class Competition(FlashScoreItem):
                 await page.waitForXPath('.//div[contains(@class, "topScorers__row")]', {"timeout": 5000})
 
             while True:
-                print("Searching for show more buttons")
                 more = await page.xpath('.//div[contains(@class, "showMore")]')  # Click to go to scorers tab
 
                 if not more:
-                    print("found no more show more buttons")
                     break
 
                 for x in more:
                     await x.click()
-                    print("clicked a show more button")
                     break
         except TimeoutError:
             return []
@@ -1762,8 +1764,6 @@ class Player(FlashScoreItem):
     @property
     def flag(self) -> str:
         """Get the flag using transfer_tools util"""
-        if self.country is None:
-            return ''
         return get_flag(self.country)
 
     @property

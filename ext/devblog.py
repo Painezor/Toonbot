@@ -1,6 +1,5 @@
 """Tracker for the World of Warships Development Blog"""
 import datetime
-from re import sub
 from typing import List, TYPE_CHECKING
 
 from asyncpg import Record
@@ -10,11 +9,45 @@ from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View
 from lxml import html
+from lxml.html import HtmlElement
 
+from ext.utils.transfer_tools import get_flag
 from ext.utils.view_utils import add_page_buttons
 
 if TYPE_CHECKING:
     from painezBot import PBot
+
+SHIP_EMOTES = {'aircarrier': {'normal': '<:aircarrier:991362771662930032>',
+                              'premium': '<:aircarrier_premium:991362995424862228>',
+                              'special': '<:aircarrier_special:991362955696406578>'},
+               'battleship': {'normal': '<:battleship:991360614901493771>',
+                              'premium': '<:battleship_premium:991360127707914382>',
+                              'special': '<:battleship_special:991359103467274270>'},
+               'cruiser': {'normal': '<:Cruiser:991318278611939331>',
+                           'premium': '<:cruiser_premium:991360312357953557>',
+                           'special': '<:cruiser_special:991356650701205574>'},
+               'destroyer': {'normal': '<:Destroyer:991321386532491395>',
+                             'premium': '<:destroyer_premium:991360466322460762>',
+                             'special': '<:destroyer_special:991359827966173194>'},
+               'submarine': {'normal': '<:submarine:991360776763879484>',
+                             'premium': '',
+                             'special': '<:submarine_special:991360980544143461>'}}
+
+
+def get_emote(node: HtmlElement):
+    """Get the appropriate emote for ship class & rarity combination"""
+    s_class = node.attrib.get('data-type', None)
+
+    if s_class is None:
+        return ''
+
+    if node.attrib.get('data-premium', None) == 'true':
+        return SHIP_EMOTES[s_class]['premium']
+
+    if node.attrib.get('data-special', None) == 'true':
+        return SHIP_EMOTES[s_class]['special']
+
+    return SHIP_EMOTES[s_class]['normal']
 
 
 class DevBlogView(View):
@@ -42,97 +75,130 @@ async def parse_blog(bot: 'PBot', url: str):
 
     article_html = tree.xpath('.//div[@class="article__content"]')[0]
 
+    blog_number = url.split('/')[-1]
+
     e: Embed = Embed(colour=0x00FFFF, title=''.join(tree.xpath('.//h2[@class="article__title"]/text()')), url=url)
-    e.set_author(name="World of Warships Development Blog", url="https://blog.worldofwarships.com/")
+    e.set_author(name=f"World of Warships Development Blog #{blog_number}", url="https://blog.worldofwarships.com/")
     e.timestamp = datetime.datetime.now(datetime.timezone.utc)
     e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
     e.description = ""
     output = []
 
-    def fmt(node):
-        """Format the passed node"""
-        if node.text is None:
-            out = ""
+    def parse(node: HtmlElement):
+        """Parse a single node"""
+
+        if node.tag == "img":
+            if e.image is None:
+                e.set_image(url='http:' + node.attrib['src'])
+            return ''
+
+        out = []
+
+        # Nuke excessive whitespace.
+        if node.text is not None:
+            txt = node.text.strip()
         else:
-            txt = sub(r'\s{2,}', ' ', node.text.strip())
-            match node.tag:
-                case "p" | "div" | "ul" | "td":
-                    out = txt
-                case "em":
-                    out = f"*{txt}*"
-                case "strong" | "h3" | "h4":
-                    out = f" **{txt}**"
+            txt = None
+
+        match node.tag:
+            case 'i':
+                if node.attrib.get("class", None) == "superShipStar":
+                    out.append(f'\⭐')
+                else:
+                    print("unhandled 'i' tag", node.attrib['class'], txt)
+            case "p":
+                if node.getprevious() is not None:
+                    out.append('\n')
+                out.append(txt)
+                if node.getnext() is not None and node.getnext().tag == "p":
+                    out.append('\n')
+            case "div":
+                if node.attrib.get('class', None) == 'article-cut':
+                    out.append('\n')
+                else:
+                    out.append(txt)
+            case "ul" | "td" | 'sup':
+                out.append(txt)
+            case "em":
+                # Handle Italics
+                out.append(f"*{txt}*")
+            case "strong" | "h3" | "h4":
+                # Handle Bold.
+                # Force line break if this is a standalone bold.
+                if txt:
+                    out.append(f"**{txt}** ")
+
+                if node.tail == ":":
+                    out.append(':')
+                    node.tail = None
+
+                if not node.getnext():
+                    out.append('\n')
+            case "span":
+                # Handle Ships
+                if node.attrib.get('class', None) == "ship":
+                    sub_out = []
+
                     try:
-                        node.parent.text
+                        country = node.attrib.get('data-nation', None)
+                        if country is not None:
+                            sub_out.append(' ' + get_flag(country))
                     except AttributeError:
-                        out += "\n"
+                        pass
+
+                    try:
+                        _class = node.attrib.get('data-type', None)
+                        if _class is not None:
+                            sub_out.append(get_emote(node))
+                    except AttributeError:
+                        pass
+
+                    if txt is not None:
+                        sub_out.append(f"**{txt}** ")
+                    out.append(' '.join(sub_out))
+
+                else:
+                    out.append(txt)
+            case "li":
+                out.append('\n')
+                if node.text:
+                    match node.getparent().getparent().tag:
+                        case "ul" | "ol" | "li":
+                            out.append(f"∟○ {txt}")
+                        case _:
+                            out.append(f"• {txt}")
+
+                if node.getnext() is None:
+                    if len(node) == 0:  # Number of children
+                        out.append('\n')
+            case "a":
+                out.append(f"[{txt}]({node.attrib['href']})")
+            case _:
+                print(f"Unhandled node tag found: {node.tag} | {txt} | {node.tail}")
+                out.append(txt)
+
+        for sub_node in node.iterchildren():
+            out.append(parse(sub_node))
+
+        if node.tail:
+            tail = node.tail.strip() + ' '
+
+            match node.getparent().tag:
                 case "span":
-                    out = txt
-                    if 'class' in node.attrib:
-                        if "ship" in node.attrib['class']:
-                            try:
-                                out = f"`{txt}`" if node.parent.text else f"**{txt}**\n"
-                            except AttributeError:
-                                out = f"**{txt}**\n"
-                case "li":
-                    bullet_type = "∟○" if node.getparent().getparent().tag in ("ul", "li") else "•"
-                    out = f"{bullet_type} {txt}"
-                case "a":
-                    out = f"[{txt}]({node.attrib['href']})"
+                    # Handle Ships
+                    if node.getparent().attrib.get('class', None) == "ship":
+                        out.append(f'**{tail}**')
+                    else:
+                        out.append(tail)
+                case 'em':
+                    out.append(f'*{tail}*')
                 case _:
-                    print(f"Unhandled node tag found: {node.tag} | {txt} | {node.tail}")
-                    out = txt
+                    out.append(tail)
 
-        if node.tail is not None:
-            out += sub(r'\s{2,}', ' ', node.tail.strip())
+        return ''.join([i for i in out if i])
 
-        return out
-
-    for n in article_html.iterchildren():  # Top Level Children Only.
-        if n.tag == "img":
-            e.set_image(url=n.attrib['src'])
-
-        try:
-            text = n.text if n.text.strip() else ""
-            text = sub(r'\s{2,}', ' ', text)
-        except AttributeError:
-            text = ""
-
-        try:
-            tail = n.tail if n.tail.strip() else ""
-            tail = sub(r'\s{2,}', ' ', tail)
-        except AttributeError:
-            tail = ""
-
-        if text or tail:
-            output.append(fmt(n))
-
-        for child in n.iterdescendants():
-            # Force Linebreak on new section.
-            child_text = getattr(child, 'text', None)
-            if child_text is not None:
-                child_text = sub(r'\s{2,}', ' ', child_text.strip())
-
-            child_tail = getattr(child, 'tail', None)
-            if child.tail is not None:
-                child_tail = sub(r'\s{2,}', ' ', child_tail.strip())
-
-            if child_text or child_tail:
-                if child.tag == "li":
-                    output.append("\n")
-                output.append(fmt(child))
-
-            if child.tag == "li" and child.getnext() is None and not child.getchildren():
-                output.append("\n\n")  # Extra line after lists.
-
-            if child.tag == "p":
-                output.append("\n\n")
-
-        if text or tail:
-            if n.tag == "p" and n.itertext():
-                output.append("\n\n")
-            if n.tag == "li":
-                output.append("\n")
+    for elem in article_html.iterchildren():
+        output.append(parse(elem))
 
     output = ''.join(output)
     if len(output) > 4000:

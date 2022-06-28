@@ -364,6 +364,7 @@ class Scores(Cog, name="LiveScores"):
         try:
             assert self.bot.db is not None
             assert self.bot.session is not None
+            assert self.bot.guilds
         except (AssertionError, AttributeError):
             return []
 

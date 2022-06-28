@@ -115,10 +115,10 @@ class ReminderView(View):
         self.add_item(Hide(row=0))
 
         try:
-            self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
+            self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
         except HTTPException:
             try:
-                self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
+                self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
             except HTTPException:
                 pass
 

@@ -9,17 +9,15 @@ from typing import TYPE_CHECKING, List
 from PIL import Image
 from asyncpraw.models import Subreddit
 from asyncprawcore import TooLarge
-from discord import Attachment, Embed, Interaction, Message
+from discord import Attachment, Embed, Message, Interaction
 from discord.app_commands import command, describe, guilds, default_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from lxml import html
 
-from ext.utils import flashscore
-
 if TYPE_CHECKING:
     from core import Bot
-
+    from ext.utils.flashscore import Fixture, Team
 NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
 
@@ -91,10 +89,10 @@ class NUFCSidebar(Cog):
 
         wiki_content = wiki.content_md
 
-        fsr: flashscore.Team = self.bot.get_team(team_id)
+        fsr: Team = self.bot.get_team(team_id)
 
-        fixtures: List[flashscore.Fixture] = await fsr.fixtures()
-        results: List[flashscore.Fixture] = await fsr.results()
+        fixtures: List[Fixture] = await fsr.fixtures()
+        results: List[Fixture] = await fsr.results()
 
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             match resp.status:

@@ -99,15 +99,8 @@ class Article:
 
     async def generate_embed(self) -> Embed:
         """Handle dispatching of news article."""
-        # Fetch Image from JS Heavy news page because it looks pretty.
-
         # CHeck if we need to do a full refresh on the article.
-        try:
-            assert self.title is not None
-            assert self.category is not None
-            assert self.image is not None
-            assert self.description is not None
-        except AssertionError:
+        if None in [self.title, self.category, self.image, self.description]:
             page = await self.bot.browser.newPage()
 
             try:
@@ -127,6 +120,7 @@ class Article:
             if not self.description:
                 self.description = tree.xpath('.//span[@class="text__intro"]/text()')[-1]
 
+            # Fetch Image from JS Heavy news page because it looks pretty.
             try:
                 self.image = ''.join(tree.xpath('.//div[@class="header__background"]/@style')).split('"')[1]
             except IndexError:
@@ -257,8 +251,9 @@ async def news_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
     articles: List[Article] = getattr(interaction.client, 'news_cache')
     matches = [i for i in articles if current.lower() in f"{i.title}: {i.description}".lower()]
-    matches = sorted(matches, key=lambda x: x.date if x.date is not None
-    else datetime.datetime.now(datetime.timezone.utc), reverse=True)
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    matches = sorted(matches, key=lambda x: now if x.date is None else x.date, reverse=True)
     return [Choice(name=f"{i.title}: {i.description}"[:100], value=i.link) for i in matches][:25]
 
 

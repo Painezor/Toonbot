@@ -475,11 +475,12 @@ class TickerConfig(View):
         await self.tc.remove_leagues(leagues)
         return await self.update(content=f"Removed {self.tc.channel.mention} tracked leagues: {lg_text}")
 
-    async def creation_dialogue(self) -> Message:
+    async def creation_dialogue(self) -> bool:
         """Send a dialogue to check if the user wishes to create a new ticker."""
         # Ticker Verify -- NOT A SCORES CHANNEL
         if self.tc.channel.id in [i.channel.id for i in self.bot.score_channels]:
-            return await self.bot.error(self.interaction, content='You cannot create a ticker in a livescores channel.')
+            await self.bot.error(self.interaction, content='You cannot create a ticker in a livescores channel.')
+            return False
 
         view = Confirmation(self.interaction, colour_a=ButtonStyle.green, label_a=f"Create ticker", label_b="Cancel")
         notfound = f"{self.tc.channel.mention} does not have a ticker, would you like to create one?"
@@ -489,7 +490,8 @@ class TickerConfig(View):
         if not view.value:
             txt = f"Cancelled ticker creation for {self.tc.channel.mention}"
             self.stop()
-            return await self.bot.error(self.interaction, txt)
+            await self.bot.error(self.interaction, txt, view=None)
+            return False
 
         try:
             try:
@@ -498,10 +500,12 @@ class TickerConfig(View):
             except ForeignKeyViolationError:
                 await self.tc.create_ticker()
         except IsLiveScoreError:
-            return await self.bot.error(self.interaction, content='You cannot add a ticker to a livescores channel.')
+            await self.bot.error(self.interaction, content='You cannot add tickers to a livescores channel.', view=None)
+            return False
 
         self.bot.ticker_channels.append(self.tc)
-        return await self.update(content=f"A ticker was created for {self.tc.channel.mention}")
+        await self.update(content=f"A ticker was created for {self.tc.channel.mention}")
+        return True
 
     async def update(self, content: str = "") -> Message:
         """Regenerate view and push to message"""
@@ -658,6 +662,7 @@ class TickerCog(Cog, name="Ticker"):
     @describe(channel="Manage which channel?")
     async def manage(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View the config of this channel's Match Event Ticker"""
+        await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel
 
@@ -666,7 +671,10 @@ class TickerCog(Cog, name="Ticker"):
             tc = next(i for i in self.bot.ticker_channels if i.channel.id == channel.id)
             return await TickerConfig(self.bot, interaction, tc).update()
         except StopIteration:
-            return await TickerChannel(self.bot, channel).view(interaction).creation_dialogue()
+            tc = TickerChannel(self.bot, channel)
+            success = await tc.view(interaction).creation_dialogue()
+            if success:
+                self.bot.ticker_channels.append(tc)
 
     @ticker.command()
     @autocomplete(query=lg_ac)
@@ -681,7 +689,12 @@ class TickerCog(Cog, name="Ticker"):
         try:
             tc = next(i for i in self.bot.ticker_channels if i.channel.id == channel.id)
         except StopIteration:
-            return await TickerChannel(self.bot, channel).view(interaction).creation_dialogue()
+            tc = TickerChannel(self.bot, channel)
+            success = await tc.view(interaction).creation_dialogue()
+            if not success:
+                return
+
+            self.bot.ticker_channels.append(tc)
 
         # Find the Competition Object.
         # TODO: EXTEND BOT.GET_COMPETITION TO FETCH FROM FLASHSCORE?
@@ -718,7 +731,12 @@ class TickerCog(Cog, name="Ticker"):
         try:
             tc = next(i for i in self.bot.ticker_channels if i.channel.id == channel.id)
         except StopIteration:
-            return await TickerChannel(self.bot, channel).view(interaction).creation_dialogue()
+            tc = TickerChannel(self.bot, channel)
+            success = await tc.view(interaction).creation_dialogue()
+            if not success:
+                return
+
+            self.bot.ticker_channels.append(tc)
 
         await tc.add_leagues(WORLD_CUP_LEAGUES)
         leagues = "\n".join(WORLD_CUP_LEAGUES)

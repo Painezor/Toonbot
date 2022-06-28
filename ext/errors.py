@@ -46,7 +46,7 @@ class Errors(Cog):
                     if hasattr(i.command, 'parent') and i.command.parent:
                         print(f'/{i.command.parent.name} {i.command.name}')
                     else:
-                        print(f'/{i.command.name})')
+                        print(f'/{i.command.name}')
                     raise error
 
 

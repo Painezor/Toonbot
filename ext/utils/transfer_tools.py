@@ -96,6 +96,11 @@ def get_flag(country: str) -> Optional[str]:
     for x in ['Retired', 'Without Club']:
         country = country.strip().replace(x, '')
 
+    country = country.strip()
+
+    if country in country_dict:
+        country = country_dict.get(country)
+
     match country.lower():
         case "england" | 'en':
             return '🏴󠁧󠁢󠁥󠁮󠁧󠁿'
@@ -103,43 +108,41 @@ def get_flag(country: str) -> Optional[str]:
             return '🏴󠁧󠁢󠁳󠁣󠁴󠁿'
         case "wales":
             return '🏴󠁧󠁢󠁷󠁬󠁳󠁿'
+        case 'uk':
+            return '🇬🇧'
         case "world":
             return '🌍'
         case 'cs':
             return '🇨🇿'
+        case 'da':
+            return '🇩🇰'
         case 'ko':
             return '🇰🇷'
         case 'zh':
             return '🇨🇳'
         case 'ja':
             return '🇯🇵'
-
-    if len(country) == 2:
-        country = country.lower()
-
-        for key, value in UNI_DICT.items():
-            country = country.replace(key, value)
-        return country
+        case 'pan_america':
+            return "<:PanAmerica:991330048390991933>"
+        case "commonwealth":
+            return "<:Commonwealth:991329664591212554>"
+        case "ussr":
+            return "<:USSR:991330483445186580>"
 
     # Check if py country has country
-
     try:
-        return countries.get(name=country.title()).alpha_2
+        country = countries.get(name=country.title()).alpha_2
     except (KeyError, AttributeError):
         pass
-    if country in country_dict:
-        return country_dict.get(country)
 
-    print(f'No flag found for country: {country}')
-    country = country.lower()
-    for key, value in UNI_DICT.items():
-        country = country.replace(key, value)
-    return country
+    if len(country) != 2:
+        print(f'No flag found for country: {country}')
+    return ''.join(UNI_DICT[c] for c in country.lower() if c)
 
 
 class TransferResult:
     """A result from a transfermarkt search"""
-    bot: Bot
+    bot: Bot = None
 
     def __init__(self, name: str, link: str) -> None:
         self.name: str = name
@@ -148,6 +151,7 @@ class TransferResult:
     def __repr__(self) -> str:
         return f"TransferResult({self.__dict__})"
 
+    @property
     @property
     def base_embed(self) -> Embed:
         """A generic embed used for transfermarkt objects"""
@@ -164,29 +168,23 @@ class TransferResult:
     def flag(self) -> str:
         """Return a flag representing the country"""
         # Return the 'earth' emoji if caller does not have a country.
-        country = getattr(self, 'country', None)
+        country = self.country
         if country is None:
             return "🌍"
 
         if isinstance(country, list):
-            return ''.join([get_flag(i) for i in self.country])
+            return ' '.join([get_flag(i) for i in self.country])
         else:
             return get_flag(self.country)
 
 
 class Competition(TransferResult):
     """An Object representing a competition from transfermarkt"""
-    __slots__ = {'country': 'The country this competition is from'}
-
     emoji: str = '🏆'
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
         super().__init__(name, link)
-
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-
-        self.country: Optional[List[str]] = None
+        self.country: str = kwargs.pop('country', None)
 
     def __str__(self) -> str:
         return f"{self.flag} {self.markdown}"
@@ -198,24 +196,20 @@ class Competition(TransferResult):
 
 class Team(TransferResult):
     """An object representing a Team from Transfermarkt"""
-    __slots__ = {'league': 'The competition this team takes part in.',
-                 'country': 'A list of countries this Team is in'}
     emoji: str = '👕'
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
         super().__init__(name=name, link=link)
+
+        self.league: Competition = kwargs.pop('league', None)
+        self.country: str = kwargs.pop('country', None)
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-        # Type Hint
-        self.league: Competition
-        self.country: str
-
     def __str__(self) -> str:
         out = f"{self.flag} {self.markdown}"
-        self.league: Optional[Competition] = None
 
-        if getattr(self, 'league', None) is not None:
+        if self.league is not None:
             return out + f" ({self.league.markdown})"
         return out
 
@@ -291,43 +285,29 @@ class Team(TransferResult):
 
 class Player(TransferResult):
     """An Object representing a player from transfermarkt"""
-    __slots__ = {'team': 'The team this player plays for',
-                 'age': 'The age of the player',
-                 'position': 'The position this player plays for the team',
-                 'country': 'A list of countries this player plays for',
-                 'picture': 'A link to a picture of this player'}
 
-    def __init__(self, name: str, link: str) -> None:
+    def __init__(self, name: str, link: str, **kwargs) -> None:
         super().__init__(name, link)
-        team: Team
-        age: int
-        position: str
-        country: List[str]
-        picture: str
+
+        self.team: Team = kwargs.pop('team', None)
+        self.age: int = kwargs.pop('age', None)
+        self.position: str = kwargs.pop('position', None)
+        self.country: List[str] = kwargs.pop('country', None)
+        self.picture: str = kwargs.pop('picture', None)
 
     def __repr__(self) -> str:
         return f"Player({self.__dict__})"
 
     def __str__(self) -> str:
-        out = f"{self.flag} {self.markdown}"
+        desc = [self.flag, self.markdown, self.age, self.position]
 
-        if hasattr(self, 'age'):
-            out += f" {self.age}"
-
-        if hasattr(self, 'position'):
-            out += f" {self.position}"
-
-        if hasattr(self, 'team'):
-            try:
-                out += f" {self.team.markdown}"
-            except AttributeError:
-                pass
-        return out
+        if self.team is not None:
+            desc.append(self.team.markdown)
+        return ' '.join([i for i in desc if i is not None])
 
 
 class Referee(TransferResult):
     """An object representing a referee from transfermarkt"""
-    __slots__ = {'age': 'The age of the referee'}
     age: int
     country: List[str] = None
 
@@ -336,29 +316,22 @@ class Referee(TransferResult):
 
     def __str__(self) -> str:
         output = f"{self.flag} {self.markdown}"
-        if getattr(self, 'age', None) is not None:
+        if self.age is not None:
             output += f" {self.age}"
         return output
 
 
 class Staff(TransferResult):
     """An object representing a Trainer or Manager from a Transfermarkt search"""
-    __slots__ = {'team': 'The team this person works for',
-                 'age': "The age of this person",
-                 "job": "The job of this person",
-                 "country": "A list of countries representing this person's nationality",
-                 "picture": "A link to a picture of this person"}
-    team: Team
-    age: int
-    job: str
-    country: List[str]
-    picture: str
 
-    def __init__(self, name: str, link: str) -> None:
+    def __init__(self, name: str, link: str, **kwargs) -> None:
         super().__init__(name, link)
 
-    def __repr__(self) -> str:
-        return f"Manager({self.__dict__})"
+        self.team: Team = kwargs.pop('team', None)
+        self.age: int = kwargs.pop('age', None)
+        self.job: str = kwargs.pop('job', None)
+        self.country: List[str] = kwargs.pop('country', None)
+        self.picture: str = kwargs.pop('picture', None)
 
     def __str__(self) -> str:
         return f"{self.flag} {self.markdown} {self.age}, {self.job} {self.team.markdown})"
@@ -366,45 +339,16 @@ class Staff(TransferResult):
 
 class Transfer:
     """An Object representing a transfer from transfermarkt"""
-    __slots__ = {'link': 'A string representing a link to the transfer',
-                 'player': 'A player Object representing The player in the transfer',
-                 'fee': 'A string The transfer fee',
-                 'fee_link': 'A string representing link to info about the fee',
-                 'old_team': 'A team object representing the old team',
-                 'new_team': 'A team object representing the new team',
-                 'date': 'A datetime object representing the date of the transfer',
-                 'embed': 'An embed representing the transfer'}
 
-    def __init__(self,
-                 player: Player = None,
-                 link: str = None,
-                 fee: str = None,
-                 fee_link: str = None,
-                 old_team: Team = None,
-                 new_team: Team = None,
-                 date: str = None,
-                 ) -> None:
+    def __init__(self, player: Player, **kwargs) -> None:
+        self.player: Player = player
 
-        if player is not None:
-            self.player: Player = player
-
-        if link is not None:
-            self.link: str = link
-
-        if fee is not None:
-            self.fee: str = fee
-
-        if fee_link is not None:
-            self.fee_link: str = fee_link
-
-        if old_team is not None:
-            self.old_team: Team = old_team
-
-        if new_team is not None:
-            self.new_team: Team = new_team
-
-        if date is not None:
-            self.date: str = date
+        self.link: str = kwargs.pop('link', None)
+        self.fee: str = kwargs.pop('fee', None)
+        self.fee_link: str = kwargs.pop('fee_link', None)
+        self.old_team: Team = kwargs.pop('old_team', None)
+        self.new_team: Team = kwargs.pop('new_team', None)
+        self.date: str = kwargs.pop('date', None)
 
         # Typehint
         self.embed: Optional[Embed] = None
@@ -412,14 +356,9 @@ class Transfer:
     @property
     def loan_fee(self) -> str:
         """Returns either Loan Information or the total fee of a player's transfer"""
-        if "End" in self.fee:
-            output = f"[End of Loan]({self.fee_link})"
-        elif "loan" in self.fee:
-            output = f"[Loan]({self.fee_link})"
-        else:
-            output = f"[{self.fee}]({self.fee_link})"
+        output = f"[{self.fee}]({self.fee_link})"
 
-        if hasattr(self, 'date'):
+        if self.date is not None:
             output += f": {self.date}"
 
         return output
@@ -447,38 +386,39 @@ class Transfer:
         e: Embed = Embed(description="", colour=0x1a3151)
         e.title = f"{self.player.flag} {self.player.name}"
         e.url = self.player.link
-
-        if hasattr(self.player, 'age'):
-            e.description += f"Age: {self.player.age}\n"
-        if hasattr(self.player, 'position'):
-            e.description += f"Position: {self.player.position}\n"
+        desc = []
+        if self.player.age is not None:
+            desc.append(f"**Age**: {self.player.age}")
+        if self.player.position is not None:
+            desc.append(f"**Position**: {self.player.position}")
 
         try:
             old = self.old_team.markdown
             try:
-                old += f"\n{self.old_team.flag} {self.old_team.league.markdown}"
+                old += f" ({self.old_team.flag} {self.old_team.league.markdown})"
             except AttributeError:
                 pass
-            e.add_field(name="From", value=old)
+            desc.append(f"**From**: {old}")
         except AttributeError:
             pass
 
         try:
             new = self.new_team.markdown
             try:
-                new += f"\n{self.new_team.flag} {self.new_team.league.markdown}"
+                new += f" ({self.new_team.flag} {self.new_team.league.markdown})"
             except AttributeError:
                 pass
-            e.add_field(name="To", value=new)
+            desc.append(f"**To**: {new}")
         except AttributeError:
             pass
 
-        e.add_field(name="Reported Fee", value=self.loan_fee, inline=False)
+        desc.append(f"**Fee**: {self.loan_fee}")
 
-        picture = getattr(self.player, 'picture', None)
+        picture = self.player.picture
         if picture is not None and 'http' in picture:
             e.set_thumbnail(url=picture)
 
+        e.description = "\n".join(desc)
         self.embed = e
         return self.embed
 
@@ -940,7 +880,7 @@ class SearchSelect(Select):
 
 class SearchView(View):
     """A TransferMarkt Search in View Form"""
-    bot: Bot
+    bot: Bot = None
 
     def __init__(self, interaction: Interaction, query: str, category: str = None, fetch: bool = False) -> None:
         super().__init__()
@@ -954,7 +894,7 @@ class SearchView(View):
         self.fetch: bool = fetch
         self.interaction: Interaction = interaction
 
-        if not hasattr(self.__class__, 'bot'):
+        if self.__class__.bot is None:
             self.__class__.bot = interaction.client
 
     @staticmethod
@@ -964,7 +904,7 @@ class SearchView(View):
         for i in rows:
             name = ''.join(i.xpath('.//td[2]/a/text()')).strip()
             link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[2]/a/@href')).strip()
-            country = [_.strip() for _ in i.xpath('.//td[3]/img/@title') if _.strip()]
+            country = [_.strip() for _ in i.xpath('.//td[3]/img/@title') if _.strip()][0]
 
             comp = Competition(name=name, link=link, country=country)
 
@@ -1222,3 +1162,21 @@ class SearchView(View):
         if self.fetch and results:
             self.add_item(SearchSelect(objects=results))
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
+
+
+DEFAULT_LEAGUES = [Competition(name="Premier League", country="England",
+                               link="https://www.transfermarkt.co.uk/premier-league/startseite/wettbewerb/GB1"),
+                   Competition(name="Championship", country="England",
+                               link="https://www.transfermarkt.co.uk/championship/startseite/wettbewerb/GB2"),
+                   Competition(name="Eredivisie", country="Netherlands",
+                               link="https://www.transfermarkt.co.uk/eredivisie/startseite/wettbewerb/NL1"),
+                   Competition(name="Bundesliga", country="Germany",
+                               link="https://www.transfermarkt.co.uk/bundesliga/startseite/wettbewerb/L1"),
+                   Competition(name="Serie A", country="Italy",
+                               link="https://www.transfermarkt.co.uk/serie-a/startseite/wettbewerb/IT1"),
+                   Competition(name="LaLiga", country="Spain",
+                               link="https://www.transfermarkt.co.uk/laliga/startseite/wettbewerb/ES1"),
+                   Competition(name="Ligue 1", country="France",
+                               link="https://www.transfermarkt.co.uk/ligue-1/startseite/wettbewerb/FR1"),
+                   Competition(name="Major League Soccer", country="United States",
+                               link="https://www.transfermarkt.co.uk/major-league-soccer/startseite/wettbewerb/MLS1")]

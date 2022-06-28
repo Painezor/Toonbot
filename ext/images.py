@@ -271,6 +271,7 @@ class ImageView(View):
         e: Embed = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
         self.embed = e
+        return await self.update()
 
     async def update(self) -> Message:
         """Push the latest versio of the view to the user"""
