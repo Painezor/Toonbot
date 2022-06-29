@@ -3,10 +3,10 @@ from discord import Embed, Interaction, Message, NotFound, Colour
 
 
 async def error(i: Interaction, content: str, message: Message = None, ephemeral: bool = True,
-                followup: bool = True) -> Message:
+                followup: bool = True, **kwargs) -> Message:
 	"""Send a Generic Error Embed"""
 	e: Embed = Embed(title="An Error occurred.", colour=Colour.red(), description=content)
-	return await reply(i, message=message, embed=e, ephemeral=ephemeral, followup=followup)
+	return await reply(i, message=message, embed=e, ephemeral=ephemeral, followup=followup, **kwargs)
 
 
 async def reply(i: Interaction, message: Message = None, followup: bool = True, **kwargs) -> Message:

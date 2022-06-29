@@ -2,7 +2,6 @@
 from asyncio import new_event_loop
 from collections import defaultdict
 from datetime import datetime
-from io import BytesIO
 from json import load
 from logging import basicConfig, INFO
 from typing import Dict, List, Optional, Callable, TYPE_CHECKING
@@ -10,7 +9,7 @@ from typing import Dict, List, Optional, Callable, TYPE_CHECKING
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from asyncpraw import Reddit
-from discord import Intents, Game, File
+from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot
 
 from ext.utils.browser_utils import make_browser
@@ -115,19 +114,10 @@ class Bot(AutoShardedBot):
 
         print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
-    async def dump_image(self, img: BytesIO) -> Optional[str]:
-        """Dump an image to discord & return its URL to be used in embeds"""
-        ch = self.get_channel(874655045633843240)
-        if ch is None:
-            return None
-
-        img_msg = await ch.send(file=File(fp=img, filename="dumped_image.png"))
-        url = img_msg.attachments[0].url
-        return None if url == "none" else url
-
     async def setup_hook(self) -> None:
         """Load Cogs asynchronously"""
         self.browser = await make_browser()
+        self.browser.bot = self
         self.session = ClientSession(loop=self.loop, connector=TCPConnector(ssl=False))
 
         for c in COGS:

@@ -140,7 +140,8 @@ class TransferChannel:
 
     async def reset_leagues(self) -> List[Competition]:
         """Reset the Ticker Channel to the list of default leagues."""
-        sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) VALUES ($1, $2, $3, $4)"""
+        sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) VALUES ($1, $2, $3, $4)
+                 ON CONFLICT DO NOTHING"""
         self.leagues = DEFAULT_LEAGUES
         connection = await self.bot.db.acquire()
         try:
@@ -388,12 +389,12 @@ class TransfersCog(Cog):
     @loop(minutes=1)
     async def transfers_loop(self) -> None:
         """Core transfer ticker loop - refresh every x seconds and get all new transfers from transfermarkt"""
-        try:
-            assert self.bot.db is not None
-            assert self.bot.session is not None
-            assert self.bot.guilds
-        except (AssertionError, AttributeError):
-            return []
+        if self.bot.db is None:
+            return
+        if self.bot.session is None:
+            return
+        if not self.bot.guilds:
+            return
 
         if not self.bot.transfer_channels:
             return await self.update_cache()

@@ -12,6 +12,7 @@ from __future__ import annotations  # Cyclic Type Hinting
 import datetime
 from asyncio import to_thread
 from enum import Enum
+from io import BytesIO
 from itertools import zip_longest
 from json import loads
 from sys import stderr
@@ -19,14 +20,13 @@ from traceback import print_exception
 from typing import List, TYPE_CHECKING, NoReturn, Dict, Literal, Type, Optional, ClassVar
 from urllib.parse import quote, quote_plus
 
-from discord import Embed, Interaction, Message, Colour
+from discord import Embed, Interaction, Message, Colour, File
 from discord.app_commands import Choice
 from discord.ui import View, Select
 from lxml import html
 from pyppeteer.errors import TimeoutError, ElementHandleError
 from pyppeteer.page import Page
 
-from ext.utils.browser_utils import screenshot
 from ext.utils.embed_utils import rows_to_embeds, get_colour
 from ext.utils.image_utils import stitch_vertical
 from ext.utils.timed_events import Timestamp
@@ -67,6 +67,42 @@ WORLD_CUP_LEAGUES = [
     "NORTH & CENTRAL AMERICA: World Cup",
     "SOUTH AMERICA: World Cup"
 ]
+
+
+async def screenshot(page, xpath: str = None, debug: bool = False) -> BytesIO | None:
+    """Take a screenshot of the specified element"""
+    await page.setViewport({"width": 1900, "height": 1100})
+    elements = await page.xpath(xpath)
+
+    if elements:
+        bbox = await elements[0].boundingBox()
+        bbox['height'] *= len(elements)
+        ss = BytesIO(await page.screenshot(clip=bbox))
+    else:
+        ss = BytesIO(await page.screenshot())
+
+    if debug:
+        channel = page.browser.bot.get_channel(303154190362869761)
+        return await channel.send(file=File(fp=ss, filename='DEBUG.png'))
+    else:
+        ch = page.browser.bot.get_channel(874655045633843240)
+        if ch is None:
+            return None
+
+        img_msg = await ch.send(file=File(fp=ss, filename="dumped_image.png"))
+        url = img_msg.attachments[0].url
+        return None if url == "none" else url
+
+
+async def dump_image(bot, data):
+    """Save a stitched image"""
+    ch = bot.get_channel(874655045633843240)
+    if ch is None:
+        return None
+
+    img_msg = await ch.send(file=File(fp=data, filename="dumped_image.png"))
+    url = img_msg.attachments[0].url
+    return None if url == "none" else url
 
 
 # Competition Autocomplete
@@ -479,10 +515,10 @@ class FlashScoreItem:
     async def parse_games(self, link: str) -> List[Fixture]:
         """Parse games from raw HTML from fixtures or results function"""
         page = await self.bot.browser.newPage()
-
+        print(f'Accessing parse_games for {link}')
         try:
-            await page.goto(link)
-            await page.waitForXPath('.//div[@class="sportName soccer"]', {"timeout": 5000})
+            await page.goto(link, {'waitUntil': 'domcontentloaded'})
+            await delete_ads(page)
             tree = html.fromstring(await page.content())
         except TimeoutError:
             return []
@@ -491,7 +527,10 @@ class FlashScoreItem:
 
         fixtures: List[Fixture] = []
         comp = self if isinstance(self, Competition) else None
-        for i in tree.xpath('.//div[contains(@class,"sportName soccer")]/div'):
+        games = tree.xpath('.//div[contains(@class,"sportName soccer")]/div')
+        print(len(games), 'games found on page.')
+        for i in games:
+            print(i)
             try:
                 fx_id = i.xpath("./@id")[0].split("_")[-1]
                 url = "http://www.flashscore.com/match/" + fx_id
@@ -521,6 +560,8 @@ class FlashScoreItem:
             fixture.home.name = home.strip()
             fixture.away = Team(self.bot)
             fixture.away.name = away.strip()
+
+            print(fixture)
 
             try:
                 score_home, score_away = i.xpath('.//div[contains(@class,"event__score")]//text()')
@@ -578,11 +619,11 @@ class FlashScoreItem:
 
     async def fixtures(self) -> List[Fixture]:
         """Get all upcoming fixtures related to the FlashScoreItem"""
-        return await self.parse_games(self.link + '/fixtures')
+        return await self.parse_games(self.link + '/fixtures/')
 
     async def results(self) -> List[Fixture]:
         """Get recent results for the FlashScore Item"""
-        return await self.parse_games(self.link + '/results')
+        return await self.parse_games(self.link + '/results/')
 
 
 class NewsItem:
@@ -676,6 +717,7 @@ class Team(FlashScoreItem):
         try:
             await page.goto(self.link + "/news")
             await page.waitForXPath('.//div[@class="matchBox"]', {"timeout": 5000})
+            await delete_ads(page)
             tree = html.fromstring(await page.content())
         except TimeoutError:
             return []
@@ -703,6 +745,7 @@ class Team(FlashScoreItem):
 
         try:
             await page.goto(self.link + "/squad")
+            await delete_ads(page)
             await page.waitForXPath('.//div[@class="sportName soccer"]', {"timeout": 5000})
             tree = html.fromstring(await page.content())
         except TimeoutError:
@@ -881,7 +924,7 @@ class Competition(FlashScoreItem):
             await delete_ads(page)
             data = await screenshot(page, './/div[contains(@class, "tableWrapper")]')
             if data:
-                image = await self.bot.dump_image(data)
+                image = await screenshot(page, data)
                 if image:
                     self._table = image
                     return image
@@ -1056,10 +1099,7 @@ class Fixture(FlashScoreItem):
     @property
     def bold_score(self) -> str:
         """Embolden the winning team of a fixture"""
-        try:
-            assert self.score_home is not None
-            assert self.time.state != GameState.SCHEDULED
-        except (AttributeError, AssertionError):
+        if (self.score_home is None) or (self.time.state == GameState.SCHEDULED):
             return f"{self.home.name} vs {self.away.name}"
 
         hb, ab = ('**', '') if self.score_home > self.score_away else ('', '**')
@@ -1069,10 +1109,7 @@ class Fixture(FlashScoreItem):
     @property
     def bold_markdown(self) -> str:
         """Markdown Formatting bold **winning** team, with [score](as markdown link)."""
-        try:
-            assert self.score_home is not None
-            assert self.time.state != GameState.SCHEDULED
-        except (AttributeError, AssertionError):
+        if (self.score_home is None) or (self.time.state == GameState.SCHEDULED):
             return f"{self.home.name} vs {self.away.name}"
 
         hb, ab = ('**', '') if self.score_home > self.score_away else ('', '**')
@@ -1230,11 +1267,8 @@ class Fixture(FlashScoreItem):
         """Fetch an image of a Team's Logo or Badge as a BytesIO object"""
         # First check if the specific Team object has a logo.
         team_ = getattr(self, team)
-        try:
-            assert team_.logo_url is not None
+        if team_.logo_url is not None:
             return team_.logo_url
-        except AssertionError:
-            pass
 
         # Else pull up the page and grab it manually.
         page = await self.bot.browser.newPage()
@@ -1493,9 +1527,9 @@ class Fixture(FlashScoreItem):
             print("FIXTURE IMAGES DETECTED")
             print(self.images)
 
-    async def fixtures(self, page: Page = None) -> NoReturn:
+    async def fixtures(self) -> List[Fixture]:
         """Fixture objects do not have fixtures, so we Raise."""
-        return NotImplemented
+        return await self.competition.fixtures()
 
     async def table(self) -> Optional[str]:
         """Fetch an image of the league table appropriate to the fixture as a bytesIO object"""
@@ -1505,11 +1539,7 @@ class Fixture(FlashScoreItem):
             await page.goto(self.link + "/#standings/table/overall")
             await page.waitForXPath('.//div[contains(@class, "tableWrapper")]', {"timeout": 5000})
             await delete_ads(page)
-            data = await screenshot(page, './/div[contains(@class, "tableWrapper")]/parent::div')
-            if data:
-                image = await self.bot.dump_image(data)
-                if data is not None:
-                    return image
+            return await screenshot(page, './/div[contains(@class, "tableWrapper")]/parent::div')
         except TimeoutError:
             return None
         finally:
@@ -1523,12 +1553,7 @@ class Fixture(FlashScoreItem):
             await page.goto(self.link + "/#match-summary/match-statistics/0")
             await page.waitForXPath(".//div[@class='section']", {"timeout": 5000})
             await delete_ads(page)
-            data = await screenshot(page, ".//div[contains(@class, 'statRow')]")
-
-            if data is not None:
-                image = await self.bot.dump_image(data)
-                if image is not None:
-                    return image
+            return await screenshot(page, ".//div[contains(@class, 'statRow')]")
         finally:
             await page.close()
 
@@ -1545,9 +1570,7 @@ class Fixture(FlashScoreItem):
             valid_images = [i for i in [fm, lineup] if i]
             if valid_images:
                 data = await to_thread(stitch_vertical, valid_images)
-                image = await self.bot.dump_image(data)
-                if image is not None:
-                    return image
+                return await dump_image(self.bot, data)
         finally:
             await page.close()
 
@@ -1559,11 +1582,7 @@ class Fixture(FlashScoreItem):
             await page.goto(self.link + "/#standings/table/overall")
             await page.waitForXPath(".//div[contains(@class, 'verticalSections')]", {"timeout": 5000})
             await delete_ads(page)
-            data = await screenshot(page, ".//div[contains(@class, 'verticalSections')]")
-            if data:
-                image = await self.bot.dump_image(data)
-                if image is not None:
-                    return image
+            return await screenshot(page, ".//div[contains(@class, 'verticalSections')]")
         finally:
             await page.close()
 
@@ -1645,6 +1664,7 @@ class Fixture(FlashScoreItem):
         try:
             await page.goto(self.link)
             await page.waitForXPath('.//div[contains(@class, "previewOpenBlock")]/div//text()', {"timeout": 5000})
+            await delete_ads(page)
             while True:
                 more = await page.xpath('.//div[contains(@class, "showMore")]')  # Click to go to scorers tab
                 for x in more:

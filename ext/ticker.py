@@ -319,7 +319,7 @@ class TickerChannel:
 
     async def reset_leagues(self) -> List[str]:
         """Reset the Ticker Channel to the list of default leagues."""
-        sql = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2)"""
+        sql = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
 
         connection = await self.bot.db.acquire()
         try:
@@ -633,24 +633,24 @@ class TickerCog(Cog, name="Ticker"):
         tickers = self.bot.ticker_channels.copy()
 
         for r in records:
-            try:
-                # Validate this channel is suitable for message output.
-                channel = self.bot.get_channel(r['channel_id'])
-                assert channel is not None
-                assert channel.permissions_for(channel.guild.me).send_messages
-                assert channel.permissions_for(channel.guild.me).embed_links
-                assert channel.id not in score_channels
-                assert not channel.is_news()
-                if all(x for x in r):
-                    long = True
+            # Validate this channel is suitable for message output.
+            channel = self.bot.get_channel(r['channel_id'])
 
-                try:
-                    tc = next(i for i in tickers if i.channel.id == channel.id)
-                except StopIteration:
-                    continue
-                channels.append(tc)
-            except AssertionError:
+            if any([channel is None,
+                    not channel.permissions_for(channel.guild.me).send_messages,
+                    not channel.permissions_for(channel.guild.me).embed_links,
+                    channel.id in score_channels,
+                    channel.is_news()]):
                 continue
+
+            if all(x for x in r):
+                long = True
+
+            try:
+                tc = next(i for i in tickers if i.channel.id == channel.id)
+            except StopIteration:
+                continue
+            channels.append(tc)
 
         return TickerEvent(self.bot, long=long, channels=channels, fixture=f, event_type=event_type, home=home)
 

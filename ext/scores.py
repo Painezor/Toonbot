@@ -361,12 +361,8 @@ class Scores(Cog, name="LiveScores"):
     @loop(minutes=1)
     async def score_loop(self) -> List[ScoreChannel]:
         """Score Checker Loop"""
-        try:
-            assert self.bot.db is not None
-            assert self.bot.session is not None
-            assert self.bot.guilds
-        except (AssertionError, AttributeError):
-            return []
+        if not self.bot.guilds:
+            return
 
         if not self.bot.score_channels:
             return await self.update_cache()
@@ -383,11 +379,11 @@ class Scores(Cog, name="LiveScores"):
         # Copy to avoid size change in iteration.
         for x in self.bot.games.copy():
             # If the game is not from 'Today', we remove it next iteration.
-            if x.kickoff is not None:
-                try:
-                    assert x.kickoff.toordinal() == ordinal
-                except AssertionError:
+            try:
+                if x.kickoff.toordinal() != ordinal:
                     self.bot.games.remove(x)
+            except AttributeError:
+                continue
 
         comps = set(i.competition for i in self.bot.games)
 

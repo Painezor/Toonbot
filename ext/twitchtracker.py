@@ -200,7 +200,6 @@ class TrackerChannel:
             role = self.channel.guild.get_role(r['role_id'])
             if role is not None:
                 tracked.append(role)
-                continue
         self.tracked = tracked
         return tracked
 
@@ -408,18 +407,19 @@ class TwitchTracker(Cog):
 
     async def cog_load(self) -> None:
         """On cog load, generate list of Tracker Channels"""
-        await self.update_cache()
         await self.fetch_ccs()
+        await self.update_cache()
 
     async def update_cache(self) -> List[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""
-        sql = """SELECT DISTINCT channel_id FROM tracker_channels"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                channel_ids = await connection.fetch(sql)
+                channel_ids = await connection.fetch("""SELECT DISTINCT channel_id FROM tracker_channels""")
         finally:
             await self.bot.db.release(connection)
+
+        channel_ids = [r['channel_id'] for r in channel_ids]
 
         # Purge Old.
         cached = [i.channel.id for i in self.bot.tracker_channels if i.channel.id in channel_ids]
@@ -474,9 +474,9 @@ class TwitchTracker(Cog):
 
     async def generate_twitch_embed(self, member: 'Member') -> Embed:
         """Generate the embed for the twitch user"""
-        e = Embed(title=member.activity.name, url=member.activity.url,
-                  description=f"{member.mention}: {Timestamp().relative}")
+        e = Embed(title=member.activity.name, url=member.activity.url)
 
+        desc = []
         match member.activity.platform:
             case "Twitch":
                 e.colour = 0x9146FF
@@ -488,41 +488,28 @@ class TwitchTracker(Cog):
                         delay += f" {seconds} seconds"
                     e.add_field(name="Stream Delay", value=delay)
 
-                print('Remaining stream info attributes')
-                print(dir(info))
-
-                if info.language:
-                    print('Detected stream language:', info.language)
-
+                desc.append(get_flag(info.language))
                 user: User = await info.user.fetch(force=True)
-                print("User description:", user.description)
-                # user.email
-
                 settings: ChatSettings = await user.fetch_chat_settings()
 
                 modes = []
                 if settings.emote_mode:
                     modes.append('This channel is in emote only mode')
                 if settings.follower_mode:
-                    dur = settings.follower_mode_duration
-                    modes.append(f'This channel is in {dur} minute follower mode.')
+                    modes.append(f'This channel is in {settings.follower_mode_duration} minute follower mode.')
                 if settings.subscriber_mode:
                     modes.append('This channel is in subscriber only mode.')
                 if settings.slow_mode:
-                    dur = settings.slow_mode_wait_time
-                    modes.append(f'This channel is in {dur} second slow mode.')
-
+                    modes.append(f'This channel is in {settings.slow_mode_wait_time} second slow mode.')
                 if modes:
                     e.add_field(name='Chat Restrictions', value='\n'.join(modes))
+
+                desc.append(f"{member.mention}: {Timestamp().relative}")
 
                 # Stream Tags
                 tags: List[Tag] = await user.fetch_tags()
                 if tags:
-                    print('Found User Tags')
-                    for i in tags:
-                        print("localisation name", i.localization_names)
-                        print("localisation description", i.localization_descriptions)
-                print("Found User Tags:", tags)
+                    desc.append(f"\n**Tags**: {', '.join([i.localization_names['en-us'] for i in tags])}")
 
                 e.set_author(name=f"{user.display_name} went live on {member.activity.platform}",
                              icon_url=member.display_avatar.url)
@@ -530,15 +517,18 @@ class TwitchTracker(Cog):
 
                 match user.broadcaster_type.name:
                     case "partner":
-                        e.set_footer(text=f"Twitch Partner playing {member.activity.game}", icon_url=PARTNER_ICON)
+                        e.set_footer(text=f"Twitch Partner playing {member.activity.game}",
+                                     icon_url=PARTNER_ICON)
                     case "affiliate":
                         e.set_footer(text=f"Twitch Affiliate streaming {member.activity.game}")
                     case _:
                         e.set_footer(text=f"Streaming {member.activity.game}")
-
             case _:
                 print('Unhandled stream tracker platform', member.activity.platform)
+                desc.append(f"{member.mention}: {Timestamp().relative}")
                 e.set_thumbnail(url=member.avatar.url)
+
+        e.description = " ".join(desc)
         return e
 
     @Cog.listener()
@@ -566,16 +556,13 @@ class TwitchTracker(Cog):
             embed = await self.generate_twitch_embed(after)
             self._cached.append(after.id)
 
-        ch = self.bot.get_channel(303154190362869761)
-        await ch.send('Debug Embed', embed=embed)
-
         for channel in tracked:
             await channel.dispatch(embed)
 
         await asyncio.sleep(60)
         self._cached.remove(after.id)
 
-    # TODO: Create a view, with Region & Language Filtering.
+    # TODO: Create a view, with CC & Language Filtering.
     @command()
     @guilds(250252535699341312)
     @describe(cc="Get streamers who specifically are or are not members of the CC program")
@@ -630,7 +617,7 @@ class TwitchTracker(Cog):
         ccs = rows_to_embeds(e, [i.row for i in ccs])
         return await Paginator(self.bot, interaction, ccs).update()
 
-    track = Group(name="twitchtrack", description="Go Live Tracker", guild_only=True,
+    track = Group(name="twitch_tracker", description="Go Live Tracker", guild_only=True,
                   default_permissions=Permissions(manage_channels=True))
 
     @track.command()

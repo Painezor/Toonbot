@@ -401,7 +401,6 @@ class Warships(Cog):
     # Work In Progress.
     @command()
     @autocomplete(name=ship_ac)
-    @guilds(250252535699341312)
     @describe(name="Search for a ship by it's name")
     async def ship(self, interaction: Interaction, name: str) -> Message:
         """Search for a ship in the World of Warships API"""

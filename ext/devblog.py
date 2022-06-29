@@ -265,7 +265,7 @@ class DevBlog(Cog):
                 ch = self.bot.get_channel(x)
                 try:
                     await ch.send(embed=e)
-                except HTTPException:
+                except (AttributeError, HTTPException):
                     continue
         self.bot.dev_dev_blog_cached = True
 

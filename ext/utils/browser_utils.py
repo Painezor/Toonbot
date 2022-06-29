@@ -1,22 +1,7 @@
 """Bot browser Session"""
-from io import BytesIO
 
 from pyppeteer import launch
 from pyppeteer.browser import Browser
-
-
-async def screenshot(page, xpath: str) -> BytesIO | None:
-    """Take a screenshot of the specified element"""
-    await page.setViewport({"width": 1900, "height": 1100})
-    elements = await page.xpath(xpath)
-
-    if elements:
-        bbox = await elements[0].boundingBox()
-        bbox['height'] *= len(elements)
-        return BytesIO(await page.screenshot(clip=bbox))
-    else:
-        return None
-
 
 async def make_browser() -> Browser:
     """Spawn an instance of Pyppeteer"""

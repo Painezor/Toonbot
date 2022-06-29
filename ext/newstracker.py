@@ -309,10 +309,11 @@ class NewsTracker(Cog):
                 c = NewsChannel(self.bot, channel=channel, eu=r['eu'], na=r['na'], sea=r['sea'], cis=r['cis'])
                 self.bot.news_channels.append(c)
 
-    @loop(seconds=60)
+    @loop(minutes=1)
     async def news_loop(self) -> None:
         """Loop to get the latest EU news articles"""
-        assert self.bot.session is not None
+        if self.bot.session is None:
+            return
 
         if not self.bot.news_channels:
             await self.update_cache()

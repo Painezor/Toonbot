@@ -78,9 +78,6 @@ class NUFCSidebar(Cog):
             self.bot.reddit_teams = await connection.fetch("""SELECT * FROM team_data""")
         await self.bot.db.release(connection)
 
-        # Session / Browser will not be initialised
-        await self.bot.wait_until_ready()
-
     async def make_sidebar(self, subreddit: str = "NUFC", qry: str = "newcastle", team_id: str = "p6ahwuwJ"):
         """Build the sidebar markdown"""
         # Fetch all data

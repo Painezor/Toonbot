@@ -471,13 +471,17 @@ class Clan:
               5: "Allocation of resources & 'More Resources', 'Try Your Luck', 'Supercontainer' & 'additional' bundles"}
         return tr[len(self.treasury)]
 
-    async def get_member_stats(self) -> None:
+    async def get_member_stats(self) -> dict:
         """Fetch Data about all clan members"""
         missing = []
         for x in self.member_ids:
             (missing, self.members)[x in [p.account_id for p in self.bot.players]].append(x)
 
         # TODO: API call - fetch data for missing player IDs
+
+    async def get_member_clan_battle_stats(self) -> dict:
+        """Attempt to fetch clan battle stats for members"""
+        url = f"https://clans.worldofwarships.{self.region}/api/members/{self.clan_id}/?battle_type=cvc&season={self.season_number}"
 
     async def get_data(self) -> Self:
         """Fetch clan information."""
@@ -817,6 +821,10 @@ class PlayerView(View):
                 return "Operations (Hard Pre-Made)", self.player.statistics['oper_div_hard']
             case _:
                 return f"Missing info for {self.mode.tag}, {self.div_size}", self.player.statistics['pvp']
+
+    async def clan_battles(self) -> Message:
+        """Attempt to fetch player's Clan Battles data."""
+        await self.player.clan.get_member_clan_battle_stats()
 
     async def weapons(self) -> Message:
         """Get the Embed for a player's weapons breakdown"""

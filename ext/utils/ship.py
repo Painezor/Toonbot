@@ -1,6 +1,7 @@
 """Ship Objects and associated classes"""
 from __future__ import annotations
 
+from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
 from types import DynamicClassAttribute
@@ -375,7 +376,7 @@ class ShipView(View):
             value = [f"**Hit Points**: {format(rp['max_health'], ',')}",
                      f"**Cruising Speed**: {rp['cruise_speed']} kts",
                      f"\n*Rocket Plane Damage is not available in the API, sorry*"]
-            e.add_field(name=name, value='\n'.join(value))
+            e.add_field(name=name, value='\n'.join(value), inline=False)
 
         tb = self.fitting.data['torpedo_bomber']
         if tb is not None:
@@ -385,17 +386,17 @@ class ShipView(View):
             value = [f"**Hit Points**: {format(tb['max_health'], ',')}",
                      f"**Cruising Speed**: {tb['cruise_speed']} kts",
                      "",
-                     f"**{torp_name}**"
+                     f"**Torpedo**: {torp_name}",
                      f"**Max Damage**: {format(tb['max_damage'])}",
                      f"**Max Speed**: {tb['torpedo_max_speed']} kts"
                      ]
-            e.add_field(name=name, value='\n'.join(value))
+            e.add_field(name=name, value='\n'.join(value), inline=False)
 
         db = self.fitting.data['dive_bomber']
         if db is not None:
             name = f"{db['name']} (Tier {db['plane_level']}, Dive Bombers"
 
-            bomb_name = 'Unnamed Bomb' if db['bomb_name'] is None else db['bomb_name']
+            bomb_name = 'Bomb Stats' if db['bomb_name'] is None else db['bomb_name']
             value = [f"**Hit Points**: {format(db['max_health'], ',')}",
                      f"**Cruising Speed**: {db['cruise_speed']} kts",
                      "",
@@ -409,7 +410,7 @@ class ShipView(View):
             if fire_chance is not None:
                 value.append(f"**Fire Chance**: {round(fire_chance, 1)}%")
 
-            e.add_field(name=name, value=value)
+            e.add_field(name=name, value='\n'.join(value), inline=False)
 
         fc = self.fitting.data['flight_control']
         if fc is not None:
@@ -427,10 +428,53 @@ class ShipView(View):
 
         e = self.base_embed
 
-        # TODO: Parse auxiliary armaments.
-        # Secondaries
-        # AA
+        desc = []
 
+        sec = self.fitting.data['atbas']
+        if sec is None:
+            e.add_field(name='No Secondary Armament',
+                        value="```diff\n- This ship does not have a secondary armament.```")
+        elif 'slots' not in sec:
+            e.add_field(name='API Error', value="```diff\n- This ships secondary armament is not in the API.```")
+        else:
+            desc.append(f'**Secondary Range**: {sec["distance"]}')
+            desc.append(f'**Total Barrels**: {self.fitting.data["hull"]["atba_barrels"]}')
+
+            for v in sec['slots'].values():
+                name = v['name']
+                dmg = v['damage']
+
+                value = [f"**Damage**: {format(dmg, ',')}",
+                         f"**Shell Type**: {v['type']}",
+                         f"**Reload Time**: {v['shot_delay']}s ({round(v['gun_rate'], 1)} rounds/minute)",
+                         f"**Initial Velocity**: {v['bullet_speed']}m/s",
+                         f"**Shell Weight**: {v['bullet_mass']}kg"
+                         ]
+
+                fire_chance: float = v['burn_probability']
+                if fire_chance:
+                    value.append(f'**Fire Chance**: {round(fire_chance, 1)}')
+
+                e.add_field(name=name, value='\n'.join(value))
+
+        aa = self.fitting.data['anti_aircraft']
+        if aa is None:
+            aa_desc = ["```diff\n- This ship does not have any AA Capabilities.```"]
+        else:
+            aa_guns: Dict[str, list] = defaultdict(list)
+            for v in aa['slots'].values():
+                value = f'{v["guns"]}x{v["caliber"]}mm ({v["avg_damage"]} dps)\n'
+                aa_guns[v['name']].append(value)
+
+            aa_desc = []
+            for k, v in aa_guns.items():
+                aa_desc.append(f"**{k}**\n")
+                aa_desc.append('\n'.join(v))
+                aa_desc.append('\n')
+
+        e.add_field(name=f"AA Guns", value=''.join(aa_desc), inline=False)
+
+        e.description = '\n'.join(desc)
         self.disabled = self.auxiliary
         return await self.update(embed=e)
 

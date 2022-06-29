@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, List, Union
 
 from discord import Interaction, Embed, Colour, Activity, Attachment, Message, Object
 from discord.app_commands import Choice, describe, autocomplete, Group, command, guilds
-from discord.ext.commands import Cog
+from discord.ext.commands import Cog, NotOwner
 
 if TYPE_CHECKING:
     from core import Bot
@@ -109,7 +109,8 @@ class Admin(Cog):
     async def _print(self, interaction: Interaction, to_print: str) -> Message:
         """Print something to console."""
         await interaction.response.defer(thinking=True)
-        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        if not interaction.user.id == self.bot.owner_id:
+            raise NotOwner
 
         print(f"Print command output\n{to_print}")
         e: Embed = Embed(colour=Colour.og_blurple(), description=f"```\n{to_print}```")
@@ -120,7 +121,8 @@ class Admin(Cog):
     async def clear(self, interaction: Interaction) -> Message:
         """Clear the command window."""
         await interaction.response.defer(thinking=True)
-        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        if interaction.user.id != self.bot.owner_id:
+            raise NotOwner
 
         system('cls')
         _ = f'{self.bot.user}: {self.bot.initialised_at}'
@@ -133,7 +135,8 @@ class Admin(Cog):
     @guilds(250252535699341312)
     async def quit(self, interaction: Interaction) -> Message:
         """Log the bot out gracefully."""
-        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        if interaction.user.id != self.bot.owner_id:
+            raise NotOwner
         await self.bot.reply(interaction, 'Logging out.')
         return await self.bot.close()
 
@@ -144,7 +147,8 @@ class Admin(Cog):
         """Evaluates code."""
         await interaction.response.defer(thinking=True)
 
-        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        if interaction.user.id != self.bot.owner_id:
+            raise NotOwner
 
         code = code.strip('` ')
         env = {'bot': self.bot, 'ctx': interaction, 'interaction': interaction}
@@ -172,7 +176,8 @@ class Admin(Cog):
     @describe(notification="Message to send to aLL servers.")
     async def notify(self, interaction: Interaction, notification: str) -> Message:
         """Send a global notification to channels that track it."""
-        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        if interaction.user.id != self.bot.owner_id:
+            raise NotOwner
 
         await interaction.response.defer(thinking=True)
 
@@ -188,7 +193,8 @@ class Admin(Cog):
     async def avatar(self, interaction: Interaction, file: Attachment = None, link: str = None) -> Message:
         """Change the avatar of the bot"""
         await interaction.response.defer(thinking=True)
-        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        if interaction.user.id != self.bot.owner_id:
+            raise NotOwner
 
         try:
             avatar = next(i for i in [getattr(file, 'url', None), link] if i is not None)
@@ -244,7 +250,8 @@ class Admin(Cog):
 
     async def update_presence(self, interaction: Interaction, act: Activity) -> Message:
         """Pass the updated status."""
-        assert interaction.user.id == self.bot.owner_id, 'You do not own this bot.'
+        if interaction.user.id != self.bot.owner_id:
+            raise NotOwner
         await self.bot.change_presence(activity=act)
 
         e: Embed = Embed(title="Activity", colour=Colour.og_blurple())

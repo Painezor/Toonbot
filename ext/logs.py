@@ -187,19 +187,17 @@ class Logs(Cog):
 
     # Unban notifier.
     @Cog.listener()
-    async def on_member_unban(self, guild, user: User) -> List[Message]:
+    async def on_member_unban(self, guild, user: User) -> None:
         """Event handler for outputting information about unbanned users."""
         e: Embed = Embed(title="User Unbanned", colour=Colour.dark_blue())
         e.description = f"{user} (ID: {user.id}) was unbanned."
 
-        messages: List[Message] = []
         for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['user_unbans']]:
             try:
                 ch: TextChannel = self.bot.get_channel(x['channel_id'])
-                messages.append(await ch.send(embed=e))
+                await ch.send(embed=e)
             except (AttributeError, HTTPException):
                 continue
-        return messages
 
     @Cog.listener()
     async def on_member_ban(self, guild: Guild, user: User | Member) -> List[Message]:
@@ -292,18 +290,15 @@ class Logs(Cog):
 
         for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i[db_field]]:
             try:
-                ch: TextChannel = self.bot.get_channel(x['channel_id'])
-                assert ch is not None
-                assert ch.permissions_for(member.guild.me).send_messages
-                assert ch.permissions_for(member.guild.me).embed_links
+                ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, TypeError, IndexError, AssertionError, HTTPException):
+            except (TypeError, HTTPException):
                 continue
 
     # Timeout notif
     # Timeout end notif
     @Cog.listener()
-    async def on_member_update(self, before: Member, after: Member) -> List[Message]:
+    async def on_member_update(self, before: Member, after: Member) -> None:
         """Track Timeouts"""
         if after.is_timed_out() == before.is_timed_out():
             return []
@@ -322,14 +317,12 @@ class Logs(Cog):
         else:
             e: Embed = Embed(title="Timeout ended", description=f"{after.mention} is no longer timed out.")
 
-        output = []
         for x in channels:
             try:
                 ch = self.bot.get_channel(x['channel_id'])
-                output.append(await ch.send(embed=e))
+                await ch.send(embed=e)
             except (AttributeError, HTTPException):
                 continue
-        return output
 
     # emojis notif
     @Cog.listener()

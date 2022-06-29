@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Union
 
 from discord import Message, Interaction
 from discord.app_commands import CommandInvokeError, BotMissingPermissions, MissingPermissions
-from discord.ext.commands import Cog
+from discord.ext.commands import Cog, NotOwner
 
 from ext.quotes import OptedOutError, TargetOptedOutError
 
@@ -22,9 +22,8 @@ class Errors(Cog):
     async def error_handler(self, i: Interaction, error) -> Message:
         """Event listener for when commands raise exceptions"""
         # Unpack CIE
-        if isinstance(error, AssertionError):
-            error = error.args[0]
-            return await self.bot.error(i, error)
+        if isinstance(error, NotOwner):
+            return await self.bot.error(i, 'You do not own this bot.')
 
         if isinstance(error, CommandInvokeError):
             error = error.original
