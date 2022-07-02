@@ -90,7 +90,7 @@ class Fitting:
                 case 200:
                     json = await resp.json()
                 case _:
-                    print(f'HTTP ERROR {resp.status} accessing {url}')
+                    raise ConnectionError(f'HTTP ERROR {resp.status} accessing {url}')
 
         self.data = json['data'][str(self.ship.ship_id)]
         return self.data
@@ -176,8 +176,7 @@ class Ship:
                 case 'TorpedoBomber':
                     fit.modules[TorpedoBomber] = module_id
                 case _:
-                    print('Unhandled Module type when setting default fit', module_id, module_type)
-                    continue
+                    raise ValueError(f'Unhandled Module type "{module_type}" setting default fit, id: {module_id}')
         return fit
 
     async def fetch_modules(self) -> List[Module]:
@@ -199,7 +198,7 @@ class Ship:
                     case 200:
                         data = await resp.json()
                     case _:
-                        print(f'Unable to fetch modules for {self.name}')
+                        raise ConnectionError(f'{resp.status} error fetching modules for {self.name} on {url}')
 
             for module_id, data in data['data'].items():
                 args = {k: data.pop(k) for k in ['name', 'image', 'tag', 'module_id_str', 'module_id', 'price_credit']}
@@ -225,12 +224,8 @@ class Ship:
                         module = TorpedoBomber(**args)
                     case 'Torpedoes':
                         module = Torpedoes(**args)
-                    case 'flight_control':
-                        print('Somehow found a flight_control module with id', module_id, 'on ship id', self.ship_id)
-                        module = Module(**args)
                     case _:
-                        print('Unhandled Module type', module_type)
-                        module = Module(**args)
+                        raise ValueError(f'Unhandled Module type {module_type}')
 
                 self.bot.modules.append(module)
                 self.modules.update({int(module_id): deepcopy(module)})
@@ -382,11 +377,11 @@ class ShipView(View):
         if tb is not None:
             name = f"{tb['name']} (Tier {tb['plane_level']}, Torpedo Bombers"
 
-            torp_name = 'Unnamed Torpedo' if tb['torpedo_name'] is None else tb['torpedo_name']
+            t_name = 'Unnamed Torpedo' if tb['torpedo_name'] is None else tb['torpedo_name']
             value = [f"**Hit Points**: {format(tb['max_health'], ',')}",
                      f"**Cruising Speed**: {tb['cruise_speed']} kts",
                      "",
-                     f"**Torpedo**: {torp_name}",
+                     f"**Torpedo**: {t_name}",
                      f"**Max Damage**: {format(tb['max_damage'])}",
                      f"**Max Speed**: {tb['torpedo_max_speed']} kts"
                      ]
@@ -411,11 +406,6 @@ class ShipView(View):
                 value.append(f"**Fire Chance**: {round(fire_chance, 1)}%")
 
             e.add_field(name=name, value='\n'.join(value), inline=False)
-
-        fc = self.fitting.data['flight_control']
-        if fc is not None:
-            print('We have somehow found a Flight Control Module. This was not expected.'
-                  'Printing FlightControl Dict\n', fc)
 
         self.disabled = self.aircraft
         e.set_footer(text='Rocket plane armaments, and Skip Bombers as a whole are currently not listed in the API.')
@@ -594,7 +584,7 @@ class ShipView(View):
         if self.ship.next_ships:
             vals = []
             for ship_id, xp in self.ship.next_ships.items():  # ShipID, XP Cost
-                nxt = await self.bot.get_ship(int(ship_id))
+                nxt = self.bot.get_ship(int(ship_id))
                 cr = format(nxt.price_credit, ',')
                 xp = format(xp, ',')
                 vals.append((nxt.tier, f"**{nxt.name}** (Tier {nxt.tier} {nxt.type.alias}): {xp} XP, {cr} credits"))
@@ -615,7 +605,7 @@ class ShipView(View):
             self.add_item(ShipButton(self.interaction, ship, row=3))
 
         if self.ship.next_ships:
-            nxt = [await self.bot.get_ship(int(ship)) for ship in self.ship.next_ships]
+            nxt = map(lambda x: self.bot.get_ship(int(x)), self.ship.next_ships)
             for ship in sorted(nxt, key=lambda x: x.tier):
                 self.add_item(ShipButton(self.interaction, ship, higher=True, row=3))
 
@@ -639,8 +629,8 @@ class ShipView(View):
             pass
 
         # Secondaries & AA
-        self.add_item(FuncButton(func=self.auxiliary, label="Auxiliary",
-                                 disabled=self.disabled == self.auxiliary, emoji=None))
+        self.add_item(FuncButton(func=self.auxiliary, label="Auxiliary", disabled=self.disabled == self.auxiliary,
+                                 emoji=Module.emoji))
 
         if not self.ship.modules:
             await self.ship.fetch_modules()
@@ -671,13 +661,13 @@ class ModuleSelect(Select):
         # Update Params.
         await v.fitting.get_params()
 
-        # Repush last function.
+        # Invoke last function again.
         return await v.disabled()
 
 
 class Module:
     """A Module that can be mounted on a ship"""
-    emoji = None
+    emoji = '<:auxiliary:991806987362902088>'
 
     def __init__(self, name: str, image: str, tag: str, module_id: int, module_id_str: str, price_credit: int) -> None:
         self.image: Optional[str] = image
@@ -721,11 +711,6 @@ class Artillery(Module):
         self.max_damage_HE: int = kwargs.pop('max_damage_HE', 0)  # Maximum High Explosive Damage
         self.rotation_time: float = kwargs.pop('rotation_time', 0)  # Turret Traverse Time in seconds
 
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-            print("Unhandled leftover data for Artillery", k, v)
-
-
 class DiveBomber(Module):
     """A 'Dive Bomber' Module"""
     emoji = "<:DiveBomber:991027856496791682>"
@@ -739,11 +724,6 @@ class DiveBomber(Module):
         self.max_health: int = kwargs.pop('max_health', 0)  # Max Plane HP
         self.cruise_speed: int = kwargs.pop('cruise_speed', 0)  # Max Plane Speed in knots
 
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-            print("Unhandled leftover data for DiveBomber", k, v)
-
-
 class Engine(Module):
     """An 'Engine' Module"""
     emoji = "<:Engine:991025095772373032>"
@@ -752,10 +732,6 @@ class Engine(Module):
         super().__init__(name, image, tag, module_id, module_id_str, price_credit)
 
         self.max_speed: float = kwargs.pop('max_speed', 0)  # Maximum Speed in kts
-
-        for k, v in kwargs.items():
-            print('Unhandled extra attribute For Engine', k, v)
-            setattr(self, k, v)
 
 
 class RocketPlane(Module):
@@ -772,10 +748,6 @@ class RocketPlane(Module):
         self.avg_damage: int = kwargs.pop('avg_damage', 0)
         self.max_ammo: int = kwargs.pop('max_ammo', 0)
 
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-            print("Unhandled leftover data for RocketPlane", k, v)
-
 
 class FireControl(Module):
     """A 'Fire Control' Module"""
@@ -786,23 +758,6 @@ class FireControl(Module):
 
         self.distance: int = kwargs.pop('distance', 0)
         self.distance_increase: int = kwargs.pop('distance_increase', 0)
-
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-            print("Unhandled leftover data for FireControl", k, v)
-
-
-# class FlightControl(Module):
-#     """A 'Flight Control' Module"""
-#     emoji = None  # Flight Control Module Emoji?
-#
-#     def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-#         super().__init__(name, image, tag, module_id, module_id_str, price_credit)
-#
-#         for k, v in kwargs.items():
-#             setattr(self, k, v)
-#             print("Unhandled leftover data for FlightControl", k, v)
-
 
 class Hull(Module):
     """A 'Hull' Module"""
@@ -820,10 +775,6 @@ class Hull(Module):
         self.torpedoes_barrels: int = kwargs.pop('torpedoes_barrels', 0)  # Number of torpedo launchers.
         self.hangar_size: int = kwargs.pop('planes_amount', 0)  # Not returned by API.
 
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-            print("Unhandled leftover data for Hull", k, v)
-
 
 class Torpedoes(Module):
     """A 'Torpedoes' Module"""
@@ -836,10 +787,6 @@ class Torpedoes(Module):
         self.max_damage: Optional[int] = kwargs.pop('max_damage', 0)  # Maximum damage of a torpedo
         self.shot_speed: Optional[float] = kwargs.pop('shot_speed', 0)  # Reload Speed of the torpedo
         self.torpedo_speed: Optional[int] = kwargs.pop('torpedo_speed', 0)  # Maximum speed of the torpedo (knots)
-
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-            print("Unhandled leftover data for Torpedoes", k, v)
 
 
 class TorpedoBomber(Module):
@@ -857,8 +804,5 @@ class TorpedoBomber(Module):
 
         # Garbage
         self.distance: float = kwargs.pop('distance', 0.0)  # "Firing Range" ?
-        self.torpedo_name: str = kwargs.pop('torpedo_name', None)  # IDS_PAPT108_LEXINGTON_STOCK
-
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-            print("Unhandled leftover data for TorpedoBomber", k, v)
+        # noinspection SpellCheckingInspection
+        self.torpedo_name: str = kwargs.pop('torpedo_name', None)  # """IDS_PAPT108_LEXINGTON_STOCK"""

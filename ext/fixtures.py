@@ -173,7 +173,7 @@ class Fixtures(Cog):
     @command()
     @describe(mode="search for a team or a league?", query="enter a search query")
     @autocomplete(query=tm_lg_ac)
-    async def fixtures(self, i: Interaction, mode: Literal["team", "league"], query) -> Message:
+    async def fixtures(self, i: Interaction, mode: Literal["team", "league"], query: str) -> Message:
         """Fetch upcoming fixtures for a team or league."""
         await i.response.defer(thinking=True)
 

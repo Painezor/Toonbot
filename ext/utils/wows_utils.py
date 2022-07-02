@@ -2,39 +2,33 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, Tuple, Callable
+from typing import TYPE_CHECKING, Optional, Tuple, Callable, Dict
 
 from discord import Colour, Embed, Message, SelectOption
 from discord.ui import View, Button
+from flatten_dict import flatten, unflatten
 
 from ext.utils.ship import Ship
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import FuncButton, FuncDropdown, Parent
+from ext.utils.view_utils import FuncButton, FuncDropdown
 
 if TYPE_CHECKING:
     from painezBot import PBot
     from discord import Interaction
     from typing import List
-    from typing_extensions import Self
+    from ext.utils.Clans import PlayerCBStats, Clan
 
 # TODO: CommanderXP Command (Show Total Commander XP per Rank)
 # TODO: Encyclopedia - Collections
 # TODO: Pull Achievement Data to specifically get Jolly Rogers and Hurricane Emblems for player stats.
 # TODO: Player's Ranked Battle Season History
 # TODO: Player's Stats By Ship
-# TODO: Secret Clan API endpoint - Leaderboard.
-# Leaderboard: https://clans.worldofwarships.com/api/ladder/structure/?league=0&division=1&season=17&realm=global
 
 
 class Achievement:
     """A World of Warships Achievement"""
-
-
-class ClanBuilding:
-    """A World of Warships Clan Building"""
 
 
 class Map:
@@ -150,17 +144,20 @@ class Player:
     """A World of Warships player."""
     bot: PBot = None
 
-    def __init__(self, bot: 'PBot', account_id: int, region: Region, nickname: str) -> None:
-        self.bot: PBot = bot
-        self.nickname: str = nickname
+    def __init__(self, bot: 'PBot', account_id: int, **kwargs) -> None:
+
+        if self.__class__.bot is None:
+            self.__class__.bot = bot
+
         self.account_id: int = account_id
-        self.region: Region = region
+        self.nickname: str = kwargs.pop('nickname', None)
 
         # Additional Fetched Data.
         self.clan: Optional[Clan] = None
         self.created_at: Optional[Timestamp] = None  # Account Creation Date
         self.hidden_profile: bool = False  # Account has hidden stats
         self.joined_clan_at: Optional[Timestamp] = None  # Joined Clan at..
+        self.clan_role: str = None  # Officer, Leader, Recruiter...
         self.karma: Optional[int] = None  # Player Karma (Hidden from API?)
         self.last_battle_time: Optional[Timestamp] = None  # Last Battle
         self.private: None = None  # Player's private data. We do not have access.
@@ -168,23 +165,70 @@ class Player:
         self.levelling_points: Optional[int] = None  # Player account XP
         self.logout_at: Optional[Timestamp] = None  # Last Logout
         self.stats_updated_at: Optional[Timestamp] = None  # Last Stats Update
-        self.statistics: dict = {}  # Parsed Player Statistics
+        self.statistics: Dict[Ship | None, dict] = {}  # Parsed Player Statistics
+
+        # Data from CB Endpoint
+        self.average_damage: float = 0
+        self.average_xp: float = 0
+        self.average_kills: float = 0
+        self.battles_per_day: float = 0
+        self.win_rate: float = 0
+
+        self.battles: int = 0
+
+        self.is_online: bool = False
+        self.is_banned: bool = False
+
+        # CB Season Stats
+        self.clan_battle_stats: Dict[int, PlayerCBStats] = {}  # Keyed By Season ID.
+
+    @property
+    def region(self) -> Region:
+        """Get a Region object based on the player's ID number."""
+        match self.account_id:
+            case self.account_id if 0 < self.account_id < 500000000:
+                return Region.CIS
+            case self.account_id if 500000000 < self.account_id < 999999999:
+                return Region.EU
+            case self.account_id if 1000000000 < self.account_id < 1999999999:
+                return Region.NA
+            case _:
+                return Region.SEA
+
+    @property
+    def community_link(self) -> str:
+        """Get a link to this player's community page."""
+        return f"https://worldofwarships.{self.region.domain}/community/accounts/{self.account_id}-{self.nickname}/"
+
+    @property
+    def wows_numbers(self) -> str:
+        """Get a link to this player's wows_numbers page."""
+        match self.region:
+            case Region.NA:
+                region = "na."
+            case Region.SEA:
+                region = "asia."
+            case Region.CIS:
+                region = "ru."
+            case _:
+                region = ""
+        return f"https://{region}wows-numbers.com/player/{self.account_id},{self.nickname}/"
 
     async def get_pr(self) -> int:
         """Calculate a player's personal rating"""
+        link = 'https://api.wows-numbers.com/personal/rating/expected/json/'
         if not self.bot.pr_data_updated_at:
-            async with self.bot.session.get('https://api.wows-numbers.com/personal/rating/expected/json/') as resp:
+            async with self.bot.session.get(link) as resp:
                 match resp.status:
                     case 200:
                         pass
                     case _:
-                        print('Error accessing PR data on wows-numbers')
-                        return
+                        raise ConnectionError(f'{resp.status} Error accessing {link}')
         # TODO: Get PR
         raise NotImplementedError
 
     async def get_clan_info(self, region: Region) -> Optional[Clan]:
-        """Get Player's clan"""
+        """Get a Player's clan"""
         link = f"https://api.worldofwarships.{region.domain}/wows/clans/accountinfo/"
         p = {'application_id': self.bot.WG_ID, 'account_id': self.account_id, 'extras': 'clan'}
 
@@ -203,7 +247,8 @@ class Player:
         self.joined_clan_at = Timestamp(datetime.utcfromtimestamp(data.pop('joined_at')))
 
         clan_id = data.pop('clan_id')
-        self.clan = await self.bot.get_clan(clan_id, region)
+        self.clan = self.bot.get_clan(clan_id)
+        await self.clan.get_data()
         return self.clan
 
     async def get_stats(self, ship: Ship = None) -> None:
@@ -247,61 +292,19 @@ class Player:
         self.stats_updated_at = Timestamp(datetime.utcfromtimestamp(stats.pop('stats_updated_at', None)))
         self.logout_at = Timestamp(datetime.utcfromtimestamp(stats.pop('logout_at', None)))
         self.hidden_profile = stats.pop('hidden_profile', False)
-        self.statistics = stats.pop('statistics')
+        self.statistics[None] = stats.pop('statistics')
         return
 
-    def view(self, interaction: Interaction, mode: GameMode, div_size: int) -> PlayerView:
+    def view(self, interaction: Interaction, mode: GameMode, div_size: int, ship: Ship = None) -> PlayerView:
         """Return a PlayerVIew of this Player"""
-        return PlayerView(self.bot, interaction, self, mode, div_size)
-
-
-class League(Enum):
-    """Enum of Clan Battle Leagues"""
-
-    def __new__(cls, *args, **kwargs) -> League:
-        value = len(cls.__members__)
-        obj = object.__new__(cls)
-        obj._value_ = value
-        return obj
-
-    def __init__(self, alias: str, emote: str, colour: Colour) -> None:
-        self.alias: str = alias
-        self.emote: str = emote
-        self.colour: Colour = colour
-
-    HURRICANE = ('Hurricane', '<:Hurricane:990599761574920332>', 0xCDA4FF)
-    TYPHOON = ('Typhoon', '<:Typhoon:990599751584067584>', 0xBEE7BD)
-    STORM = ('Storm', '<:Storm:990599740079104070>', 0xE3D6A0)
-    GALE = ('Gale', "<:Gale:990599200905527329>", 0xCCE4E4)
-    SQUALL = ('Squall', "<:Squall:990597783817965568>", 0xCC9966)
-
-
-@dataclass
-class ClanBattleStats:
-    """A Single Clan's statistics for a Clan Battles season"""
-    clan: Clan
-
-    season_number: int
-    max_win_streak: int = 0
-    battles_played: int = 0
-    games_won: int = 0
-
-    final_rating: int = 0
-    final_league: League = League.SQUALL
-    final_division: int = 0
-
-    max_rating: int = 0
-    max_league: League = League.SQUALL
-    max_division: int = 0
-
-    last_win_at: Optional[Timestamp] = None
+        return PlayerView(self.bot, interaction, self, mode, div_size, ship)
 
 
 class ClanButton(Button):
     """Change to a view of a different ship"""
 
     def __init__(self, interaction: Interaction, clan: Clan, row: int = 0) -> None:
-        super().__init__(label=f"[{clan.tag}]", row=row)
+        super().__init__(label="Clan", row=row)
 
         self.clan: Clan = clan
         self.interaction: Interaction = interaction
@@ -313,432 +316,12 @@ class ClanButton(Button):
         return await self.clan.view(self.interaction).overview()
 
 
-class Clan:
-    """A World of Warships clan."""
-    bot: PBot = None
-
-    def __init__(self, bot: 'PBot', clan_id: int, region: Region, **kwargs):
-        self.clan_id: int = clan_id
-        self.bot: PBot = bot
-
-        self.clan_id: int = clan_id
-        self.created_at: Optional[Timestamp] = kwargs.pop('created_at', None)
-        self.creator_id: Optional[int] = kwargs.pop('creator_id', None)
-        self.creator_name: Optional[str] = kwargs.pop('creator_name', None)
-        self.description: Optional[str] = kwargs.pop('description', None)
-        self.is_clan_disbanded: Optional[bool] = kwargs.pop('is_clan_disbanded', None)
-        self.leader_name: Optional[str] = kwargs.pop('leader_name', None)
-        self.leader_id: Optional[int] = kwargs.pop('leader_id', None)
-        self.members_count: Optional[int] = kwargs.pop('members_count', None)
-        self.member_ids: Optional[List[int]] = kwargs.pop('member_ids', None)
-        self.name: Optional[str] = kwargs.pop('name', None)
-        self.old_name: Optional[str] = kwargs.pop('old_name', None)
-        self.old_tag: Optional[str] = kwargs.pop('old_tag', None)
-        self.renamed_at: Optional[Timestamp] = kwargs.pop('renamed_at', None)
-        self.region: Region = region
-        self.tag: Optional[str] = kwargs.pop('tag', None)
-        self.updated_at: Optional[Timestamp] = kwargs.pop('updated_at', None)
-
-        # Additional Data from clan API
-        self.season_number: Optional[int] = None  # Current season number
-
-        self.current_winning_streak: int = 0
-        self.longest_winning_streak: int = 0  # Best Win Streak This Season
-
-        self.last_battle_at: Optional[Timestamp] = None
-        self.last_win_at: Optional[Timestamp] = None
-
-        self.battles_count: int = 0  # Total Battles in this season
-        self.wins_count: int = 0  # Total Wins in this Season
-        self.total_battles_played: int = 0  # Total Battles played ever
-
-        self.leading_team_number: Optional[int] = None  # Alpha or Bravo rating
-        self.public_rating: Optional[int] = None  # Current rating this season
-        self.league: Optional[League] = None  # Current League, 0 is Hurricane, 1 is Typhoon...
-        self.division: Optional[int] = None  # Current Division within League
-        self.max_public_rating: Optional[int] = None  # Highest rating this season
-        self.max_league: Optional[League] = None  # Max League
-        self.max_division: Optional[int] = None  # Max Division
-        self.colour: Colour = None  # Converted to discord Colour for Embed
-        self.is_banned: bool = False  # Is the Clan banned?
-        self.is_qualified: bool = False  # In qualifications?
-
-        # List of Clan Building IDs
-        self.academy: List[int] = []  # Academy - Commander XP
-        self.dry_dock: List[int] = []  # Service Cost Reduction
-        self.design_department: List[int] = []  # Design Bureau - Free XP
-        self.headquarters: List[int] = []  # Officers' Club - Members Count
-        self.shipbuilding_factory: List[int] = []  # Shipbuilding yard - Purchase Cost Discount
-        self.coal_yard: List[int] = []  # Bonus Coal
-        self.steel_yard: List[int] = []  # Bonus Steel
-        self.university: List[int] = []  # War College - Bonus XP
-        self.paragon_yard: List[int] = []  # Research Institute - Research Points
-
-        # Vanity Only.
-        self.monument: List[int] = []  # Rostral Column - Can be clicked for achievements.
-        self.vessels: List[int] = []  # Other Vessels in port, based on number of clan battles
-        self.ships: List[int] = []  # Ships in clan base, based on number of randoms played.
-        self.treasury: List[int] = []  # Clan Treasury
-
-        # Fetched and stored.
-        self._clan_battle_history: List[ClanBattleStats] = []  # A list of ClanBattleSeason dataclasses
-        self.members: List[Player] = []
-
-    @property
-    def coal_bonus(self) -> str:
-        """Clan Base's bonus Coal"""
-        return {1: "No Bonus", 2: "+5% Coal", 3: "+7% Coal", 4: "+10% Coal"}[len(self.coal_yard)]
-
-    @property
-    def max_members(self) -> int:
-        """Get maximum number of clan members"""
-        return {1: 30, 2: 35, 3: 40, 4: 45, 5: 50}[len(self.headquarters)]
-
-    @property
-    def purchase_cost_discount(self) -> str:
-        """Clan's Ship Purchase Cost Discount"""
-        return {1: "No Bonus", 2: "-10% Cost of ships up to Tier IV", 3: "-10% Cost of ships up to Tier VIII",
-                4: "-10% Cost of ships up to Tier X", 5: "-12% Cost of ships up to Tier X",
-                6: "-14% Cost of ships up to Tier X",
-                7: "-15% Cost of ships up to Tier X"}[len(self.shipbuilding_factory)]
-
-    @property
-    def steel_bonus(self) -> str:
-        """Clan Base's bonus Steel"""
-        return {1: "No Bonus", 2: "+5% Steel", 3: "+7% Steel", 4: "+10% Steel"}[len(self.steel_yard)]
-
-    @property
-    def service_cost_bonus(self) -> str:
-        """Clan Base's bonus Service Cost Reduction"""
-        return {1: "No Bonus", 2: "-5% Service Cost (up to Tier IV)", 3: "-5% Service Cost (up to Tier VIII)",
-                4: "-5% Service Cost (up to Tier IX)", 5: "-5% Service Cost (up to Tier X)",
-                6: "-7% Service Cost (up to Tier X)", 7: "-10% Service Cost (up to Tier X)"}[len(self.dry_dock)]
-
-    @property
-    def commander_xp_bonus(self) -> str:
-        """Clan's Bonus to XP Earned"""
-        return {1: "No Bonus", 2: "+2% Commander XP", 3: "+4% Commander XP", 4: "+6% Commander XP",
-                5: "+8% Commander XP", 6: "+10% Commander XP"}[len(self.academy)]
-
-    @property
-    def free_xp_bonus(self) -> str:
-        """Clan's Bonus to Free XP Earned"""
-        return {1: "No Bonus", 2: "+10% Free XP up to Tier VI", 3: "+10% Free XP up to Tier VIII",
-                4: "+10% Free XP up to Tier X", 5: "+15% Free XP up to Tier X",
-                6: "+20% Free XP up to Tier X", 7: "+25% Free XP up to Tier X"}[len(self.design_department)]
-
-    @property
-    def research_points_bonus(self) -> str:
-        """Get the Clan's Bonus to Research Points earned"""
-        return {1: "No Bonus", 2: "+1% Research Points", 3: "+3% Research Points",
-                4: "+5% Research Points"}[len(self.paragon_yard)]
-
-    @property
-    def xp_bonus(self) -> str:
-        """Get the Clan's Bonus to XP earned"""
-        return {1: "No Bonus", 2: "+2% XP up to Tier VI", 3: "+2% Up to Tier VIII", 4: "+2% Up to Tier X",
-                5: "+3% Up to Tier X", 6: "+4% Up to Tier X", 7: "+5% Up to Tier X"}[len(self.university)]
-
-    @property
-    def max_rating_name(self) -> str:
-        """Is Alpha or Bravo their best rating?"""
-        return {1: "Alpha", 2: "Bravo"}[self.leading_team_number]
-
-    @property
-    def cb_rating(self) -> str:
-        """Return a string in format League II (50 points)"""
-        match self.league:
-            case League.HURRICANE:
-                return f"Hurricane ({self.public_rating - 2200} points)"
-            case _:
-                return f"{self.league.alias} {self.division * 'I'} ({self.public_rating // 100} points)"
-
-    @property
-    def max_cb_rating(self) -> str:
-        """Return a string in format League II (50 points)"""
-        match self.max_league:
-            case League.HURRICANE:
-                return f"Hurricane ({self.max_public_rating - 2200} points)"
-            case _:
-                return f"{self.max_league.alias} {self.max_division * 'I'} ({self.max_public_rating // 100} points)"
-
-    @property
-    def treasury_rewards(self) -> str:
-        """Get a list of available treasury operations for the clan"""
-        tr = {1: "Allocation of resources only", 2: "Allocation of resources, 'More Resources' clan bundles",
-              3: "Allocation of resources, 'More Resources' & 'Try Your Luck' clan bundles",
-              4: "Allocation of resources, 'More Resources', 'Try Your Luck' & 'Supercontainer' clan bundles",
-              5: "Allocation of resources & 'More Resources', 'Try Your Luck', 'Supercontainer' & 'additional' bundles"}
-        return tr[len(self.treasury)]
-
-    async def get_member_stats(self) -> dict:
-        """Fetch Data about all clan members"""
-        missing = []
-        for x in self.member_ids:
-            (missing, self.members)[x in [p.account_id for p in self.bot.players]].append(x)
-
-        # TODO: API call - fetch data for missing player IDs
-
-    async def get_member_clan_battle_stats(self) -> dict:
-        """Attempt to fetch clan battle stats for members"""
-        url = f"https://clans.worldofwarships.{self.region}/api/members/{self.clan_id}/?battle_type=cvc&season={self.season_number}"
-
-    async def get_data(self) -> Self:
-        """Fetch clan information."""
-        if self.clan_id is None:
-            return self
-
-        p = {'application_id': self.bot.WG_ID, 'clan_id': self.clan_id}
-        url = f"https://api.worldofwarships.{self.region.domain}/wows/clans/info/"
-        async with self.bot.session.get(url, params=p) as resp:
-            match resp.status:
-                case 200:
-                    data = await resp.json()
-                case _:
-                    return self
-
-        data = data['data'].pop(str(self.clan_id))
-
-        # Handle Timestamps.
-        self.updated_at = Timestamp(datetime.utcfromtimestamp(data.pop('updated_at', None)))
-        self.created_at = Timestamp(datetime.utcfromtimestamp(data.pop('created_at', None)))
-
-        rn = data.pop('renamed_at', None)
-        if rn is not None:
-            self.renamed_at = Timestamp(datetime.utcfromtimestamp(rn))
-
-        for x in ['league', 'max_league']:
-            _x = data.pop(x, None)
-
-            if _x is not None:
-                league = next(i for i in League if _x == i)
-                setattr(self, x, league)
-
-        # Handle rest.
-        for k, v in data.items():
-            setattr(self, k, v)
-
-        await self.fetch_cb_data()
-        return self
-
-    async def fetch_cb_data(self):
-        """Fetch CB data from the hidden clans.worldofwarships api"""
-        if self.clan_id is None:
-            return
-
-        url = f"https://clans.worldofwarships.{self.region.domain}/api/clanbase/{self.clan_id}/claninfo/"
-        async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    data = await resp.json()
-                    json = data.pop('clanview')
-                case _:
-                    print(f"Http Error {resp.status} fetching clans.warships api")
-
-        # clan = json.pop('clan')  # This information is also already known to us
-
-        ladder = json.pop('wows_ladder')  # This info we care about.
-        lbt = ladder.pop('last_battle_at', None)
-        if lbt is not None:
-            self.current_winning_streak = ladder.pop('current_winning_streak', 0)
-            self.longest_winning_streak = ladder.pop('longest_winning_streak', 0)
-            self.leading_team_number: int = ladder.pop('leading_team_number', None)
-            ts = datetime.strptime(lbt, "%Y-%m-%dT%H:%M:%S%z")
-            self.last_battle_at = Timestamp(ts)
-
-            lwt = ladder.pop('last_win_at', None)
-            ts2 = datetime.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
-            self.last_win_at = Timestamp(ts2)
-
-            self.wins_count = ladder.pop('wins_count', 0)
-            self.total_battles_played = ladder.pop('total_battles_count', 0)
-
-            self.season_number = ladder.pop('season_number', None)
-
-            self.public_rating = ladder.pop('public_rating', None)
-            self.max_public_rating = ladder.pop('max_public_rating', None)
-
-            league = ladder.pop('league')
-            self.league = next(i for i in League if i.value == league)
-
-            highest = ladder.pop('max_position', {})
-            if highest:
-                max_league = highest.pop('league', None)
-                self.max_league = next(i for i in League if i.value == max_league)
-                self.max_division = highest.pop('division', None)
-
-            self.division = ladder.pop('division', None)
-            self.colour: Colour = Colour(ladder.pop('colour', 0x000000))
-
-            ratings = ladder.pop('ratings', [])
-
-            if ratings:
-                self._clan_battle_history = []
-
-            for x in ratings:
-                season_id = x.pop('season_number', 999)
-                if season_id > 99:
-                    continue  # Discard Brawls.
-
-                try:
-                    season = next(i for i in self._clan_battle_history if i.season_id == season_id)
-                except StopIteration:
-                    season = ClanBattleStats(self, season_id)
-
-                maximums = x.pop('max_position', None)
-                if maximums is not None:
-                    max_league = min(season.max_league.value, maximums.pop('league'), 4)
-                    season.max_league = next(i for i in League if i.value == max_league)
-                    season.max_division = min(season.max_division, maximums.pop('division'), 3)
-                    season.max_rating = max(season.max_rating, maximums.pop('public_rating', 0))
-
-                season.max_win_streak = max(season.max_win_streak, x.pop('longest_winning_streak', 0))
-                season.battles_played = season.battles_played + x.pop('battles_count', 0)
-                season.games_won = season.games_won + x.pop('wins_count', 0)
-
-                last = x.pop('last_win_at', None)
-                ts3 = datetime.fromordinal(1) if last is None else datetime.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
-
-                if season.last_win_at is None or season.last_win_at < ts3:
-                    season.final_rating = x.pop('public_rating', 0)
-                    season.final_league = next(i for i in League if i.value == x.pop('league', 4))
-                    season.final_division = x.pop('division', 3)
-
-        buildings = json.pop('buildings', None)
-        if buildings is not None:
-            for k, v in buildings.items():
-                setattr(self, k, v['modifiers'])
-
-        # achievements = json.pop('achievements')  # This information is complete garbage.
-
-    def view(self, interaction: Interaction) -> ClanView:
-        """Return a view representing this clan"""
-        return ClanView(self.bot, interaction, self)
-
-
-class ClanView(View):
-    """A View representing a World of Warships Clan"""
-    bot: PBot = None
-
-    def __init__(self, bot: 'PBot', interaction: Interaction, clan: Clan, parent: Tuple[View, str] = None) -> None:
-        super().__init__()
-        self.bot: PBot = bot
-        self.interaction: Interaction = interaction
-        self.clan: Clan = clan
-        self.embed: Optional[Embed] = None
-        self.index: int = 0
-
-        if parent:
-            self.parent: View = parent[0]
-            self.parent_name: str = parent[1]
-        else:
-            self.parent, self.parent_name = None, None
-
-        self._disabled: Optional[str] = None
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of command."""
-        return self.interaction.user.id == interaction.user.id
-
-    async def on_timeout(self) -> Message:
-        """Hide buttons on view timeout"""
-        return await self.bot.reply(self.interaction, view=None)
-
-    @property
-    def base_embed(self) -> Embed:
-        """Generic Embed for all view functions"""
-        e = Embed(title=f"[{self.clan.tag}] {self.clan.name}")
-        e.colour = self.clan.league.colour
-        e.set_footer(text=self.clan.description)
-        return e
-
-    async def overview(self) -> Message:
-        """Get General overview of the clan"""
-        e = self.base_embed
-
-        desc = []
-        if self.clan.updated_at is not None:
-            desc.append(f"**Information updated**: {self.clan.updated_at.relative}\n")
-
-        if self.clan.leader_name:
-            desc.append(f"**Leader**: {self.clan.leader_name}")
-
-        if self.clan.created_at:
-            desc.append(f"**Creator**: {self.clan.creator_name} {self.clan.created_at.relative}")
-
-        if self.clan.renamed_at:
-            d = f"**Former name**: [{self.clan.old_tag}] {self.clan.old_name} (renamed {self.clan.renamed_at.relative})"
-            desc.append(d)
-
-        if self.clan.season_number:
-            title = f'Clan Battles Season {self.clan.season_number}'
-            cb_desc = [f"**Current Rating**: {self.clan.cb_rating} ({self.clan.max_rating_name})"]
-
-            if self.clan.cb_rating != self.clan.max_cb_rating:
-                cb_desc.append(f"**Highest Rating**: {self.clan.max_cb_rating}")
-
-            # Win Rate
-            cb_desc.append(f"**Last Battle**: {self.clan.last_battle_at.relative}")
-            wr = round(self.clan.wins_count / self.clan.total_battles_played * 100, 2)
-            cb_desc.append(f"**Win Rate**: {wr}% ({self.clan.wins_count} / {self.clan.battles_count})")
-
-            # Win streaks
-            max_i = self.clan.longest_winning_streak
-            if self.clan.current_winning_streak:
-                if self.clan.current_winning_streak == max_i:
-                    cb_desc.append(f'**Win Streak**: {self.clan.current_winning_streak}')
-                else:
-                    cb_desc.append(f'**Win Streak**: {self.clan.current_winning_streak} (Max: {max_i})')
-            elif self.clan.longest_winning_streak:
-                cb_desc.append(f'**Longest Win Streak**: {max_i}')
-
-            e.add_field(name=title, value='\n'.join(cb_desc))
-
-        e.set_footer(text=f"{self.clan.region.name} Clan #{self.clan.clan_id}")
-        e.description = "\n".join(desc)
-
-        if self.clan.is_banned:
-            e.add_field(name='Banned Clan', value="This information is from a clan that is marked as 'banned'")
-
-        self._disabled = self.overview
-        return await self.update(embed=e)
-
-    async def members(self) -> Message:
-        """Display an embed of the clan members"""
-        # TODO: Clan Members
-        # self.members_count: Optional[int] = kwargs.pop('members_count', None)
-        # self.member_ids: Optional[List[int]] = kwargs.pop('member_ids', None)
-        self._disabled = self.members
-        e = self.base_embed
-        e.description = "Not Implemented Yet."
-        return await self.update(embed=e)
-
-    async def history(self) -> Message:
-        """Get a clan's Clan Battle History"""
-        # TODO: Clan History
-        self._disabled = self.history
-        e = self.base_embed
-        e.description = "Not Implemented Yet."
-        return await self.update(embed=e)
-
-    async def update(self, embed: Embed) -> Message:
-        """Push the latest version of the View to the user"""
-        self.clear_items()
-
-        if self.parent:
-            self.add_item(Parent(label=self.parent_name))
-
-        self.add_item(FuncButton(label='Overview', disabled=self._disabled == self.overview, func=self.overview))
-        self.add_item(FuncButton(label='Members', disabled=self._disabled == self.members, func=self.members))
-        self.add_item(FuncButton(label='Recent Battles', disabled=self._disabled == self.history, func=self.history))
-        return await self.bot.reply(self.interaction, embed=embed, view=self)
-
-
 class PlayerView(View):
     """A View representing a World of Warships player"""
     bot: PBot = None
 
-    def __init__(self, bot: 'PBot', interaction: Interaction, player: Player, mode: GameMode, div_size: int) -> None:
+    def __init__(self, bot: 'PBot', interaction: Interaction, player: Player, mode: GameMode,
+                 div_size: int, ship: Ship = None) -> None:
         super().__init__()
         self.bot: PBot = bot
         self.interaction: Interaction = interaction
@@ -747,6 +330,10 @@ class PlayerView(View):
         self.player: Player = player
         self.div_size: int = div_size
         self.mode: GameMode = mode
+        self.ship: Ship = ship
+
+        # Used
+        self.cb_season: int = 0
 
         # Generated
         self._disabled: Optional[Callable] = None
@@ -775,56 +362,107 @@ class PlayerView(View):
             e.set_footer(text="This player has hidden their stats.")
         return e
 
+    @staticmethod
+    def sum_stats(dicts: List[Dict]) -> dict:
+        """Sum The Stats from multiple game modes."""
+        output = {}
+
+        dicts = [flatten(d, reducer='dot') for d in dicts]
+
+        for key in dicts[0].keys():
+            match key:
+                case key if "ship_id" in key:
+                    pass
+                case key if 'max' in key:
+                    ship_keys = {'max_frags_battle': 'max_frags_ship_id',
+                                 'max_damage_dealt': 'max_damage_dealt_ship_id',
+                                 'max_xp': 'max_xp_ship_id',
+                                 'max_total_agro': 'max_total_agro_ship_id',
+                                 'max_damage_scouting': 'max_scouting_damage_ship_id',
+                                 'max_ships_spotted': 'max_ships_spotted_ship_id',
+                                 'max_planes_killed': 'max_planes_killed_ship_id',
+                                 'main_battery.max_frags_battle': 'main_battery.max_frags_ship_id',
+                                 'second_battery.max_frags_battle': 'second_battery.max_frags_ship_id',
+                                 'ramming.max_frags_battle': 'ramming.max_frags_ship_id',
+                                 'torpedoes.max_frags_battle': 'torpedoes.max_frags_ship_id',
+                                 'aircraft.max_frags_battle': 'aircraft.max_frags_ship_id',
+
+                                 }
+
+                    paired_keys = [(n.get(key, 0), n.get(ship_keys[key])) for n in dicts if n.get(key, 0)]
+                    filter_keys = filter(lambda x: x[1] is not None, paired_keys)
+                    try:
+                        value = sorted(filter_keys, key=lambda x: x[0])[0]
+                    except IndexError:
+                        value = (0, None)
+                    output.update({key: value[0], ship_keys[key]: value[1]})
+                case _:
+                    value = sum([x for x in [n.get(key, 0) for n in dicts] if x is not None], 0)
+                    output.update({key: value})
+        output = unflatten(output, splitter='dot')
+        return output
+
     async def filter_stats(self) -> Tuple[str, dict]:
         """Fetch the appropriate stats for the mode tag"""
-        if not self.player.statistics:
-            await self.player.get_stats()
+        if self.ship not in self.player.statistics:
+            await self.player.get_stats(self.ship)
 
         match self.mode.tag, self.div_size:
             case "PVP", 1:
-                return "Random Battles (Solo)", self.player.statistics['pvp_solo']
+                return "Random Battles (Solo)", self.player.statistics[self.ship]['pvp_solo']
             case "PVP", 2:
-                return "Random Battles (2-person Division)", self.player.statistics['pvp_div2']
+                return "Random Battles (2-person Division)", self.player.statistics[self.ship]['pvp_div2']
             case "PVP", 3:
-                return "Random Battles (3-person Division)", self.player.statistics['pvp_div3'],
+                return "Random Battles (3-person Division)", self.player.statistics[self.ship]['pvp_div3'],
             case "PVP", _:
-                return "Random Battles (Overall)", self.player.statistics['pvp']
+                return "Random Battles (Overall)", self.player.statistics[self.ship]['pvp']
             case "COOPERATIVE", 1:
-                return "Co-op Battles (Solo)", self.player.statistics['pve_solo']
+                return "Co-op Battles (Solo)", self.player.statistics[self.ship]['pve_solo']
             case "COOPERATIVE", 2:
-                return "Co-op Battles (2-person Division)", self.player.statistics['pve_div2']
+                return "Co-op Battles (2-person Division)", self.player.statistics[self.ship]['pve_div2']
             case "COOPERATIVE", 3:
-                return "Co-op Battles (3-person Division)", self.player.statistics['pve_div3']
+                return "Co-op Battles (3-person Division)", self.player.statistics[self.ship]['pve_div3']
             case "COOPERATIVE", _:  # All Stats.
-                return "Co-op Battles (Overall)", self.player.statistics['pve']
+                return "Co-op Battles (Overall)", self.player.statistics[self.ship]['pve']
             case "RANKED", 1:
-                return "Ranked Battles (Solo)", self.player.statistics['rank_solo']
+                return "Ranked Battles (Solo)", self.player.statistics[self.ship]['rank_solo']
             case "RANKED", 2:
-                return "Ranked Battles (2-Man Division)", self.player.statistics['rank_div2']
+                return "Ranked Battles (2-Man Division)", self.player.statistics[self.ship]['rank_div2']
             case "RANKED", 3:
-                return "Ranked Battles (3-Man Division)", self.player.statistics['rank_div3']
+                return "Ranked Battles (3-Man Division)", self.player.statistics[self.ship]['rank_div3']
             case "RANKED", 0:  # Sum 3 Dicts.
-                x = self.player.statistics['rank_solo']
-                y = self.player.statistics['rank_div2']
-                z = self.player.statistics['rank_div3']
-                d = {x.get(k, 0) + y.get(k, 0) + z.get(k, 0) for k in set(x) | set(y) | set(z)}
-                return "Ranked Battles (Overall)", d
+                a = self.player.statistics[self.ship]['rank_solo']
+                b = self.player.statistics[self.ship]['rank_div2']
+                c = self.player.statistics[self.ship]['rank_div3']
+                return "Ranked Battles (Overall)", self.sum_stats([a, b, c])
             case "PVE", 0:  # Sum 2 dicts
-                x = self.player.statistics['oper_solo']
-                y = self.player.statistics['oper_div']
-                return "Operations (Overall)", {x.get(k, 0) + y.get(k, 0) for k in set(x) | set(y)}
+                a = self.player.statistics[self.ship]['oper_solo']
+                b = self.player.statistics[self.ship]['oper_div']
+                return "Operations (Overall)", self.sum_stats([a, b])
             case "PVE", 1:
-                return "Operations (Solo)", self.player.statistics['oper_solo']
+                return "Operations (Solo)", self.player.statistics[self.ship]['oper_solo']
             case "PVE", _:
-                return "Operations (Pre-made)", self.player.statistics['oper_div']
+                return "Operations (Pre-made)", self.player.statistics[self.ship]['oper_div']
             case "PVE_PREMADE", _:
-                return "Operations (Hard Pre-Made)", self.player.statistics['oper_div_hard']
+                return "Operations (Hard Pre-Made)", self.player.statistics[self.ship]['oper_div_hard']
             case _:
-                return f"Missing info for {self.mode.tag}, {self.div_size}", self.player.statistics['pvp']
+                return f"Missing info for {self.mode.tag}, {self.div_size}", self.player.statistics[self.ship]['pvp']
 
     async def clan_battles(self) -> Message:
         """Attempt to fetch player's Clan Battles data."""
-        await self.player.clan.get_member_clan_battle_stats()
+        season = self.player.clan.season_number if self.cb_season == 0 else self.cb_season
+
+        if season not in self.player.clan_battle_stats:
+            await self.player.clan.get_member_clan_battle_stats(season)
+
+        stats = self.player.clan_battle_stats[season]
+        e = self.base_embed
+        e.title = f"Clan Battles (Season {season}"
+        e.description = f"**Win Rate**: {round(stats.win_rate, 2)}% ({stats.battles} battles played)\n" \
+                        f"**Average Damage**: {format(round(stats.average_damage, 0), ',')}\n" \
+                        f"**Average Kills**: {round(stats.average_kills, 2)}\n"
+        self._disabled = self.clan_battles
+        return await self.update(e)
 
     async def weapons(self) -> Message:
         """Get the Embed for a player's weapons breakdown"""
@@ -834,7 +472,7 @@ class PlayerView(View):
         mb = p_stats.pop('main_battery', {})
         if mb:
             mb_kills = mb.pop('frags')
-            mb_ship = await self.bot.get_ship(mb.pop('max_frags_ship_id'))
+            mb_ship = self.bot.get_ship(mb.pop('max_frags_ship_id'))
             mb_max = mb.pop('max_frags_battle')
             mb_shots = mb.pop('shots')
             mb_hits = mb.pop('hits')
@@ -845,9 +483,10 @@ class PlayerView(View):
 
         # Secondary Battery
         sb = p_stats.pop('second_battery', {})
+
         if sb:
             sb_kills = sb.pop('frags', 0)
-            sb_ship = await self.bot.get_ship(sb.pop('max_frags_ship_id', None))
+            sb_ship = self.bot.get_ship(sb.pop('max_frags_ship_id', None))
             sb_max = sb.pop('max_frags_battle', 0)
             sb_shots = sb.pop('shots', 0)
             sb_hits = sb.pop('hits', 0)
@@ -860,7 +499,7 @@ class PlayerView(View):
         trp = p_stats.pop('torpedoes', None)
         if trp is not None:
             trp_kills = trp.pop('frags')
-            trp_ship = await self.bot.get_ship(trp.pop('max_frags_ship_id', None))
+            trp_ship = self.bot.get_ship(trp.pop('max_frags_ship_id', None))
             trp_max = trp.pop('max_frags_battle', 0)
             trp_shots = trp.pop('shots', 0)
             trp_hits = trp.pop('hits', 0)
@@ -872,14 +511,14 @@ class PlayerView(View):
         # Ramming
         ram = p_stats.pop('ramming', None)
         if ram is not None:
-            ram_ship = await self.bot.get_ship(ram.pop('max_frags_ship_id', None))
+            ram_ship = self.bot.get_ship(ram.pop('max_frags_ship_id', None))
             ram = f"Kills: {ram.pop('frags', 0)} (Max: {ram.pop('max_frags_battle', 0)} - {ram_ship.name})\n"
             e.add_field(name='Ramming', value=ram)
 
         # Aircraft
         cv = p_stats.pop('aircraft', {})
         if cv:
-            cv_ship = await self.bot.get_ship(cv.pop('max_frags_ship_id'))
+            cv_ship = self.bot.get_ship(cv.pop('max_frags_ship_id'))
             cv = f"Kills: {cv.pop('frags')} (Max: {cv.pop('max_frags_battle')} - {cv_ship.name})\n"
             e.add_field(name='Aircraft', value=cv)
 
@@ -993,68 +632,76 @@ class PlayerView(View):
         planes = p_stats.pop('planes_killed', 0)
 
         # Averages - Kills, Damage, Spotting, Potential
-        d_avg = format(round(dmg / played), ',')
-        k_avg = round(kills / played, 2)
-        x_avg = format(round(tot_xp / played), ',')
-        p_avg = format(round(potential / played), ',')
-        s_avg = format(round(spotting / played), ',')
-        sp_av = format(round(spotted / played, 2), ',')
-        pl_av = round(planes / played, 2)
+        if self.mode.tag == "PVE":
+            x_avg = format(round(tot_xp / played), ',')
+            x_tot = format(tot_xp, ',')
+            desc.append(f"**Average XP**: {x_avg}\n"
+                        f"**Total XP**: {x_tot}")
+        else:
+            try:
+                d_avg = format(round(dmg / played), ',')
+                k_avg = round(kills / played, 2)
+                x_avg = format(round(tot_xp / played), ',')
+                p_avg = format(round(potential / played), ',')
+                s_avg = format(round(spotting / played), ',')
+                sp_av = format(round(spotted / played, 2), ',')
+                pl_av = round(planes / played, 2)
 
-        avg = (f"**Kills**: {k_avg}\n**Damage**: {d_avg}\n**Potential**: {p_avg}\n**Spotting**: {s_avg}\n"
-               f"**Ships Spotted**: {sp_av}\n**XP**: {x_avg}\n**Planes**: {pl_av}")
-        e.add_field(name="Averages", value=avg)
+                avg = (f"**Kills**: {k_avg}\n**Damage**: {d_avg}\n**Potential**: {p_avg}\n**Spotting**: {s_avg}\n"
+                       f"**Ships Spotted**: {sp_av}\n**XP**: {x_avg}\n**Planes**: {pl_av}")
+                e.add_field(name="Averages", value=avg)
 
-        # Records
-        r_dmg = format(p_stats.pop('max_damage_dealt', 0), ',')
-        s_dmg = await self.bot.get_ship(p_stats.pop('max_damage_dealt_ship_id', None))
+                # Records
+                r_dmg = format(p_stats.pop('max_damage_dealt', 0), ',')
+                r_xp = format(p_stats.pop('max_xp', 0), ',')
+                r_kills = p_stats.pop('max_frags_battle', 0)
+                r_pot = format(p_stats.pop('max_total_agro', 0), ',')
+                r_spot = format(p_stats.pop('max_damage_scouting', 0), ',')
+                r_ship_max = p_stats.pop('max_ships_spotted', 0)
+                r_planes = p_stats.pop('max_planes_killed', 0)
 
-        r_xp = format(p_stats.pop('max_xp', 0), ',')
-        s_xp = await self.bot.get_ship(p_stats.pop('max_xp_ship_id', None))
+                s_dmg = self.bot.get_ship(p_stats.pop('max_damage_dealt_ship_id', None))
+                s_xp = self.bot.get_ship(p_stats.pop('max_xp_ship_id', None))
+                s_kills = self.bot.get_ship(p_stats.pop('max_frags_ship_id', None))
+                s_pot = self.bot.get_ship(p_stats.pop('max_total_agro_ship_id', None))
+                s_spot = self.bot.get_ship(p_stats.pop('max_scouting_damage_ship_id', None))
+                s_ship_max = self.bot.get_ship(p_stats.pop('max_ships_spotted_ship_id', None))
+                s_planes = self.bot.get_ship(p_stats.pop('max_planes_killed_ship_id', None))
 
-        r_kills = p_stats.pop('max_frags_battle', 0)
-        s_kills = await self.bot.get_ship(p_stats.pop('max_frags_ship_id', None))
+                # Records, Totals
+                rec = []
+                for record, ship in [(r_kills, s_kills), (r_dmg, s_dmg), (r_pot, s_pot), (r_ship_max, s_ship_max),
+                                     (r_spot, s_spot), (r_xp, s_xp), (r_planes, s_planes)]:
+                    try:
+                        rec.append(f"{record} ({ship.name})")
+                    except AttributeError:
+                        rec.append(f"{record}")
 
-        r_pot = format(p_stats.pop('max_total_agro', 0), ',')
-        s_pot = await self.bot.get_ship(p_stats.pop('max_total_agro_ship_id', None))
+                e.add_field(name="Records",
+                            value='\n'.join(rec))
 
-        r_spot = format(p_stats.pop('max_damage_scouting', 0), ',')
-
-        _ship = p_stats.pop('max_scouting_damage_ship_id', None)
-        s_spot = await self.bot.get_ship(_ship)
-
-        r_ship_max = p_stats.pop('max_ships_spotted', 0)
-        s_ship_max = await self.bot.get_ship(p_stats.pop('max_ships_spotted_ship_id', None))
-
-        r_planes = p_stats.pop('max_planes_killed', 0)
-        s_planes = await self.bot.get_ship(p_stats.pop('max_planes_killed_ship_id', None))
+                e.add_field(name="Totals", value=f"{format(kills, ',')}\n{format(dmg, ',')}\n{format(potential, ',')}\n"
+                                                 f"{format(spotting, ',')}\n{format(spotted, ',')}\n"
+                                                 f"{format(tot_xp, ',')}\n{format(planes, ',')}")
+            except ZeroDivisionError:
+                desc.append('```diff\n- Could not find player stats for this game mode and division size```')
 
         # Operations specific stats.
         try:
             star_rate = [(k, v) for k, v in p_stats.pop('wins_by_tasks').items()]
-            star_rate = sorted(star_rate, key=lambda st: st[1], reverse=True)
+            star_rate = sorted(star_rate, key=lambda st: int(st[0]))
 
             star_desc = []
             for x in range(0, 5):
-                star_desc.append(f"{(x * '⭐').ljust(5, '★')}: {star_rate[str(x)]}")
+                s1 = '\⭐'
+                s2 = '\★'
+                star_desc.append(f"{(x * s1).ljust(5, s2)}: {star_rate[x][1]}")
 
             e.add_field(name="Star Breakdown", value="\n".join(star_desc))
         except KeyError:
             pass
 
-        # Records, Totals
-        e.add_field(name="Records",
-                    value=f"{r_kills} ({s_kills.name})\n"
-                          f"{r_dmg} ({s_dmg.name})\n"
-                          f"{r_pot} ({s_pot.name})\n"
-                          f"{r_spot} ({s_spot.name})\n"
-                          f"{r_ship_max} ({s_ship_max.name})\n"
-                          f"{r_xp} ({s_xp.name})\n"
-                          f"{r_planes} ({s_planes.name})")
-
-        e.add_field(name="Totals", value=f"{format(kills, ',')}\n{format(dmg, ',')}\n{format(potential, ',')}\n"
-                                         f"{format(spotting, ',')}\n{format(spotted, ',')}\n{format(tot_xp, ',')}\n"
-                                         f"{format(planes, ',')}")
+        e.description = "\n".join(desc)
         return await self.update(embed=e)
 
     async def update(self, embed: Embed) -> Message:
@@ -1069,9 +716,10 @@ class PlayerView(View):
 
         f = self.mode_stats
         opt, attrs, funcs = [], [], []
-        for num, i in enumerate(self.bot.modes):
-            if i.tag in ["EVENT", "BRAWL", "PVE_PREMADE"]:
-                continue  # Not In API
+        for num, i in enumerate([i for i in self.bot.modes if i.tag not in ["EVENT", "BRAWL", "PVE_PREMADE"]]):
+            # We can't fetch CB data without a clan.
+            if i.tag == "CLAN" and not self.player.clan:
+                continue
 
             opt.append(SelectOption(label=f"{i.name} ({i.tag})", description=i.description, emoji=i.emoji, value=num))
             attrs.append({'mode': i})
@@ -1080,7 +728,12 @@ class PlayerView(View):
 
         ds = self.div_size
         match self.mode.tag:
-            case "BRAWL" | "CLAN" | "EVENT":
+            case "CLAN":
+                opts = [SelectOption(label=f"Season {k}", emoji=self.mode.emoji) for k in self.player.clan_battle_stats]
+                attrs = [('cb_season', k) for k in self.player.clan_battle_stats]
+                funcs = [self.clan_battles] * len(self.player.clan_battle_stats)
+                self.add_item(FuncDropdown(options=opts, attrs=attrs, funcs=funcs))
+            case "BRAWL" | "EVENT":
                 # Event and Brawl aren't in API.
                 # Pre-made & Clan don't have div sizes.
                 pass

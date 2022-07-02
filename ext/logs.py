@@ -256,8 +256,6 @@ class Logs(Cog):
                 v = f"📎 *Attachment info*: {z.filename} ({z.size} bytes, {z.height}x{z.width})," \
                     f"attachment url: {z.proxy_url}"
                 e.add_field(name="Attachment info", value=v)
-            else:
-                print("Deletion log - unspecified attachment info [No HEIGHT found]\n", z.__dict__)
 
         for x in [i for i in self.bot.notifications_cache
                   if i['guild_id'] == message.guild.id and i['message_deletes']]:
@@ -292,7 +290,7 @@ class Logs(Cog):
             try:
                 ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (TypeError, HTTPException):
+            except (AttributeError, HTTPException):
                 continue
 
     # Timeout notif

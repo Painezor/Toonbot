@@ -112,18 +112,10 @@ class NUFCSidebar(Cog):
                 case 'team has moved down':
                     table += f'🔻 {rank} | '
                 case _:
-                    print("Invalid movement for team detected", movement)
-                    table += f"? {rank}"
+                    raise ValueError(f"Invalid movement for team detected {movement}")
             team = p[2].strip()
-            try:
-                # Insert subreddit link from db
-                team = [i for i in self.bot.reddit_teams if i['name'] == team][0]
-                if team:
-                    team = f"[{team['name']}]({team['subreddit']})"
-                else:
-                    print("Sidebar, error, team is ", team)
-            except IndexError:
-                print(team, "Not found in", [i['name'] for i in self.bot.reddit_teams])
+            # Insert subreddit link from db
+            team = next((f"[{i['name']}]({i['subreddit']})" for i in self.bot.reddit_teams if i['name'] == team), team)
             cols = [team] + p[3:7] + p[9:11]  # [t] [p, w, d, l] [gd, pts]
             table += " | ".join([f"**{col}**" if qry.lower() in team.lower() else col for col in cols]) + "\n"
 

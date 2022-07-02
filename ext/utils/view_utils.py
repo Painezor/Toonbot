@@ -242,9 +242,6 @@ class ItemSelect(Select):
         super().__init__(placeholder=placeholder)
         self.row = row
         for index, (emoji, label, description) in enumerate(options):
-            if not label:
-                print("Item Select [ERROR]: No label for passed object", index, emoji, label, description)
-                continue
             self.add_option(emoji=emoji, label=label, description=description[:100], value=str(index))
 
     async def callback(self, interaction: Interaction) -> None:

@@ -9,8 +9,9 @@ from discord.ext.commands import Cog
 from discord.ui import View, Button
 from unidecode import unidecode
 
+from ext.utils.Clans import ClanBuilding
 from ext.utils.ship import Nation, ShipType, Ship
-from ext.utils.wows_utils import Region, Map, Player, GameMode, ClanBuilding
+from ext.utils.wows_utils import Region, Map, GameMode
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -39,6 +40,7 @@ RAGNAR = "Ragnar is inherently underpowered. It lacks the necessary attributes t
 API_PATH = "https://api.worldofwarships.eu/wows/"
 INFO = API_PATH + 'encyclopedia/info/'
 CLAN = API_PATH + 'clans/glossary/'
+CLAN_SEARCH = "https://api.worldofwarships.eu/wows/clans/list/"
 # noinspection SpellCheckingInspection
 MAPS = API_PATH + 'encyclopedia/battlearenas/'
 # noinspection SpellCheckingInspection
@@ -116,8 +118,7 @@ async def map_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
                 case 200:
                     items = await resp.json()
                 case _:
-                    print(resp.status, "Error accessing WG API")
-                    return []
+                    raise ConnectionError(f"{resp.status} Error accessing {MAPS}")
 
         maps = []
 
@@ -176,16 +177,46 @@ async def player_ac(interaction: Interaction, current: str) -> List[Choice[str]]
 
     choices = []
     for i in data:
-        try:
-            player = next(pl for pl in bot.players if pl.account_id == i['account_id'])
-        except StopIteration:
-            player = Player(bot, i['account_id'], region, i['nickname'])
-            bot.players.append(player)
+        player = bot.get_player(i['account_id'])
+        player.nickname = i['nickname']
 
         if player.clan is None:
             choices.append(Choice(name=player.nickname, value=str(player.account_id)))
         else:
             choices.append(Choice(name=f"[{player.clan.tag}] {player.nickname}", value=str(player.account_id)))
+    return choices
+
+
+async def clan_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+    """Autocomplete for a list of clan names"""
+    if len(current) < 3:
+        return []
+
+    bot: PBot = getattr(interaction, 'client')
+
+    region = getattr(interaction.namespace, 'region', None)
+    region = next((i for i in Region if i.db_key == region), Region.EU)
+
+    link = CLAN_SEARCH.replace('eu', region.domain)
+    p = {"search": current, 'limit': 25, 'application_id': bot.WG_ID}
+
+    async with bot.session.get(link, params=p) as resp:
+        match resp.status:
+            case 200:
+                clans = await resp.json()
+            case _:
+                return []
+
+    data = clans.pop('data', None)
+    if data is None:
+        return []
+
+    choices = []
+    for i in data:
+        clan = bot.get_clan(i['clan_id'])
+        clan.tag = i['tag']
+        clan.name = i['name']
+        choices.append(Choice(name=f"[{clan.tag}] {clan.name}", value=str(clan.clan_id)))
     return choices
 
 
@@ -211,8 +242,7 @@ class Warships(Cog):
                     case 200:
                         data = await resp.json()
                     case _:
-                        print('Unable to fetch ship type data.')
-                        return
+                        raise ConnectionError(f'{resp.status} fetching ship type data from {INFO}')
 
             for k, v in data['data']['ship_types'].items():
                 images = data['data']['ship_type_images'][k]
@@ -272,8 +302,7 @@ class Warships(Cog):
                         items = await resp.json()
                         count += 1
                     case _:
-                        print(resp.status, "Error accessing WG API")
-                        break
+                        raise ConnectionError(f"{resp.status} Error accessing {SHIPS}")
 
             max_iter = items['meta']['page_total']
 
@@ -306,7 +335,6 @@ class Warships(Cog):
 
         for k, v in kwargs.items():
             if v:
-                print("kwarg", k, v)
                 region = next(i for i in Region if k == i.db_key)
                 e.colour = region.colour
                 break
@@ -317,13 +345,69 @@ class Warships(Cog):
                 region = next(i for i in Region if k == i.db_key)
                 url = f"https://{region.code_prefix}.wargaming.net/shop/redeem/?bonus_mode=" + code
                 view.add_item(Button(url=url, label=region.name, style=ButtonStyle.url, emoji=region.emote))
-
         return await self.bot.reply(interaction, embed=e, view=view)
 
     @command()
     async def ragnar(self, interaction: Interaction) -> Message:
         """Ragnar is inherently underpowered"""
         return await self.bot.reply(interaction, content=RAGNAR)
+
+    @command()
+    async def armory(self, interaction: Interaction) -> Message:
+        """Get a link to the web version of the in-game Armory"""
+        e = Embed(title="World of Warships Armory",
+                  description="Click the links below to access the armory for each region")
+        e.set_thumbnail(url="https://wows-static-production.gcdn.co/metashop/898c4bc5/armory.png")
+        e.colour = Colour.orange()
+
+        v = View()
+        for region in Region:
+            v.add_item(Button(style=ButtonStyle.url, url=region.armory, emoji=region.emote, label=region.name))
+        return await self.bot.reply(interaction, embed=e, view=v)
+
+    @command()
+    async def inventory(self, interaction: Interaction) -> Message:
+        """Get a link to the web version of the in-game Inventory"""
+        e = Embed(title="World of Warships Inventory", colour=Colour.lighter_gray(),
+                  description="Click the links below to manage your in-game modules/camos/etc for each region")
+        e.set_thumbnail(url="https://cdn.discordapp.com/attachments/303154190362869761/991811092437274655/unknown.png")
+
+        v = View()
+        for region in Region:
+            v.add_item(Button(style=ButtonStyle.url, url=region.inventory, emoji=region.emote, label=region.name))
+        return await self.bot.reply(interaction, embed=e, view=v)
+
+    @command()
+    async def logbook(self, interaction: Interaction) -> Message:
+        """Get a link to the web version of the in-game Captain's Logbook"""
+        e = Embed(title="World of Warships Captain's Logbook",
+                  description="Click the links below to manage your in-game modules/camos/etc for each region")
+
+        img = "https://media.discordapp.net/attachments/303154190362869761/991811398952816790/unknown.png"
+        e.set_thumbnail(url=img)
+        e.colour = Colour.dark_orange()
+
+        v = View()
+        for region in Region:
+            v.add_item(Button(style=ButtonStyle.url, url=region.logbook, emoji=region.emote, label=region.name))
+        return await self.bot.reply(interaction, embed=e, view=v)
+
+    @command()
+    async def logbook(self, interaction: Interaction) -> Message:
+        """Get a link to the web version of the in-game Captain's Logbook"""
+        e = Embed(title="World of Warships Captain's Logbook",
+                  description="Click the links below to manage your in-game modules/camos/etc for each region")
+
+        img = "https://media.discordapp.net/attachments/303154190362869761/991811398952816790/unknown.png"
+        e.set_thumbnail(url=img)
+        e.colour = Colour.dark_orange()
+
+        v = View()
+        for region in Region:
+            v.add_item(Button(style=ButtonStyle.url, url=region.logbook, emoji=region.emote, label=region.name))
+        return await self.bot.reply(interaction, embed=e, view=v)
+
+    # TODO: clans, dockyard, recruiting, how_it_works
 
     @command()
     @describe(code="Enter the code", contents="Enter the reward the code gives")
@@ -394,9 +478,16 @@ class Warships(Cog):
     async def guides(self, interaction: Interaction) -> Message:
         """Yurra's collection of guides"""
         yurra = self.bot.get_user(192601340244000769)
-        e = Embed(title="Yurra's guides", description='https://bit.ly/yurraguides')
+        v = "Yurra's guides contain advice on various game mechanics, playstyles," \
+            " classes, tech tree branches, and some specific ships.\n\nhttps://bit.ly/yurraguides"
+        e = Embed(title="Yurra's guides", description=v)
+        e.url = 'https://bit.ly/yurraguides'
         e.set_thumbnail(url=yurra.avatar.url)
-        return await self.bot.reply(interaction, embed=e)
+        e.colour = Colour.dark_orange()
+
+        v = View()
+        v.add_item(Button(label="Yurra's guides", style=ButtonStyle.url, url='https://bit.ly/yurraguides'))
+        return await self.bot.reply(interaction, embed=e, view=v)
 
     # Work In Progress.
     @command()
@@ -409,39 +500,43 @@ class Warships(Cog):
         if not self.bot.ships:
             return await self.bot.error(interaction, content='Unable to fetch ships from API')
 
-        ship = await self.bot.get_ship(name)
+        ship = self.bot.get_ship(name)
         if ship is None:
             return await self.bot.error(interaction, f"Did not find map matching {name}, sorry.")
 
         return await ship.view(interaction).overview()
 
     @command()
-    @autocomplete(player_name=player_ac, mode=mode_ac)
+    @autocomplete(player_name=player_ac, mode=mode_ac, ship=ship_ac)
     @guilds(250252535699341312)
     @describe(player_name="Search for a player name", region="Which region is this player on",
-              mode="battle mode type", division='1 = solo, 2 = 2man, 3 = 3man, 0 = Overall')
+              mode="battle mode type", division='1 = solo, 2 = 2man, 3 = 3man, 0 = Overall',
+              ship="Get statistics for a specific ship")
     async def stats(self, interaction: Interaction, region: Literal['eu', 'na', 'cis', 'sea'], player_name: str,
-                    mode: str = 'PVP', division: Range[int, 0, 3] = 0) -> Message:
+                    mode: str = 'PVP', division: Range[int, 0, 3] = 0, ship: str = None) -> Message:
         """Search for a player's Stats"""
         await interaction.response.defer()
 
         region = next(i for i in Region if i.db_key == region)
-        try:
-            # This is transformed by autocomplete.
-            player_id = int(player_name)
-            player: Player = next(i for i in self.bot.players if i.account_id == player_id and i.region == region)
-        except ValueError:
-            try:
-                player = next(i for i in self.bot.players if player_name in i.nickname and i.region == region)
-            except StopIteration:
-                return await self.bot.error(interaction, f"Could not find player_id for player {region.name} "
-                                                         f"{player_name}")
-        except StopIteration:
-            return await self.bot.error(interaction, f'Something weird happened with {region.name} {player_name}')
+        player = self.bot.get_player(int(player_name))
+
+        if player is None:
+            return await self.bot.error(interaction, f"Could not find player_id for player {region.name} "
+                                                     f"{player_name}")
 
         mode = next(i for i in self.bot.modes if i.tag == mode)
-        v = player.view(interaction, mode, division)
+        v = player.view(interaction, mode, division, ship)
         return await v.mode_stats()
+
+    @command()
+    @describe(query="Clan Name or Tag")
+    @autocomplete(query=clan_ac)
+    async def clan(self, interaction: Interaction, query: str) -> Message:
+        """Get information about a World of Warships clan"""
+        await interaction.response.defer(thinking=True)
+
+        clan = self.bot.get_clan(int(query))
+        return await clan.view(interaction).overview()
 
     @command()
     @describe(shell_calibre='Calibre of shell to get over match value of')
@@ -460,38 +555,25 @@ class Warships(Cog):
     @command()
     async def exterior_separation(self, interaction: Interaction) -> Message:
         """Send a list of all the exterior separation changes"""
-        e = Embed()
-        e.title = "Exterior Separation Change List"
-        e.description = (
-            "• Economic bonuses will now act as individual in-game entities that are separate from "
-            "camouflages and signals. Camouflage patterns will change a ship's exterior only and will be applied "
-            "separately from these bonuses. "
-            "\n• Bonuses to XP will have no effect on Free XP and Commander XP. To compensate for this, we have changed"
-            " all permanent and expendable economic bonuses."
-            "\n• Basic Free XP earnings are now twice as large."
-            "\n• Economic bonuses from permanent camouflages are purchased separately, and their effect will be applied"
-            " towards a ship's economy on a permanent basis. Expendable bonuses can also be added on top of permanent "
-            "ones."
-            "\n• Only one economic bonus can be applied towards each of the resources (Credits, combat XP, Free XP, "
-            "and Commander XP) at the same time. This limitation serves to simplify the way the system works. The "
-            "values of these bonuses are designed in a way that they can cover even the most profitable combinations "
-            "from the current system."
-            "\n• Instead of reducing the post-battle service cost, permanent camouflages will provide a bonus to "
-            "Credits so that your average earnings either remain unchanged or grow."
-            "\n•The service cost for Tier IX and X researchable ships has been reduced from 120,000 to 115,000 and "
-            "from 180,000 to 150,000 Credits, respectively."
-            "\n• To account for the changes to bonuses applied towards service costs, the current service cost in "
-            "Co-op Battles will be additionally reduced by 13.3% while Credits earnings will grow by 12.5%."
-            "\n• We want camouflages to affect ship exteriors only, so we’re removing all the combat bonuses they used "
-            "to offer. The bonus that provided a 3% reduction in the detectability range by sea is now included in all "
-            "ships' tech specs by default. We also removed the bonus that increased the dispersion of incoming enemy "
-            "shells by 4%."
-            "\n• At present, the number of signals and camouflages displayed in the Exterior tab does not include "
-            "those currently  mounted on your ships. When this change goes live, you will always know the exact number "
-            "of reserves you have  in stock—the total number of signals and camouflage patterns you have on your "
-            "account will be displayed. ")
-        e.colour = Colour.yellow()
+        e = Embed(title="Exterior Separation Change List", colour=Colour.yellow())
         e.set_thumbnail(url='https://wiki.wgcdn.co/images/7/7a/PCEC001_Camo_1.png')
+        e.description = (
+            "• Economic bonuses are separate from camouflages and signals."
+            "\n• Camouflage patterns will change a ship's exterior only"
+            "\n• Bonuses to XP will have no effect on Free XP and Commander XP."
+            "\n• Basic Free XP earnings are now twice as large."
+            "\n• Economic bonuses from permanent camouflages are purchased separately"
+            "\n• Expendable bonuses can also be added on top of permanent "
+            "ones."
+            "\n• One economic bonus can be applied for each resources (Credits, combat XP, Free XP, and Commander XP) "
+            "at the same time."
+            "\n• Instead of reducing the post-battle service cost, permanent camouflages will provide a bonus to "
+            "Credits, average earnings either remain unchanged or grow."
+            "\n• The service cost for Tier IX tech tree ships reduced from 120,000 to 115,000"
+            "\n• The service cost for Tier X tech tree ships reduced from 180,000 to 150,000 Credits"
+            "\n• Co-op Battles service reduced cost by 13.3%, Credits gained up by 12.5%."
+            "\n• -3% detectability range by sea is now baked into all ships."
+            "\n• Removed the bonus that increased the dispersion of incoming enemy shells by 4%.")
         await self.bot.reply(interaction, embed=e)
 
 

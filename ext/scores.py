@@ -40,8 +40,9 @@ NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
 # TODO: Recall cache for ratelimit avoidance.
 class ScoreChannel:
     """A livescore channel object, containing it's properties."""
-    def __init__(self, bot: 'Bot', channel: TextChannel) -> None:
-        self.bot: Bot = bot
+    bot: Bot = None
+
+    def __init__(self, channel: TextChannel) -> None:
         self.channel: TextChannel = channel
         self.messages: List[Message | None] = []
         self.leagues: List[str] = []
@@ -115,7 +116,7 @@ class ScoreChannel:
                 await connection.executemany(sql, [(self.channel.id, x) for x in leagues])
         finally:
             await self.bot.db.release(connection)
-        self.leagues += leagues
+        self.leagues += [i for i in leagues if i not in self.leagues]
         return self.leagues
 
     async def remove_leagues(self, leagues: List[str]) -> List[str]:
@@ -170,6 +171,8 @@ class ScoreChannel:
                         self.messages.append(await message.edit(suppress=True))
                 elif not set([i.description for i in new_embeds]) == set([i.description for i in message.embeds]):
                     self.messages.append(await message.edit(embeds=new_embeds, suppress=False))
+                else:
+                    self.messages.append(message)  # Unchanged.
             except HTTPException:
                 self.messages.append(None)
         return self.messages
@@ -288,13 +291,16 @@ class RemoveLeague(Select):
 
 class Scores(Cog, name="LiveScores"):
     """Live Scores channel module"""
+
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
 
+        if ScoreChannel.bot is None:
+            ScoreChannel.bot = bot
+
     async def cog_load(self) -> None:
         """Load our database into the bot"""
-        if not self.bot.competitions:
-            await self.load_database()
+        await self.load_database()
         self.bot.scores = self.score_loop.start()
 
     async def cog_unload(self) -> None:
@@ -352,7 +358,7 @@ class Scores(Cog, name="LiveScores"):
             try:
                 sc = next(i for i in self.bot.score_channels if i.channel.id == channel_id)
             except StopIteration:
-                sc = ScoreChannel(self.bot, channel)
+                sc = ScoreChannel(channel)
                 self.bot.score_channels.append(sc)
             sc.leagues = sorted(leagues)
         return self.bot.score_channels
@@ -361,11 +367,8 @@ class Scores(Cog, name="LiveScores"):
     @loop(minutes=1)
     async def score_loop(self) -> List[ScoreChannel]:
         """Score Checker Loop"""
-        if not self.bot.guilds:
-            return
-
         if not self.bot.score_channels:
-            return await self.update_cache()
+            await self.update_cache()
 
         try:
             self.bot.games = await self.fetch_games()
@@ -405,8 +408,7 @@ class Scores(Cog, name="LiveScores"):
                 case 200:
                     tree = html.fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
                 case _:
-                    print(f'[ERR] Scores error {resp.status} ({resp.reason}) during score loop')
-                    raise ConnectionError
+                    raise ConnectionError(f'[ERR] Scores error {resp.status} ({resp.reason}) during score loop')
 
         inner_html = tree.xpath('.//div[@id="score-data"]')[0]
         byt: bytes = etree.tostring(inner_html)
@@ -441,9 +443,6 @@ class Scores(Cog, name="LiveScores"):
                     if partial:
                         partial.sort(key=lambda x: len(x.name))
                         competition = partial[0]
-                        if len(partial) > 2:
-                            print(f"[SCORES] found multiple partial matches for {competition_name}\n",
-                                  "\n".join([p.title for p in partial]))
                     else:
                         competition = Competition(self.bot)
                         if country:
@@ -490,11 +489,9 @@ class Scores(Cog, name="LiveScores"):
                             case _, "Banik Most", _:
                                 home.name, away.name = teams[0], f"{teams[1]} {teams[2]}"
                             case _:
-                                print("Fetch games team problem", len(teams), "teams found:", teams)
-                                continue
+                                raise ValueError(f"Fetch games team problem {len(teams)} teams found: {teams}")
                     case _:
-                        print("Fetch games team problem", len(teams), "teams found:", teams)
-                        continue
+                        raise ValueError(f"Fetch games team problem {len(teams)} teams found: {teams}")
 
                 fixture = Fixture(self.bot)
                 fixture.url = url
@@ -575,7 +572,7 @@ class Scores(Cog, name="LiveScores"):
                         case 'WO':
                             fixture.time = flashscore.GameTime(flashscore.GameState.WALKOVER)
                         case _:
-                            print("Unhandled state override", state_override)
+                            raise ValueError(f"Unhandled state override {state_override}")
                     continue
 
             # Following the updating of the kickoff data, we can then
@@ -596,7 +593,7 @@ class Scores(Cog, name="LiveScores"):
                                     fixture.time = flashscore.GameTime(flashscore.GameState.FINAL_RESULT_ONLY)
                                 case _:
                                     if "'" not in time_block[0]:
-                                        print("Unhandled 1 part state block", time_block[0])
+                                        raise ValueError(f"Unhandled 1 part state block {time_block[0]}")
                                     fixture.time = flashscore.GameTime(time_block[0])
                         case "sched":
                             fixture.time = flashscore.GameTime(flashscore.GameState.SCHEDULED)
@@ -616,10 +613,10 @@ class Scores(Cog, name="LiveScores"):
                         case "Abandoned":
                             fixture.time = flashscore.GameTime(flashscore.GameState.ABANDONED)
                         case 'Extra Time':
-                            print('VARIANT B Extra time 2 part time_block needs fixed.', time_block)
-                            fixture.time = flashscore.GameTime(flashscore.GameState.EXTRA_TIME)
+                            raise ValueError(f'VARIANT B Extra time 2 part time_block needs fixed. {time_block}')
+                            # fixture.time = flashscore.GameTime(flashscore.GameState.EXTRA_TIME)
                         case _:
-                            print("Unhandled 2 part time block found", time_block)
+                            raise ValueError(f"Unhandled 2 part time block found {time_block}", time_block)
         return self.bot.games
 
     livescores = Group(guild_only=True, name="livescores", description="Create/manage livescores channels",
@@ -677,7 +674,7 @@ class Scores(Cog, name="LiveScores"):
         finally:
             await self.bot.db.release(connection)
 
-        sc = ScoreChannel(self.bot, channel)
+        sc = ScoreChannel(channel)
         self.bot.score_channels.append(sc)
         await sc.reset_leagues()
         await self.bot.reply(interaction, content=f"The {channel.mention} channel was created")
@@ -721,6 +718,8 @@ class Scores(Cog, name="LiveScores"):
                 err = f"Failed to get data for {qry} channel not modified."
                 return await self.bot.error(interaction, err)
 
+        if res.title == 'WORLD: Club Friendly':
+            return await self.bot.error(interaction, "You can't add club friendlies as a competition, sorry.")
         await sc.add_leagues([res.title])
         view = sc.view(interaction)
         return await view.update(content=f"Added tracked league for {sc.channel.mention}```yaml\n{res}```")

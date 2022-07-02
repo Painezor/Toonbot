@@ -125,7 +125,7 @@ class Tv(commands.Cog):
                 date = ''.join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
                 time = ''.join(i.xpath('.//td[@class="timecell"]//span/text()')).strip()
                 if time not in ["Postp.", "TBA"]:
-                    print(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
+                    raise ValueError(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
                 ts = time
 
             rows.append(f'{ts}: [{match}]({link})')

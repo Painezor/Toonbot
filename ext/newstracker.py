@@ -104,7 +104,6 @@ class Article:
             page = await self.bot.browser.newPage()
 
             try:
-                print(self.link)
                 await page.goto(self.link)
                 await page.waitForXPath(".//div[@class='header__background']", {"timeout": 5000})
                 tree = html.fromstring(await page.content())
@@ -263,61 +262,14 @@ class NewsTracker(Cog):
     def __init__(self, bot: 'PBot') -> None:
         self.bot: PBot = bot
         self.bot.news = self.news_loop.start()
-        self.bot.news_channels = []
-
-    async def cog_load(self) -> None:
-        """Do this on Cog Load"""
-        await self.update_cache()
 
     async def cog_unload(self) -> None:
         """Stop previous runs of tickers upon Cog Reload"""
         self.bot.news.cancel()
 
-    async def update_cache(self) -> None:
-        """Get the list of NewsTracker channels stored in the database"""
-        connection = await self.bot.db.acquire()
-        try:
-            async with connection.transaction():
-                channels = await connection.fetch("""SELECT * FROM news_trackers""")
-                articles = await connection.fetch("""SELECT * FROM news_articles""")
-        finally:
-            await self.bot.db.release(connection)
-
-        partials = [i.partial for i in self.bot.news_cache]
-
-        r: Record
-        for r in articles:
-            if r['partial'] in partials:
-                continue
-            else:
-                article = Article(self.bot, partial=r['partial'])
-                for k, v in r.items():
-                    if k == "partial":
-                        continue
-
-                    setattr(article, k, v)
-                self.bot.news_cache.append(article)
-
-        # Append new ones.
-        cached_ids = [x.channel.id for x in self.bot.news_channels]
-        for r in channels:
-            if r['channel_id'] not in cached_ids:
-                channel = self.bot.get_channel(r['channel_id'])
-                if channel is None:
-                    continue
-
-                c = NewsChannel(self.bot, channel=channel, eu=r['eu'], na=r['na'], sea=r['sea'], cis=r['cis'])
-                self.bot.news_channels.append(c)
-
     @loop(minutes=1)
     async def news_loop(self) -> None:
         """Loop to get the latest EU news articles"""
-        if self.bot.session is None:
-            return
-
-        if not self.bot.news_channels:
-            await self.update_cache()
-
         # If we already have parsed the articles once, flag it now.
         region: Region
         for region in Region:
@@ -380,8 +332,47 @@ class NewsTracker(Cog):
                     try:
                         await channel.dispatch(region, article)
                     except HTTPException:
-                        print("HTTP Exception trying to dispatch article")
-                        print(article.__dict__)
+                        continue
+
+    @news_loop.before_loop
+    async def update_cache(self) -> None:
+        """Get the list of NewsTracker channels stored in the database"""
+        if not self.bot.is_ready():
+            await self.bot.wait_until_ready()
+
+        connection = await self.bot.db.acquire()
+        try:
+            async with connection.transaction():
+                channels = await connection.fetch("""SELECT * FROM news_trackers""")
+                articles = await connection.fetch("""SELECT * FROM news_articles""")
+        finally:
+            await self.bot.db.release(connection)
+
+        partials = [i.partial for i in self.bot.news_cache]
+
+        r: Record
+        for r in articles:
+            if r['partial'] in partials:
+                continue
+            else:
+                article = Article(self.bot, partial=r['partial'])
+                for k, v in r.items():
+                    if k == "partial":
+                        continue
+
+                    setattr(article, k, v)
+                self.bot.news_cache.append(article)
+
+        # Append new ones.
+        cached_ids = [x.channel.id for x in self.bot.news_channels]
+        for r in channels:
+            if r['channel_id'] not in cached_ids:
+                channel = self.bot.get_channel(r['channel_id'])
+                if channel is None:
+                    continue
+
+                c = NewsChannel(self.bot, channel=channel, eu=r['eu'], na=r['na'], sea=r['sea'], cis=r['cis'])
+                self.bot.news_channels.append(c)
 
     @command()
     @describe(text="Search by article title")

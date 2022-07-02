@@ -90,7 +90,7 @@ TF = "https://www.transfermarkt.co.uk"
 
 def get_flag(country: str) -> Optional[str]:
     """Get a flag emoji from a string representing a country"""
-    if not country:
+    if not country.strip():
         return None
 
     for x in ['Retired', 'Without Club']:
@@ -122,6 +122,8 @@ def get_flag(country: str) -> Optional[str]:
             return '🇨🇳'
         case 'ja':
             return '🇯🇵'
+        case 'usa':
+            return '🇺🇸'
         case 'pan_america':
             return "<:PanAmerica:991330048390991933>"
         case "commonwealth":
@@ -136,7 +138,7 @@ def get_flag(country: str) -> Optional[str]:
         pass
 
     if len(country) != 2:
-        print(f'No flag found for country: {country}')
+        raise LookupError(f'No flag found for country: {country}')
     return ''.join(UNI_DICT[c] for c in country.lower() if c)
 
 
@@ -151,7 +153,6 @@ class TransferResult:
     def __repr__(self) -> str:
         return f"TransferResult({self.__dict__})"
 
-    @property
     @property
     def base_embed(self) -> Embed:
         """A generic embed used for transfermarkt objects"""
@@ -1066,11 +1067,7 @@ class SearchView(View):
             desc = []
             for i in categories:
                 # Just give number of matches (digit characters).
-                try:
-                    ln = int(''.join([n for n in i if n.isdecimal()]))
-                except ValueError:
-                    print("ValueError in transfer_tools", i)
-                    ln = "?"
+                ln = int(''.join([n for n in i if n.isdecimal()]))
 
                 s = "" if ln == 1 else "s"
 
@@ -1122,8 +1119,7 @@ class SearchView(View):
             case 'competition':
                 qs, ms, parser = "Wettbewerb_page", 'competitions', self.parse_competitions
             case _:
-                print(f'WARNING NO QUERY STRING FOUND FOR {self.category}')
-                qs, ms, parser = "page", "", None
+                raise ValueError(f'No query string found for category: {self.category}')
 
         p = {"query": self.query, qs: self.index}
 
@@ -1138,12 +1134,7 @@ class SearchView(View):
         trs = f".//div[@class='box']/div[@class='table-header'][contains(text(),'{ms}')]/following::div[1]//tbody/tr"
         _ = ''.join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{ms}')]//text()"))
 
-        try:
-            matches = int(''.join([i for i in _ if i.isdecimal()]))
-        except ValueError:
-            matches = 0
-            if _:
-                print("ValueError in transfer_tools", _)
+        matches = int(''.join([i for i in _ if i.isdecimal()]))
 
         e: Embed = Embed(title=f"{matches} {self.category.title().rstrip('s')} results for {self.query}")
         e.set_author(name="TransferMarkt Search", url=url, icon_url=FAVICON)

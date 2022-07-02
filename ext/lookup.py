@@ -36,7 +36,7 @@ class Lookups(Cog):
         await view.wait()
 
         if view.value:
-	        return await view.value.view(interaction).push_transfers()
+            return await view.value.view(interaction).push_transfers()
 
     @command()
     @describe(team_name="name of a team")

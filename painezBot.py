@@ -1,4 +1,6 @@
 """Master file for painezBot."""
+from __future__ import annotations
+
 from asyncio import new_event_loop
 from datetime import datetime
 from json import load
@@ -11,15 +13,17 @@ from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot, when_mentioned
 from twitchio.ext import commands
 
+from ext.utils.Clans import ClanBuilding, Clan
 from ext.utils.browser_utils import make_browser
 from ext.utils.reply import reply, error
 from ext.utils.ship import ShipSentinel
-from ext.utils.wows_utils import Clan
+from ext.utils.wows_utils import Player
 
 if TYPE_CHECKING:
-	from ext.utils.wows_utils import Map, Player, GameMode, Region, ClanBuilding
+	from ext.utils.wows_utils import Map, GameMode
 	from ext.utils.ship import ShipType, Module, Ship
 	from ext.newstracker import NewsChannel, Article
+	from ext.devblog import Blog
 	from ext.twitchtracker import Contributor, TrackerChannel
 	from pyppeteer.browser import Browser
 	from typing import List, Optional
@@ -74,7 +78,7 @@ class PBot(AutoShardedBot):
 
 		# Dev BLog
 		self.dev_blog: Optional[Task] = None
-		self.dev_blog_cache: List[Record] = []
+		self.dev_blog_cache: List[Blog] = []
 		self.dev_blog_channels: List[int] = []
 
 		# RSS: Cache & Channels
@@ -120,8 +124,20 @@ class PBot(AutoShardedBot):
 			except Exception as e:
 				print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
 
-	async def get_ship(self, identifier: str | int) -> 'Ship':
+	def get_player(self, account_id: int) -> Player:
+		"""Get a Player object from those stored within the bot, or generate a new one."""
+		try:
+			return next(i for i in self.players if i.account_id == account_id)
+		except StopIteration:
+			p = Player(self, account_id)
+			self.players.append(p)
+			return p
+
+	def get_ship(self, identifier: str | int) -> Optional[Ship | ShipSentinel]:
 		"""Get a Ship object from a list of the bots ships"""
+		if identifier is None:
+			return None
+
 		try:
 			return next(i for i in self.ships if getattr(i, 'ship_id_str', None) == identifier)
 		except StopIteration:  # Fallback
@@ -130,17 +146,16 @@ class PBot(AutoShardedBot):
 			except StopIteration:
 				return next(i for i in ShipSentinel if i.id == identifier)
 
-	async def get_clan(self, clan_id: int, region: 'Region') -> 'Clan':
+	def get_clan(self, clan_id: int) -> Clan:
 		"""Get a Clan object from Stored Clans"""
 		try:
 			clan = next(i for i in self.clans if i.clan_id == clan_id)
 		except StopIteration:
-			clan = Clan(self, clan_id, region)
-			await clan.get_data()
+			clan = Clan(self, clan_id)
 			self.clans.append(clan)
 		return clan
 
-	def get_ship_type(self, match: str) -> 'ShipType':
+	def get_ship_type(self, match: str) -> ShipType:
 		"""Get a ShipType object matching a string"""
 		return next(i for i in self.ship_types if i.match == match)
 

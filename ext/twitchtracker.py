@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Union, TYPE_CHECKING, List, Literal, Optional
+from typing import Union, TYPE_CHECKING, List, Literal, Optional, Dict
 
 from asyncpg import ForeignKeyViolationError
 from discord import ActivityType, Embed, Message, Interaction, Colour, Permissions, ButtonStyle, Role, TextChannel
@@ -304,8 +304,8 @@ class TrackerConfig(View):
 
         if not view.value:
             txt = f"Cancelled tracker creation for {self.tc.channel.mention}"
-            self.stop()
-            await self.bot.error(self.interaction, txt, view=None)
+            view.clear_items()
+            await self.bot.error(self.interaction, txt, view=view)
             return False
 
         try:
@@ -398,7 +398,7 @@ class TwitchTracker(Cog):
         self.bot: Bot | PBot = bot
         self.twitch: TwitchBot = bot.twitch
 
-        self._cached: List[int] = []  # user_id
+        self._cached: Dict[int, Embed] = {}  # user_id: Embed
         self.semaphore = asyncio.Semaphore()
 
         if TrackerConfig.bot is None:
@@ -464,8 +464,7 @@ class TwitchTracker(Cog):
                 case 'EU':
                     region = Region.EU
                 case _:
-                    print("Missing region identifier for ", [i['realm']])
-                    region = None
+                    raise ValueError(f'No identifier found for realm {i["realm"]}')
 
             c = Contributor(name=i['name'], region=region, language=i['lang'].split(','), links=i['links'])
             contributors.append(c)
@@ -524,9 +523,7 @@ class TwitchTracker(Cog):
                     case _:
                         e.set_footer(text=f"Streaming {member.activity.game}")
             case _:
-                print('Unhandled stream tracker platform', member.activity.platform)
-                desc.append(f"{member.mention}: {Timestamp().relative}")
-                e.set_thumbnail(url=member.avatar.url)
+                raise ValueError(f'Unhandled stream tracker platform {member.activity.platform}')
 
         e.description = " ".join(desc)
         return e
@@ -543,24 +540,30 @@ class TwitchTracker(Cog):
         if before.activity is not None and before.activity.type == ActivityType.streaming:
             return
 
-        valid_ids = set(after.id + r.id for r in after.roles)
-        tracked = [i for i in self.bot.tracker_channels if valid_ids.union(set(t.id for t in i.tracked))]
+        this_guild_channels = [i for i in self.bot.tracker_channels if i.channel.guild.id == after.guild.id]
+        valid_channels = []
+        valid_role_ids = [r.id for r in after.roles]
+        for i in this_guild_channels:
+            for role in i.tracked:
+                if role.id in valid_role_ids:
+                    valid_channels.append(i)
+                    break
 
-        if not tracked:
+        if not valid_channels:
             return
 
         async with self.semaphore:
             if after.id in self._cached:
-                return
+                embed = self._cached[after.id]
+            else:
+                embed = await self.generate_twitch_embed(after)
+                self._cached.update({after.id: embed})
 
-            embed = await self.generate_twitch_embed(after)
-            self._cached.append(after.id)
-
-        for channel in tracked:
+        for channel in valid_channels:
             await channel.dispatch(embed)
 
         await asyncio.sleep(60)
-        self._cached.remove(after.id)
+        self._cached.pop(after.id)
 
     # TODO: Create a view, with CC & Language Filtering.
     @command()

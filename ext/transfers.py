@@ -115,6 +115,9 @@ class TransferChannel:
         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
         leagues = [i for i in leagues if i is not None]  # sanitise.
 
+        if not leagues:
+            return self.leagues
+
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
@@ -122,7 +125,7 @@ class TransferChannel:
         finally:
             await self.bot.db.release(connection)
 
-        self.leagues += leagues
+        self.leagues += [i for i in leagues if i not in self.leagues]
         return self.leagues
 
     async def remove_leagues(self, leagues: List[Competition]) -> List[Competition]:
@@ -187,10 +190,19 @@ class RemoveLeague(Select):
     """Dropdown to remove leagues from a match event ticker."""
 
     def __init__(self, leagues: List[Competition], row: int = 2):
-        super().__init__(placeholder="Remove tracked league(s)", row=row, max_values=len(leagues))
+        super().__init__(placeholder="Remove tracked league(s)", row=row)
         self.leagues = leagues
-        for i in leagues:
-            print('Displaying flag for remove_league', i.flag)
+
+        seen = set()
+        unique = []
+        for obj in leagues:
+            if obj.link not in seen:
+                unique.append(obj)
+                seen.add(obj.link)
+
+        self.max_values = len(unique)
+
+        for i in unique:
             self.add_option(label=i.name[:100], value=i.link, emoji=i.flag)
 
     async def callback(self, interaction: Interaction) -> Message:
@@ -257,8 +269,9 @@ class TransfersConfig(View):
 
         if not view.value:
             txt = f"Cancelled ticker creation for {self.tc.channel.mention}"
-            self.stop()
-            await self.bot.error(self.interaction, txt, view=None)
+            view.clear_items()
+            view.clear_items()
+            await self.bot.error(self.interaction, txt, view=view)
             return False
 
         try:
@@ -404,8 +417,7 @@ class TransfersCog(Cog):
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    print(f'Transfers: bad status: {resp.status}')
-                    return
+                    raise ValueError(f'Transfers: bad status: {resp.status}')
 
         skip_output = True if not self.bot.parsed_transfers else False
         for i in tree.xpath('.//div[@class="responsive-table"]/div/table/tbody/tr'):

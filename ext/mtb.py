@@ -46,7 +46,6 @@ class MatchThread:
 
     async def start(self) -> None:
         """The core loop for the match thread bot."""
-        print(f"Match Thread Loop Started: {self.fixture} | {self.settings['subreddit']}")
         # Gather initial data
         await self.fixture.refresh()
 
@@ -60,10 +59,8 @@ class MatchThread:
             _ = datetime.timedelta(days=3) if os is None else datetime.timedelta(days=os)
 
             target_time = self.fixture.kickoff - _
-            print(f"{self.fixture} | {self.settings['subreddit']}\nSleeping until {target_time}")
 
             await discord.utils.sleep_until(target_time)
-            print(f'{self.fixture} | {self.settings["subreddit"]} Pre-match-sleep ended.')
 
             pre = await subreddit.submit(selftext=markdown, title=title)
             await pre.load()
@@ -183,7 +180,6 @@ class MatchThread:
             home_icon = _['icon']
             home_link = _['subreddit']
         except IndexError:
-            print(f"MTB Loop: unable to find {home} in db")
             home_icon = ""
             home_link = ""
 
@@ -192,7 +188,6 @@ class MatchThread:
             away_icon = _['icon']
             away_link = _['subreddit']
         except IndexError:
-            print(f"MTB Loop: unable to find {away} in db")
             away_icon = ""
             away_link = ""
 
@@ -211,7 +206,7 @@ class MatchThread:
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    print(f"{resp.status} received when trying to fetch TV url {resp.url}")
+                    raise ConnectionError(f"{resp.status} received when trying to fetch TV url {resp.url}")
                     return None
 
         for i in tree.xpath(".//tr//a"):
@@ -271,7 +266,6 @@ class MatchThread:
             home_icon = home_team['icon']
             home_link = home_team['subreddit']
         except IndexError:
-            print(f"MTB Loop: unable to find {home} in db")
             home_icon = ""
             home_link = None
 
@@ -280,7 +274,6 @@ class MatchThread:
             away_icon = away_team['icon']
             away_link = away_team['subreddit']
         except IndexError:
-            print(f"MTB Loop: unable to find {away} in db")
             away_icon = ""
             away_link = None
 
@@ -293,14 +286,11 @@ class MatchThread:
             pens = ""
 
         title = f"Post-Match Thread: {home} {score}{pens}{away}" if post_match else f"Match Thread: {home} vs {away}"
-        print("MTB: title ===>\n", title)
-        print("MTB: Markdown ===>\n", markdown)
 
         # Referee and Venue
         r = f"**🙈 Referee**: {self.fixture.referee}" if hasattr(self.fixture, 'referee') else ""
         s = f"**🥅 Venue**: {self.fixture.stadium}" if hasattr(self.fixture, 'stadium') else ""
         a = f"**👥 Attendance**: {self.fixture.attendance})" if self.fixture.attendance is not None else ""
-        print(f"MTB: write_markdown RSA\n{r}\n{s}\n{a}")
 
         if any([r, s, a]):
             markdown += "####" + " | ".join([i for i in [r, s, a] if i]) + "\n\n"
@@ -342,7 +332,6 @@ class MatchThread:
                 else:
                     self.tv = ""
 
-            print("MTB DEBUG TV:", self.tv)
             markdown += self.tv
 
         markdown += f"* [Formation]({await self.fixture.formation()})\n"
@@ -368,8 +357,6 @@ class MatchThread:
         markdown += f"\n\n---\n\n{formatted_ticker}\n\n---\n\n^(*Beep boop, I am /u/Toon-bot, a bot coded ^badly by " \
                     f"/u/Painezor. If anything appears to be weird or off, please let him know.*)"
 
-        print("MTB Markdown before time print", markdown)
-        print("MTB Fixture time:", self.fixture.time, type(self.fixture.time))
         return title, markdown
 
 
@@ -420,10 +407,7 @@ class MatchThreadCommands(commands.Cog):
         sub = settings['subreddit']
         for x in self.active_threads:
             if x.fixture == f and x.settings == settings:
-                print(f'Not spooling duplicate thread: {sub} {f.url}.')
                 return
-
-        print(f'Spooling thread: {f.home.name} vs {f.away.name}')
 
         con = await self.bot.db.acquire()
         async with con.transaction():
@@ -436,7 +420,6 @@ class MatchThreadCommands(commands.Cog):
 
         _ = MatchThread(self.bot, f, settings, record)
         self.active_threads.append(_)
-        print("Starting thread…")
         await _.start()
 
 

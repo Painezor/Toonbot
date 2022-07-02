@@ -123,10 +123,9 @@ class Bot(AutoShardedBot):
         for c in COGS:
             try:
                 await self.load_extension('ext.' + c)
+                print(f"Loaded extension {c}")
             except Exception as e:
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
-            else:
-                print(f"Loaded extension {c}")
         return
 
     def get_competition(self, comp_id: str) -> Optional[Competition]:
