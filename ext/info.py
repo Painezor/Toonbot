@@ -82,9 +82,7 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
     sh = Embed(colour=Colour.og_blurple())
     sh.set_footer(text=f"{member} (ID: {member})", icon_url=member.display_avatar.url)
     embeds = rows_to_embeds(sh, matches, 20, header=f"User found on {len(matches)} servers.")
-
-    v = Paginator(interaction.client, interaction, [i for i in [e, perm_embed, av] if i is not None] + embeds)
-    return await v.update()
+    return await Paginator(interaction, [i for i in [e, perm_embed, av] if i is not None] + embeds).update()
 
 
 class Info(Cog):

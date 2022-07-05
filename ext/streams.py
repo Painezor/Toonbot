@@ -83,7 +83,7 @@ class GuildStreams(Cog):
             err = f"Couldn't find that stream in {interaction.guild.name} stream list."
             return await self.bot.error(interaction, err)
 
-        if not interaction.permissions.manage_messages:
+        if not interaction.channel.permissions_for(interaction.guild.me).manage_messages:
             matches = [i for i in matches if i.added_by == interaction.user]
             if not matches:
                 err = "You cannot remove a stream you did not add unless you have manage_messages permissions"

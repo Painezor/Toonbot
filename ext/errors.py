@@ -41,7 +41,7 @@ class Errors(Cog):
                 try:
                     return await self.bot.error(i, 'An Internal error occurred.')
                 finally:
-                    if hasattr(i.command, 'parent'):
+                    if i.command.parent:
                         print(f'/{i.command.parent.name} {i.command.name}')
                     else:
                         print(f'/{i.command.name}')

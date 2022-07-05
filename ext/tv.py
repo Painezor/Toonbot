@@ -6,8 +6,8 @@ from typing import List, TYPE_CHECKING
 if TYPE_CHECKING:
     from core import Bot
 
-from discord import Embed, app_commands, Interaction, Message
-from discord.app_commands import command, describe, autocomplete
+from discord import Embed, Interaction, Message
+from discord.app_commands import command, describe, autocomplete, Choice
 from discord.ext import commands
 from lxml import html
 
@@ -23,13 +23,13 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
 # TODO: Team / League Split
 
 
-async def tv_ac(interaction: Interaction, current: str) -> List[app_commands.Choice[str]]:
+async def tv_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Return list of live teams"""
     tv = getattr(interaction.client, "tv", {})
     m = []
     for x in tv.keys():
         if current.lower() in x.lower():
-            m.append(app_commands.Choice(name=x[:100], value=x))
+            m.append(Choice(name=x[:100], value=x))
 
     return m[:25]
 
@@ -66,7 +66,7 @@ class Tv(commands.Cog):
                 _ = [('📺', i, self.bot.tv[i]) for i in matches]
 
                 if len(_) > 1:
-                    view = ObjectSelectView(self.bot, interaction, objects=_, timeout=30)
+                    view = ObjectSelectView(interaction, objects=_, timeout=30)
                     e.description = '⏬ Multiple results found, choose from the dropdown.'
                     await self.bot.reply(interaction, embed=e, view=view)
                     await view.update()
@@ -90,9 +90,9 @@ class Tv(commands.Cog):
         async with self.bot.session.get(e.url, headers=HEADERS) as resp:
             match resp.status:
                 case 200:
-	                tree = html.fromstring(await resp.text())
+                    tree = html.fromstring(await resp.text())
                 case _:
-                    return await self.bot.error(interaction, f"{e.url} returned a HTTP {resp.status} error.")
+                    raise ConnectionError(f"{e.url} returned a HTTP {resp.status} error.")
 
         # match_column = 3 if not team else 5
         match_column = 3
@@ -133,8 +133,7 @@ class Tv(commands.Cog):
         if not rows:
             rows = [f"No televised matches found, check online at {e.url}"]
 
-        view = Paginator(self.bot, interaction, rows_to_embeds(e, rows))
-        return await view.update()
+        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
 
 async def setup(bot: 'Bot') -> None:

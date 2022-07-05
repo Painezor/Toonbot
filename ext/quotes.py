@@ -1,6 +1,8 @@
 """Commands related to the Quote Database Functionality"""
+from __future__ import annotations
+
 from random import randrange
-from typing import List, TYPE_CHECKING, Optional
+from typing import List, TYPE_CHECKING
 
 from asyncpg import UniqueViolationError, Record
 from discord import Embed, ButtonStyle, Interaction, Colour, Message, Member
@@ -34,7 +36,7 @@ class TargetOptedOutError(AppCommandError):
 class Delete(Button):
     """Button to spawn a new view to delete a quote."""
 
-    def __init__(self, bot: 'Bot', row: int = None) -> None:
+    def __init__(self, bot: Bot, row: int = None) -> None:
         self.bot: Bot = bot
         super().__init__(style=ButtonStyle.red, label="Delete", emoji="🗑️", row=row)
 
@@ -47,7 +49,7 @@ class Delete(Button):
                 return await self.view.update(content=f"You can't delete other servers quotes.")
 
         _ = self.view.interaction.user.id in [r["author_user_id"], r["submitter_user_id"]]
-        if _ or interaction.permissions.manage_messages:
+        if _ or interaction.channel.permissions_for(interaction.guild.me).manage_messages:
             view = Confirmation(self.view.interaction, label_a="Delete", colour_a=ButtonStyle.red, label_b="Cancel")
             m = await self.bot.reply(interaction, content="Delete this quote?", view=view)
             await view.wait()
@@ -108,7 +110,7 @@ class QuotesView(View):
     """Generic Paginator that returns nothing."""
 
     def __init__(self, interaction: Interaction, quotes: List[Record],
-                 rand: bool = False, last: bool = False, bot: 'Bot' = None) -> None:
+                 rand: bool = False, last: bool = False, bot: Bot = None) -> None:
         super().__init__()
         self.pages: List[Record] = list(filter(lambda x: x['guild_id'] == interaction.guild.id, quotes))
         self.all: List[Record] = quotes
@@ -184,7 +186,7 @@ class QuotesView(View):
 
         try:
             q = self.all[self.index] if self.all_guilds else self.pages[self.index]
-            is_mod = self.interaction.permissions.manage_messages
+            is_mod = self.interaction.channel.permissions_for(self.interaction.guild.me).manage_messages
             if self.interaction.user.id in [q['author_user_id'], q['submitter_user_id']] or is_mod:
                 self.add_item(Delete(self.bot, row=3))
         except IndexError:
@@ -305,7 +307,7 @@ async def quote_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
 class QuoteDB(commands.Cog):
     """Quote Database module"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         bot.tree.add_command(quote_add)
         bot.tree.add_command(quote_stats)
         bot.tree.add_command(u_quote)
@@ -354,7 +356,7 @@ class QuoteDB(commands.Cog):
     @quotes.command()
     @autocomplete(text=quote_ac)
     @describe(text="Search by quote text")
-    async def search(self, interaction: Interaction, text: str, user: Optional[Member]) -> Message:
+    async def search(self, interaction: Interaction, text: str, user: Member = None) -> Message:
         """Search for a quote by quote text"""
         if interaction.user.id in self.bot.quote_blacklist:
             raise OptedOutError
@@ -450,6 +452,6 @@ class QuoteDB(commands.Cog):
             await self.bot.reply(i, content=f"You were opted out of the quote DB", embed=e)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Bot):
     """Load the quote database module into the bot"""
     await bot.add_cog(QuoteDB(bot))

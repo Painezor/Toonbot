@@ -13,8 +13,9 @@ from lxml import html
 from typing_extensions import Self
 
 from ext.ticker import IsLiveScoreError
+from ext.toonbot_utils.transfermarkt import Player, Team, Competition, Transfer, SearchView, TransferResult, \
+    DEFAULT_LEAGUES
 from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.transfer_tools import Player, Team, Competition, Transfer, SearchView, TransferResult, DEFAULT_LEAGUES
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
@@ -417,7 +418,7 @@ class TransfersCog(Cog):
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    raise ValueError(f'Transfers: bad status: {resp.status}')
+                    raise ConnectionError(f'Transfers: bad status: {resp.status}')
 
         skip_output = True if not self.bot.parsed_transfers else False
         for i in tree.xpath('.//div[@class="responsive-table"]/div/table/tbody/tr'):

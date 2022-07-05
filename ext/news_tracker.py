@@ -12,8 +12,8 @@ from discord.ext.tasks import loop
 from discord.ui import View, Button
 from lxml import html
 
+from ext.painezbot_utils.player import Region
 from ext.utils.view_utils import Stop
-from ext.utils.wows_utils import Region
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -271,7 +271,6 @@ class NewsTracker(Cog):
     async def news_loop(self) -> None:
         """Loop to get the latest EU news articles"""
         # If we already have parsed the articles once, flag it now.
-        region: Region
         for region in Region:
             async with self.bot.session.get(f'https://worldofwarships.{region.domain}/en/rss/news/') as resp:
                 tree = html.fromstring(bytes(await resp.text(), encoding='utf8'))

@@ -137,7 +137,7 @@ class Admin(Cog):
         """Log the bot out gracefully."""
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
-        await self.bot.reply(interaction, 'Logging out.')
+        await self.bot.reply(interaction, content='Logging out.')
         return await self.bot.close()
 
     @command()
@@ -146,7 +146,6 @@ class Admin(Cog):
     async def debug(self, interaction: Interaction, code: str) -> Message:
         """Evaluates code."""
         await interaction.response.defer(thinking=True)
-
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
 

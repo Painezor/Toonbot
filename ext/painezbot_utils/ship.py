@@ -565,9 +565,13 @@ class ShipView(View):
                 f"({params['concealment']['detect_distance_by_plane']}km by air)",
                 f"**Maximum Speed**: {params['mobility']['max_speed']}kts",
                 f"**Rudder Shift Time**: {params['mobility']['rudder_time']} seconds",
-                f"**Turning Radius**: {params['mobility']['turning_radius']}m",
-                # f"-{params['armour']['flood_prob']}% flood chance."  This field appears to be Garbage.
-                f"**Torpedo Belt**: -{params['armour']['flood_prob']}% damage"]
+                f"**Turning Radius**: {params['mobility']['turning_radius']}m"]
+
+        # f"-{params['armour']['flood_prob']}% flood chance."  This field appears to be Garbage.
+
+        belt = params['armour']['flood_prob']
+        if belt != 0:
+            desc.append(f"**Torpedo Belt**: -{params['armour']['flood_prob']}% damage")
 
         # Build Rest of embed description
         if self.ship.price_gold != 0:

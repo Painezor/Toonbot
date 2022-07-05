@@ -7,7 +7,7 @@ from collections import defaultdict
 from copy import deepcopy
 from itertools import zip_longest
 # Type Hinting
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, ClassVar
 
 # Error Handling
 from asyncpg import ForeignKeyViolationError, Record
@@ -22,10 +22,10 @@ from discord.ui import Button, Select, View
 from lxml import html, etree
 from lxml.etree import ParserError
 
-from ext.utils import flashscore
-from ext.utils.embed_utils import rows_to_embeds, stack_embeds
+import ext.toonbot_utils.gamestate
 # Utils
-from ext.utils.flashscore import Competition, WORLD_CUP_LEAGUES, DEFAULT_LEAGUES, Team, Fixture, search, lg_ac
+from ext.toonbot_utils.flashscore import Competition, WORLD_CUP_LEAGUES, DEFAULT_LEAGUES, Team, Fixture, search, lg_ac
+from ext.utils.embed_utils import rows_to_embeds, stack_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
@@ -162,7 +162,7 @@ class ScoreChannel:
         message: Message | None
         new_embeds: List[Embed]
         # Zip longest will give (, None) in slot [0] // self.messages if we do not have enough messages for the embeds.
-        for message, new_embeds in tuples[:5]:
+        for message, new_embeds in tuples[:4]:
             try:
                 if message is None:  # No message exists in cache, or we need an additional message.
                     self.messages.append(await self.channel.send(embeds=new_embeds))
@@ -179,17 +179,17 @@ class ScoreChannel:
 
     def view(self, interaction: Interaction) -> ScoresConfig:
         """Get a view representing this score channel"""
-        return ScoresConfig(self.bot, interaction, self)
+        return ScoresConfig(interaction, self)
 
 
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
 # TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
 class ScoresConfig(View):
     """Generic Config View"""
+    bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, channel: ScoreChannel) -> None:
+    def __init__(self, interaction: Interaction, channel: ScoreChannel) -> None:
         super().__init__()
-        self.bot: Bot = bot
         self.sc: ScoreChannel = channel
         self.interaction: Interaction = interaction
         self.pages: List[Embed] = []
@@ -292,11 +292,12 @@ class RemoveLeague(Select):
 class Scores(Cog, name="LiveScores"):
     """Live Scores channel module"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
         if ScoreChannel.bot is None:
             ScoreChannel.bot = bot
+            ScoresConfig.bot = bot
 
     async def cog_load(self) -> None:
         """Load our database into the bot"""
@@ -566,52 +567,65 @@ class Scores(Cog, name="LiveScores"):
                 if state_override:
                     match state_override:
                         case 'aet':
-                            fixture.time = flashscore.GameTime(flashscore.GameState.AFTER_EXTRA_TIME)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.AFTER_EXTRA_TIME)
                         case 'pen':
-                            fixture.time = flashscore.GameTime(flashscore.GameState.AFTER_PENS)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.AFTER_PENS)
                         case 'WO':
-                            fixture.time = flashscore.GameTime(flashscore.GameState.WALKOVER)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.WALKOVER)
                         case _:
                             raise ValueError(f"Unhandled state override {state_override}")
                     continue
 
             # Following the updating of the kickoff data, we can then
-            match len(time_block):
-                case 1:
-                    match state:
-                        case "live":
-                            match time_block[0]:
-                                case 'Half Time':
-                                    fixture.time = flashscore.GameTime(flashscore.GameState.HALF_TIME)
-                                case 'Break Time':
-                                    fixture.time = flashscore.GameTime(flashscore.GameState.BREAK_TIME)
-                                case 'Penalties':
-                                    fixture.time = flashscore.GameTime(flashscore.GameState.PENALTIES)
-                                case 'Extra Time':
-                                    fixture.time = flashscore.GameTime(flashscore.GameState.EXTRA_TIME)
-                                case "Live":
-                                    fixture.time = flashscore.GameTime(flashscore.GameState.FINAL_RESULT_ONLY)
-                                case _:
-                                    if "'" not in time_block[0]:
-                                        raise ValueError(f"Unhandled 1 part state block {time_block[0]}")
-                                    fixture.time = flashscore.GameTime(time_block[0])
-                        case "sched":
-                            fixture.time = flashscore.GameTime(flashscore.GameState.SCHEDULED)
-                        case "fin":
-                            fixture.time = flashscore.GameTime(flashscore.GameState.FULL_TIME)
+            match len(time_block), state:
+                case 1, "live":
+                    match time_block[0]:
+                        case 'Half Time':
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.HALF_TIME)
+                        case 'Break Time':
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.BREAK_TIME)
+                        case 'Penalties':
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.PENALTIES)
+                        case 'Extra Time':
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.EXTRA_TIME)
+                        case "Live":
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.FINAL_RESULT_ONLY)
+                        case _:
+                            if "'" not in time_block[0]:
+                                raise ValueError(f"Unhandled 1 part state block {time_block[0]}")
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(time_block[0])
+                case 1, "sched":
+                    fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                        ext.toonbot_utils.gamestate.GameState.SCHEDULED)
+                case 1, "fin":
+                    fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                        ext.toonbot_utils.gamestate.GameState.FULL_TIME)
                 # If we have a 2 part item, the second part will give us additional information
-                case 2:
+                case 2, _:
                     match time_block[-1]:
                         case "Cancelled":
-                            fixture.time = flashscore.GameTime(flashscore.GameState.CANCELLED)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.CANCELLED)
                         case "Postponed":
-                            fixture.time = flashscore.GameTime(flashscore.GameState.POSTPONED)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.POSTPONED)
                         case "Delayed":
-                            fixture.time = flashscore.GameTime(flashscore.GameState.DELAYED)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.DELAYED)
                         case "Interrupted":
-                            fixture.time = flashscore.GameTime(flashscore.GameState.INTERRUPTED)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.INTERRUPTED)
                         case "Abandoned":
-                            fixture.time = flashscore.GameTime(flashscore.GameState.ABANDONED)
+                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
+                                ext.toonbot_utils.gamestate.GameState.ABANDONED)
                         case 'Extra Time':
                             raise ValueError(f'VARIANT B Extra time 2 part time_block needs fixed. {time_block}')
                             # fixture.time = flashscore.GameTime(flashscore.GameState.EXTRA_TIME)
@@ -704,7 +718,7 @@ class Scores(Cog, name="LiveScores"):
         if comp:
             res = comp
         elif "http" not in league_name:
-            res = await search(self.bot, interaction, league_name, competitions=True)
+            res = await search(interaction, league_name, competitions=True)
             if isinstance(res, Message):
                 return res
         else:
@@ -766,6 +780,6 @@ class Scores(Cog, name="LiveScores"):
                 self.bot.score_channels.remove(x)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Bot):
     """Load the cog into the bot"""
     await bot.add_cog(Scores(bot))

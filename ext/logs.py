@@ -1,9 +1,11 @@
 """Notify server moderators about specific events"""
+from __future__ import annotations
+
 import datetime
 from copy import deepcopy
-from typing import List, Sequence, TYPE_CHECKING, Union, Callable
+from typing import List, Sequence, TYPE_CHECKING, Callable, ClassVar
 
-from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Member, User, Message
+from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Member, User, Message, ButtonStyle
 from discord import Guild, Emoji, GuildSticker, TextChannel
 from discord.app_commands import command, default_permissions
 from discord.ext.commands import Cog
@@ -39,19 +41,25 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 # on_scheduled_event_update
 # on_scheduled_event_delete
 
+# on_automod_action,
+# on_automod_rule_create,
+# on_automod_rule_update,
+# on_automod_rule_delete
+# AutoModAction, AutoModRule, AutoModRuleAction, AutoModTrigger
 
 class ToggleButton(Button):
     """A Button to toggle the notifications settings."""
 
-    def __init__(self, bot: Union['Bot', 'PBot'], db_key: str, value: bool, row: int = 0) -> None:
+    def __init__(self, bot: Bot | PBot, db_key: str, value: bool, row: int = 0) -> None:
         self.value: bool = value
         self.db_key: str = db_key
         self.bot: Bot | PBot = bot
 
+        style = ButtonStyle.green if value else ButtonStyle.red
         emoji: str = '🟢' if value else '🔴'  # None (Off)
         label: str = "On" if value else "Off"
         title: str = db_key.replace('_', ' ').title()
-        super().__init__(label=f"{title} ({label})", emoji=emoji, row=row)
+        super().__init__(label=f"{title} ({label})", emoji=emoji, row=row, style=style)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
@@ -76,14 +84,20 @@ qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2
 qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 
 
+# TODO: LogChannel Object.
+
+
 class LogsConfig(View):
     """Generic Config View"""
+    bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, channel: TextChannel) -> None:
+    def __init__(self, bot: Bot, interaction: Interaction, channel: TextChannel) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.channel: TextChannel = channel
-        self.bot: Bot = bot
+
+        if self.__class__.bot is None:
+            self.__class__.bot = bot
 
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
@@ -126,7 +140,7 @@ class LogsConfig(View):
 class Logs(Cog):
     """Set up Server Logs"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
     async def cog_load(self) -> None:
@@ -410,6 +424,6 @@ class Logs(Cog):
                 continue
 
 
-async def setup(bot: Union['Bot', 'PBot']):
+async def setup(bot: Bot | PBot):
     """Loads the notifications cog into the bot"""
     await bot.add_cog(Logs(bot))

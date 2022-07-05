@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Union, TYPE_CHECKING, List, Literal, Optional, Dict
+from typing import TYPE_CHECKING, List, Literal, Optional, Dict
 
 from asyncpg import ForeignKeyViolationError
 from discord import ActivityType, Embed, Message, Interaction, Colour, Permissions, ButtonStyle, Role, TextChannel
@@ -14,14 +14,13 @@ from twitchio import PartialUser, Tag, ChannelInfo, User, ChatSettings
 from typing_extensions import Self
 
 from ext.logs import TWITCH_LOGO
+from ext.painezbot_utils.player import Region
+from ext.toonbot_utils.transfermarkt import get_flag
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.transfer_tools import get_flag
 from ext.utils.view_utils import Paginator, Confirmation, Stop
-from ext.utils.wows_utils import Region
 
 if TYPE_CHECKING:
-    from core import Bot
     from painezBot import PBot, TwitchBot
     from discord import Member
 
@@ -154,8 +153,9 @@ class Stream:
     @property
     def row(self) -> str:
         """Return a row formatted for an embed"""
-        return f"{self.title}\n" \
-               f"{self.flag} {self.cc}{self.markdown} - {self.viewers} viewers, live since {self.live_time}\n"
+        return f"{self.flag} **{self.markdown}**" \
+               f"```\n{self.title}```\n" \
+               f"{self.viewers} viewers, live since {self.live_time}\n"
 
 
 class TrackerChannel:
@@ -394,8 +394,8 @@ class Untrack(Select):
 class TwitchTracker(Cog):
     """Track when users go live to twitch."""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
-        self.bot: Bot | PBot = bot
+    def __init__(self, bot: PBot) -> None:
+        self.bot: PBot = bot
         self.twitch: TwitchBot = bot.twitch
 
         self._cached: Dict[int, Embed] = {}  # user_id: Embed
@@ -570,7 +570,7 @@ class TwitchTracker(Cog):
     @guilds(250252535699341312)
     @describe(cc="Get streamers who specifically are or are not members of the CC program")
     async def streams(self, interaction: Interaction, cc: bool = None) -> Message:
-        """Get a list of everyone currently streaming World of Warships"""
+        """Get a list of everyone currently streaming World of Warships on Twitch"""
         await interaction.response.defer()
 
         streams = await self.twitch.fetch_streams(game_ids=[WOWS_GAME_ID])
@@ -584,10 +584,10 @@ class TwitchTracker(Cog):
             streams = [s for s in streams if s.contributor is cc]
 
         e = Embed(title="Current World of Warships Live Streams", colour=0x9146FF)
+        e.set_thumbnail(url=TWITCH_LOGO)
         e.url = 'https://www.twitch.tv/directory/game/World%20of%20Warships'
         rows = [s.row for s in sorted(streams, key=lambda x: x.viewers, reverse=True)]
-        embeds = rows_to_embeds(e, rows)
-        return await Paginator(self.bot, interaction, embeds).update()
+        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
     @command()
     @describe(search="search by name (e.g.: painezor, yuzorah), or website name (ex: twitch, dailybounce)",
@@ -603,7 +603,8 @@ class TwitchTracker(Cog):
         if search is not None:
             ccs = [i for i in ccs if search == i.name]
             if len(ccs) == 1:  # Send an individual Profile
-                return await self.bot.reply(interaction, embed=ccs[0].embed)
+                e = await ccs[0].embed
+                return await self.bot.reply(interaction, embed=e)
 
         if search is not None:
             ccs = [i for i in self.bot.contributors if search in i.auto_complete]
@@ -617,8 +618,7 @@ class TwitchTracker(Cog):
         e.url = 'https://worldofwarships.eu/en/content/contributors-program/'
         e.set_thumbnail(url='https://i.postimg.cc/Y0r43P0m/CC-Logo-Small.png')
         e.colour = Colour.dark_blue()
-        ccs = rows_to_embeds(e, [i.row for i in ccs])
-        return await Paginator(self.bot, interaction, ccs).update()
+        return await Paginator(interaction, rows_to_embeds(e, [i.row for i in ccs])).update()
 
     track = Group(name="twitch_tracker", description="Go Live Tracker", guild_only=True,
                   default_permissions=Permissions(manage_channels=True))
@@ -678,6 +678,6 @@ class TwitchTracker(Cog):
         return self.bot.tracker_channels
 
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+async def setup(bot: PBot) -> None:
     """Add the cog to the bot"""
     await bot.add_cog(TwitchTracker(bot))

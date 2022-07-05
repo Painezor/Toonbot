@@ -90,11 +90,11 @@ TF = "https://www.transfermarkt.co.uk"
 
 def get_flag(country: str) -> Optional[str]:
     """Get a flag emoji from a string representing a country"""
-    if not country.strip():
-        return None
-
     for x in ['Retired', 'Without Club']:
         country = country.strip().replace(x, '')
+
+    if not country.strip():
+        return ''
 
     country = country.strip()
 
@@ -130,6 +130,8 @@ def get_flag(country: str) -> Optional[str]:
             return "<:Commonwealth:991329664591212554>"
         case "ussr":
             return "<:USSR:991330483445186580>"
+        case "other":
+            return '🌍'
 
     # Check if py country has country
     try:
@@ -138,7 +140,9 @@ def get_flag(country: str) -> Optional[str]:
         pass
 
     if len(country) != 2:
-        raise LookupError(f'No flag found for country: {country}')
+        print(f'No flag country found for {country}')
+        return ''
+
     return ''.join(UNI_DICT[c] for c in country.lower() if c)
 
 
@@ -146,9 +150,10 @@ class TransferResult:
     """A result from a transfermarkt search"""
     bot: Bot = None
 
-    def __init__(self, name: str, link: str) -> None:
+    def __init__(self, name: str, link: str, **kwargs) -> None:
         self.name: str = name
         self.link: str = link
+        self.country: List[str] = kwargs.pop('country', [])
 
     def __repr__(self) -> str:
         return f"TransferResult({self.__dict__})"
@@ -174,7 +179,7 @@ class TransferResult:
             return "🌍"
 
         if isinstance(country, list):
-            return ' '.join([get_flag(i) for i in self.country])
+            return ' '.join([x for x in [get_flag(i) for i in self.country] if x is not None])
         else:
             return get_flag(self.country)
 
@@ -276,8 +281,7 @@ class Team(TransferResult):
 
         rows = ["No expiring contracts found."] if not rows else rows
 
-        view = Paginator(bot, interaction, rows_to_embeds(e, rows))
-        await view.update()
+        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
     def view(self, interaction: Interaction) -> TeamView:
         """Send a view of this Team to the user."""
@@ -621,7 +625,7 @@ class TeamView(View):
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    return await self.bot.error(self.interaction, f"Error {resp.status} connecting to {resp.url}")
+                    raise ConnectionError(f"Error {resp.status} connecting to {resp.url}")
 
         rows = tree.xpath('.//div[@class="box"][./div[@class="header"]]')
         trophies = []
@@ -1056,8 +1060,7 @@ class SearchView(View):
                     case 200:
                         tree = html.fromstring(await resp.text())
                     case _:
-                        i = self.interaction
-                        return await self.bot.error(i, f"HTTP {resp.status} Error connecting to transfermarkt.")
+                        raise ConnectionError(f"HTTP {resp.status} Error connecting to transfermarkt.")
 
             categories = [i.lower().strip() for i in tree.xpath(".//div[@class='table-header']/text()")]
 
@@ -1128,13 +1131,16 @@ class SearchView(View):
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    return await self.bot.error(self.interaction, content="Error Connecting to Transfermarkt")
+                    raise ConnectionError(f"Error {resp.status} Connecting to Transfermarkt")
 
         # Get trs of table after matching header / {ms} name.
         trs = f".//div[@class='box']/div[@class='table-header'][contains(text(),'{ms}')]/following::div[1]//tbody/tr"
-        _ = ''.join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{ms}')]//text()"))
+        header = ''.join(tree.xpath(f".//div[@class='table-header'][contains(text(),'{ms}')]//text()"))
 
-        matches = int(''.join([i for i in _ if i.isdecimal()]))
+        try:
+            matches = int(''.join([i for i in header if i.isdecimal()]))
+        except ValueError:
+            matches = 0
 
         e: Embed = Embed(title=f"{matches} {self.category.title().rstrip('s')} results for {self.query}")
         e.set_author(name="TransferMarkt Search", url=url, icon_url=FAVICON)

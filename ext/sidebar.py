@@ -17,7 +17,7 @@ from lxml import html
 
 if TYPE_CHECKING:
     from core import Bot
-    from ext.utils.flashscore import Fixture, Team
+    from ext.toonbot_utils.flashscore import Fixture, Team
 NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
 
@@ -66,9 +66,9 @@ class NUFCSidebar(Cog):
             return await self.sidebar_loop()
 
         markdown = await self.make_sidebar()
-        _ = await self.bot.reddit.subreddit('NUFC')
-        _ = await _.wiki.get_page("config/sidebar")
-        await _.edit(content=markdown)
+        subreddit = await self.bot.reddit.subreddit('NUFC')
+        page = await subreddit.wiki.get_page("config/sidebar")
+        await page.edit(content=markdown)
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self) -> None:

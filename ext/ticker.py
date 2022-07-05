@@ -10,9 +10,11 @@ from discord.app_commands import Group, describe, autocomplete
 from discord.ext.commands import Cog
 from discord.ui import Select, View, Button
 
-from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.flashscore import Substitution, Penalty, Fixture, Competition, MatchEvent, search, EventType, Team, \
+from ext.toonbot_utils.flashscore import Substitution, Penalty, Fixture, Competition, MatchEvent, search, EventType, \
+    Team, \
     DEFAULT_LEAGUES, WORLD_CUP_LEAGUES, lg_ac
+from ext.toonbot_utils.gamestate import GameState
+from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
@@ -29,13 +31,10 @@ semaphore = Semaphore(value=5)
 # TODO: Migrate Event embed generation to the individual Events
 class TickerEvent:
     """Handles dispatching and editing messages for a fixture event."""
-    bot: ClassVar[Bot]
+    bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', fixture: Fixture, event_type: EventType, channels: List[TickerChannel], long: bool,
+    def __init__(self, fixture: Fixture, event_type: EventType, channels: List[TickerChannel], long: bool,
                  home: bool = False) -> None:
-
-        if not hasattr(self.__class__, 'bot'):
-            self.__class__.bot = bot
 
         self.fixture: Fixture = fixture
         self.event_type: EventType = event_type
@@ -95,16 +94,18 @@ class TickerEvent:
         # Append our event
         if self.event is not None:
             e.description += str(self.event)
-            try:
-                e.description += f"\n\n{self.event.description}"
-            except AttributeError:
-                pass
+            if self.event.description:
+                e.description += f"\n\n> {self.event.description}"
 
         # Append extra info
         if self.fixture.infobox is not None:
             e.description += f"```yaml\n{self.fixture.infobox}```"
 
-        e.set_footer(text=self.fixture.time.state.shorthand)
+        match self.fixture.time.value:
+            case GameState():
+                e.set_footer(text=self.fixture.time.state.shorthand)
+            case _:
+                e.set_footer(text=self.fixture.time.value)
         self.embed = e
         return e
 
@@ -112,6 +113,11 @@ class TickerEvent:
     async def _full_embed(self) -> Embed:
         """Extended Embed with all events for Extended output event_type"""
         e = await self._embed
+
+        if self.event is not None:
+            e.description += "```yaml\n--- Previous Events ---```"
+
+        desc = []
         for i in self.fixture.events:
             if isinstance(i, Substitution):
                 continue  # skip subs, they're just spam.
@@ -122,7 +128,9 @@ class TickerEvent:
                     continue
 
             if str(i) not in e.description:  # Dupes bug.
-                e.description += f"{i}\n"
+                desc.append(i)
+
+        e.description += "\n".join(desc)
 
         self.full_embed = e
         return e
@@ -181,20 +189,20 @@ class TickerEvent:
                 if self.event.player is not None:
                     break
 
-            if self.long:
-                await self._full_embed
-            else:
-                await self._embed
+        if self.long:
+            await self._full_embed
+        else:
+            await self._embed
 
-            for ch in self.channels:
-                await ch.dispatch(self)
+        for ch in self.channels:
+            await ch.dispatch(self)
 
 
 class TickerChannel:
     """An object representing a channel with a Match Event Ticker"""
+    bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', channel: int) -> None:
-        self.bot: Bot = bot
+    def __init__(self, channel: int) -> None:
         self.channel: int = channel
         self.leagues: List[str] = []
         self.settings: Dict = {}
@@ -355,12 +363,11 @@ class TickerChannel:
     # View representing the channel
     def view(self, interaction: Interaction) -> TickerConfig:
         """Get a view representing this TickerChannel"""
-        return TickerConfig(self.bot, interaction, self)
+        return TickerConfig(interaction, self)
 
 
 class ToggleButton(Button):
     """A Button to toggle the ticker settings."""
-    view: TickerConfig
 
     def __init__(self, db_key: str, value: Optional[bool], row: int = 0):
         self.value: Optional[bool] = value
@@ -368,10 +375,10 @@ class ToggleButton(Button):
 
         if value is None:
             emoji = '🔴'  # None (Off)
-            label = "Off"
+            style = ButtonStyle.red
         else:
             emoji = '🔵' if value else '🟢'  # Extended (True), Normal (False)
-            label = "Extended" if value else "On"
+            style = ButtonStyle.blurple if value else ButtonStyle.green
 
         title = db_key.replace('_', ' ').title()
 
@@ -379,15 +386,14 @@ class ToggleButton(Button):
             case "Goal":
                 title = 'Goals'
             case "Delayed":
-                title = "Delayed Games"
+                title = "Delayed"
             case "Red Card":
                 title = "Red Cards"
             case "Var":
                 title = "VAR Reviews"
             case "Penalties":
                 title = "Penalty Shootouts"
-
-        super().__init__(label=f"{title} ({label})", emoji=emoji, row=row)
+        super().__init__(label=title, emoji=emoji, row=row, style=style)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
@@ -407,8 +413,6 @@ class ToggleButton(Button):
 
 class ResetLeagues(Button):
     """Button to reset a ticker back to the default leagues"""
-    view: TickerConfig
-
     def __init__(self) -> None:
         super().__init__(label="Reset to default leagues", style=ButtonStyle.primary)
 
@@ -453,14 +457,14 @@ class RemoveLeague(Select):
 
 class TickerConfig(View):
     """Match Event Ticker View"""
+    bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, tc: TickerChannel):
+    def __init__(self, interaction: Interaction, tc: TickerChannel):
         super().__init__()
         self.interaction: Interaction = interaction
         self.tc: TickerChannel = tc
         self.index: int = 0
         self.pages: List[Embed] = []
-        self.bot: Bot = bot
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify interactor is person who ran command."""
@@ -531,6 +535,8 @@ class TickerConfig(View):
 
         e = Embed(colour=Colour.dark_teal(), title="Toonbot Match Event Ticker config")
         e.set_thumbnail(url=self.bot.user.display_avatar.url)
+        e.set_footer(text="Button Colour Key\n"
+                          "Red: Disabled, Green: Disabled, Blue: Extended (Show all previous events)")
 
         missing = []
 
@@ -552,7 +558,7 @@ class TickerConfig(View):
 
         else:
             header = f'Tracked leagues for {ch.mention}```yaml\n'
-            embeds = rows_to_embeds(e, sorted(self.tc.leagues), header=header, footer="```", max_rows=25)
+            embeds = rows_to_embeds(e, sorted(self.tc.leagues), header=header, footer="```")
             self.pages = embeds
 
             add_page_buttons(self)
@@ -568,16 +574,13 @@ class TickerConfig(View):
             self.add_item(RemoveLeague(remove_list, row=1))
 
             count = 0
-            row = 2
-            for k, v in sorted(self.tc.settings.items()):
+            for k, v in self.tc.settings.items():
                 if k == "channel_id":  # We don't need a button for channel_id, it's just the database key.
                     continue
+                row = 2 + count // 5
+                self.add_item(ToggleButton(db_key=k, value=v, row=row))
 
                 count += 1
-                if count % 5 == 0:
-                    row += 1
-
-                self.add_item(ToggleButton(db_key=k, value=v, row=row))
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
@@ -586,6 +589,11 @@ class TickerCog(Cog, name="Ticker"):
 
     def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
+
+        if TickerEvent.bot is None:
+            TickerEvent.bot = bot
+            TickerConfig.bot = bot
+            TickerChannel.bot = bot
 
     async def cog_load(self) -> None:
         """Reset the cache on load."""
@@ -602,7 +610,7 @@ class TickerCog(Cog, name="Ticker"):
             await self.bot.db.release(connection)
 
         for r in records:
-            tc = TickerChannel(self.bot, r['channel_id'])
+            tc = TickerChannel(r['channel_id'])
             await tc.get_settings()
             self.bot.ticker_channels.append(tc)
 
@@ -612,7 +620,7 @@ class TickerCog(Cog, name="Ticker"):
         # Update the competition's Table on certain events.
         match event_type:
             case EventType.GOAL | EventType.FULL_TIME:
-                await f.competition.table()
+                self.bot.loop.create_task(f.competition.table())
 
         c: str = ", ".join(event_type.db_fields)
         not_nulls = " AND ".join([f'({x} IS NOT NULL)' for x in event_type.db_fields])
@@ -652,10 +660,11 @@ class TickerCog(Cog, name="Ticker"):
             try:
                 tc = next(i for i in tickers if i.channel == channel.id)
             except StopIteration:
-                tc = TickerChannel(self.bot, channel.id)
+                tc = TickerChannel(channel.id)
+                self.bot.ticker_channels.append(tc)
             channels.append(tc)
 
-        return TickerEvent(self.bot, long=long, channels=channels, fixture=f, event_type=event_type, home=home)
+        return TickerEvent(long=long, channels=channels, fixture=f, event_type=event_type, home=home)
 
     # Ticker command is available to those who have manage messages permissions.
     tkr_perms = Permissions(manage_channels=True)
@@ -672,9 +681,9 @@ class TickerCog(Cog, name="Ticker"):
         # Validate channel is a ticker channel.
         try:
             tc = next(i for i in self.bot.ticker_channels if i.channel == channel.id)
-            return await TickerConfig(self.bot, interaction, tc).update()
+            return await tc.view(interaction).update()
         except StopIteration:
-            tc = TickerChannel(self.bot, channel.id)
+            tc = TickerChannel(channel.id)
             success = await tc.view(interaction).creation_dialogue()
             if success:
                 self.bot.ticker_channels.append(tc)
@@ -692,7 +701,7 @@ class TickerCog(Cog, name="Ticker"):
         try:
             tc = next(i for i in self.bot.ticker_channels if i.channel == channel.id)
         except StopIteration:
-            tc = TickerChannel(self.bot, channel.id)
+            tc = TickerChannel(channel.id)
             success = await tc.view(interaction).creation_dialogue()
             if not success:
                 return
@@ -704,7 +713,7 @@ class TickerCog(Cog, name="Ticker"):
         fsr = self.bot.get_competition(query)
         if fsr is None:
             if "http" not in query:
-                fsr = await search(self.bot, interaction, query, competitions=True)
+                fsr = await search(interaction, query, competitions=True)
 
                 if isinstance(fsr, Message):
                     return fsr
@@ -734,7 +743,7 @@ class TickerCog(Cog, name="Ticker"):
         try:
             tc = next(i for i in self.bot.ticker_channels if i.channel == channel.id)
         except StopIteration:
-            tc = TickerChannel(self.bot, channel.id)
+            tc = TickerChannel(channel.id)
             success = await tc.view(interaction).creation_dialogue()
             if not success:
                 return

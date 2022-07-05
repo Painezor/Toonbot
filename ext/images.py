@@ -409,8 +409,7 @@ class Images(Cog):
             e.set_footer(text=emoji.url)
             embeds.append(deepcopy(e))
 
-        view = Paginator(self.bot, interaction, embeds)
-        return await view.update()
+        return await Paginator(interaction, embeds).update()
 
 
 async def setup(bot: 'Bot') -> None:

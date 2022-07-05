@@ -231,8 +231,7 @@ class Fun(Cog):
             e.description = f"🚫 No flip_results found for {query}."
             embeds = [e]
 
-        view = Paginator(self.bot, interaction, embeds=embeds)
-        return await view.update()
+        return await Paginator(interaction, embeds=embeds).update()
 
     @command()
     @describe(dice="enter a roll (format: 1d20+3)")

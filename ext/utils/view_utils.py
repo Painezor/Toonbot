@@ -1,5 +1,7 @@
 """Generic Objects for discord Views"""
-from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING, Union, Dict, Any
+from __future__ import annotations
+
+from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING, Dict, ClassVar
 
 from discord import Interaction, ButtonStyle, NotFound, Embed, Message, SelectOption
 from discord.ui import Button, Select, Modal, View, TextInput
@@ -7,7 +9,6 @@ from pyppeteer.page import Page
 
 if TYPE_CHECKING:
     from core import Bot
-    from discord import Client
     from painezBot import PBot
 
 
@@ -175,14 +176,18 @@ class PageSelect(Select):
 
 class ObjectSelectView(View):
     """Generic Object Select and return"""
+    bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, objects: list, timeout: int = 180) -> None:
+    def __init__(self, interaction: Interaction, objects: list, timeout: int = 180) -> None:
         self.interaction: Interaction = interaction
         self.value = None  # As Yet Unset
-        self.bot: Bot = bot
         self.index: int = 0
         self.objects: list = objects
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
+
+        if self.__class__.bot is None:
+            self.__class__.bot = interaction.client
+
         super().__init__(timeout=timeout)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -274,32 +279,34 @@ class FuncButton(Button):
 class FuncDropdown(Select):
     """Perform function based on user's dropdown choice"""
 
-    def __init__(self, options: List[SelectOption], funcs: List[Callable], attrs=None,
+    def __init__(self, options: List[Tuple[SelectOption, Dict, Callable]],
                  placeholder: str = None, row: int = 3) -> None:
-        self.attrs: List[Dict[str, Any]] = [] if attrs is None else attrs  # Setattr k of self.view to v
-        self.functions: List[Callable] = funcs
-        super().__init__(placeholder=placeholder, options=options, row=row)
+        self.raw = options
+        super().__init__(placeholder=placeholder, options=[o[0] for o in options][:25], row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set View Index"""
         await interaction.response.defer()
 
         index = int(self.values[0])
-        for k, v in self.attrs[index].items():
+        for k, v in self.raw[index][1].items():
             setattr(self.view, k, v)
 
-        return await self.functions[index]()
+        return await self.raw[index][2]()
 
 
 class Paginator(View):
     """Generic Paginator that returns nothing."""
+    bot: ClassVar[Bot | PBot] = None
 
-    def __init__(self, bot: Union['Bot', 'PBot', 'Client'], interaction: Interaction, embeds: List[Embed]) -> None:
+    def __init__(self, interaction: Interaction, embeds: List[Embed]) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.pages: List[Embed] = embeds
         self.index: int = 0
-        self.bot: Bot = bot
+
+        if self.__class__.bot is None:
+            self.__class__.bot = interaction.client
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""

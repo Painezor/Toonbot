@@ -1,5 +1,7 @@
 """Moderation Commands"""
-from typing import Optional, Literal, TYPE_CHECKING, Union
+from __future__ import annotations
+
+from typing import Literal, TYPE_CHECKING
 
 from discord import Guild, Member, TextChannel, Interaction, Colour, Embed, HTTPException, Forbidden, Object, Message, \
     TextStyle, NotFound
@@ -18,14 +20,11 @@ if TYPE_CHECKING:
 
 class BanModal(Modal, title="Bulk ban user IDs"):
     """Modal for user to enter multi line bans on."""
-    ban_list = TextInput(
-        label="Enter User IDs to ban, one per line",
-        style=TextStyle.paragraph,
-        placeholder="12345678901234\n12345678901235\n12345678901236\n…"
-    )
+    ban_list = TextInput(label="Enter User IDs to ban, one per line", style=TextStyle.paragraph,
+                         placeholder="12345678901234\n12345678901235\n12345678901236\n…")
     reason = TextInput(label="Enter a reason", placeholder="<Insert your reason here>", default="No reason provided")
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+    def __init__(self, bot: Bot | PBot) -> None:
         super().__init__()
         self.bot: Bot | PBot = bot
 
@@ -59,9 +58,9 @@ class EmbedModal(Modal, title="Send an Embed"):
     thumbnail = TextInput(label="Thumbnail", placeholder="Enter url for thumbnail image", required=False)
     image = TextInput(label="Image", placeholder="Enter url for large image", required=False)
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, destination: TextChannel, colour: Colour) -> None:
+    def __init__(self, bot: Bot | PBot, interaction: Interaction, destination: TextChannel, colour: Colour) -> None:
         super().__init__()
-        self.bot: Bot = bot
+        self.bot: Bot | PBot = bot
         self.interaction: Interaction = interaction
         self.destination: TextChannel = destination
         self.colour: Colour = colour
@@ -76,7 +75,7 @@ class EmbedModal(Modal, title="Send an Embed"):
         if self.thumbnail.value is not None and "http:" in self.thumbnail.value:
             e.set_thumbnail(url=self.thumbnail.value)
 
-        e.description = self.destination
+        e.description = self.text.value
 
         try:
             await self.destination.send(embed=e)
@@ -88,10 +87,11 @@ class EmbedModal(Modal, title="Send an Embed"):
 class Mod(Cog):
     """Guild Moderation Commands"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
     # TODO: Slash attachments pass
+    # TODO: Custom RGB Colour for embed command
     @command()
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
@@ -123,7 +123,7 @@ class Mod(Cog):
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
     @describe(message="text to send", destination="target channel")
-    async def say(self, interaction: Interaction, message: str, destination: Optional[TextChannel] = None) -> Message:
+    async def say(self, interaction: Interaction, message: str, destination: TextChannel = None) -> Message:
         """Say something as the bot in specified channel"""
         if len(message) > 2000:
             return await self.bot.error(interaction, content="Message too long. Keep it under 2000.")
@@ -216,9 +216,7 @@ class Mod(Cog):
         _ = interaction.guild.icon.url if interaction.guild.icon is not None else None
         e.set_author(name=n, icon_url=_)
 
-        embeds = rows_to_embeds(e, bans)
-        view = Paginator(self.bot, interaction, embeds)
-        return await view.update()
+        return await Paginator(interaction, rows_to_embeds(e, bans)).update()
 
     @command()
     @default_permissions(manage_messages=True)
@@ -281,6 +279,6 @@ class Mod(Cog):
             await self.bot.db.release(connection)
 
 
-async def setup(bot: Union['Bot', 'PBot']):
+async def setup(bot: Bot | PBot):
     """Load the mod cog into the bot"""
     await bot.add_cog(Mod(bot))

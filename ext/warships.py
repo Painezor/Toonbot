@@ -1,24 +1,27 @@
 """Private world of warships related commands"""
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 
-from discord import Embed, ButtonStyle, Message, Colour
-from discord.app_commands import command, describe, default_permissions, autocomplete, Choice, guilds, Range
+from discord import Embed, ButtonStyle, Message, Colour, SelectOption
+from discord.app_commands import command, describe, default_permissions, autocomplete, Choice, guilds, Range, Group
 from discord.ext.commands import Cog
 from discord.ui import View, Button
 from unidecode import unidecode
 
-from ext.utils.Clans import ClanBuilding
-from ext.utils.ship import Nation, ShipType, Ship
-from ext.utils.wows_utils import Region, Map, GameMode
+from ext.painezbot_utils.clan import ClanBuilding
+from ext.painezbot_utils.player import Region, Map, GameMode
+from ext.painezbot_utils.ship import Nation, ShipType, Ship
+from ext.utils.embed_utils import rows_to_embeds
+from ext.utils.timed_events import Timestamp
+from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from painezBot import PBot
     from typing import List
     from discord import Interaction
 
-# TODO: Over-match command (Take Either Armour or Caliber [/or ship] param, compare against table).
 # TODO: Browse all Ships command. Filter Dropdowns. Dropdown to show specific ships.
 # TODO: Container drops / https://worldofwarships.eu/en/content/contents-and-drop-rates-of-containers/
 # TODO: Clan Base Commands # https://api.worldofwarships.eu/wows/clans/glossary/
@@ -26,10 +29,14 @@ if TYPE_CHECKING:
 
 # noinspection SpellCheckingInspection
 ASLAIN = 'https://aslain.com/index.php?/topic/2020-download-%E2%98%85-world-of-warships-%E2%98%85-modpack/'
+HELP_ME_BUILDS = "http://wo.ws/builds"
+HELP_ME_DISCORD = "https://discord.gg/c4vK9rM"
+HELP_ME_LOGO = 'https://media.discordapp.net/attachments/443846252019318804/992914761723433011/Logo_Discord2.png'
+HOW_IT_WORKS = 'https://wowsp-wows-eu.wgcdn.co/dcont/fb/image/tmb/2f4c2e32-4315-11e8-84e0-ac162d8bc1e4_1200x.jpg'
 # noinspection SpellCheckingInspection
 MODSTATION = 'https://worldofwarships.com/en/content/modstation/'
 MOD_POLICY = 'https://worldofwarships.com/en/news/general-news/mods-policy/'
-
+OVERMATCH = 'https://media.discordapp.net/attachments/303154190362869761/990588535201484800/unknown.png'
 # noinspection SpellCheckingInspection
 RAGNAR = "Ragnar is inherently underpowered. It lacks the necessary attributes to make meaningful impact on match " \
          "result. No burst damage to speak of, split turrets, and yet still retains a fragile platform. I would take" \
@@ -47,6 +54,8 @@ MAPS = API_PATH + 'encyclopedia/battlearenas/'
 MODES = API_PATH + 'encyclopedia/battletypes/'
 SHIPS = API_PATH + 'encyclopedia/ships/'
 PLAYERS = API_PATH + 'account/list/'
+
+REGION = Literal['eu', 'na', 'cis', 'sea']
 
 # TODO: Overmatch DD/CV
 OM_BB = {13: ['Tier 2-5 Superstructure'],
@@ -84,18 +93,18 @@ OM_CA = {6: ['Tier 1-3 Cruiser'],
               '127mm super lights plating'],
          25: ['Tier 1-7 everywhere',
               'Tier 1-10 CL side plating',
-              'Supership bow/stern (except US & German Heavy, and icebreakers)',
+              'Tier 1-\⭐ bow/stern (except US & German Heavy, and icebreakers)',
               'All British CLs and Smolensk plating',
               ],
          27: ['Tier 1-9 decks',
-              'Supership bow/stern',
+              'Tier 1-\⭐ bow/stern',
               'All British CLs and smolensk plating',
               ],
-         30: ['Supership Decks',
-              'Supership bow/stern',
-              'Supership plating'],
-         32: ['Supership Decks', 'Supership bow/stern', 'Supership plating', 'Austin/Jinan Casemate'],
-         35: ['Supership Decks', 'Supership bow/stern', 'Supership plating', 'Austin/Jinan Casemate', 'Riga Deck']
+         30: ['Tier \⭐ Decks',
+              'Tier \⭐ bow/stern',
+              'Tier \⭐ plating'],
+         32: ['Tier \⭐ Decks', 'Tier \⭐ bow/stern', 'Tier \⭐ plating', 'Austin/Jinan Casemate'],
+         35: ['Tier \⭐ Decks', 'Tier \⭐ bow/stern', 'Tier \⭐ plating', 'Austin/Jinan Casemate', 'Riga Deck']
          }
 
 
@@ -149,14 +158,13 @@ async def mode_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
                     return []
 
         bot.modes = {GameMode(**v) for k, v in modes['data'].items()}
-    return [Choice(name=i.name, value=i.tag) for i in bot.modes if current.lower() in i.name.lower()]
+
+    modes = [i for i in bot.modes if i.tag not in ['PVE_PREMADE', 'EVENT', 'BRAWL']]
+    return [Choice(name=i.name, value=i.tag) for i in modes if current.lower() in i.name.lower()]
 
 
 async def player_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Fetch player's account ID by searching for their name."""
-    if len(current) < 3:
-        return []
-
     bot: PBot = getattr(interaction, 'client')
     p = {'application_id': bot.WG_ID, "search": current, 'limit': 25}
 
@@ -189,9 +197,6 @@ async def player_ac(interaction: Interaction, current: str) -> List[Choice[str]]
 
 async def clan_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     """Autocomplete for a list of clan names"""
-    if len(current) < 3:
-        return []
-
     bot: PBot = getattr(interaction, 'client')
 
     region = getattr(interaction.namespace, 'region', None)
@@ -369,7 +374,7 @@ class Warships(Cog):
     async def inventory(self, interaction: Interaction) -> Message:
         """Get a link to the web version of the in-game Inventory"""
         e = Embed(title="World of Warships Inventory", colour=Colour.lighter_gray(),
-                  description="Click the links below to manage your in-game modules/camos/etc for each region")
+                  description="Click the link for your region below to manage & sell your unused modules/camos/etc")
         e.set_thumbnail(url="https://cdn.discordapp.com/attachments/303154190362869761/991811092437274655/unknown.png")
 
         v = View()
@@ -381,7 +386,7 @@ class Warships(Cog):
     async def logbook(self, interaction: Interaction) -> Message:
         """Get a link to the web version of the in-game Captain's Logbook"""
         e = Embed(title="World of Warships Captain's Logbook",
-                  description="Click the links below to manage your in-game modules/camos/etc for each region")
+                  description="Click the link for your region below to see the captain's logbook.")
 
         img = "https://media.discordapp.net/attachments/303154190362869761/991811398952816790/unknown.png"
         e.set_thumbnail(url=img)
@@ -393,21 +398,34 @@ class Warships(Cog):
         return await self.bot.reply(interaction, embed=e, view=v)
 
     @command()
-    async def logbook(self, interaction: Interaction) -> Message:
-        """Get a link to the web version of the in-game Captain's Logbook"""
-        e = Embed(title="World of Warships Captain's Logbook",
-                  description="Click the links below to manage your in-game modules/camos/etc for each region")
-
-        img = "https://media.discordapp.net/attachments/303154190362869761/991811398952816790/unknown.png"
-        e.set_thumbnail(url=img)
-        e.colour = Colour.dark_orange()
-
-        v = View()
-        for region in Region:
-            v.add_item(Button(style=ButtonStyle.url, url=region.logbook, emoji=region.emote, label=region.name))
-        return await self.bot.reply(interaction, embed=e, view=v)
-
-    # TODO: clans, dockyard, recruiting, how_it_works
+    async def how_it_works(self, interaction: Interaction) -> Message:
+        """Links to the various How It Works videos"""
+        e = Embed(title="How it Works Video Series", colour=Colour.dark_red())
+        e.description = "The how it works video series give comprehensive overviews of some of the game's mechanics," \
+                        "you can find links to them all below\n\n" + \
+                        ', '.join(["[AA Guns & Fighters](https://youtu.be/Dvrwz-1XhnM)",
+                                   "[Armour](https://youtu.be/yQcutrneBJQ)",
+                                   "[Ballistics](https://youtu.be/02pb8VS_mFo)",
+                                   "[Carrier Gameplay](https://youtu.be/qjyQVM2sGAo)",
+                                   "[Consumables](https://youtu.be/4XF44GsF2v4)",
+                                   "[Credits & XP Modifiers](https://youtu.be/KcRF3wNgzRk)",
+                                   "[Dispersion](https://youtu.be/AitjEbwtdUs)",
+                                   "[Economy](https://youtu.be/0_bXHAqLkKc)",
+                                   "[Expenses](https://youtu.be/v6lZE5XBMj0)",
+                                   "[Fire](https://youtu.be/AGEHZQsYzGE)",
+                                   "[Flooding](https://youtu.be/SCHNDox0BRM)",
+                                   "[Game Basics](https://youtu.be/Zl-lWGugzEo)",
+                                   "[HE Shells](https://youtu.be/B5GzyXj6oPM)",
+                                   "[Hit Points](https://youtu.be/Iusj8WJx5PQ)",
+                                   "[Modules](https://youtu.be/Z2JuRf-pnxY)",
+                                   "[Repair Party](https://youtu.be/mG1iSVIqmC4)",
+                                   "[SAP Shells](https://youtu.be/zZzlivBoP8s)",
+                                   "[Spotting](https://youtu.be/OgRUSmzcw2s)",
+                                   "[Tips & Tricks](https://youtu.be/tD9jaMrrY3I)",
+                                   "[Torpedoes](https://youtu.be/LPTgi20O15Q)",
+                                   "[Upgrades](https://youtu.be/zqwa9ZlzMA8)"])
+        e.set_thumbnail(url=HOW_IT_WORKS)
+        await self.bot.reply(interaction, embed=e)
 
     @command()
     @describe(code="Enter the code", contents="Enter the reward the code gives")
@@ -440,10 +458,10 @@ class Warships(Cog):
     @describe(name="Search for a map by name")
     async def map(self, interaction: Interaction, name: str) -> Message:
         """Fetch a map from the world of warships API"""
-        await interaction.response.defer()
+        await interaction.response.defer(thinking=True)
 
         if not self.bot.maps:
-            return await self.bot.error(interaction, f'Unable to fetch maps from API')
+            raise ConnectionError('Unable to fetch maps from API')
 
         try:
             map_ = next(i for i in self.bot.maps if i.battle_arena_id == name)
@@ -466,20 +484,37 @@ class Warships(Cog):
         v = View()
         v.add_item(Button(url=MODSTATION, label="Modstation"))
         v.add_item(Button(url=ASLAIN, label="Aslain's Modpack"))
-        return await self.bot.reply(interaction, embed=e)
+        return await self.bot.reply(interaction, embed=e, view=v)
 
     @command()
     async def builds(self, interaction: Interaction) -> Message:
         """The Help Me Build collection"""
-        e = Embed(title="Help Me Builds", description="http://wo.ws/builds")
-        return await self.bot.reply(interaction, embed=e)
+        e = Embed(title="Help Me Builds", colour=0xae8a6d)
+        e.description = (f"The folks from the [Help Me Discord]({HELP_ME_DISCORD}) have compiled a list of recommended "
+                         f"builds, you can find them, [here]({HELP_ME_BUILDS}) or by using the button below.")
+        e.set_thumbnail(url=HELP_ME_LOGO)
+        v = View()
+        v.add_item(Button(url=HELP_ME_BUILDS, label="Help Me Builds on Google Docs"))
+        return await self.bot.reply(interaction, embed=e, view=v)
+
+    @command()
+    async def help_me(self, interaction: Interaction) -> Message:
+        """Help me Discord info"""
+        e = Embed(title="Help Me Discord", colour=0xae8a6d)
+        e.description = (f"The [Help Me Discord]({HELP_ME_DISCORD}) is full of helpful players from top level clans "
+                         f"who donate their time to give advice and replay analysis to those in need of it."
+                         f"\nYou can join by clicking [here](http://wo.ws/builds) or by using the button below.")
+        e.set_thumbnail(url=HELP_ME_LOGO)
+        v = View()
+        v.add_item(Button(url=HELP_ME_DISCORD, label="Help Me Discord"))
+        return await self.bot.reply(interaction, embed=e, view=v)
 
     @command()
     async def guides(self, interaction: Interaction) -> Message:
         """Yurra's collection of guides"""
         yurra = self.bot.get_user(192601340244000769)
-        v = "Yurra's guides contain advice on various game mechanics, playstyles," \
-            " classes, tech tree branches, and some specific ships.\n\nhttps://bit.ly/yurraguides"
+        v = "Yurra's guides contain advice on various game mechanics, play styles classes, tech tree branches," \
+            " and some specific ships.\n\nhttps://bit.ly/yurraguides"
         e = Embed(title="Yurra's guides", description=v)
         e.url = 'https://bit.ly/yurraguides'
         e.set_thumbnail(url=yurra.avatar.url)
@@ -489,7 +524,6 @@ class Warships(Cog):
         v.add_item(Button(label="Yurra's guides", style=ButtonStyle.url, url='https://bit.ly/yurraguides'))
         return await self.bot.reply(interaction, embed=e, view=v)
 
-    # Work In Progress.
     @command()
     @autocomplete(name=ship_ac)
     @describe(name="Search for a ship by it's name")
@@ -498,58 +532,60 @@ class Warships(Cog):
         await interaction.response.defer()
 
         if not self.bot.ships:
-            return await self.bot.error(interaction, content='Unable to fetch ships from API')
+            raise ConnectionError('Unable to fetch ships from API')
 
         ship = self.bot.get_ship(name)
         if ship is None:
-            return await self.bot.error(interaction, f"Did not find map matching {name}, sorry.")
+            return LookupError(f"Did not find map matching {name}, sorry.")
 
         return await ship.view(interaction).overview()
 
+    # TODO: Test - Clan Battles
     @command()
     @autocomplete(player_name=player_ac, mode=mode_ac, ship=ship_ac)
     @guilds(250252535699341312)
     @describe(player_name="Search for a player name", region="Which region is this player on",
               mode="battle mode type", division='1 = solo, 2 = 2man, 3 = 3man, 0 = Overall',
               ship="Get statistics for a specific ship")
-    async def stats(self, interaction: Interaction, region: Literal['eu', 'na', 'cis', 'sea'], player_name: str,
-                    mode: str = 'PVP', division: Range[int, 0, 3] = 0, ship: str = None) -> Message:
+    async def stats(self, interaction: Interaction, region: REGION, player_name: Range[str, 3], mode: str = 'PVP',
+                    division: Range[int, 0, 3] = 0, ship: str = None) -> Message:
         """Search for a player's Stats"""
-        await interaction.response.defer()
-
-        region = next(i for i in Region if i.db_key == region)
+        _ = region  # Shut up linter.
+        await interaction.response.defer(thinking=True)
         player = self.bot.get_player(int(player_name))
-
-        if player is None:
-            return await self.bot.error(interaction, f"Could not find player_id for player {region.name} "
-                                                     f"{player_name}")
-
         mode = next(i for i in self.bot.modes if i.tag == mode)
+        ship = self.bot.get_ship(ship)
         v = player.view(interaction, mode, division, ship)
         return await v.mode_stats()
 
-    @command()
-    @describe(query="Clan Name or Tag")
-    @autocomplete(query=clan_ac)
-    async def clan(self, interaction: Interaction, query: str) -> Message:
-        """Get information about a World of Warships clan"""
-        await interaction.response.defer(thinking=True)
+    # TODO: DD/CV
+    overmatch = Group(name="overmatch", description="Get information about shell/armour overmatch")
 
-        clan = self.bot.get_clan(int(query))
-        return await clan.view(interaction).overview()
-
-    @command()
+    @overmatch.command()
     @describe(shell_calibre='Calibre of shell to get over match value of')
-    async def overmatch(self, interaction: Interaction, shell_calibre: int) -> Message:
+    async def calibre(self, interaction: Interaction, shell_calibre: int) -> Message:
         """Get information about what a shell's overmatch parameters"""
         await interaction.response.defer(thinking=True)
         value = round(shell_calibre / 14.3)
         e = Embed(title=f"{shell_calibre}mm Shells overmatch {value}mm of Armour", colour=0x0BCDFB)
-        e.add_field(name="Cruisers", value='\n'.join(OM_CA[max(i for i in OM_CA if i < value)]), inline=False)
-        e.add_field(name="Battleships", value='\n'.join(OM_BB[max(i for i in OM_BB if i < value)]), inline=False)
-        om_image = 'https://media.discordapp.net/attachments/303154190362869761/990588535201484800/unknown.png'
-        e.set_thumbnail(url=om_image)
+        e.add_field(name="Cruisers", value='\n'.join(OM_CA[max(i for i in OM_CA if i <= value)]), inline=False)
+        e.add_field(name="Battleships", value='\n'.join(OM_BB[max(i for i in OM_BB if i <= value)]), inline=False)
+        e.set_thumbnail(url=OVERMATCH)
         e.set_footer(text=f"{shell_calibre}mm / 14.3 = {value}mm")
+        return await self.bot.reply(interaction, embed=e)
+
+    @overmatch.command()
+    @describe(armour_thickness="How thick is the armour you need to penetrate")
+    async def armour(self, interaction: Interaction, armour_thickness: int) -> Message:
+        """Get what gun size is required to overmatch an armour thickness """
+        value = round(armour_thickness * 14.3)
+        e = Embed(title=f"{armour_thickness}mm of Armour is overmatched by {value}mm Guns", colour=0x0BCDFB)
+        e.add_field(name="Cruisers", value='\n'.join(OM_CA[max(i for i in OM_CA if i <= armour_thickness)]),
+                    inline=False)
+        e.add_field(name="Battleships", value='\n'.join(OM_BB[max(i for i in OM_BB if i <= armour_thickness)]),
+                    inline=False)
+        e.set_thumbnail(url=OVERMATCH)
+        e.set_footer(text=f"{value}mm * 14.3 = {value}mm")
         return await self.bot.reply(interaction, embed=e)
 
     @command()
@@ -562,19 +598,122 @@ class Warships(Cog):
             "\n• Camouflage patterns will change a ship's exterior only"
             "\n• Bonuses to XP will have no effect on Free XP and Commander XP."
             "\n• Basic Free XP earnings are now twice as large."
-            "\n• Economic bonuses from permanent camouflages are purchased separately"
-            "\n• Expendable bonuses can also be added on top of permanent "
-            "ones."
-            "\n• One economic bonus can be applied for each resources (Credits, combat XP, Free XP, and Commander XP) "
-            "at the same time."
-            "\n• Instead of reducing the post-battle service cost, permanent camouflages will provide a bonus to "
-            "Credits, average earnings either remain unchanged or grow."
-            "\n• The service cost for Tier IX tech tree ships reduced from 120,000 to 115,000"
-            "\n• The service cost for Tier X tech tree ships reduced from 180,000 to 150,000 Credits"
-            "\n• Co-op Battles service reduced cost by 13.3%, Credits gained up by 12.5%."
+            "\n• Permanent economic bonuses & permanent camouflages are separate."
+            "\n• Expendable bonuses can be stacked with permanent ones."
+            "\n• One bonus per resources (Credits, XP, FreeXP, CommanderXP) can be used together."
+            "\n• Post-battle service cost reduction bonuses replaced with Credits (-2% SC = 1% creds)"
+            "\n• Tier IX Service cost ships reduced from 120,000 to 115,000"
+            "\n• Tier X Service cost reduced from 180,000 to 150,000 Credits"
+            "\n• Co-op Service cost reduced cost by 13.3%, Credits gained up by 12.5%."
             "\n• -3% detectability range by sea is now baked into all ships."
             "\n• Removed the bonus that increased the dispersion of incoming enemy shells by 4%.")
         await self.bot.reply(interaction, embed=e)
+
+    clan = Group(name="clan", description="Get information about Clan Battle rankings",
+                 guild_ids=[250252535699341312])
+
+    @clan.command()
+    @describe(query="Clan Name or Tag")
+    @autocomplete(query=clan_ac)
+    async def search(self, interaction: Interaction, region: REGION, query: Range[str, 2]) -> Message:
+        """Get information about a World of Warships clan"""
+        _ = region  # Just to shut the linter up.
+        await interaction.response.defer(thinking=True)
+        clan = self.bot.get_clan(int(query))
+        await clan.get_data()
+        return await clan.view(interaction).overview()
+
+    @clan.command()
+    @describe(region="Get only winners for a specific region")
+    async def winners(self, interaction: Interaction, region: REGION = None) -> Message:
+        """Get a list of all past Clan Battle Season Winners"""
+        await interaction.response.defer(thinking=True)
+
+        async with self.bot.session.get('https://clans.worldofwarships.eu/api/ladder/winners/') as resp:
+            match resp.status:
+                case 200:
+                    winners = await resp.json()
+                case _:
+                    raise ConnectionError(f"Connection Error {resp.status} when trying to access Hall of Fame")
+
+        seasons = winners.pop('winners')
+        if region is None:
+            rows = []
+            for season, winners in sorted(seasons.items(), key=lambda x: int(x[0]), reverse=True):
+                wnr = [f'\n**Season {season}**']
+                for clan in sorted(winners, key=lambda c: c['public_rating'], reverse=True):
+                    region = next(i for i in Region if i.realm == clan['realm'])
+                    wnr.append(f"{region.emote} `{str(clan['public_rating']).rjust(4)}`"
+                               f" **[{clan['tag']}]** {clan['name']}")
+                rows.append('\n'.join(wnr))
+
+            e = Embed(title="Clan Battle Season Winners", colour=Colour.purple())
+            return await Paginator(interaction, rows_to_embeds(e, rows, max_rows=1)).update()
+        else:
+            region = next(i for i in Region if i.db_key == region)
+            rows = []
+            for season, winners in sorted(seasons.items(), key=lambda x: int(x[0]), reverse=True):
+                for clan in winners:
+                    if clan['realm'] != region.realm:
+                        continue
+                    rows.append(f"`{str(season).rjust(2)}.` **[{clan['tag']}]** {clan['name']} "
+                                f"(`{clan['public_rating']}`)")
+
+            e = Embed(title="Clan Battle Season Winners", colour=Colour.purple())
+            return await Paginator(interaction, rows_to_embeds(e, rows, max_rows=25)).update()
+
+    # TODO: TEST LEADERBOARDS
+    @clan.command()
+    @describe(region="Get Rankings for a specific region")
+    async def rankings(self, interaction: Interaction,
+                       region: REGION = None, season: Range[int, 1, 17] = None) -> Message:
+        """Get the Season Clan Battle Leaderboard"""
+        url = 'https://clans.worldofwarships.eu/api/ladder/structure/'
+        p = {  # league: int, 0 = Hurricane.
+            # division: int, 1-3
+            'realm': 'global'
+        }
+
+        if season is not None:
+            p.update({'season': season})
+
+        if region is not None:
+            region = next(i for i in Region if i.db_key == region)
+            p.update({'realm': region.realm})
+
+        async with self.bot.session.get(url, params=p) as resp:
+            match resp.status:
+                case 200:
+                    json = await resp.json()
+                case _:
+                    raise ConnectionError(f'Error {resp.status} connecting to {resp.url}')
+
+        rows = []
+        opts = []
+
+        for c in json:
+            clan = self.bot.get_clan(c['id'])
+            clan.tag = c['tag']
+            clan.name = c['name']
+            clan.public_rating = c['public_rating']
+            clan.last_battle_at = Timestamp(c['last_battle_at'])
+
+            r = '⛔' if c['disbanded'] else clan.public_rating
+
+            clan.battles_count = c['battles_count']
+            clan.leading_team_number = c['leading_team_number']
+            rank = f"`{c['rank'].rjust(2)}`."
+            region = clan.region
+
+            rows.append(f"{rank} `{r.rjust(4)}` {region.emote} **[{clan.tag}]** ({c.max_rating_name[0]})"
+                        f"{clan.name}\n{clan.battles_count} Battles, Last: {clan.last_battle_at.relative}")
+
+            opt = SelectOption(label=f"[{clan.tag}] {clan.name}", emoji=clan.league.emote)
+            opts.append((opt, {}, partial(clan.view, interaction)))
+
+        season = 17 if season is None else season
+        e = Embed(title=f"Clan Battle Season {season} Ranking", colour=Colour.purple())
+        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
 
 async def setup(bot: 'PBot'):

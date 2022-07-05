@@ -1,4 +1,6 @@
 """Meta information related to painezBot"""
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from discord import Embed, Interaction, Message, ButtonStyle
@@ -16,7 +18,7 @@ INV = "https://discord.com/api/oauth2/authorize" \
 class Meta(Cog):
     """"Meta Information about painezBot"""
 
-    def __init__(self, bot: 'PBot'):
+    def __init__(self, bot: PBot):
         self.bot: PBot = bot
 
     @command()
@@ -31,7 +33,7 @@ class Meta(Cog):
     async def help(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
         e: Embed = Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
-        e.set_footer(text=f"painezBot is coded by Painezor and was created on ")
+        e.set_footer(text=f"painezBot is coded (badly) by Painezor and was created on ")
 
         me = self.bot.user
         e.set_thumbnail(url=me.display_avatar.url)
@@ -39,15 +41,14 @@ class Meta(Cog):
 
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)
-        members = f"{total_members} Members across {len(self.bot.guilds)} servers."
-
-        e.description = f"I do dev blog lookups.\n I have {members}"
+        e.description = f"I do World of Warships lookups, including dev blogs, news, ships, and players." \
+                        f"\n I serve {total_members} users across {len(self.bot.guilds)} servers."
 
         view = View()
         view.add_item(Button(url=INV, label="Invite me to your server", emoji="<:painezBot:928654001279471697>"))
         return await self.bot.reply(interaction, embed=e, view=view)
 
 
-async def setup(bot: 'PBot'):
+async def setup(bot: PBot):
     """Load the meta cog into the bot"""
     await bot.add_cog(Meta(bot))

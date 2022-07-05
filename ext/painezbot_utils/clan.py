@@ -10,20 +10,20 @@ from discord import Colour, Message, Embed
 from discord.ui import View
 from typing_extensions import Self
 
+from ext.painezbot_utils.player import Region, Player
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import Parent, FuncButton
-from ext.utils.wows_utils import Region, Player
 
 if TYPE_CHECKING:
     from painezBot import PBot
     from discord import Interaction
 
 
-# TODO: Secret Clan API endpoint - Leaderboard.
-# Leaderboard: https://clans.worldofwarships.com/api/ladder/structure/?league=0&division=1&season=17&realm=global
-
 class ClanBuilding:
     """A World of Warships Clan Building"""
+
+
+SQL_ICO = ()
 
 
 class League(Enum):
@@ -35,16 +35,29 @@ class League(Enum):
         obj._value_ = value
         return obj
 
-    def __init__(self, alias: str, emote: str, colour: Colour) -> None:
+    def __init__(self, alias: str, emote: str, colour: Colour, image: str) -> None:
         self.alias: str = alias
         self.emote: str = emote
         self.colour: Colour = colour
+        self.image: str = image
 
-    HURRICANE = ('Hurricane', '<:Hurricane:990599761574920332>', 0xCDA4FF)
-    TYPHOON = ('Typhoon', '<:Typhoon:990599751584067584>', 0xBEE7BD)
-    STORM = ('Storm', '<:Storm:990599740079104070>', 0xE3D6A0)
-    GALE = ('Gale', "<:Gale:990599200905527329>", 0xCCE4E4)
-    SQUALL = ('Squall', "<:Squall:990597783817965568>", 0xCC9966)
+    @property
+    def thumbnail(self) -> str:
+        """Return a link to the image version of the clan's league"""
+        return f"https://glossary-wows-global.gcdn.co/icons//clans/leagues/{self.image}"
+
+    # noinspection SpellCheckingInspection
+    HURRICANE = ('Hurricane', '<:Hurricane:990599761574920332>', 0xCDA4FF,
+                 "cvc_league_0_small_1ffb7bdd0346e4a10eaa1befbd53584dead5cd5972212742d015fdacb34160a1.png")
+    TYPHOON = ('Typhoon', '<:Typhoon:990599751584067584>', 0xBEE7BD,
+               "cvc_league_1_small_73d5594c7f6ae307721fe89a845b81196382c08940d9f32c9923f5f2b23e4437.png")
+    STORM = ('Storm', '<:Storm:990599740079104070>', 0xE3D6A0,
+             "cvc_league_2_small_a2116019add2189c449af6497873ef87e85c2c3ada76120c27e7ec57d52de163.png")
+    # noinspection SpellCheckingInspection
+    GALE = ('Gale', "<:Gale:990599200905527329>", 0xCCE4E4,
+            "cvc_league_3_small_d99914b661e711deaff0bdb61477d82a4d3d4b83b9750f5d1d4b887e6b1a6546.png")
+    SQUALL = ('Squall', "<:Squall:990597783817965568>", 0xCC9966,
+              "cvc_league_4_small_154e2148d23ee9757568a144e06c0e8b904d921cc166407e469ce228a7924836.png")
 
 
 @dataclass
@@ -117,9 +130,9 @@ class Clan:
 
         self.leading_team_number: Optional[int] = None  # Alpha or Bravo rating
         self.public_rating: Optional[int] = None  # Current rating this season
-        self.league: Optional[League] = None  # Current League, 0 is Hurricane, 1 is Typhoon...
-        self.division: Optional[int] = None  # Current Division within League
-        self.max_public_rating: Optional[int] = None  # Highest rating this season
+        self.league: League = League.SQUALL  # Current League, 0 is Hurricane, 1 is Typhoon...
+        self.division: Optional[int] = 3  # Current Division within League
+        self.max_public_rating: int = 0  # Highest rating this season
         self.max_league: Optional[League] = None  # Max League
         self.max_division: Optional[int] = None  # Max Division
         self.colour: Colour = None  # Converted to discord Colour for Embed
@@ -252,8 +265,10 @@ class Clan:
         if season is None:
             season = self.season_number
 
-        url = f"https://clans.worldofwarships.{self.region}/api/members/{self.clan_id}/?battle_type=cvc&season={season}"
-        async with self.bot.session.get(url) as resp:
+        url = f"https://clans.worldofwarships.{self.region.domain}/api/members/{self.clan_id}/"
+        p = {'battle_type': 'cvc', 'season': season}
+
+        async with self.bot.session.get(url, params=p) as resp:
             match resp.status:
                 case 200:
                     season_stats = await resp.json()
@@ -272,7 +287,7 @@ class Clan:
 
     async def get_member_stats(self) -> dict:
         """Attempt to fetch clan battle stats for members"""
-        url = f"https://clans.worldofwarships.{self.region}/api/members/{self.clan_id}/"
+        url = f"https://clans.worldofwarships.{self.region.domain}/api/members/{self.clan_id}/"
         async with self.bot.session.get(url) as resp:
             match resp.status:
                 case 200:
@@ -292,7 +307,7 @@ class Clan:
             player.is_banned = member['is_banned']
 
             # Recent Activity
-            player.last_battle_time = Timestamp(member['last_battle_time'])
+            player.last_battle_time = Timestamp(datetime.utcfromtimestamp(member['last_battle_time']))
 
             # Averages
             player.hidden_profile = member['is_hidden_statistics']
@@ -307,7 +322,7 @@ class Clan:
             player.oil = member['accumulative_clan_resource']
             return player
 
-        self.members = map(parse_member, json.pop('items'))
+        self.members = [parse_member(member) for member in json.pop('items')]
 
     async def get_data(self) -> Self:
         """Fetch clan information."""
@@ -343,24 +358,16 @@ class Clan:
         def parse_player(pl: dict) -> Player:
             """Convert Dict to Player Objects"""
             player = self.bot.get_player(pl['account_id'])
-            player.nickname = pl['nickname']
-            player.joined_clan_at = Timestamp(pl['joined_at'])
+            player.nickname = pl['account_name']
+            player.joined_clan_at = Timestamp(datetime.utcfromtimestamp(pl['joined_at']))
             player.clan_role = pl['role']
             return player
 
-        self.members = map(parse_player, data['members'].items())
+        self.members = [parse_player(member) for member in data.pop('members').values()]
 
         # Handle rest.
         for k, v in data.items():
             setattr(self, k, v)
-
-        await self.fetch_cb_data()
-        return self
-
-    async def fetch_cb_data(self):
-        """Fetch CB data from the hidden clans.worldofwarships api"""
-        if self.clan_id is None:
-            return
 
         url = f"https://clans.worldofwarships.{self.region.domain}/api/clanbase/{self.clan_id}/claninfo/"
         async with self.bot.session.get(url) as resp:
@@ -383,10 +390,12 @@ class Clan:
             self.last_battle_at = Timestamp(ts)
 
             lwt = ladder.pop('last_win_at', None)
-            ts2 = datetime.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
-            self.last_win_at = Timestamp(ts2)
+            if lwt is not None:
+                ts2 = datetime.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
+                self.last_win_at = Timestamp(ts2)
 
             self.wins_count = ladder.pop('wins_count', 0)
+            self.battles_count = ladder.pop('battles_count', 0)
             self.total_battles_played = ladder.pop('total_battles_count', 0)
 
             self.season_number = ladder.pop('season_number', None)
@@ -445,11 +454,13 @@ class Clan:
             for k, v in buildings.items():
                 setattr(self, k, v['modifiers'])
 
+        return self
+
     # achievements = json.pop('achievements')  # This information is complete garbage.
 
-    def view(self, interaction: Interaction) -> ClanView:
+    def view(self, interaction: Interaction, parent: View = None) -> ClanView:
         """Return a view representing this clan"""
-        return ClanView(self.bot, interaction, self)
+        return ClanView(self.bot, interaction, self, parent)
 
 
 class ClanView(View):
@@ -483,7 +494,9 @@ class ClanView(View):
     @property
     def base_embed(self) -> Embed:
         """Generic Embed for all view functions"""
-        e = Embed(title=f"[{self.clan.tag}] {self.clan.name}")
+        e = Embed()
+        e.set_author(name=f"[{self.clan.tag}] {self.clan.name}")
+        e.set_thumbnail(url=self.clan.league.thumbnail)
         e.colour = self.clan.league.colour
         return e
 
@@ -499,10 +512,10 @@ class ClanView(View):
             desc.append(f"**Leader**: {self.clan.leader_name}")
 
         if self.clan.created_at:
-            desc.append(f"**Creator**: {self.clan.creator_name} {self.clan.created_at.relative}")
+            desc.append(f"**Founder**: {self.clan.creator_name} ({self.clan.created_at.relative})")
 
         if self.clan.renamed_at:
-            d = f"**Former name**: [{self.clan.old_tag}] {self.clan.old_name} (renamed {self.clan.renamed_at.relative})"
+            d = f"**Former name**: [{self.clan.old_tag}] {self.clan.old_name} ({self.clan.renamed_at.relative})"
             desc.append(d)
 
         if self.clan.season_number:
@@ -514,7 +527,7 @@ class ClanView(View):
 
             # Win Rate
             cb_desc.append(f"**Last Battle**: {self.clan.last_battle_at.relative}")
-            wr = round(self.clan.wins_count / self.clan.total_battles_played * 100, 2)
+            wr = round(self.clan.wins_count / self.clan.battles_count * 100, 2)
             cb_desc.append(f"**Win Rate**: {wr}% ({self.clan.wins_count} / {self.clan.battles_count})")
 
             # Win streaks
@@ -545,22 +558,29 @@ class ClanView(View):
         e = self.base_embed
         e.title = f"Clan Members ({self.clan.members_count} Total)"
 
-        e.description = ', '.join([i.nickname for i in self.clan.members])
+        members = sorted(self.clan.members, key=lambda x: x.nickname)
+        members = [f'`🟢` {i.nickname}' if i.is_online else i.nickname for i in members if not i.is_banned]
+
+        e.description = ', '.join(members).replace('_', '\\_')  # Discord formatting.
+
+        banned = [i for i in self.clan.members if i.is_banned]
+        if banned:
+            e.add_field(name="Banned Members", value=', '.join(banned))
 
         # Clan Records:
         records = []
         await self.clan.get_member_stats()
 
-        max_damage: Player = max(self.members, key=lambda p: p.average_damage)
-        max_xp: Player = max(self.members, key=lambda p: p.average_xp)
-        max_wr: Player = max(self.members, key=lambda p: p.win_rate)
-        max_games: Player = max(self.members, key=lambda p: p.battles)
-        max_play: Player = max(self.members, key=lambda p: p.battles_per_day)
+        max_damage: Player = max(self.clan.members, key=lambda p: p.average_damage)
+        max_xp: Player = max(self.clan.members, key=lambda p: p.average_xp)
+        max_wr: Player = max(self.clan.members, key=lambda p: p.win_rate)
+        max_games: Player = max(self.clan.members, key=lambda p: p.battles)
+        max_play: Player = max(self.clan.members, key=lambda p: p.battles_per_day)
 
         records.append(f'**Win Rate**: {max_wr.nickname} {round(max_wr.win_rate, 2)}%')
-        records.append(f'**Average Damage**: {max_damage.nickname} {format(round(max_damage.average_damage, 0), ",")}')
-        records.append(f'**Average Kills**: {max_damage.nickname} {format(round(max_damage.average_damage, 0), ",")}')
-        records.append(f'**Average XP**: {max_xp.nickname} {format(round(max_xp.average_xp, 0), ",")}')
+        records.append(f'**Average Damage**: {max_damage.nickname} {format(round(max_damage.average_damage), ",")}')
+        records.append(f'**Average Kills**: {max_damage.nickname} {round(max_damage.average_kills, 2)}')
+        records.append(f'**Average XP**: {max_xp.nickname} {format(round(max_xp.average_xp), ",")}')
         records.append(f'**Total Battles**: {max_games.nickname} {format(max_games.battles, ",")}')
         records.append(f'**Battles/Day**: {max_play.nickname} {round(max_play.battles_per_day, 2)}')
 
@@ -570,6 +590,7 @@ class ClanView(View):
 
     async def history(self) -> Message:
         """Get a clan's Clan Battle History"""
+        # https://clans.worldofwarships.eu/api/members/500140589/?battle_type=cvc&season=17
         # TODO: Clan Battle History
         self._disabled = self.history
         e = self.base_embed
@@ -580,7 +601,9 @@ class ClanView(View):
         """Get a list of the clan's newest members"""
         self._disabled = self.new_members
         e = self.base_embed
-        e.description = "```diff\n-Not Implemented Yet.```"
+        e.title = "Newest Clan Members"
+        members = sorted(self.clan.members, key=lambda x: x.joined_clan_at.value, reverse=True)
+        e.description = '\n'.join([f"{i.joined_clan_at.relative}: {i.nickname}" for i in members[:10]])
         return await self.update(embed=e)
 
     async def update(self, embed: Embed) -> Message:
@@ -589,10 +612,18 @@ class ClanView(View):
 
         if self.parent:
             self.add_item(Parent(label=self.parent_name))
-
-        self.add_item(FuncButton(label='Overview', disabled=self._disabled == self.overview, func=self.overview))
-        self.add_item(FuncButton(label='Members', disabled=self._disabled == self.members, func=self.members))
-        self.add_item(FuncButton(label='Recent Battles', disabled=self._disabled == self.history, func=self.history))
-        self.add_item(FuncButton(label='New Members', disabled=self._disabled == self.new_members,
-                                 func=self.new_members))
+        for i in [FuncButton(label='Overview', disabled=self._disabled == self.overview, func=self.overview),
+                  FuncButton(label='Members', disabled=self._disabled == self.members, func=self.members),
+                  FuncButton(label='New Members', disabled=self._disabled == self.new_members, func=self.new_members),
+                  FuncButton(label='CB Season History', disabled=self._disabled == self.history, func=self.history)]:
+            self.add_item(i)
         return await self.bot.reply(self.interaction, embed=embed, view=self)
+
+
+class Leaderboard(View):
+    """Leaderboard View with dropdowns."""
+
+    def __init__(self, clans: List[Clan]) -> None:
+        super().__init__()
+
+        self.clans: List[Clan] = clans

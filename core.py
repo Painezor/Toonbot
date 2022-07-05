@@ -1,4 +1,6 @@
 """Master file for toonbot."""
+from __future__ import annotations
+
 from asyncio import new_event_loop
 from collections import defaultdict
 from datetime import datetime
@@ -13,13 +15,13 @@ from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot
 
 from ext.utils.browser_utils import make_browser
-from ext.utils.flashscore import Team, Competition, Fixture
 from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
     from ext.scores import ScoreChannel
     from ext.ticker import TickerChannel
     from ext.transfers import TransferChannel
+    from ext.toonbot_utils.flashscore import Team, Competition, Fixture
 
     from asyncio import Task, Semaphore
     from asyncpg import Record, Pool
@@ -123,7 +125,6 @@ class Bot(AutoShardedBot):
         for c in COGS:
             try:
                 await self.load_extension('ext.' + c)
-                print(f"Loaded extension {c}")
             except Exception as e:
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
         return
@@ -154,5 +155,4 @@ async def run() -> None:
         await bot.close()
 
 
-loop = new_event_loop()
-loop.run_until_complete(run())
+new_event_loop().run_until_complete(run())

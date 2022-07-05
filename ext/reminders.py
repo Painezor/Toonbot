@@ -1,6 +1,8 @@
 """Commands for creating time triggered message reminders."""
+from __future__ import annotations
+
 import datetime
-from typing import TYPE_CHECKING, Union, Optional
+from typing import TYPE_CHECKING, Optional
 
 from asyncpg import Record
 from dateutil.relativedelta import relativedelta
@@ -34,7 +36,7 @@ class Hide(Button):
         await self.view.message.delete()
 
 
-async def spool_reminder(bot: Union['Bot', 'PBot'], r: Record):
+async def spool_reminder(bot: Bot | PBot, r: Record):
     """Bulk dispatch reminder messages"""
     # Get data from records
     await sleep_until(r["target_time"])
@@ -50,7 +52,7 @@ class RemindModal(Modal):
     minutes = TextInput(label="Number of minutes", default="0", placeholder="1", max_length=2, required=False)
     description = TextInput(label="Reminder Description", placeholder="Remind me about…", style=TextStyle.paragraph)
 
-    def __init__(self, bot: Union['Bot', 'PBot', 'Client'], title: str, target_message: Message = None):
+    def __init__(self, bot: Bot | PBot | Client, title: str, target_message: Message = None):
         super().__init__(title=title)
         self.interaction: Optional[Interaction] = None
         self.target_message: Message = target_message
@@ -91,7 +93,7 @@ class RemindModal(Modal):
 class ReminderView(View):
     """View for user requested reminders"""
 
-    def __init__(self, bot: 'Bot', r: Record):
+    def __init__(self, bot: Bot, r: Record):
         super().__init__(timeout=None)
         self.bot: Bot = bot
         self.record: Record = r
@@ -144,7 +146,7 @@ async def add_reminder(interaction: Interaction, message: Message):
 class Reminders(Cog):
     """Set yourself reminders"""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+    def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
         self.bot.reminders = []  # A list of tasks.
         self.bot.tree.add_command(add_reminder)
@@ -188,15 +190,12 @@ class Reminders(Cog):
             j = f"https://com/channels/{guild}/{r['channel_id']}/{r['message_id']}"
             return f"**{time}**: [{r['reminder_content']}]({j})"
 
-        _ = [short(r) for r in records] if records else ["You have no reminders set."]
+        rows = [short(r) for r in records] if records else ["You have no reminders set."]
 
         e: Embed = Embed(colour=0x7289DA, title="Your reminders")
-        embeds = rows_to_embeds(e, _)
-
-        view = Paginator(self.bot, interaction, embeds)
-        return await view.update()
+        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+async def setup(bot: Bot | PBot) -> None:
     """Load the reminders Cog into the bot"""
     await bot.add_cog(Reminders(bot))

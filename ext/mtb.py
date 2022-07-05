@@ -11,7 +11,7 @@ from discord.ext import commands
 from discord.ext import tasks
 from lxml import html
 
-from ext.utils import flashscore
+from ext.toonbot_utils import flashscore
 
 if TYPE_CHECKING:
     from core import Bot
@@ -207,7 +207,6 @@ class MatchThread:
                     tree = html.fromstring(await resp.text())
                 case _:
                     raise ConnectionError(f"{resp.status} received when trying to fetch TV url {resp.url}")
-                    return None
 
         for i in tree.xpath(".//tr//a"):
             if self.fixture.home.name in ''.join(i.xpath(".//text()")):

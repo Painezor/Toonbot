@@ -13,18 +13,18 @@ from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot, when_mentioned
 from twitchio.ext import commands
 
-from ext.utils.Clans import ClanBuilding, Clan
+from ext.painezbot_utils.clan import ClanBuilding, Clan
+from ext.painezbot_utils.player import Player
+from ext.painezbot_utils.ship import ShipSentinel
 from ext.utils.browser_utils import make_browser
 from ext.utils.reply import reply, error
-from ext.utils.ship import ShipSentinel
-from ext.utils.wows_utils import Player
 
 if TYPE_CHECKING:
-	from ext.utils.wows_utils import Map, GameMode
-	from ext.utils.ship import ShipType, Module, Ship
-	from ext.newstracker import NewsChannel, Article
+	from ext.painezbot_utils.player import Map, GameMode
+	from ext.painezbot_utils.ship import ShipType, Module, Ship
+	from ext.news_tracker import NewsChannel, Article
 	from ext.devblog import Blog
-	from ext.twitchtracker import Contributor, TrackerChannel
+	from ext.twitch_tracker import Contributor, TrackerChannel
 	from pyppeteer.browser import Browser
 	from typing import List, Optional
 	from asyncpg import Record, Pool
@@ -37,10 +37,10 @@ with open('credentials.json') as f:
 
 COGS = [
 	# Utility Cogs
-	'errors', 'meta-painezbot',
+	'errors', 'meta_painezbot',
 	# Slash commands.
-	'admin', 'devblog', 'info', 'logs', 'mod', 'reminders', 'newstracker',
-	'twitchtracker', 'warships'
+	'admin', 'devblog', 'info', 'logs', 'mod', 'reminders', 'news_tracker',
+	'twitch_tracker', 'warships'
 ]
 
 
@@ -50,7 +50,7 @@ class PBot(AutoShardedBot):
 	def __init__(self, **kwargs) -> None:
 
 		super().__init__(
-			description="Warships utility bot by Painezor#8489",
+			description="World of Warships bot by Painezor#8489",
 			command_prefix=when_mentioned,
 			owner_id=210582977493598208,
 			activity=Game(name="World of Warships"),
@@ -183,5 +183,4 @@ async def run():
 		await bot.close()
 
 
-loop = new_event_loop()
-loop.run_until_complete(run())
+new_event_loop().run_until_complete(run())

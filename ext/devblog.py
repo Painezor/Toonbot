@@ -11,7 +11,7 @@ from discord.ui import View
 from lxml import html
 from lxml.html import HtmlElement
 
-from ext.utils.transfer_tools import get_flag
+from ext.toonbot_utils.transfermarkt import get_flag
 from ext.utils.view_utils import add_page_buttons
 
 if TYPE_CHECKING:

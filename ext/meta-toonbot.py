@@ -1,4 +1,6 @@
 """Meta information related to Toonbot"""
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from discord import Embed, Interaction, Message, ButtonStyle
@@ -16,7 +18,7 @@ INV = "https://discord.com/api/oauth2/authorize" \
 class Meta(Cog):
     """"Meta Information about Toonbot"""
 
-    def __init__(self, bot: 'Bot'):
+    def __init__(self, bot: Bot):
         self.bot: Bot = bot
 
     @command()
@@ -52,6 +54,6 @@ class Meta(Cog):
         return await self.bot.reply(interaction, embed=e, view=view)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Bot):
     """Load the meta cog into the bot"""
     await bot.add_cog(Meta(bot))

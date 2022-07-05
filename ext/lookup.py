@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from discord import Interaction, Message
 from discord.app_commands import command, describe
 from discord.ext.commands import Cog
-from ext.utils.transfer_tools import SearchView
+from ext.toonbot_utils.transfermarkt import SearchView
 
 # TODO: HTTP Autocomplete
 
@@ -49,7 +49,7 @@ class Lookups(Cog):
         await view.wait()
 
         if view.value:
-	        return await view.value.view(interaction).push_rumours()
+            return await view.value.view(interaction).push_rumours()
 
     @command()
     @describe(team_name="name of a team")
@@ -60,7 +60,7 @@ class Lookups(Cog):
         await view.wait()
 
         if view.value:
-	        return await view.value.view(interaction).push_contracts()
+            return await view.value.view(interaction).push_contracts()
 
     @command()
     @describe(team_name="name of a team")
@@ -71,7 +71,7 @@ class Lookups(Cog):
         await view.wait()
 
         if view.value:
-	        return await view.value.view(interaction).push_trophies()
+            return await view.value.view(interaction).push_trophies()
 
     @command()
     @describe(query="league name to search for")
@@ -82,7 +82,7 @@ class Lookups(Cog):
         await view.wait()
 
         if view.value:
-	        return await view.value.view(interaction).attendance()
+            return await view.value.view(interaction).attendance()
 
 
 async def setup(bot: 'Bot') -> None:
