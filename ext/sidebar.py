@@ -69,6 +69,7 @@ class NUFCSidebar(Cog):
         subreddit = await self.bot.reddit.subreddit('NUFC')
         page = await subreddit.wiki.get_page("config/sidebar")
         await page.edit(content=markdown)
+        print(f'{datetime.datetime.now()} The sidebar of r/NUFC was updated.')
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self) -> None:
@@ -149,15 +150,16 @@ class NUFCSidebar(Cog):
         target_game = next(i for i in results + fixtures)
         home = next((i for i in self.bot.reddit_teams if i['name'] == target_game.home.name), None)
         away = next((i for i in self.bot.reddit_teams if i['name'] == target_game.away.name), None)
-        home_sub = home['subreddit']
-        away_sub = away['subreddit']
+
+        home_sub = home['subreddit'] if home is not None else ''
+        away_sub = away['subreddit'] if away is not None else ''
 
         h = f"[{target_game.home.name}]({home_sub})"
         a = f"[{target_game.away.name}]({away_sub})"
         top_bar = f"> {h} [{target_game.score}]({target_game.url}) {a}"
 
-        home_icon = "#temp" if h is None else home['icon']
-        away_icon = "#temp/" if a is None else away['icon']  # / Denotes post.
+        home_icon = "#temp" if home is None else home['icon']
+        away_icon = "#temp/" if away is None else away['icon']  # / Denotes post.
 
         # Upload badge.
         if not home_icon or not away_icon:

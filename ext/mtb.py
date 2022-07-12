@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 class MatchThread:
     """Tool for updating a reddit post with the latest information about a match."""
 
-    def __init__(self, bot: 'Bot', fixture: flashscore.Fixture, settings, record):
+    def __init__(self, bot: 'Bot', fixture: flashscore.Fixture, settings, record) -> None:
         self.bot: Bot = bot
         self.fixture = fixture
         self.settings = settings

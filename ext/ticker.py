@@ -11,8 +11,7 @@ from discord.ext.commands import Cog
 from discord.ui import Select, View, Button
 
 from ext.toonbot_utils.flashscore import Substitution, Penalty, Fixture, Competition, MatchEvent, search, EventType, \
-    Team, \
-    DEFAULT_LEAGUES, WORLD_CUP_LEAGUES, lg_ac
+    Team, DEFAULT_LEAGUES, WORLD_CUP_LEAGUES, lg_ac
 from ext.toonbot_utils.gamestate import GameState
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation
@@ -128,7 +127,7 @@ class TickerEvent:
                     continue
 
             if str(i) not in e.description:  # Dupes bug.
-                desc.append(i)
+                desc.append(str(i))
 
         e.description += "\n".join(desc)
 

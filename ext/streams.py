@@ -1,4 +1,6 @@
 """Allow guilds to add a list of their own streams to keep track of events."""
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
@@ -32,7 +34,7 @@ async def st_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
 class GuildStreams(Cog):
     """Guild specific stream listings."""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
     prm = Permissions(manage_messages=True)
@@ -97,6 +99,6 @@ class GuildStreams(Cog):
         await self.bot.reply(interaction, content=msg, embed=e)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Bot) -> None:
     """Load the streams cog into the bot"""
     await bot.add_cog(GuildStreams(bot))

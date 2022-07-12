@@ -1,15 +1,23 @@
 """Bot browser Session"""
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from pyppeteer import launch
 from pyppeteer.browser import Browser
 
+if TYPE_CHECKING:
+	from core import Bot
+	from painezBot import PBot
 
-async def make_browser() -> Browser:
+
+async def make_browser(bot: Bot | PBot) -> Browser:
 	"""Spawn an instance of Pyppeteer"""
 	opts = {
 		"headless": True,
 		"devtools": True,
 		"args": [
+			'--allow-external-pages',
 			'--autoplay-policy=user-gesture-required',
 			'--disable-accelerated-2d-canvas',
 			'--disable-backgrounding-occluded-windows',
@@ -49,5 +57,6 @@ async def make_browser() -> Browser:
 
 			'--window-position=0,0'
 		]}
-
-	return await launch(options=opts)
+	browser = await launch(options=opts)
+	browser.bot = bot
+	return browser

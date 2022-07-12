@@ -14,7 +14,7 @@ from asyncpraw import Reddit
 from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot
 
-from ext.utils.browser_utils import make_browser
+from ext.utils.pw_browser import make_browser
 from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     from asyncio import Task, Semaphore
     from asyncpg import Record, Pool
-    from pyppeteer.browser import Browser
+    from playwright.async_api import BrowserContext
 
 basicConfig(level=INFO)
 
@@ -92,7 +92,7 @@ class Bot(AutoShardedBot):
         self.reminders: List[Task] = []
 
         # Session // Scraping
-        self.browser: Optional[Browser] = None
+        self.browser: Optional[BrowserContext] = None
         self.session: Optional[ClientSession] = None
 
         # Sidebar
@@ -118,13 +118,13 @@ class Bot(AutoShardedBot):
 
     async def setup_hook(self) -> None:
         """Load Cogs asynchronously"""
-        self.browser = await make_browser()
-        self.browser.bot = self
+        self.browser = await make_browser(self)
         self.session = ClientSession(loop=self.loop, connector=TCPConnector(ssl=False))
 
         for c in COGS:
             try:
-                await self.load_extension('ext.' + c)
+                await self.load_extension(f'ext.{c}')
+                print(f'Loaded ext.{c}')
             except Exception as e:
                 print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
         return

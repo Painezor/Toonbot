@@ -1,11 +1,6 @@
 """A Utility tool for fetching and structuring data from the Flashscore Website"""
-# TODO: Figure out caching system for high intensity lookups
-# TODO: Team dropdown on Competitions
-# TODO: Create .embed attribute for events.
-# TODO: Move away from buttons to dropdowns for view subcommands.
 from __future__ import annotations  # Cyclic Type Hinting
 
-import builtins
 import datetime
 from asyncio import to_thread, sleep
 from enum import Enum
@@ -15,24 +10,30 @@ from json import loads
 from typing import List, TYPE_CHECKING, NoReturn, Dict, Literal, Type, Optional, ClassVar
 from urllib.parse import quote
 
-from discord import Embed, Interaction, Message, Colour, File
+from discord import Embed, Interaction, Message, Colour, File, SelectOption
 from discord.app_commands import Choice
 from discord.ui import View, Select
 from lxml import html
-from pyppeteer.errors import TimeoutError, ElementHandleError
-from pyppeteer.page import Page
+from playwright.async_api import Page, TimeoutError
 
 from ext.toonbot_utils.gamestate import GameState, GameTime
 from ext.toonbot_utils.transfermarkt import get_flag
 from ext.utils.embed_utils import rows_to_embeds, get_colour
 from ext.utils.image_utils import stitch_vertical
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import ObjectSelectView, FuncButton, MultipleSelect, Stop, add_page_buttons
+from ext.utils.view_utils import ObjectSelectView, MultipleSelect, Stop, add_page_buttons, FuncDropdown, FuncButton
 
 if TYPE_CHECKING:
     from core import Bot
 
-FLASHSCORE = 'http://www.flashscore.com'
+# TODO: Figure out caching system for high intensity lookups
+# TODO: Team dropdown on Competitions
+# TODO: Create .embed attribute for events.
+
+ADS = '.seoAdWrapper, .banner--sticky, .ot-sdk-container, .extraContent, .selfPromo, .ads-envelope, ' \
+      '.onetrust-consent-sdk, .isSticky, .rollbar, .otPlaceholder, #lsid-window-mask, #box-over-content'
+
+FLASHSCORE = 'https://www.flashscore.com'
 INJURY_EMOJI = "<:injury:682714608972464187>"
 DEFAULT_LEAGUES = [
     "WORLD: Friendly international",
@@ -65,41 +66,14 @@ WORLD_CUP_LEAGUES = [
 ]
 
 
-async def screenshot(page, xpath: str = None, debug: bool = False) -> BytesIO | None:
-    """Take a screenshot of the specified element"""
-    await page.setViewport({"width": 1900, "height": 1100})
-    elements = await page.xpath(xpath)
-
-    if elements:
-        bbox = await elements[0].boundingBox()
-        bbox['height'] *= len(elements)
-        ss = BytesIO(await page.screenshot(clip=bbox))
-    else:
-        ss = BytesIO(await page.screenshot())
-
-    bot = page.browser.bot
-    if debug:
-        channel = bot.get_channel(303154190362869761)
-        return await channel.send(content='<@210582977493598208>', file=File(fp=ss, filename='DEBUG.png'))
-    else:
-        ch = page.browser.bot.get_channel(874655045633843240)
-        if ch is None:
-            return None
-
-        img_msg = await ch.send(file=File(fp=ss, filename="dumped_image.png"))
-        url = img_msg.attachments[0].url
-        return None if url == "none" else url
-
-
-async def dump_image(bot, data):
+async def dump_image(bot: Bot, data: BytesIO) -> str:
     """Save a stitched image"""
     ch = bot.get_channel(874655045633843240)
     if ch is None:
         return None
 
     img_msg = await ch.send(file=File(fp=data, filename="dumped_image.png"))
-    url = img_msg.attachments[0].url
-    return None if url == "none" else url
+    return img_msg.attachments[0].url
 
 
 # Competition Autocomplete
@@ -108,31 +82,6 @@ async def lg_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     leagues: List[Competition] = [i for i in getattr(interaction.client, "competitions", []) if i.id is not None]
     matches = [i for i in leagues if current.lower() in i.title.lower()]
     return [Choice(name=i.title[:100], value=i.id) for i in matches[:25]]
-
-
-# Fixture Autocomplete
-async def fx_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
-    """Check if user's typing is in list of live games"""
-    games = [i for i in getattr(interaction.client, "games", []) if i.id is not None]
-    matches = [i for i in games if current.lower() in i.autocomplete.lower()]
-    return [Choice(name=i.autocomplete[:100], value=i.id) for i in matches[:25]]
-
-
-async def delete_ads(page: Page) -> NoReturn:
-    """Delete all ads on a page"""
-    for x in ['.//div[@class="seoAdWrapper"]', './/div[@class="banner--sticky"]', './/div[@class="box_over_content"]',
-              './/div[@class="ot-sdk-container"]', './/div[@class="adsenvelope"]', './/div[@id="onetrust-consent-sdk"]',
-              './/div[@id="lsid-window-mask"]', './/div[contains(@class, "isSticky")]',
-              './/div[contains(@class, "rollbar")]',
-              './/div[contains(@id,"box-over-content")]', './/div[contains(@class, "adsenvelope")]',
-              './/div[contains(@class, "extraContent")]', './/div[contains(@class, "selfPromo")]',
-              './/div[contains(@class, "otPlaceholder")]']:
-        elements = await page.xpath(x)
-        for element in elements:
-            try:
-                await page.evaluate("""(element) => element.parentNode.removeChild(element)""", element)
-            except ElementHandleError:  # If no exist.
-                continue
 
 
 class MatchEvent:
@@ -288,7 +237,7 @@ class Booking(MatchEvent):
         o = ["`🟨`:"] if self.time is None else [f"`🟨 {self.time.value}`:"]
         if self.player is not None:
             o.append(self.player.markdown)
-        if self.note is not None and self.note.lower().strip() != 'yellow card':
+        if self.note and self.note.lower().strip() != 'yellow card':
             o.append(f"({self.note})")
         if self.team is not None:
             o.append(f"- {self.team.name}")
@@ -371,8 +320,8 @@ class FlashScoreItem:
 
     __slots__ = ['id', 'url', 'name', 'embed_colour', 'logo_url']
 
-    def __init__(self, bot: Bot, id: str = None, name: str = None, link: str = None):
-        self.id: Optional[str] = id
+    def __init__(self, bot: Bot, flashscore_id: str = None, name: str = None, link: str = None):
+        self.id: Optional[str] = flashscore_id
         self.url: Optional[str] = link
         self.name: Optional[str] = name
         self.embed_colour: Optional[Colour] = None
@@ -419,7 +368,7 @@ class FlashScoreItem:
             if "flashscore" in self.logo_url:
                 logo = self.logo_url
             else:
-                logo = "http://www.flashscore.com/res/image/data/" + self.logo_url.replace("'", "")  # Extraneous '
+                logo = "https://www.flashscore.com/res/image/data/" + self.logo_url.replace("'", "")  # Extraneous '
 
             if logo:
                 clr = self.embed_colour
@@ -432,29 +381,25 @@ class FlashScoreItem:
 
     async def parse_games(self, link: str) -> List[Fixture]:
         """Parse games from raw HTML from fixtures or results function"""
-        page = await self.bot.browser.newPage()
+        page: Page = await self.bot.browser.new_page()
         try:
             await page.goto(link)
-            await delete_ads(page)
-            await page.waitForXPath('.//div[contains(@class,"sportName soccer")]', {"timeout": 5000})
+            await page.wait_for_selector('.sportName.soccer')
             tree = html.fromstring(await page.content())
-        except TimeoutError:
-            await screenshot(page, debug=True)
-            raise builtins.TimeoutError(f'Timed out waiting for xpath on {link}')
         finally:
             await page.close()
 
         fixtures: List[Fixture] = []
         comp = self if isinstance(self, Competition) else None
-        games = tree.xpath('.//div[contains(@class,"sportName soccer")]/div')
+        games = tree.xpath('..//div[contains(@class, "sportName soccer")]/div')
 
         if not games:
-            raise LookupError("Couldn't find xpath ", './/div[contains(@class,"sportName soccer")]/div', "on ", link)
+            raise LookupError(f'No fixtures found on {link}')
 
         for i in games:
             try:
                 fx_id = i.xpath("./@id")[0].split("_")[-1]
-                url = "http://www.flashscore.com/match/" + fx_id
+                url = "https://www.flashscore.com/match/" + fx_id
             except IndexError:
                 # This (might be) a header row.
                 if "event__header" in i.classes:
@@ -577,8 +522,8 @@ class Team(FlashScoreItem):
     # Constant
     emoji: str = '👕'
 
-    def __init__(self, bot: Bot, id=None, name=None, link=None, **kwargs):
-        super().__init__(bot, id, name, link)
+    def __init__(self, bot: Bot, flashscore_id=None, name=None, link=None, **kwargs):
+        super().__init__(bot, flashscore_id, name, link)
         self.competition: Optional[Competition] = kwargs.pop('competition', None)
 
     def __str__(self) -> str:
@@ -603,16 +548,14 @@ class Team(FlashScoreItem):
     @classmethod
     async def by_id(cls, bot: Bot, team_id: str) -> Optional[Team]:
         """Create a Team object from it's Flashscore ID"""
-        page = await bot.browser.newPage()
+        page = await bot.browser.new_page()
         try:
-            await page.goto("http://flashscore.com/?r=3:" + team_id)
+            await page.goto("https://flashscore.com/?r=3:" + team_id)
             url = await page.evaluate("() => window.location.href")
             obj = cls(bot)
             obj.url = url
             obj.id = team_id
             return obj
-        except TimeoutError:
-            return None
         finally:
             await page.close()
 
@@ -630,14 +573,11 @@ class Team(FlashScoreItem):
 
     async def news(self) -> List[Embed]:
         """Get a list of news articles related to a team in embed format"""
-        page = await self.bot.browser.newPage()
+        page = await self.bot.browser.new_page()
         try:
             await page.goto(self.link + "/news")
-            await page.waitForXPath('.//div[@class="matchBox"]', {"timeout": 5000})
-            await delete_ads(page)
+            await page.wait_for_selector('.matchBox')
             tree = html.fromstring(await page.content())
-        except TimeoutError:
-            return []
         finally:
             await page.close()
 
@@ -646,7 +586,7 @@ class Team(FlashScoreItem):
         for i in tree.xpath('.//div[@id="tab-match-newsfeed"]'):
             title = "".join(i.xpath('.//div[@class="rssNews__title"]/text()'))
             image = "".join(i.xpath('.//img/@src'))
-            url = "http://www.flashscore.com" + "".join(i.xpath('.//a[@class="rssNews__titleAndPerex"]/@href'))
+            url = "https://www.flashscore.com" + "".join(i.xpath('.//a[@class="rssNews__titleAndPerex"]/@href'))
             blurb = "".join(i.xpath('.//div[@class="rssNews__perex"]/text()'))
             provider = "".join(i.xpath('.//div[@class="rssNews__provider"]/text()')).split(',')
             time = datetime.datetime.strptime(provider[0], "%d.%m.%Y %H:%M")
@@ -658,15 +598,12 @@ class Team(FlashScoreItem):
     async def players(self) -> List[Player]:
         """Get a list of players for a Team"""
         # Check Cache
-        page = await self.bot.browser.newPage()
+        page = await self.bot.browser.new_page()
 
         try:
             await page.goto(self.link + "/squad")
-            await delete_ads(page)
-            await page.waitForXPath('.//div[@class="sportName soccer"]', {"timeout": 5000})
+            await page.wait_for_selector('.sportName.soccer')
             tree = html.fromstring(await page.content())
-        except TimeoutError:
-            return []
         finally:
             await page.close()
 
@@ -730,8 +667,8 @@ class Competition(FlashScoreItem):
     # Constant
     emoji: str = '🏆'
 
-    def __init__(self, bot: Bot, id=None, link=None, name=None, **kwargs) -> None:
-        super().__init__(bot, id=id, link=link, name=name)
+    def __init__(self, bot: Bot, flashscore_id: str = None, link: str = None, name: str = None, **kwargs) -> None:
+        super().__init__(bot, flashscore_id=flashscore_id, link=link, name=name)
         self.country: Optional[str] = kwargs.pop('country', None)
         self.logo_url: Optional[str] = kwargs.pop('logo_url', None)
         self.score_embeds: List[Embed] = []
@@ -745,14 +682,12 @@ class Competition(FlashScoreItem):
     @classmethod
     async def by_link(cls, bot: Bot, link: str) -> Competition:
         """Create a Competition Object from a flashscore url"""
-        page = await bot.browser.newPage()
+        page = await bot.browser.new_page()
 
         try:
             await page.goto(link)
-            await page.waitForXPath(".//div[@class='heading']", {"timeout": 5000})
+            await page.wait_for_selector(".heading")
             tree = html.fromstring(await page.content())
-        except TimeoutError:
-            return None
         finally:
             await page.close()
 
@@ -808,13 +743,13 @@ class Competition(FlashScoreItem):
         country = self.country
         if not self.url:
             if country:
-                return f"https://www.flashscore.com/soccer/{fmt(country)}/{fmt(self.name)}"
+                return f"https://www.flashscore.com/football/{fmt(country)}/{fmt(self.name)}"
         elif "://" not in self.url:
             if country:
-                return f"https://www.flashscore.com/soccer/{fmt(country)}/{self.url}"
+                return f"https://www.flashscore.com/football/{fmt(country)}/{self.url}"
 
         if self.id:
-            return f"http://flashscore.com/?r=2:{self.id}"
+            return f"https://flashscore.com/?r=2:{self.id}"
 
     async def save_to_db(self) -> NoReturn:
         """Save the competition to the bot database"""
@@ -831,54 +766,48 @@ class Competition(FlashScoreItem):
 
     async def table(self) -> Optional[str]:
         """Fetch the table from a flashscore Competition and return it as a BytesIO object"""
-
-        page = await self.bot.browser.newPage()
-
+        page: Page = await self.bot.browser.new_page()
         try:
-            await page.goto(self.link + "/standings/")
-            await page.waitForXPath('.//div[contains(@class, "tableWrapper")]', {"timeout": 5000})
-            await delete_ads(page)
-            data = await screenshot(page, './/div[contains(@class, "tableWrapper")]')
-            if data:
-                image = await screenshot(page, data)
-                if image:
-                    self._table = image
-                    return image
-        except TimeoutError:  # Some competitions don't have tables.
-            return None
+            await page.goto(f"{self.link}/standings/")
+            btn = page.locator('text=I Accept')
+
+            if await btn.count():
+                await btn.click()
+
+            try:
+                # await page.locator(ADS).evaluate_all("(nodes) => {for (const node of nodes) {node.remove();}}")
+                loc = '#tournament-table-tabs-and-content > div:last-of-type'
+                raw = await page.locator(loc).screenshot()
+            except TimeoutError:
+                return None
+            image = await dump_image(self.bot, BytesIO(raw))
+            self._table = image
+            return image
         finally:
             await page.close()
 
     async def scorers(self) -> List[Player]:
         """Fetch a list of scorers from a Flashscore Competition page returned as a list of Player Objects"""
-        page = await self.bot.browser.newPage()
+        page: Page = await self.bot.browser.new_page()
 
         try:
-            await page.goto(self.link + "/standings")
-            await delete_ads(page)
-            await page.waitForXPath('.//div[@class="tabs__group"]', {"timeout": 5000})
-            nav = await page.xpath('.//a[contains(@href, "top_scorers")]')  # Click to go to scorers tab
+            await page.goto(f"{self.link}/standings/")
+            await page.wait_for_selector('.tabs__group')
+            nav = await page.locator('a.top_scorers').click()  # Click to go to scorers tab
 
             for x in nav:
                 await x.click()
-                await page.waitForXPath('.//div[contains(@class, "topScorers__row")]', {"timeout": 5000})
+                await page.wait_for_selector('.topScorers__row')
 
             while True:
-                more = await page.xpath('.//div[contains(@class, "showMore")]')  # Click to go to scorers tab
-
-                if not more:
-                    break
-
-                for x in more:
-                    await x.click()
-                    break
-        except TimeoutError:
-            return []
+                locator = page.locator('.showMore')
+                if await locator.count():
+                    await locator.click()  # Click to go to scorers tab
+                    continue
+                break
+            tree = html.fromstring(await page.content())
         finally:
-            try:
-                tree = html.fromstring(await page.content())
-            finally:
-                await page.close()
+            await page.close()
 
         scorers = []
         for i in tree.xpath('.//div[contains(@class,"table__body")]/div'):
@@ -907,7 +836,7 @@ class Competition(FlashScoreItem):
 
             team = self.bot.get_team(team_id)
             if team is None:
-                team = Team(self.bot, id=team_id, competition=self)
+                team = Team(self.bot, flashscore_id=team_id, competition=self)
                 team.name = "".join(i.xpath('.//a/text()'))
 
             player.team = team
@@ -928,8 +857,8 @@ class Fixture(FlashScoreItem):
 
     emoji: str = '⚽'
 
-    def __init__(self, bot: Bot, id: str = None) -> None:
-        super().__init__(bot, id=id)
+    def __init__(self, bot: Bot, flashscore_id: str = None) -> None:
+        super().__init__(bot, flashscore_id=flashscore_id)
 
         self.away: Optional[Team] = None
         self._cards_away: Optional[int] = None
@@ -1185,10 +1114,10 @@ class Fixture(FlashScoreItem):
             return team_.logo_url
 
         # Else pull up the page and grab it manually.
-        page = await self.bot.browser.newPage()
+        page = await self.bot.browser.new_page()
         try:
             await page.goto(self.link)
-            await page.waitForXPath(f'.//div[contains(@class, "tlogo-{team}")]//img', {"timeout": 5000})
+            await page.wait_for_selector(f'.//div[contains(@class, "tlogo-{team}")]//img')
             tree = html.fromstring(await page.content())
         except TimeoutError:
             return None
@@ -1262,11 +1191,11 @@ class Fixture(FlashScoreItem):
     # High Cost lookups.
     async def refresh(self) -> None:
         """Perform an intensive full lookup for a fixture"""
-        page = await self.bot.browser.newPage()
+        page = await self.bot.browser.new_page()
         for i in range(3):  # retry up to 3 times.
             try:
                 await page.goto(self.link)
-                await page.waitForXPath(".//div[@class='container__detail']", {"timeout": 5000})
+                await page.wait_for_selector(".container__detail")
                 tree = html.fromstring(await page.content())
                 await page.close()
                 break
@@ -1430,44 +1359,36 @@ class Fixture(FlashScoreItem):
 
     async def table(self) -> Optional[str]:
         """Fetch an image of the league table appropriate to the fixture as a bytesIO object"""
-        page = await self.bot.browser.newPage()
+        page: Page = await self.bot.browser.new_page()
 
         try:
-            await page.goto(self.link + "/#standings/table/overall")
-            await page.waitForXPath('.//div[contains(@class, "tableWrapper")]', {"timeout": 5000})
-            await delete_ads(page)
-            return await screenshot(page, './/div[contains(@class, "tableWrapper")]/parent::div')
-        except TimeoutError:
-            return None
+            await page.goto(f"{self.link}/#standings/table/overall")
+            await page.wait_for_selector('.tableWrapper')
+            return await page.locator('.tableWrapper/parent::div').screenshot(mask=[page.locator(ADS)])
         finally:
             await page.close()
 
     async def stats(self) -> Optional[str]:
         """Get an image of a list of statistics pertaining to the fixture as a link to an image"""
-        page = await self.bot.browser.newPage()
+        page: Page = await self.bot.browser.new_page()
 
-        xp = ".//div[@class='section']"
-        url = self.link + "/#match-summary/match-statistics/0"
         try:
-            await page.goto(url)
-            await page.waitForXPath(".//div[@class='section']", {"timeout": 5000})
-            await delete_ads(page)
-            return await screenshot(page, ".//div[contains(@class, 'statRow')]")
-        except TimeoutError:
-            raise builtins.TimeoutError(f'Fixture.stats Timed out looking for {xp} on {url}')
+            await page.goto(f"{self.link}/#match-summary/match-statistics/0")
+            await page.wait_for_selector(".section")
+            return await page.locator(".statRow/parent::div").screenshot(mask=[page.locator(ADS)])
         finally:
             await page.close()
 
     async def formation(self) -> Optional[str]:
         """Get the formations used by both teams in the fixture as a link to an image"""
-        page = await self.bot.browser.newPage()
+        page: Page = await self.bot.browser.new_page()
 
         try:
             await page.goto(self.link + "/#match-summary/lineups")
-            await page.waitForXPath('.//div[contains(@class, "fieldWrap")]', {"timeout": 5000})
-            await delete_ads(page)
-            fm = await screenshot(page, './/div[contains(@class, "fieldWrap")]')
-            lineup = await screenshot(page, './/div[contains(@class, "lineUp")]')
+            await page.wait_for_selector('.fieldWrap')
+            fm = await page.locator(".fieldWrap").screenshot(mask=[page.locator(ADS)])
+            lineup = await page.locator(".lineUp").screenshot(mask=[page.locator(ADS)])
+
             valid_images = [i for i in [fm, lineup] if i]
             if valid_images:
                 data = await to_thread(stitch_vertical, valid_images)
@@ -1477,26 +1398,22 @@ class Fixture(FlashScoreItem):
 
     async def summary(self) -> Optional[str]:
         """Fetch the summary of a Fixture as a link to an image"""
-        page = await self.bot.browser.newPage()
+        page = await self.bot.browser.new_page()
 
         try:
             await page.goto(self.link + "/#standings/table/overall")
-            await page.waitForXPath(".//div[contains(@class, 'verticalSections')]", {"timeout": 5000})
-            await delete_ads(page)
-            return await screenshot(page, ".//div[contains(@class, 'verticalSections')]")
+            return await page.locator(".verticalSections").screenshot(mask=[page.locator(ADS)])
         finally:
             await page.close()
 
     async def head_to_head(self) -> Dict[str, Fixture]:
         """Get results of recent games related to the two teams in the fixture"""
-        page = await self.bot.browser.newPage()
+        page = await self.bot.browser.new_page()
 
         try:
-            await page.goto(self.link + "/#/h2h/overall")
-            await page.waitForXPath(".//div[@class='h2h']", {"timeout": 5000})
+            await page.goto(f"{self.link}/#/h2h/overall")
+            await page.wait_for_selector(".h2h")
             tree = html.fromstring(await page.content())
-        except TimeoutError:
-            return {}
         finally:
             await page.close()
 
@@ -1557,18 +1474,17 @@ class Fixture(FlashScoreItem):
 
     async def preview(self) -> str:
         """Fetch information about upcoming match from Flashscore"""
-        page = await self.bot.browser.newPage()
+        page: Page = await self.bot.browser.new_page()
 
         try:
             await page.goto(self.link)
-            await page.waitForXPath('.//div[contains(@class, "previewOpenBlock")]/div//text()', {"timeout": 5000})
-            await delete_ads(page)
+            await page.locator('.previewOpenBlock > div').inner_text()
             while True:
-                more = await page.xpath('.//div[contains(@class, "showMore")]')  # Click to go to scorers tab
-                for x in more:
-                    await x.click()
-                else:
-                    break
+                loc = page.locator('.showMore')
+                if await loc.count():
+                    await loc.click()
+                    continue
+                break
 
             tree = html.fromstring(await page.content())
         except TimeoutError:
@@ -1661,9 +1577,9 @@ class Player(FlashScoreItem):
     __slots__ = ('number', 'position', 'country', 'team', 'competition', 'age', 'apps', 'goals', 'assists', 'rank',
                  'yellows', 'reds', 'injury')
 
-    def __init__(self, bot: Bot, id: str = None, name: str = None, link: str = None, **kwargs) -> None:
+    def __init__(self, bot: Bot, flashscore_id: str = None, name: str = None, link: str = None, **kwargs) -> None:
 
-        super().__init__(bot, id=id, link=link, name=name)
+        super().__init__(bot, flashscore_id=flashscore_id, link=link, name=name)
 
         self.number: Optional[int] = kwargs.pop('number', None)
         self.position: Optional[str] = kwargs.pop('position', None)
@@ -1687,10 +1603,10 @@ class Player(FlashScoreItem):
     @property
     def link(self) -> str:
         """Alias to self.url"""
-        if "http://" in self.url:
+        if "https://" in self.url:
             return self.url
         else:
-            return f"http://www.flashscore.com{self.url}"
+            return f"https://www.flashscore.com{self.url}"
 
     @property
     def squad_row(self) -> str:
@@ -2101,20 +2017,22 @@ class TeamView(View):
         self.clear_items()
         if self.league_select:
             self.add_item(LeagueTableSelect(leagues=self.league_select))
-            self.league_select = []
+            self.league_select.clear()
         else:
-            add_page_buttons(self)
+            add_page_buttons(self, row=4)
 
-            for _ in [FuncButton(label="Squad", func=self.push_squad, emoji='🏃'),
-                      FuncButton(label="Injuries", func=self.push_injuries, emoji=INJURY_EMOJI),
-                      FuncButton(label="Scorers", func=self.push_scorers, emoji='⚽'),
-                      FuncButton(label="Table", func=self.select_table, row=3),
-                      FuncButton(label="Fixtures", func=self.push_fixtures, row=3),
-                      FuncButton(label="Results", func=self.push_results, row=3),
-                      FuncButton(label="News", func=self.push_news, row=3, emoji='📰'),
-                      ]:
-                _.disabled = True if self._disabled == _.label else False
-                self.add_item(_)
+            opts = [(SelectOption(label="Squad", emoji='🏃'), {}, self.push_squad),
+                    (SelectOption(label="Injuries", emoji=INJURY_EMOJI), {}, self.push_injuries),
+                    (SelectOption(label="Top Scorers", emoji='⚽'), {}, self.push_scorers),
+                    (SelectOption(label="Table"), {}, self.select_table),
+                    (SelectOption(label="Fixtures"), {}, self.push_fixtures),
+                    (SelectOption(label="Results"), {}, self.push_results),
+                    (SelectOption(label="News", emoji='📰'), {}, self.push_news)]
+
+            for count, item in enumerate(opts):
+                item[0].value = count
+
+            self.add_item(FuncDropdown(opts, placeholder="Additional info...", row=0))
 
         embed = self.pages[self.index] if self.pages else None
         return await self.bot.reply(self.interaction, content=content, view=self, embed=embed)
@@ -2194,6 +2112,7 @@ class TeamView(View):
             embed.description = f"No Table found."
 
         self.pages = [embed]
+        self.index = 0
         self._disabled = "Table"
         return await self.update()
 

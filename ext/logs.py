@@ -176,13 +176,15 @@ class Logs(Cog):
         """Event handler to Dispatch new member information for servers that request it"""
         # Extended member join information.
         e: Embed = Embed(colour=0x7289DA)
-        e.description = f"➡ {member.mention} joined {member.guild.name}\n**User ID**: {member.id}"
+        desc = [f"➡ {member.mention} joined {member.guild.name}\n**User ID**: {member.id}"]
 
         other_servers: int = sum(1 for m in self.bot.get_all_members() if m.id == member.id) - 1
         if other_servers:
             e.add_field(name='Shared Servers', value=f'Seen on {other_servers} other servers')
         if member.bot:
-            e.description += '\n\n🤖 **This is a bot account**'
+            desc.append('🤖 **This is a bot account**')
+
+        e.description = "\n\n".join(desc)
 
         e.add_field(name="Account Created", value=timed_events.Timestamp(member.created_at).date_relative)
         try:

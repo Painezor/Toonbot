@@ -1,16 +1,17 @@
 """Private world of warships related commands"""
 from __future__ import annotations
 
-from functools import partial
+from copy import deepcopy
+from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
-from discord import Embed, ButtonStyle, Message, Colour, SelectOption
+from discord import Embed, ButtonStyle, Message, Colour
 from discord.app_commands import command, describe, default_permissions, autocomplete, Choice, guilds, Range, Group
 from discord.ext.commands import Cog
 from discord.ui import View, Button
 from unidecode import unidecode
 
-from ext.painezbot_utils.clan import ClanBuilding
+from ext.painezbot_utils.clan import ClanBuilding, League, Leaderboard
 from ext.painezbot_utils.player import Region, Map, GameMode
 from ext.painezbot_utils.ship import Nation, ShipType, Ship
 from ext.utils.embed_utils import rows_to_embeds
@@ -235,7 +236,7 @@ async def ship_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
 class Warships(Cog):
     """World of Warships related commands"""
 
-    def __init__(self, bot: 'PBot') -> None:
+    def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
 
     async def cog_load(self) -> None:
@@ -402,7 +403,8 @@ class Warships(Cog):
         """Links to the various How It Works videos"""
         e = Embed(title="How it Works Video Series", colour=Colour.dark_red())
         e.description = "The how it works video series give comprehensive overviews of some of the game's mechanics," \
-                        "you can find links to them all below\n\n" + \
+                        "you can find links to them all below\n\n" \
+                        "**Latest Video**: [In-Game Mechanics](https://youtu.be/hFfBqjqQ-S8)\n\n" + \
                         ', '.join(["[AA Guns & Fighters](https://youtu.be/Dvrwz-1XhnM)",
                                    "[Armour](https://youtu.be/yQcutrneBJQ)",
                                    "[Ballistics](https://youtu.be/02pb8VS_mFo)",
@@ -609,11 +611,10 @@ class Warships(Cog):
             "\n• Removed the bonus that increased the dispersion of incoming enemy shells by 4%.")
         await self.bot.reply(interaction, embed=e)
 
-    clan = Group(name="clan", description="Get information about Clan Battle rankings",
-                 guild_ids=[250252535699341312])
+    clan = Group(name="clan", description="Get information about Clan Battle rankings")
 
     @clan.command()
-    @describe(query="Clan Name or Tag")
+    @describe(query="Clan Name or Tag", region="Which region is this clan from")
     @autocomplete(query=clan_ac)
     async def search(self, interaction: Interaction, region: REGION, query: Range[str, 2]) -> Message:
         """Get information about a World of Warships clan"""
@@ -662,11 +663,10 @@ class Warships(Cog):
             e = Embed(title="Clan Battle Season Winners", colour=Colour.purple())
             return await Paginator(interaction, rows_to_embeds(e, rows, max_rows=25)).update()
 
-    # TODO: TEST LEADERBOARDS
     @clan.command()
     @describe(region="Get Rankings for a specific region")
-    async def rankings(self, interaction: Interaction,
-                       region: REGION = None, season: Range[int, 1, 17] = None) -> Message:
+    async def leaderboard(self, interaction: Interaction, region: REGION = None,
+                          season: Range[int, 1, 17] = None) -> Message:
         """Get the Season Clan Battle Leaderboard"""
         url = 'https://clans.worldofwarships.eu/api/ladder/structure/'
         p = {  # league: int, 0 = Hurricane.
@@ -688,34 +688,27 @@ class Warships(Cog):
                 case _:
                     raise ConnectionError(f'Error {resp.status} connecting to {resp.url}')
 
-        rows = []
-        opts = []
-
+        clans = []
         for c in json:
-            clan = self.bot.get_clan(c['id'])
+            clan = deepcopy(self.bot.get_clan(c['id']))
+
             clan.tag = c['tag']
             clan.name = c['name']
+            clan.league = next(i for i in League if i.value == c['league'])
             clan.public_rating = c['public_rating']
-            clan.last_battle_at = Timestamp(c['last_battle_at'])
-
-            r = '⛔' if c['disbanded'] else clan.public_rating
-
+            ts = datetime.strptime(c['last_battle_at'], "%Y-%m-%d %H:%M:%S%z")
+            clan.last_battle_at = Timestamp(ts)
+            clan.is_clan_disbanded = c['disbanded']
             clan.battles_count = c['battles_count']
             clan.leading_team_number = c['leading_team_number']
-            rank = f"`{c['rank'].rjust(2)}`."
-            region = clan.region
+            clan.season_number = 17 if season is None else season
+            clan.rank = c['rank']
 
-            rows.append(f"{rank} `{r.rjust(4)}` {region.emote} **[{clan.tag}]** ({c.max_rating_name[0]})"
-                        f"{clan.name}\n{clan.battles_count} Battles, Last: {clan.last_battle_at.relative}")
+            clans.append(clan)
 
-            opt = SelectOption(label=f"[{clan.tag}] {clan.name}", emoji=clan.league.emote)
-            opts.append((opt, {}, partial(clan.view, interaction)))
-
-        season = 17 if season is None else season
-        e = Embed(title=f"Clan Battle Season {season} Ranking", colour=Colour.purple())
-        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
+        return await Leaderboard(interaction, clans).update()
 
 
-async def setup(bot: 'PBot'):
+async def setup(bot: PBot):
     """Load the cog into the bot"""
     await bot.add_cog(Warships(bot))

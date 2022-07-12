@@ -1,14 +1,16 @@
 """Commands about the meta-state of the bot and information about users and servers"""
+from __future__ import annotations
+
 import datetime
 from copy import deepcopy
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from discord import Member, Embed, Colour, TextChannel, Forbidden, Interaction, Message
 from discord.app_commands import CommandAlreadyRegistered, context_menu, command, guild_only
 from discord.ext.commands import Cog
 
-from ext.utils import timed_events
 from ext.utils.embed_utils import get_colour, rows_to_embeds
+from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
@@ -55,10 +57,10 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
         e.set_image(url=member.banner.url)
 
     try:
-        e.description += f'\nJoined Server: {timed_events.Timestamp(member.joined_at).countdown}'
+        e.description += f'\nJoined Server: {Timestamp(member.joined_at).countdown}'
     except AttributeError:
         pass
-    e.description += f'\nCreated Account: {timed_events.Timestamp(member.created_at).countdown}'
+    e.description += f'\nCreated Account: {Timestamp(member.created_at).countdown}'
 
     # Embed 2 - User Permissions
     try:
@@ -88,7 +90,7 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
 class Info(Cog):
     """Get information about users or servers."""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+    def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
         try:
             self.bot.tree.add_command(u_info)
@@ -100,13 +102,16 @@ class Info(Cog):
     async def server_info(self, interaction: Interaction) -> Message:
         """Shows information about the server"""
         e: Embed = Embed(title=interaction.guild.name)
-        e.description = interaction.guild.description if interaction.guild.description is not None else ""
-        e.description += f"Guild ID: {interaction.guild.id}"
+
+        desc = []
+        if interaction.guild.description:
+            desc.append(interaction.guild.description)
+        desc.append(f"Guild ID: {interaction.guild.id}")
         try:
-            e.description += f"\nOwner: {interaction.guild.owner.mention}"
+            desc.append(f"Owner: {interaction.guild.owner.mention}")
         except AttributeError:
             pass
-        e.description += f'\n\n{len(interaction.guild.members)} Members'
+        desc.append(f'\n{len(interaction.guild.members)} Members')
 
         # figure out what channels are 'secret'
         text_channels = 0
@@ -115,13 +120,13 @@ class Info(Cog):
         regular_channels = len(interaction.guild.channels)
         voice_channels = regular_channels - text_channels
 
-        e.description += f"\n{regular_channels} text channels "
+        desc.append(f"{regular_channels} text channels ")
         if voice_channels:
-            e.description += f"\n{voice_channels} Voice channels"
+            desc.append(f"{voice_channels} Voice channels")
 
         if interaction.guild.premium_subscription_count:
-            e.description += f"\n\n{interaction.guild.premium_subscription_count} " \
-                             f"Nitro Boosts (Tier {interaction.guild.premium_tier})"
+            desc.append(f"{interaction.guild.premium_subscription_count} "
+                        f"Boosts (Tier {interaction.guild.premium_tier})")
 
         if interaction.guild.banner is not None:
             e.set_image(url=interaction.guild.banner.url)
@@ -140,9 +145,8 @@ class Info(Cog):
         if emojis:
             e.add_field(name="Emotes", value=emojis, inline=False)
 
-        e.description += f"\n**Emotes**: {len(interaction.guild.emojis)} / {interaction.guild.emoji_limit}  slots used."
-        e.description += f"\n**Stickers**: {len(interaction.guild.stickers)} " \
-                         f"/ {interaction.guild.sticker_limit} slots used."
+        desc.append(f"**Emotes**: {len(interaction.guild.emojis)} / {interaction.guild.emoji_limit}  slots used.")
+        desc.append(f"**Stickers**: {len(interaction.guild.stickers)} / {interaction.guild.sticker_limit} slots used.")
 
         try:
             vanity = await interaction.guild.vanity_invite()
@@ -153,10 +157,11 @@ class Info(Cog):
 
         roles = [role.mention for role in interaction.guild.roles]
         e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
-        e.add_field(name="Creation Date", value=timed_events.Timestamp(interaction.guild.created_at).date_relative)
+        e.add_field(name="Creation Date", value=Timestamp(interaction.guild.created_at).date_relative)
+        e.description = "\n".join(desc)
         return await self.bot.reply(interaction, embed=e)
 
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+async def setup(bot: Bot | PBot) -> None:
     """Load the Info cog into the bot"""
     return await bot.add_cog(Info(bot))

@@ -4,7 +4,7 @@ from __future__ import annotations  # Cyclic Type hinting
 from typing import TYPE_CHECKING, List, Dict, Optional, ClassVar
 
 from asyncpg import ForeignKeyViolationError
-from discord import ButtonStyle, Interaction, Embed, Colour, TextChannel, Permissions
+from discord import ButtonStyle, Interaction, Embed, Colour, TextChannel, Permissions, HTTPException
 from discord.app_commands import Group, describe
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -31,7 +31,7 @@ class TransferChannel:
     """An object representing a channel with a Transfer Ticker"""
     bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', channel: TextChannel) -> None:
+    def __init__(self, bot: Bot, channel: TextChannel) -> None:
 
         self.channel: TextChannel = channel
         self.leagues: List[Competition] = []  # Alias, Link
@@ -53,7 +53,11 @@ class TransferChannel:
             if transfer.new_team.league.link not in leagues:
                 return None
 
-        message = await self.channel.send(embed=transfer.embed)
+        try:
+            message = await self.channel.send(embed=transfer.embed)
+        except HTTPException:
+            return
+
         self.dispatched[transfer] = message
         return message
 
@@ -160,7 +164,7 @@ class TransferChannel:
 
     def view(self, interaction: Interaction) -> TransfersConfig:
         """A view representing the configuration of the TransferTicker"""
-        return TransfersConfig(self.bot, interaction, self)
+        return TransfersConfig(interaction, self)
 
 
 class ResetLeagues(Button):
@@ -214,9 +218,9 @@ class RemoveLeague(Select):
 
 class TransfersConfig(View):
     """View for configuring Transfer Tickers"""
-    bot: Bot = None
+    bot: ClassVar[Bot] = None
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, tc: TransferChannel):
+    def __init__(self, interaction: Interaction, tc: TransferChannel):
         super().__init__()
         self.interaction: Interaction = interaction
         self.tc: TransferChannel = tc
@@ -224,7 +228,7 @@ class TransfersConfig(View):
         self.pages: List[Embed] = []
 
         if self.__class__.bot is None:
-            self.__class__.bot = bot
+            self.__class__.bot = interaction.client
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify interactor is person who ran command."""
@@ -343,7 +347,7 @@ class TransfersConfig(View):
 class TransfersCog(Cog):
     """Create and configure Transfer Ticker channels"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
         if TransferResult.bot is None:
@@ -353,7 +357,7 @@ class TransfersCog(Cog):
 
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
-        self.bot.transferrs = self.transfers_loop.start()
+        self.bot.transfers = self.transfers_loop.start()
 
     async def cog_unload(self) -> None:
         """Cancel transfers task on Cog Unload."""
@@ -561,6 +565,6 @@ class TransfersCog(Cog):
         await self.bot.db.release(connection)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: Bot):
     """Load the transfer ticker cog into the bot"""
     await bot.add_cog(TransfersCog(bot))

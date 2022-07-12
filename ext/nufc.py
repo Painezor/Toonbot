@@ -343,6 +343,6 @@ class NUFC(Cog):
             await self.bot.reply(interaction, emebd=e)
 
 
-async def setup(bot: 'Bot'):
+async def setup(bot: 'Bot') -> None:
     """Load the NUFC Cog into the bot"""
     await bot.add_cog(NUFC(bot))

@@ -1,4 +1,6 @@
 """Miscellaneous toys built for my own personal entertainment."""
+from __future__ import annotations
+
 from collections import Counter
 from copy import deepcopy
 from random import choice, randint, randrange, shuffle
@@ -31,11 +33,11 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 class CoinView(View):
     """A View with a counter for 2 results"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, count: int = 1) -> None:
+    def __init__(self, interaction: Interaction, count: int = 1) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.flip_results: List[str] = []
-        self.bot: Bot = bot
+        self.bot: Bot = interaction.client
         for x in range(count):
             self.flip_results.append(choice(['Heads', 'Tails']))
 
@@ -49,18 +51,19 @@ class CoinView(View):
 
     async def update(self, content: str = "") -> Message:
         """Update embed and push to view"""
-        e: Embed = Embed(title="🪙 Coin Flip", colour=Colour.og_blurple(),
-                         description=f"**{self.flip_results[-1]}**\n\n")
+        e: Embed = Embed(colour=Colour.og_blurple(), title=self.flip_results[-1])
         e.set_thumbnail(url=COIN_IMAGE)
+        e.set_author(name="🪙 Coin Flip")
 
         if len(self.flip_results) > 1:
             counter = Counter(self.flip_results)
             for c in counter.most_common():
                 e.add_field(name=f"Total {c[0]}", value=c[1])
 
+            res = [f'*{i}*' for i in self.flip_results[-200:]]
             if len(self.flip_results) > 200:
-                e.description += "\n…"
-            e.description += ', '.join([f'*{i}*' for i in self.flip_results[-200:]])
+                res.append("\n…")
+            e.description = ', '.join(res)
         return await self.bot.reply(self.interaction, content=content, view=self, embed=e)
 
 
@@ -84,7 +87,7 @@ class ChoiceModal(Modal, title="Make a Decision"):
     question = TextInput(label="Enter a question", placeholder="What should I do?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
 
-    def __init__(self, bot: 'Bot'):
+    def __init__(self, bot: Bot) -> None:
         super().__init__()
         self.bot: Bot = bot
 
@@ -120,7 +123,7 @@ async def mock(interaction: Interaction, message: Message) -> Message:
 class Fun(Cog):
     """Various Toys for you to play with."""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         self.bot.tree.add_command(mock)  # Must be free floating.
 
@@ -176,7 +179,7 @@ class Fun(Cog):
         if count > 10000:
             return await self.bot.error(interaction, content='Too many coins.')
 
-        v = CoinView(self.bot, interaction, count=count)
+        v = CoinView(interaction, count=count)
         v.add_item(FlipButton())
 
         for _ in [5, 10, 100, 1000]:
@@ -356,6 +359,6 @@ class Fun(Cog):
         return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Load the Fun cog into the bot"""
     return await bot.add_cog(Fun(bot))

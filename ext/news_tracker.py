@@ -101,11 +101,11 @@ class Article:
         """Handle dispatching of news article."""
         # CHeck if we need to do a full refresh on the article.
         if None in [self.title, self.category, self.image, self.description]:
-            page = await self.bot.browser.newPage()
+            page = await self.bot.browser.new_page()
 
             try:
                 await page.goto(self.link)
-                await page.waitForXPath(".//div[@class='header__background']", {"timeout": 5000})
+                await page.wait_for_selector(".header__background")
                 tree = html.fromstring(await page.content())
             finally:
                 await page.close()

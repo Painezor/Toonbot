@@ -16,7 +16,7 @@ from twitchio.ext import commands
 from ext.painezbot_utils.clan import ClanBuilding, Clan
 from ext.painezbot_utils.player import Player
 from ext.painezbot_utils.ship import ShipSentinel
-from ext.utils.browser_utils import make_browser
+from ext.utils.pw_browser import make_browser
 from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 	from ext.news_tracker import NewsChannel, Article
 	from ext.devblog import Blog
 	from ext.twitch_tracker import Contributor, TrackerChannel
-	from pyppeteer.browser import Browser
+	from playwright.async_api import BrowserContext
 	from typing import List, Optional
 	from asyncpg import Record, Pool
 	from asyncio import Task
@@ -87,7 +87,7 @@ class PBot(AutoShardedBot):
 		self.news_channels: List[NewsChannel] = []
 
 		# Session // Scraping
-		self.browser: Optional[Browser] = None
+		self.browser: Optional[BrowserContext] = None
 		self.session: Optional[ClientSession] = None
 
 		# Twitch API
@@ -114,7 +114,7 @@ class PBot(AutoShardedBot):
 
 	async def setup_hook(self):
 		"""Load Cogs asynchronously"""
-		self.browser = await make_browser()
+		self.browser = await make_browser(self)
 		self.session = ClientSession(loop=self.loop, connector=TCPConnector(ssl=False))
 
 		for c in COGS:

@@ -41,7 +41,7 @@ class Parent(Button):
     """If a view has a "parent" view, add a button to allow user to go to it."""
 
     def __init__(self, row: int = 0, label: str = "Back") -> None:
-        super().__init__(label=label, emoji='🏠', row=row)
+        super().__init__(label=label, emoji='⬆', row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
         """When clicked, call the parent view's update button"""
@@ -278,6 +278,8 @@ class FuncButton(Button):
 
 class FuncDropdown(Select):
     """Perform function based on user's dropdown choice"""
+
+    # Passed List of [Select Option, Dict of args to setattr, Function to apply.]
 
     def __init__(self, options: List[Tuple[SelectOption, Dict, Callable]],
                  placeholder: str = None, row: int = 3) -> None:

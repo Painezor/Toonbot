@@ -1,24 +1,26 @@
 """Commands for fetching information about football entities from transfermarkt"""
-from typing import Optional, Literal, TYPE_CHECKING
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from core import Bot
+from typing import Optional, Literal, TYPE_CHECKING
 
 from discord import Interaction, Message
 from discord.app_commands import command, describe
 from discord.ext.commands import Cog
+
 from ext.toonbot_utils.transfermarkt import SearchView
 
+if TYPE_CHECKING:
+    from core import Bot
+
 # TODO: HTTP Autocomplete
+opts = Literal['player', 'team', 'staff', 'referee', 'competition', 'agent']
 
 
 class Lookups(Cog):
     """Transfer market lookups"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-
-    opts = Literal['player', 'team', 'staff', 'referee', 'competition', 'agent']
 
     @command()
     @describe(category='search within a category', query='enter search query')
@@ -85,6 +87,6 @@ class Lookups(Cog):
             return await view.value.view(interaction).attendance()
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Load the lookup cog into the bot"""
     await bot.add_cog(Lookups(bot))

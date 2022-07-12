@@ -36,7 +36,7 @@ class PollButton(Button):
 class PollView(View):
     """View for a poll commands"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, question: str, answers: List[str]):
+    def __init__(self, bot: 'Bot', interaction: Interaction, question: str, answers: List[str]) -> None:
         self.interaction: Interaction = interaction
         self.question: str = question
         self.votes: dict = {}
@@ -101,7 +101,7 @@ class PollModal(Modal, title="Create a poll"):
     question = TextInput(label="Enter a question", placeholder="What is your favourite colour?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Red\nBlue\nYellow")
 
-    def __init__(self, bot: 'Bot'):
+    def __init__(self, bot: 'Bot') -> None:
         self.bot: Bot = bot
         super().__init__()
 

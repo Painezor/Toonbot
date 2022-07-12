@@ -249,8 +249,8 @@ class ScoresConfig(View):
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
-        lg_text = "```yaml\n" + '\n'.join(sorted(leagues)) + "```"
-        txt = f"Remove these leagues from {self.sc.channel.mention}? {lg_text}"
+        lg_txt = '\n'.join(sorted(leagues))
+        txt = f"Remove these leagues from {self.sc.channel.mention}? ```yaml\n{lg_txt}```"
         await self.bot.reply(self.interaction, content=txt, embed=None, view=view)
         await view.wait()
 
@@ -258,7 +258,7 @@ class ScoresConfig(View):
             return await self.update(content="No leagues were removed")
 
         await self.sc.remove_leagues(leagues)
-        return await self.update(content=f"Removed {self.sc.channel.mention} tracked leagues: {lg_text}")
+        return await self.update(content=f"Removed {self.sc.channel.mention} tracked leagues: ```yaml\n{lg_txt}```")
 
 
 class ResetLeagues(Button):
@@ -321,7 +321,7 @@ class Scores(Cog, name="LiveScores"):
 
         for c in comps:
             if self.bot.get_competition(c['id']) is None:
-                comp = Competition(self.bot, id=c['id'], link=c['url'], name=c['name'], country=c['country'])
+                comp = Competition(self.bot, flashscore_id=c['id'], link=c['url'], name=c['name'], country=c['country'])
                 comp.logo_url = c['logo_url']
                 self.bot.competitions.append(comp)
 

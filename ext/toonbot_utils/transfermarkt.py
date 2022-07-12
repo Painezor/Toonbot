@@ -3,16 +3,16 @@ from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
 from copy import deepcopy
-from typing import List, TYPE_CHECKING, Optional
+from typing import List, TYPE_CHECKING, Optional, ClassVar
 
-from discord import Interaction, Embed, Colour, Message
+from discord import Interaction, Embed, Colour, Message, SelectOption
 from discord.ui import View, Select, Button
 from lxml import html
 from pycountry import countries
 
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Paginator, FuncButton, add_page_buttons
+from ext.utils.view_utils import Paginator, FuncButton, add_page_buttons, Parent
 
 if TYPE_CHECKING:
     from core import Bot
@@ -179,6 +179,7 @@ class TransferResult:
             return "🌍"
 
         if isinstance(country, list):
+            print('Trying to find flags for countries', country)
             return ' '.join([x for x in [get_flag(i) for i in self.country] if x is not None])
         else:
             return get_flag(self.country)
@@ -213,16 +214,14 @@ class Team(TransferResult):
             setattr(self, k, v)
 
     def __str__(self) -> str:
-        out = f"{self.flag} {self.markdown}"
-
-        if self.league is not None:
-            return out + f" ({self.league.markdown})"
-        return out
+        if self.league.markdown:
+            return f"{self.flag} {self.markdown} ({self.league.markdown})"
+        return f"{self.flag} {self.markdown}"
 
     @property
-    def dropdown(self) -> str:
-        """Text to be sent to the dropdown Option"""
-        return f"{self.flag} {self.name} ({self.league.name})"
+    def select_option(self) -> str:
+        """A Select Option representation of this Team"""
+        return SelectOption(emoji=self.flag, label=self.name, description=self.league.name)
 
     @property
     def badge(self) -> str:
@@ -269,7 +268,11 @@ class Team(TransferResult):
 
             pos = ''.join(i.xpath('.//td[1]//tr[2]/td/text()'))
             age = ''.join(i.xpath('./td[2]/text()')).split('(')[-1].replace(')', '').strip()
+
+            print('This is where the weird get flags are coming from')
             flag = " ".join([get_flag(f) for f in i.xpath('.//td[3]/img/@title')])
+            print('Yeah, knew it.')
+
             date = ''.join(i.xpath('.//td[4]//text()')).strip()
             _ = datetime.datetime.strptime(date, "%b %d, %Y")
             expiry = Timestamp(_).countdown
@@ -430,7 +433,7 @@ class Transfer:
 
 class TeamView(View):
     """A View representing a Team on TransferMarkt"""
-    bot: Bot
+    bot: ClassVar[Bot] = None
 
     def __init__(self, interaction: Interaction, team: Team) -> None:
         super().__init__()
@@ -438,8 +441,9 @@ class TeamView(View):
         self.interaction: Interaction = interaction
         self.index: int = 0
         self.pages: List[Embed] = []
+        self.parent: View = None
 
-        if not hasattr(self.__class__, 'bot'):
+        if self.__class__.bot is None:
             self.__class__.bot = interaction.client
 
     async def on_timeout(self) -> Message:
@@ -453,6 +457,9 @@ class TeamView(View):
     async def update(self, content: str = "") -> Message:
         """Send the latest version of the view"""
         self.clear_items()
+        if self.parent is not None:
+            self.add_item(Parent())
+
         add_page_buttons(self)
 
         for label, func, emoji in [("Transfers", self.push_transfers, '🔄'), ("Rumours", self.push_rumours, '🕵'),
@@ -599,7 +606,9 @@ class TeamView(View):
                 link = TF + link
 
             pos = ''.join(i.xpath('.//td[2]//tr[2]/td/text()'))
+            print('Or maybe this is where the weird get flags are coming from.')
             flag = get_flag(i.xpath('.//td[3]/img/@title')[0])
+            print('Who knows.')
             age = ''.join(i.xpath('./td[4]/text()')).strip()
             team = ''.join(i.xpath('.//td[5]//img/@alt'))
             team_link = ''.join(i.xpath('.//td[5]//img/@href'))
@@ -680,7 +689,9 @@ class TeamView(View):
 
             pos = ''.join(i.xpath('.//td[1]//tr[2]/td/text()'))
             age = ''.join(i.xpath('./td[2]/text()')).split('(')[-1].replace(')', '').strip()
+            print('Final option is the weird get flags are coming from here.')
             flag = " ".join([get_flag(f) for f in i.xpath('.//td[3]/img/@title')])
+            print('Guess it was here after all...')
             date = ''.join(i.xpath('.//td[4]//text()')).strip()
 
             _ = datetime.datetime.strptime(date, "%b %d, %Y")
@@ -744,6 +755,7 @@ class CompetitionView(View):
         self.interaction: Interaction = interaction
         self.index: int = 0
         self.pages: List[Embed] = []
+        self.parent: View = None
 
         if not hasattr(self.__class__, 'bot'):
             self.__class__.bot = interaction.client
@@ -759,10 +771,11 @@ class CompetitionView(View):
     async def update(self, content: str = "") -> Message:
         """Send the latest version of the view"""
         self.clear_items()
+        if self.parent is not None:
+            self.add_item(Parent())
         add_page_buttons(self)
 
-        for _ in [FuncButton(label="Attendances", func=self.attendance, emoji='🏟️')]:
-            self.add_item(_)
+        self.add_item(FuncButton(label="Attendances", func=self.attendance, emoji='🏟️'))
         return await self.bot.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
     async def attendance(self) -> Message:
@@ -839,7 +852,7 @@ class CategorySelect(Select):
     """Dropdown to specify what user is searching for."""
 
     def __init__(self) -> None:
-        super().__init__(placeholder="What are you trying to search for…?")
+        super().__init__(placeholder="Select a Category")
 
     async def callback(self, interaction: Interaction) -> Message:
         """Edit view on select."""
@@ -885,7 +898,7 @@ class SearchSelect(Select):
 
 class SearchView(View):
     """A TransferMarkt Search in View Form"""
-    bot: Bot = None
+    bot: ClassVar[Bot] = None
 
     def __init__(self, interaction: Interaction, query: str, category: str = None, fetch: bool = False) -> None:
         super().__init__()
@@ -1065,7 +1078,7 @@ class SearchView(View):
             categories = [i.lower().strip() for i in tree.xpath(".//div[@class='table-header']/text()")]
 
             sel = CategorySelect()
-            ce: Embed = Embed(title="Multiple results found")
+            ce: Embed = Embed(title="Multiple results found", colour=Colour.dark_blue())
             ce.set_footer(text="Use the dropdown to select a category")
             desc = []
             for i in categories:
@@ -1142,8 +1155,8 @@ class SearchView(View):
         except ValueError:
             matches = 0
 
-        e: Embed = Embed(title=f"{matches} {self.category.title().rstrip('s')} results for {self.query}")
-        e.set_author(name="TransferMarkt Search", url=url, icon_url=FAVICON)
+        e: Embed = Embed(title=f"{matches} results for {self.query}", url=url)
+        e.set_author(name=f"TransferMarkt Search: {self.category.title().rstrip('s')}", icon_url=FAVICON)
 
         results: List[TransferResult] = parser(tree.xpath(trs))
         if not results:
@@ -1153,7 +1166,7 @@ class SearchView(View):
         e = rows_to_embeds(e, [str(i) for i in results])[0]
 
         self.pages = [None] * max(matches // 10, 1)
-        self.add_item(Home())
+        self.add_item(Home(row=0))
         add_page_buttons(self)
 
         if self.fetch and results:

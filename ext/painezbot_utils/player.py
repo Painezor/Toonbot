@@ -4,7 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, Tuple, Callable, Dict
+from typing import TYPE_CHECKING, Optional, Tuple, Callable, Dict, ClassVar
 
 from discord import Colour, Embed, Message, SelectOption
 from discord.ui import View, Button
@@ -137,7 +137,7 @@ class Region(Enum):
 
 class Player:
     """A World of Warships player."""
-    bot: PBot = None
+    bot: ClassVar[PBot] = None
 
     def __init__(self, bot: 'PBot', account_id: int, **kwargs) -> None:
 
@@ -354,11 +354,10 @@ class PlayerView(View):
         self.ship: Ship = ship
 
         # Used
-        self.cb_season: int = 0
+        self.cb_season: int = 17
 
         # Generated
         self._disabled: Optional[Callable] = None
-        self.embed: Embed = self.base_embed
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify clicker is owner of command."""
@@ -475,18 +474,16 @@ class PlayerView(View):
 
     async def clan_battles(self) -> Message:
         """Attempt to fetch player's Clan Battles data."""
-        season = self.player.clan.season_number if self.cb_season == 0 else self.cb_season
+        if self.cb_season not in self.player.clan_battle_stats:
+            await self.player.clan.get_member_clan_battle_stats(self.cb_season)
 
-        if season not in self.player.clan_battle_stats:
-            await self.player.clan.get_member_clan_battle_stats(season)
-
-        stats = self.player.clan_battle_stats[season]
+        stats = self.player.clan_battle_stats[self.cb_season]
 
         print('Found clan battle stats')
         print(stats)
 
         e = await self.base_embed
-        e.title = f"Clan Battles (Season {season}"
+        e.title = f"Clan Battles (Season {self.cb_season})"
         e.description = f"**Win Rate**: {round(stats.win_rate, 2)}% ({stats.battles} battles played)\n" \
                         f"**Average Damage**: {format(round(stats.average_damage, 0), ',')}\n" \
                         f"**Average Kills**: {round(stats.average_kills, 2)}\n"
@@ -623,7 +620,11 @@ class PlayerView(View):
         e = await self.base_embed
         desc = []
 
-        e.title, p_stats = await self.filter_stats()
+        match self.mode.tag:
+            case "CLAN":
+                return await self.clan_battles()
+            case _:
+                e.title, p_stats = await self.filter_stats()
 
         p_stats = deepcopy(p_stats)
         # Overall Rates - Survival, WR, Wins, Loss, Draw
@@ -742,7 +743,7 @@ class PlayerView(View):
                                  disabled=self._disabled == self.overview, row=0))
 
         if self.player.clan:
-            self.add_item(ClanButton(self.interaction, self.player.clan, parent=self))
+            self.add_item(ClanButton(self.interaction, self.player.clan, parent=(self, self.player.nickname)))
 
         if self.mode.tag != "CLAN":
             self.add_item(FuncButton(func=self.weapons, label="Armaments", disabled=self._disabled == self.weapons,
@@ -762,16 +763,11 @@ class PlayerView(View):
         ds = self.div_size
         match self.mode.tag:
             case "CLAN":
-                ssns = self.player.clan_battle_stats
                 opts = []
-                for s in ssns.keys():
-                    opt = SelectOption(label=f"Season {s}", emoji=self.mode.emoji)
-                    attr = {'cb_season': s}
-                    funcs = self.clan_battles
-                    opts.append((opt, attr, funcs))
-
-                if opts:
-                    self.add_item(FuncDropdown(options=opts, row=1, placeholder="Change Season"))
+                for x in range(self.player.clan.season_number):
+                    opt = SelectOption(label=f"Season {x}", emoji=self.mode.emoji, value=str(x))
+                    opts.append((opt, {'cb_season': x}, self.clan_battles))
+                self.add_item(FuncDropdown(options=opts, row=1, placeholder="Change Season"))
             case "BRAWL" | "EVENT":
                 # Event and Brawl aren't in API.
                 # Pre-made & Clan don't have div sizes.

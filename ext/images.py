@@ -1,4 +1,6 @@
 """Various image manipulation """
+from __future__ import annotations
+
 import datetime
 from asyncio import to_thread
 from copy import deepcopy
@@ -106,7 +108,7 @@ def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
 class ImageView(View):
     """Holder View for Image Manipulation functions."""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, target: str) -> None:
+    def __init__(self, bot: Bot, interaction: Interaction, target: str) -> None:
         self.interaction: Interaction = interaction
         self.coordinates: dict = {}
         self.embed: Embed | None = None
@@ -281,7 +283,7 @@ class ImageView(View):
 class Images(Cog):
     """Image manipulation commands"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
     @command()
@@ -412,6 +414,6 @@ class Images(Cog):
         return await Paginator(interaction, embeds).update()
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Load the Images Cog into the bot"""
     await bot.add_cog(Images(bot))

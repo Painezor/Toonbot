@@ -1,5 +1,7 @@
 """Error Handling for Commands"""
-from typing import TYPE_CHECKING, Union
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from discord import Message, Interaction
 from discord.app_commands import CommandInvokeError, BotMissingPermissions, MissingPermissions
@@ -15,39 +17,33 @@ if TYPE_CHECKING:
 class Errors(Cog):
     """Error Handling Cog"""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+    def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
         self.bot.tree.on_error = self.error_handler
 
-    async def error_handler(self, i: Interaction, error) -> Message:
+    async def error_handler(self, interaction: Interaction, error) -> Message:
         """Event listener for when commands raise exceptions"""
-        # Unpack CIE
         if isinstance(error, NotOwner):
-            return await self.bot.error(i, 'You do not own this bot.')
+            return await self.bot.error(interaction, 'You do not own this bot.')
 
+        # Unpack CIE
         if isinstance(error, CommandInvokeError):
             error = error.original
 
         match error:
             case TargetOptedOutError() | OptedOutError():  # QuoteDB Specific
-                return await self.bot.error(i, error.args[0])
+                return await self.bot.error(interaction, error.args[0])
             case BotMissingPermissions():
                 miss = ', '.join(error.missing_permissions)
-                return await self.bot.error(i, f"The bot requires the {miss} permissions to run this command")
+                return await self.bot.error(interaction, f"The bot requires the {miss} permissions to run this command")
             case MissingPermissions():
                 miss = ', '.join(error.missing_permissions)
-                return await self.bot.error(i, f"You required {miss} permissions to run this command")
+                return await self.bot.error(interaction, f"You required {miss} permissions to run this command")
             case _:
-                try:
-                    return await self.bot.error(i, 'An Internal error occurred.')
-                finally:
-                    if i.command.parent:
-                        print(f'/{i.command.parent.name} {i.command.name}')
-                    else:
-                        print(f'/{i.command.name}')
-                    raise error
+                await self.bot.error(interaction, f'An Internal error occurred.\n{error.args}')
+                raise error
 
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+async def setup(bot: Bot | PBot) -> None:
     """Load the error handling Cog into the bot"""
     await bot.add_cog(Errors(bot))
