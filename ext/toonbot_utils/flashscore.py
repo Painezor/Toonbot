@@ -550,11 +550,9 @@ class Team(FlashScoreItem):
         """Create a Team object from it's Flashscore ID"""
         page = await bot.browser.new_page()
         try:
-            await page.goto("https://flashscore.com/?r=3:" + team_id)
+            await page.goto(f"https://flashscore.com/?r=3:{team_id}")
             url = await page.evaluate("() => window.location.href")
-            obj = cls(bot)
-            obj.url = url
-            obj.id = team_id
+            obj = cls(bot, link=url, flashscore_id=team_id)
             return obj
         finally:
             await page.close()
@@ -575,7 +573,7 @@ class Team(FlashScoreItem):
         """Get a list of news articles related to a team in embed format"""
         page = await self.bot.browser.new_page()
         try:
-            await page.goto(self.link + "/news")
+            await page.goto(f"{self.link}/news")
             await page.wait_for_selector('.matchBox')
             tree = html.fromstring(await page.content())
         finally:
@@ -598,11 +596,16 @@ class Team(FlashScoreItem):
     async def players(self) -> List[Player]:
         """Get a list of players for a Team"""
         # Check Cache
-        page = await self.bot.browser.new_page()
+        page: Page = await self.bot.browser.new_page()
 
         try:
-            await page.goto(self.link + "/squad")
-            await page.wait_for_selector('.sportName.soccer')
+            await page.goto(f"{self.link}/squad")
+            await page.wait_for_selector('.squad-table.profileTable')
+
+            btn = page.locator('text="Total"')
+            if await btn.count():
+                await btn.click()
+
             tree = html.fromstring(await page.content())
         finally:
             await page.close()
@@ -770,21 +773,21 @@ class Competition(FlashScoreItem):
         try:
             await page.goto(f"{self.link}/standings/")
             btn = page.locator('text=I Accept')
-
             if await btn.count():
                 await btn.click()
 
-            try:
-                # await page.locator(ADS).evaluate_all("(nodes) => {for (const node of nodes) {node.remove();}}")
-                loc = '#tournament-table-tabs-and-content > div:last-of-type'
-                raw = await page.locator(loc).screenshot()
-            except TimeoutError:
+            tbl = page.locator('#tournament-table-tabs-and-content > div:last-of-type')
+            if not await tbl.count():
                 return None
-            image = await dump_image(self.bot, BytesIO(raw))
-            self._table = image
-            return image
+
+            await page.eval_on_selector_all(ADS, "ads => ads.forEach(x => x.remove(););")
+            raw = await tbl.screenshot()
         finally:
             await page.close()
+
+        image = await dump_image(self.bot, BytesIO(raw))
+        self._table = image
+        return image
 
     async def scorers(self) -> List[Player]:
         """Fetch a list of scorers from a Flashscore Competition page returned as a list of Player Objects"""
