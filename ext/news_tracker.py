@@ -1,8 +1,8 @@
 """Cog for fetching World of Warships Portal Articles from each region"""
 from __future__ import annotations  # Cyclic Type hinting
 
-import datetime
-from typing import TYPE_CHECKING, Optional, Dict, List
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
 from asyncpg import Record
 from discord import Embed, Interaction, Message, Colour, TextChannel, Guild, ButtonStyle, HTTPException
@@ -10,7 +10,9 @@ from discord.app_commands import command, describe, guild_only, default_permissi
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View, Button
+from discord.utils import utcnow
 from lxml import html
+from playwright.async_api import TimeoutError
 
 from ext.painezbot_utils.player import Region
 from ext.utils.view_utils import Stop
@@ -75,7 +77,7 @@ class Article:
         self.cis: bool = False
         self.sea: bool = False
 
-        self.date: Optional[datetime.datetime] = None
+        self.date: Optional[datetime] = None
 
     async def save_to_db(self) -> None:
         """Store the article in the database for quicker retrieval in future"""
@@ -107,6 +109,8 @@ class Article:
                 await page.goto(self.link)
                 await page.wait_for_selector(".header__background")
                 tree = html.fromstring(await page.content())
+            except TimeoutError:
+                return await self.generate_embed()
             finally:
                 await page.close()
 
@@ -166,7 +170,7 @@ class NewsChannel:
         self.cis: bool = cis
 
         # A list of partial links for articles to see if this channel has already sent one.
-        self.sent_articles: Dict[Article, Message] = dict()  # Article, message_id
+        self.sent_articles: dict[Article, Message] = dict()  # Article, message_id
 
     async def dispatch(self, region: Region, article: Article) -> Optional[Message]:
         """Check if the article has already been submitted to the channel, and is for a tracked region, then send it.
@@ -214,7 +218,7 @@ class NewsConfig(View):
         """Generic Embed for Config Views"""
         return Embed(colour=Colour.dark_teal(), title="World of Warships News Tracker config")
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Regenerate view and push to message"""
         self.clear_items()
 
@@ -246,12 +250,12 @@ class NewsConfig(View):
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
-async def news_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def news_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
-    articles: List[Article] = getattr(interaction.client, 'news_cache')
-    matches = [i for i in articles if current.lower() in f"{i.title}: {i.description}".lower()]
+    bot: PBot = interaction.client
+    matches = [i for i in bot.news_cache if current.lower() in f"{i.title}: {i.description}".lower()]
 
-    now = datetime.datetime.now(datetime.timezone.utc)
+    now = utcnow()
     matches = sorted(matches, key=lambda x: now if x.date is None else x.date, reverse=True)
     return [Choice(name=f"{i.title}: {i.description}"[:100], value=i.link) for i in matches][:25]
 
@@ -299,9 +303,9 @@ class NewsTracker(Cog):
                 if article.date is None:
                     date = ''.join(i.xpath('.//pubdate/text()'))
                     if date:
-                        article.date = datetime.datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %Z")
+                        article.date = datetime.strptime(date, "%a, %d %b %Y %H:%M:%S %Z")
                     else:
-                        article.date = datetime.datetime.now(datetime.timezone.utc)
+                        article.date = utcnow()
 
                 if not article.category:
                     category = ''.join(i.xpath('.//category//text()'))
@@ -419,7 +423,7 @@ class NewsTracker(Cog):
 
     # Event Listeners for database cleanup.
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel) -> List[NewsChannel]:
+    async def on_guild_channel_delete(self, channel: TextChannel) -> list[NewsChannel]:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM news_trackers WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -433,7 +437,7 @@ class NewsTracker(Cog):
         return self.bot.news_channels
 
     @Cog.listener()
-    async def on_guild_remove(self, guild: Guild) -> List[NewsChannel]:
+    async def on_guild_remove(self, guild: Guild) -> list[NewsChannel]:
         """Purge news trackers for deleted guilds"""
         q = f"""DELETE FROM news_trackers WHERE guild_id = $1"""
         connection = await self.bot.db.acquire()

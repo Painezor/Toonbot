@@ -5,7 +5,7 @@ from collections import Counter
 from copy import deepcopy
 from random import choice, randint, randrange, shuffle
 from re import finditer
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from discord import ButtonStyle, Colour, Embed, Interaction, TextStyle, Message, File
 from discord.app_commands import command, context_menu, describe
@@ -36,7 +36,7 @@ class CoinView(View):
     def __init__(self, interaction: Interaction, count: int = 1) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
-        self.flip_results: List[str] = []
+        self.flip_results: list[str] = []
         self.bot: Bot = interaction.client
         for x in range(count):
             self.flip_results.append(choice(['Heads', 'Tails']))
@@ -49,7 +49,7 @@ class CoinView(View):
         """Verify clicker is owner of interaction"""
         return self.interaction.user.id == interaction.user.id
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Update embed and push to view"""
         e: Embed = Embed(colour=Colour.og_blurple(), title=self.flip_results[-1])
         e.set_thumbnail(url=COIN_IMAGE)
@@ -82,14 +82,13 @@ class FlipButton(Button):
         return await self.view.update()
 
 
-class ChoiceModal(Modal, title="Make a Decision"):
+class ChoiceModal(Modal):
     """Send a Modal to the User to enter their options in."""
     question = TextInput(label="Enter a question", placeholder="What should I do?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
 
-    def __init__(self, bot: Bot) -> None:
-        super().__init__()
-        self.bot: Bot = bot
+    def __init__(self) -> None:
+        super().__init__(title="Make a Decision")
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
@@ -106,18 +105,20 @@ class ChoiceModal(Modal, title="Make a Decision"):
         except IndexError:
             pass
 
-        return await self.bot.reply(interaction, embed=e)
+        bot: Bot = interaction.client
+        return await bot.reply(interaction, embed=e)
 
 
 # Context Menu commands must be free floating.
 @context_menu(name="MoCk")
 async def mock(interaction: Interaction, message: Message) -> Message:
     """AlTeRnAtInG cApS"""
+    bot: Bot = interaction.client
     if not message.content:
-        return await interaction.client.error(interaction, content="That message has no content.")
+        return await bot.error(interaction, content="That message has no content.")
 
     content = ''.join(c.lower() if i & 1 else c.upper() for i, c in enumerate(message.content))
-    return await interaction.client.reply(interaction, content=content)
+    return await bot.reply(interaction, content=content)
 
 
 class Fun(Cog):
@@ -351,7 +352,7 @@ class Fun(Cog):
     @command()
     async def choose(self, interaction: Interaction) -> ChoiceModal:
         """Make a decision for you (separate choices with new lines)"""
-        return await interaction.response.send_modal(ChoiceModal(self.bot))
+        return await interaction.response.send_modal(ChoiceModal())
 
     @command(name="f")
     async def press_f(self, interaction) -> Message:

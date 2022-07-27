@@ -1,19 +1,16 @@
 """Commands for fetching information about football entities from transfermarkt"""
 from __future__ import annotations
 
-from typing import Optional, Literal, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from discord import Interaction, Message
-from discord.app_commands import command, describe
+from discord.app_commands import command, describe, Group
 from discord.ext.commands import Cog
 
 from ext.toonbot_utils.transfermarkt import SearchView
 
 if TYPE_CHECKING:
     from core import Bot
-
-# TODO: HTTP Autocomplete
-opts = Literal['player', 'team', 'staff', 'referee', 'competition', 'agent']
 
 
 class Lookups(Cog):
@@ -22,11 +19,43 @@ class Lookups(Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-    @command()
-    @describe(category='search within a category', query='enter search query')
-    async def lookup(self, interaction: Interaction, category: Optional[opts], query: str) -> Message:
-        """Perform a transfermarkt search for the designated category."""
-        return await SearchView(interaction, query, category).update()
+    lookup = Group(name="lookup", description="Search for something on transfermarkt")
+
+    @lookup.command(name="player")
+    @describe(query="Enter a player name")
+    async def lookup_player(self, interaction: Interaction, query: str):
+        """Search for a player on TransferMarkt"""
+        return await SearchView(interaction, query, 'player').update()
+
+    @lookup.command(name="team")
+    @describe(query="Enter a team name")
+    async def lookup_player(self, interaction: Interaction, query: str):
+        """Search for a team on TransferMarkt"""
+        return await SearchView(interaction, query, 'team').update()
+
+    @lookup.command(name="staff")
+    @describe(query="Enter a club official name")
+    async def lookup_player(self, interaction: Interaction, query: str):
+        """Search for a club official on TransferMarkt"""
+        return await SearchView(interaction, query, 'staff').update()
+
+    @lookup.command(name="referee")
+    @describe(query="Enter a referee name")
+    async def lookup_player(self, interaction: Interaction, query: str):
+        """Search for a referee on TransferMarkt"""
+        return await SearchView(interaction, query, 'referee').update()
+
+    @lookup.command(name="competition")
+    @describe(query="Enter a competition name")
+    async def lookup_player(self, interaction: Interaction, query: str):
+        """Search for a competition on TransferMarkt"""
+        return await SearchView(interaction, query, 'competition').update()
+
+    @lookup.command(name="agent")
+    @describe(query="Enter an agency name")
+    async def lookup_player(self, interaction: Interaction, query: str):
+        """Search for an agency on TransferMarkt"""
+        return await SearchView(interaction, query, 'agent').update()
 
     @command()
     @describe(team_name="enter a team name to search for")

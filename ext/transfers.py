@@ -1,7 +1,7 @@
 """Automated fetching of the latest football transfer information from transfermarkt"""
 from __future__ import annotations  # Cyclic Type hinting
 
-from typing import TYPE_CHECKING, List, Dict, Optional, ClassVar
+from typing import TYPE_CHECKING, Optional, ClassVar
 
 from asyncpg import ForeignKeyViolationError
 from discord import ButtonStyle, Interaction, Embed, Colour, TextChannel, Permissions, HTTPException
@@ -13,8 +13,7 @@ from lxml import html
 from typing_extensions import Self
 
 from ext.ticker import IsLiveScoreError
-from ext.toonbot_utils.transfermarkt import Player, Team, Competition, Transfer, SearchView, TransferResult, \
-    DEFAULT_LEAGUES
+from ext.toonbot_utils.transfermarkt import Player, Team, Competition, Transfer, SearchView, DEFAULT_LEAGUES
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
@@ -34,8 +33,8 @@ class TransferChannel:
     def __init__(self, bot: Bot, channel: TextChannel) -> None:
 
         self.channel: TextChannel = channel
-        self.leagues: List[Competition] = []  # Alias, Link
-        self.dispatched: Dict[Transfer, Message] = {}
+        self.leagues: list[Competition] = []  # Alias, Link
+        self.dispatched: dict[Transfer, Message] = {}
 
         if self.__class__.bot is None:
             self.__class__.bot = bot
@@ -62,7 +61,7 @@ class TransferChannel:
         return message
 
     # Database management
-    async def get_leagues(self) -> List[Competition]:
+    async def get_leagues(self) -> list[Competition]:
         """Get the leagues needed for this channel"""
         sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -114,7 +113,7 @@ class TransferChannel:
             await self.bot.db.release(connection)
         self.bot.transfer_channels.remove(self)
 
-    async def add_leagues(self, leagues: List[Competition]) -> List[Competition]:
+    async def add_leagues(self, leagues: list[Competition]) -> list[Competition]:
         """Add a list of leagues for the channel to the database"""
         sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) 
         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
@@ -124,16 +123,17 @@ class TransferChannel:
             return self.leagues
 
         connection = await self.bot.db.acquire()
+
         try:
             async with connection.transaction():
-                await connection.executemany(sql, [(self.channel.id, i.name, i.country, i.link) for i in leagues])
+                await connection.executemany(sql, [(self.channel.id, i.name, i.country[0], i.link) for i in leagues])
         finally:
             await self.bot.db.release(connection)
 
         self.leagues += [i for i in leagues if i not in self.leagues]
         return self.leagues
 
-    async def remove_leagues(self, leagues: List[Competition]) -> List[Competition]:
+    async def remove_leagues(self, leagues: list[Competition]) -> list[Competition]:
         """Remove a list of leagues for the channel from the database"""
         sql = """DELETE from transfers_leagues WHERE (channel_id, link) = ($1, $2)"""
         connection = await self.bot.db.acquire()
@@ -146,7 +146,7 @@ class TransferChannel:
         self.leagues = [i for i in self.leagues if i not in leagues]
         return self.leagues
 
-    async def reset_leagues(self) -> List[Competition]:
+    async def reset_leagues(self) -> list[Competition]:
         """Reset the Ticker Channel to the list of default leagues."""
         sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) VALUES ($1, $2, $3, $4)
                  ON CONFLICT DO NOTHING"""
@@ -155,8 +155,8 @@ class TransferChannel:
         try:
             async with connection.transaction():
                 await connection.execute('''DELETE FROM transfers_leagues WHERE channel_id = $1''', self.channel.id)
-            async with connection.transaction():
-                await connection.executemany(sql, [(self.channel.id, x.name, x.country, x.link) for x in self.leagues])
+                await connection.executemany(sql,
+                                             [(self.channel.id, x.name, x.country[0], x.link) for x in DEFAULT_LEAGUES])
         finally:
             await self.bot.db.release(connection)
 
@@ -194,7 +194,7 @@ class DeleteTicker(Button):
 class RemoveLeague(Select):
     """Dropdown to remove leagues from a match event ticker."""
 
-    def __init__(self, leagues: List[Competition], row: int = 2):
+    def __init__(self, leagues: list[Competition], row: int = 2):
         super().__init__(placeholder="Remove tracked league(s)", row=row)
         self.leagues = leagues
 
@@ -225,7 +225,7 @@ class TransfersConfig(View):
         self.interaction: Interaction = interaction
         self.tc: TransferChannel = tc
         self.index: int = 0
-        self.pages: List[Embed] = []
+        self.pages: list[Embed] = []
 
         if self.__class__.bot is None:
             self.__class__.bot = interaction.client
@@ -238,7 +238,7 @@ class TransfersConfig(View):
         """Hide menu on timeout."""
         return await self.bot.reply(self.interaction, view=None, followup=False)
 
-    async def remove_leagues(self, leagues: List[Competition]) -> Message:
+    async def remove_leagues(self, leagues: list[Competition]) -> Message:
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
@@ -299,7 +299,7 @@ class TransfersConfig(View):
         return await self.bot.reply(self.interaction, view=None,
                                     content=f"The transfer ticker for {self.tc.channel.mention} was deleted.")
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Push the latest version of the embed to view."""
         self.clear_items()
 
@@ -328,7 +328,7 @@ class TransfersConfig(View):
             e.description = f"{self.tc.channel.mention} has no tracked leagues."
         else:
             header = f'Tracked leagues for {self.tc.channel.mention}\n'
-            embeds = rows_to_embeds(e, markdowns, header=header, max_rows=25)
+            embeds = rows_to_embeds(e, markdowns, header=header, rows=25)
             self.pages = embeds
 
             add_page_buttons(self, row=4)
@@ -350,8 +350,6 @@ class TransfersCog(Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-        if TransferResult.bot is None:
-            TransferResult.bot = bot
         if SearchView.bot is None:
             SearchView.bot = bot
 
@@ -363,7 +361,7 @@ class TransfersCog(Cog):
         """Cancel transfers task on Cog Unload."""
         self.bot.transfers.cancel()
 
-    async def update_cache(self) -> List[TransferChannel]:
+    async def update_cache(self) -> list[TransferChannel]:
         """Load Transfer Channels into the bot."""
         sql = f"""SELECT * FROM transfers_channels"""
         connection = await self.bot.db.acquire()
@@ -445,6 +443,8 @@ class TransfersCog(Cog):
             player.country = i.xpath('.//td[3]/img/@title')
             player.picture = ''.join(i.xpath('.//img/@data-src'))
 
+            transfer = Transfer(player=player)
+
             # Leagues & Fee
             team = ''.join(i.xpath('.//td[5]//td[2]/a/text()')).strip()
             team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
@@ -452,6 +452,7 @@ class TransfersCog(Cog):
             league = await self._get_team_league(team_link)
             new_team = Team(name=team, link=team_link, league=league)
             new_team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
+            transfer.new_team = new_team
 
             player.team = new_team
 
@@ -461,14 +462,14 @@ class TransfersCog(Cog):
             league = await self._get_team_league(team_link)
             old_team = Team(name=team, link=team_link, league=league)
             old_team.country = ''.join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
+            transfer.old_team = old_team
 
-            fee = ''.join(i.xpath('.//td[6]//a/text()'))
-            fee_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[6]//a/@href'))
+            transfer.fee = ''.join(i.xpath('.//td[6]//a/text()'))
+            transfer.fee_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[6]//a/@href'))
 
-            transfer = Transfer(player=player, fee=fee, old_team=old_team, new_team=new_team, fee_link=fee_link)
             transfer.generate_embed()
-            old_link = old_team.league.link if old_team.league is not None else None
-            new_link = new_team.league.link if new_team.league is not None else None
+            old_link = transfer.old_team.league.link if old_team.league is not None else None
+            new_link = transfer.new_team.league.link if new_team.league is not None else None
 
             # Fetch the list of channels to output the transfer to.
             connection = await self.bot.db.acquire()

@@ -48,6 +48,7 @@ class Parent(Button):
         return await self.view.parent.update()
 
 
+
 class First(Button):
     """Get the first item in a Pagination View"""
 
@@ -202,7 +203,7 @@ class ObjectSelectView(View):
         e.description = "\n".join([i[1] for i in self.pages[self.index]])
         return e
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Send new version of view to user"""
         self.clear_items()
 
@@ -243,7 +244,7 @@ class MultipleSelect(Select):
 class ItemSelect(Select):
     """A Dropdown That Returns a Generic Selected Item"""
 
-    def __init__(self, placeholder: str, options: List[Tuple[str, str, str]], row: int = 0) -> None:
+    def __init__(self, placeholder: str, options: list[Tuple[str, str, str]], row: int = 0) -> None:
         super().__init__(placeholder=placeholder)
         self.row = row
         for index, (emoji, label, description) in enumerate(options):
@@ -281,7 +282,7 @@ class FuncDropdown(Select):
 
     # Passed List of [Select Option, Dict of args to setattr, Function to apply.]
 
-    def __init__(self, options: List[Tuple[SelectOption, Dict, Callable]],
+    def __init__(self, options: list[Tuple[SelectOption, Dict, Callable]],
                  placeholder: str = None, row: int = 3) -> None:
         self.raw = options
         super().__init__(placeholder=placeholder, options=[o[0] for o in options][:25], row=row)
@@ -301,10 +302,10 @@ class Paginator(View):
     """Generic Paginator that returns nothing."""
     bot: ClassVar[Bot | PBot] = None
 
-    def __init__(self, interaction: Interaction, embeds: List[Embed]) -> None:
+    def __init__(self, interaction: Interaction, embeds: list[Embed]) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
-        self.pages: List[Embed] = embeds
+        self.pages: list[Embed] = embeds
         self.index: int = 0
 
         if self.__class__.bot is None:
@@ -318,7 +319,7 @@ class Paginator(View):
         """Verify clicker is owner of interaction"""
         return self.interaction.user.id == interaction.user.id
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
         add_page_buttons(self)

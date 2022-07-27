@@ -1,10 +1,12 @@
 """Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
-import datetime
+from __future__ import annotations
+
 from asyncio import sleep
+from datetime import datetime
 from math import ceil
 from pathlib import Path
 from re import sub, DOTALL
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from PIL import Image
 from asyncpraw.models import Subreddit
@@ -50,7 +52,7 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
 class NUFCSidebar(Cog):
     """Edit the r/NUFC sidebar"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
 
@@ -69,7 +71,7 @@ class NUFCSidebar(Cog):
         subreddit = await self.bot.reddit.subreddit('NUFC')
         page = await subreddit.wiki.get_page("config/sidebar")
         await page.edit(content=markdown)
-        print(f'{datetime.datetime.now()} The sidebar of r/NUFC was updated.')
+        print(f'{datetime.now()} The sidebar of r/NUFC was updated.')
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self) -> None:
@@ -89,8 +91,8 @@ class NUFCSidebar(Cog):
 
         fsr: Team = self.bot.get_team(team_id)
 
-        fixtures: List[Fixture] = await fsr.fixtures()
-        results: List[Fixture] = await fsr.results()
+        fixtures: list[Fixture] = await fsr.fixtures()
+        results: list[Fixture] = await fsr.results()
 
         async with self.bot.session.get('http://www.bbc.co.uk/sport/football/premier-league/table') as resp:
             match resp.status:
@@ -187,7 +189,7 @@ class NUFCSidebar(Cog):
             fx_markdown = ""
 
         # After fetching everything, begin construction.
-        timestamp = f"\n#####Sidebar updated {datetime.datetime.now().ctime()}\n"
+        timestamp = f"\n#####Sidebar updated {datetime.now().ctime()}\n"
         footer = timestamp + top_bar + match_threads
 
         if subreddit == "NUFC":
@@ -253,6 +255,6 @@ class NUFCSidebar(Cog):
         await self.bot.reply(interaction, embed=e, file=file)
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Load the Sidebar Updater Cog into the bot"""
     await bot.add_cog(NUFCSidebar(bot))

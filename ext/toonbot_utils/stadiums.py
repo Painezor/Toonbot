@@ -1,7 +1,7 @@
 """Utility Component for fetching from footballgroundmap.com"""
 from __future__ import annotations
 
-from typing import List, NoReturn, Optional, ClassVar, TYPE_CHECKING
+from typing import NoReturn, Optional, ClassVar, TYPE_CHECKING
 from urllib.parse import quote_plus
 
 from discord import Embed
@@ -46,8 +46,8 @@ class Stadium:
         self.country: Optional[str] = kwargs.pop('country', None)
         self.team_badge: Optional[str] = kwargs.pop('team_badge', None)
         self.image: Optional[str] = kwargs.pop('image', None)
-        self.current_home: List[str] = kwargs.pop('current_home', [])
-        self.former_home: List[str] = kwargs.pop('former_home', [])
+        self.current_home: list[str] = kwargs.pop('current_home', [])
+        self.former_home: list[str] = kwargs.pop('former_home', [])
         self.map_link: Optional[str] = kwargs.pop('map_link', None)
         self.address: Optional[str] = kwargs.pop('address', None)
         self.capacity: Optional[int] = kwargs.pop('capacity', None)
@@ -129,12 +129,12 @@ class Stadium:
         return e
 
 
-async def get_stadiums(bot: 'Bot', query: str) -> List[Stadium]:
+async def get_stadiums(bot: Bot, query: str) -> list[Stadium]:
     """Fetch a list of Stadium objects matching a user query"""
     async with bot.session.get(f'https://www.footballgroundmap.com/search/{quote_plus(query)}') as resp:
         tree = html.fromstring(await resp.text())
 
-    stadiums: List[Stadium] = []
+    stadiums: list[Stadium] = []
 
     for i in tree.xpath(".//div[@class='using-grid'][1]/div[@class='grid']/div"):
         team = ''.join(i.xpath('.//small/preceding-sibling::a//text()')).title()

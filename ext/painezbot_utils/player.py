@@ -15,10 +15,9 @@ from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import FuncButton, FuncDropdown
 
 if TYPE_CHECKING:
-    from painezBot import PBot
-    from discord import Interaction
-    from typing import List
     from ext.painezbot_utils.clan import PlayerCBStats, Clan
+    from discord import Interaction
+    from painezBot import PBot
 
 # TODO: CommanderXP Command (Show Total Commander XP per Rank)
 # TODO: Encyclopedia - Collections
@@ -160,7 +159,7 @@ class Player:
         self.levelling_points: Optional[int] = None  # Player account XP
         self.logout_at: Optional[Timestamp] = None  # Last Logout
         self.stats_updated_at: Optional[Timestamp] = None  # Last Stats Update
-        self.statistics: Dict[Ship | None, dict] = {}  # Parsed Player Statistics
+        self.statistics: dict[Ship | None, dict] = {}  # Parsed Player Statistics
 
         # Data from CB Endpoint
         self.average_damage: float = 0
@@ -175,7 +174,7 @@ class Player:
         self.is_banned: bool = False
 
         # CB Season Stats
-        self.clan_battle_stats: Dict[int, PlayerCBStats] = {}  # Keyed By Season ID.
+        self.clan_battle_stats: dict[int, PlayerCBStats] = {}  # Keyed By Season ID.
 
     @property
     def region(self) -> Region:
@@ -387,7 +386,7 @@ class PlayerView(View):
         return e
 
     @staticmethod
-    def sum_stats(dicts: List[Dict]) -> dict:
+    def sum_stats(dicts: list[Dict]) -> dict:
         """Sum The Stats from multiple game modes."""
         output = {}
 

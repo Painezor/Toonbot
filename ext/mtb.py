@@ -1,4 +1,6 @@
 """r/NUFC Match Thread Bot"""
+from __future__ import annotations
+
 import asyncio
 import datetime
 from typing import TYPE_CHECKING
@@ -20,7 +22,7 @@ if TYPE_CHECKING:
 class MatchThread:
     """Tool for updating a reddit post with the latest information about a match."""
 
-    def __init__(self, bot: 'Bot', fixture: flashscore.Fixture, settings, record) -> None:
+    def __init__(self, bot: Bot, fixture: flashscore.Fixture, settings, record) -> None:
         self.bot: Bot = bot
         self.fixture = fixture
         self.settings = settings
@@ -41,7 +43,7 @@ class MatchThread:
         e = discord.Embed(color=0xff4500)
         th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
         e.set_author(icon_url=th, name="Match Thread Bot")
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        e.timestamp = discord.utils.utcnow()
         return e
 
     async def start(self) -> None:
@@ -362,7 +364,7 @@ class MatchThread:
 class MatchThreadCommands(commands.Cog):
     """MatchThread Commands and Spooler."""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         self.active_threads = []
         self.scheduler_task = self.schedule_threads.start()
@@ -422,6 +424,6 @@ class MatchThreadCommands(commands.Cog):
         await _.start()
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Load the match thread cog into the bot"""
     await bot.add_cog(MatchThreadCommands(bot))

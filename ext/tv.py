@@ -1,10 +1,9 @@
 """Fetch the televised matches from livesoccertv.com"""
-import datetime
-import json
-from typing import List, TYPE_CHECKING
+from __future__ import annotations
 
-if TYPE_CHECKING:
-    from core import Bot
+from datetime import datetime
+from json import load
+from typing import TYPE_CHECKING
 
 from discord import Embed, Interaction, Message
 from discord.app_commands import command, describe, autocomplete, Choice
@@ -15,6 +14,9 @@ from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import ObjectSelectView, Paginator
 
+if TYPE_CHECKING:
+    from core import Bot
+
 # aiohttp useragent.
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleWebKit/537.36 (KHTML, like Gecko) '
                          'Chrome/75.0.3770.100 Safari/537.36'}
@@ -23,24 +25,19 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
 # TODO: Team / League Split
 
 
-async def tv_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def tv_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Return list of live teams"""
-    tv = getattr(interaction.client, "tv", {})
-    m = []
-    for x in tv.keys():
-        if current.lower() in x.lower():
-            m.append(Choice(name=x[:100], value=x))
-
-    return m[:25]
+    bot: Bot = interaction.client
+    return [Choice(name=x[:100], value=x) for x in bot.tv.keys() if current.lower() in x.lower()][:25]
 
 
 class Tv(commands.Cog):
     """Search for live TV matches"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         with open('tv.json') as f:
-            self.bot.tv = json.load(f)
+            self.bot.tv = load(f)
 
     @command()
     @describe(name="Search for a team")
@@ -115,7 +112,7 @@ class Tv(commands.Cog):
             try:
                 timestamp = i.xpath('.//@dv')[0]
                 timestamp = int(timestamp)
-                _ = datetime.datetime.fromtimestamp(timestamp / 1000)
+                _ = datetime.fromtimestamp(timestamp / 1000)
                 if match_column == 3:
                     ts = Timestamp(_).datetime
                 else:
@@ -136,6 +133,6 @@ class Tv(commands.Cog):
         return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Load TV Lookup Module into the bot."""
     await bot.add_cog(Tv(bot))

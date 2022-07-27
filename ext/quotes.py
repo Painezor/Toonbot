@@ -109,13 +109,12 @@ class Rand(Button):
 class QuotesView(View):
     """Generic Paginator that returns nothing."""
 
-    def __init__(self, interaction: Interaction, quotes: List[Record],
-                 rand: bool = False, last: bool = False, bot: Bot = None) -> None:
+    def __init__(self, interaction: Interaction, quotes: list[Record], rand: bool = False, last: bool = False) -> None:
         super().__init__()
-        self.pages: List[Record] = list(filter(lambda x: x['guild_id'] == interaction.guild.id, quotes))
-        self.all: List[Record] = quotes
+        self.pages: list[Record] = list(filter(lambda x: x['guild_id'] == interaction.guild.id, quotes))
+        self.all: list[Record] = quotes
         self.interaction = interaction
-        self.bot: Bot = bot if bot is not None else interaction.client
+        self.bot: Bot = interaction.client
         self.index: int = 0
 
         try:
@@ -176,7 +175,7 @@ class QuotesView(View):
         e.timestamp = quote["timestamp"]
         return e
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
         add_page_buttons(self)
@@ -204,23 +203,24 @@ OPT_IN = "You are currently opted out of quotes, opting back in will allow " \
 @context_menu(name="Add to QuoteDB")
 async def quote_add(interaction: Interaction, message: Message) -> Message:
     """Add a quote, either by message ID or grabs the last message a user sent"""
+    bot: Bot = interaction.client
     await interaction.response.defer(thinking=True)
-    blacklist: List = getattr(interaction.client, "quote_blacklist")  # We can't use dot notation because client != bot
+    blacklist: List = bot.quote_blacklist
 
     if interaction.user.id in blacklist:
         raise OptedOutError
     if message.author.id in blacklist:
         raise TargetOptedOutError(message.author)
     if interaction.guild is None:
-        return await interaction.client.error(interaction, content='This command cannot be used in DMs.')
+        return await bot.error(interaction, content='This command cannot be used in DMs.')
     if message.author.id == interaction.user.id:
-        return await interaction.client.error(interaction, content='You cannot quote yourself.')
+        return await bot.error(interaction, content='You cannot quote yourself.')
     if message.author.bot:
-        return await interaction.client.error(interaction, content='You cannot quote a bot.')
+        return await bot.error(interaction, content='You cannot quote a bot.')
     if not message.content:
-        return await interaction.client.error(interaction, content='That message has no content.')
+        return await bot.error(interaction, content='That message has no content.')
 
-    connection = await interaction.client.db.acquire()
+    connection = await bot.db.acquire()
 
     try:
         async with connection.transaction():
@@ -233,38 +233,39 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
 
         await QuotesView(interaction, [r]).update(content="Quote added to database.")
     except UniqueViolationError:
-        await interaction.client.error(interaction, content="That quote is already in the database!")
+        await bot.error(interaction, content="That quote is already in the database!")
     finally:
-        await interaction.client.db.release(connection)
+        await bot.db.release(connection)
 
 
 # USER COMMANDS: right click user
 @context_menu(name="QuoteDB: Get Quotes")
 async def u_quote(interaction: Interaction, user: Member):
     """Get a random quote from this user."""
-    blacklist: List = getattr(interaction.client, "quote_blacklist")  # We can't use dot notation because client != bot
+    bot: Bot = interaction.client
+    blacklist: List = bot.quote_blacklist
 
     if interaction.user.id in blacklist:
         raise OptedOutError
     if user.id in blacklist:
         raise TargetOptedOutError(user)
 
-    connection = await interaction.client.db.acquire()
+    connection = await bot.db.acquire()
     try:
         async with connection.transaction():
             sql = """SELECT * FROM quotes WHERE author_user_id = $1 ORDER BY random()"""
             r = await connection.fetch(sql, user.id)
     finally:
-        await interaction.client.db.release(connection)
+        await bot.db.release(connection)
 
-    view = QuotesView(interaction, r)
-    await view.update()
+    await QuotesView(interaction, r).update()
 
 
 @context_menu(name="QuoteDB: Get Stats")
 async def quote_stats(interaction: Interaction, member: Member):
     """See quote stats for a user"""
-    blacklist: List = getattr(interaction.client, "quote_blacklist")  # We can't use dot notation because client != bot
+    bot: Bot = interaction.client
+    blacklist: list[int] = bot.quote_blacklist  # We can't use dot notation because client != bot
 
     if interaction.user.id in blacklist:
         raise OptedOutError
@@ -277,10 +278,10 @@ async def quote_stats(interaction: Interaction, member: Member):
                     (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
     escaped = [member.id, interaction.guild.id]
 
-    connection = await interaction.client.db.acquire()
+    connection = await bot.db.acquire()
     async with connection.transaction():
         r = await connection.fetchrow(sql, *escaped)
-    await interaction.client.db.release(connection)
+    await bot.db.release(connection)
 
     e: Embed = Embed(color=Colour.og_blurple(), description=member.mention)
     e.set_author(icon_url="https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png", name="Quote Stats")
@@ -288,14 +289,13 @@ async def quote_stats(interaction: Interaction, member: Member):
     if interaction.guild:
         e.add_field(name=interaction.guild.name, value=f"Quoted {r['auth_g']} times.\nAdded {r['sub_g']} quotes.", )
     e.add_field(name="Global", value=f"Quoted {r['author']} times.\n Added {r['sub']} quotes.", inline=False)
-    await interaction.client.reply(interaction, embed=e)
+    await bot.reply(interaction, embed=e)
 
 
-async def quote_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def quote_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete from guild quotes"""
-    quotes = getattr(interaction.client, "quotes")
-
-    results = [i for i in quotes if i['guild_id'] == interaction.guild.id]
+    bot: Bot = interaction.client
+    results = [i for i in bot.quotes if i['guild_id'] == interaction.guild.id]
     if interaction.namespace.user is not None:
         results = [i for i in results if i['author_user_id'] == interaction.namespace.user.id]
 
@@ -371,7 +371,7 @@ class QuoteDB(commands.Cog):
 
         if not quotes:
             quotes = [i for i in self.bot.quotes if text.lower() in i['message_content'].lower()]
-        return await QuotesView(interaction, quotes=quotes).update()
+        return await QuotesView(interaction, quotes).update()
 
     @quotes.command()
     @describe(quote_id="Enter quote ID#")
@@ -382,7 +382,7 @@ class QuoteDB(commands.Cog):
 
         quotes = [i for i in self.bot.quotes if i['quote_id'] == quote_id]
         if quotes:
-            return await QuotesView(interaction, quotes=quotes).update()
+            return await QuotesView(interaction, quotes).update()
         return await self.bot.error(interaction, f"Quote #{quote_id} was not found.")
 
     @quotes.command()
@@ -418,10 +418,10 @@ class QuoteDB(commands.Cog):
 
             # Warn about quotes that will be deleted.
             output = []
-            if all(v == 0 for v in [r['auth'], r['auth_g'], r['sub'], r['sub_g']]):
+            if all(v == 0 for v in [r['author'], r['auth_g'], r['sub'], r['sub_g']]):
                 e = None
             else:
-                output.append(f"You have been quoted {r['auth']} times")
+                output.append(f"You have been quoted {r['author']} times")
                 if r['auth'] and i.guild is not None:
                     output.append(f" ({r['auth_g']} times on {i.guild.name})")
                 output.append('\n')

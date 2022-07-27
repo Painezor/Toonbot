@@ -15,7 +15,7 @@ from ext.utils.view_utils import FuncButton
 
 if TYPE_CHECKING:
     from painezBot import PBot
-    from typing import Optional, List, Dict
+    from typing import Optional
     from typing_extensions import Self
 
 
@@ -59,7 +59,7 @@ class Fitting:
             self.__class__.bot = ship.bot
 
         # Current Configuration
-        self.modules: Dict[Type[Module], int] = {}
+        self.modules: dict[Type[Module], int] = {}
         # self.artillery: Artillery = None
         # self.dive_bomber: DiveBomber = None
         # self.engine: Engine = None
@@ -129,15 +129,15 @@ class Ship:
         self._modules: dict = {}  # Dict of Lists of available modules.
         self.modules_tree: dict = {}  #
         self.nation: Optional[Nation] = None  # Ship Nation
-        self.next_ships: Dict = {}  # {k: ship_id as str, v: xp required as int }
+        self.next_ships: dict = {}  # {k: ship_id as str, v: xp required as int }
         self.price_credit: int = 0  # Cost in credits
         self.price_gold: int = 0  # Cost in doubloons
         self.tier: Optional[int] = None  # Tier of the ship (1 - 11 for super)
         self.type: Optional[ShipType] = None  # Type of ship
-        self.upgrades: List[int] = []  # List of compatible Modifications IDs
+        self.upgrades: list[int] = []  # List of compatible Modifications IDs
 
         # Fetched Modules
-        self.modules: Dict[int, Module] = {}
+        self.modules: dict[int, Module] = {}
 
         # Params Data
         self.default_profile: dict = None
@@ -179,7 +179,7 @@ class Ship:
                     raise ValueError(f'Unhandled Module type "{module_type}" setting default fit, id: {module_id}')
         return fit
 
-    async def fetch_modules(self) -> List[Module]:
+    async def fetch_modules(self) -> list[Module]:
         """Grab all data related to the ship from the API"""
         # Get needed module IDs
         targets = [str(x) for v in self._modules.values() for x in v if x not in self.bot.modules]
@@ -451,7 +451,7 @@ class ShipView(View):
         if aa is None:
             aa_desc = ["```diff\n- This ship does not have any AA Capabilities.```"]
         else:
-            aa_guns: Dict[str, list] = defaultdict(list)
+            aa_guns: dict[str, list] = defaultdict(list)
             for v in aa['slots'].values():
                 value = f'{v["guns"]}x{v["caliber"]}mm ({v["avg_damage"]} dps)\n'
                 aa_guns[v['name']].append(value)
@@ -651,7 +651,7 @@ class ShipView(View):
 class ModuleSelect(Select):
     """A Dropdown to change equipped ship modules"""
 
-    def __init__(self, options: List[SelectOption], row: int = 0):
+    def __init__(self, options: list[SelectOption], row: int = 0):
         super().__init__(options=options, placeholder="Change Equipped Modules", row=row, max_values=len(options))
 
     async def callback(self, interaction: Interaction) -> None:
@@ -715,6 +715,7 @@ class Artillery(Module):
         self.max_damage_HE: int = kwargs.pop('max_damage_HE', 0)  # Maximum High Explosive Damage
         self.rotation_time: float = kwargs.pop('rotation_time', 0)  # Turret Traverse Time in seconds
 
+
 class DiveBomber(Module):
     """A 'Dive Bomber' Module"""
     emoji = "<:DiveBomber:991027856496791682>"
@@ -723,10 +724,11 @@ class DiveBomber(Module):
         super().__init__(name, image, tag, module_id, module_id_str, price_credit)
 
         self.bomb_burn_probability: float = kwargs.pop('bomb_burn_probability', 0.0)  # FIre Chance, e.g. 52.0
-        self.accuracy: Dict[str, float] = kwargs.pop('accuracy', {'min': 0.0, 'max': 0.0})  # Accuracy, float.
+        self.accuracy: dict[str, float] = kwargs.pop('accuracy', {'min': 0.0, 'max': 0.0})  # Accuracy, float.
         self.max_damage: int = kwargs.pop('max_damage', 0)  # Max Bomb Damage
         self.max_health: int = kwargs.pop('max_health', 0)  # Max Plane HP
         self.cruise_speed: int = kwargs.pop('cruise_speed', 0)  # Max Plane Speed in knots
+
 
 class Engine(Module):
     """An 'Engine' Module"""
@@ -763,6 +765,7 @@ class FireControl(Module):
         self.distance: int = kwargs.pop('distance', 0)
         self.distance_increase: int = kwargs.pop('distance_increase', 0)
 
+
 class Hull(Module):
     """A 'Hull' Module"""
     emoji = "<:Hull:991022247546347581>"
@@ -772,7 +775,7 @@ class Hull(Module):
 
         self.health: int = kwargs.pop('health', 0)
         self.anti_aircraft_barrels: int = kwargs.pop('anti_aircraft_barrels', 0)
-        self.range: Dict[str, int] = kwargs.pop('range')  # This info is complete Garbage. Min - Max Armour.
+        self.range: dict[str, int] = kwargs.pop('range')  # This info is complete Garbage. Min - Max Armour.
 
         self.artillery_barrels: int = kwargs.pop('artillery_barrels', 0)  # Number of Main Battery Slots
         self.atba_barrels: int = kwargs.pop('atba_barrels', 0)  # Number of secondary battery mounts.

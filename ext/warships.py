@@ -20,11 +20,9 @@ from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from painezBot import PBot
-    from typing import List
     from discord import Interaction
 
 # TODO: Browse all Ships command. Filter Dropdowns. Dropdown to show specific ships.
-# TODO: Container drops / https://worldofwarships.eu/en/content/contents-and-drop-rates-of-containers/
 # TODO: Clan Base Commands # https://api.worldofwarships.eu/wows/clans/glossary/
 # TODO: Recent command. # https://api.worldofwarships.eu/wows/account/statsbydate/
 
@@ -69,7 +67,7 @@ OM_BB = {13: ['Tier 5 Superstructure'],
               'Florida/Borodino/Constellation/Slava Bow/Stern',
               'UK BattleCruiser Bow/Stern'],
          27: ['Tier 7 Bow/Stern', 'All Superstructure',
-              'Florida/Borodino/Constellation/Slava Bow/Stern',
+              'Borodino/Constellation/Slava Bow/Stern',
               'UK BattleCruiser Bow/Stern',
               'German Battlecruiser Upper Bow/Stern'],
          32: ['All Bow/Stern except German/Kremlin/Italian Icebreaker', 'French/British Casemates',
@@ -113,17 +111,14 @@ OM_CA = {6: ['Tier 3 Plating'],
 # https://wows-numbers.com/personal/rating
 
 # Autocomplete.
-async def map_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def map_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
-    maps: List[Map] = getattr(interaction.client, 'maps', [])
+    bot: PBot = interaction.client
 
     # Run Once
-    if not maps:
-        session = getattr(interaction.client, 'session')
-        wg_id = getattr(interaction.client, 'WG_ID')
-
-        p = {'application_id': wg_id, 'language': 'en'}
-        async with session.get(MAPS, params=p) as resp:
+    if not bot.maps:
+        p = {'application_id': bot.WG_ID, 'language': 'en'}
+        async with bot.session.get(MAPS, params=p) as resp:
             match resp.status:
                 case 200:
                     items = await resp.json()
@@ -140,15 +135,15 @@ async def map_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
             map_id = k
             maps.append(Map(name, description, map_id, icon))
 
-        interaction.client.maps = maps
+        bot.maps = maps
 
-    filtered = sorted([i for i in maps if current.lower() in i.ac_row.lower()], key=lambda x: x.name)
+    filtered = sorted([i for i in bot.maps if current.lower() in i.ac_row.lower()], key=lambda x: x.name)
     return [Choice(name=i.ac_row[:100], value=i.battle_arena_id) for i in filtered][:25]
 
 
-async def mode_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def mode_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Fetch a Game Mode"""
-    bot: PBot = getattr(interaction, 'client')
+    bot: PBot = interaction.client
 
     if not bot.modes:
         async with bot.session.get(MODES, params={'application_id': bot.WG_ID}) as resp:
@@ -164,7 +159,7 @@ async def mode_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     return [Choice(name=i.name, value=i.tag) for i in modes if current.lower() in i.name.lower()]
 
 
-async def player_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def player_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Fetch player's account ID by searching for their name."""
     bot: PBot = getattr(interaction, 'client')
     p = {'application_id': bot.WG_ID, "search": current, 'limit': 25}
@@ -196,7 +191,7 @@ async def player_ac(interaction: Interaction, current: str) -> List[Choice[str]]
     return choices
 
 
-async def clan_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete for a list of clan names"""
     bot: PBot = getattr(interaction, 'client')
 
@@ -226,10 +221,10 @@ async def clan_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
     return choices
 
 
-async def ship_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def ship_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
-    ships: List[Ship] = getattr(interaction.client, 'ships', [])
-    filtered = sorted([i for i in ships if current.lower() in i.ac_row.lower()], key=lambda x: unidecode(x.name))
+    bot: PBot = interaction.client
+    filtered = sorted([i for i in bot.ships if current.lower() in i.ac_row.lower()], key=lambda x: unidecode(x.name))
     return [Choice(name=i.ac_row[:100], value=i.ship_id_str) for i in filtered if hasattr(i, 'ship_id_str')][:25]
 
 
@@ -272,9 +267,9 @@ class Warships(Cog):
         if not self.bot.clan_buildings:
             self.bot.clan_buildings = await self.cache_clan_base()
 
-    async def cache_clan_base(self) -> List[ClanBuilding]:
+    async def cache_clan_base(self) -> list[ClanBuilding]:
         """Cache the CLan Buildings from the API"""
-        return []  # TODO: NotImplemented
+        raise NotImplementedError  # TODO: Cache Clan Base
         # buildings = json.pop()
         # output = []
         # for i in buildings:
@@ -290,7 +285,7 @@ class Warships(Cog):
         #
         #     b = ClanBuilding()
 
-    async def cache_ships(self) -> List[Ship]:
+    async def cache_ships(self) -> list[Ship]:
         """Cache the ships from the API."""
         # Run Once.
         if self.bot.ships:
@@ -298,7 +293,7 @@ class Warships(Cog):
 
         max_iter: int = 1
         count: int = 1
-        ships: List[Ship] = []
+        ships: list[Ship] = []
         while count <= max_iter:
             # Initial Pull.
             p = {'application_id': self.bot.WG_ID, 'language': 'en', 'page_no': count}
@@ -328,29 +323,22 @@ class Warships(Cog):
                 ships.append(ship)
         return ships
 
-    async def send_code(self, code: str, contents: str, interaction: Interaction, **kwargs) -> Message:
+    async def send_code(self, interaction: Interaction, code: str, regions: list[str], contents: str = None) -> Message:
         """Generate the Embed for the code."""
         e = Embed(title="World of Warships Redeemable Code")
         e.title = code
-        e.description = ""
         e.set_author(name="World of Warships Bonus Code")
-        e.set_thumbnail(url=interaction.client.user.avatar.url)
+        e.set_thumbnail(url=self.bot.user.avatar.url)
         if contents:
-            e.description += f"Contents:\n```yaml\n{contents}```"
-        e.description += "Click on a button below to redeem for your region"
-
-        for k, v in kwargs.items():
-            if v:
-                region = next(i for i in Region if k == i.db_key)
-                e.colour = region.colour
-                break
+            e.description = f"```yaml\n{contents}```"
+        e.set_footer(text="Click on a button below to redeem for your region")
 
         view = View()
-        for k, v in kwargs.items():
-            if v:
-                region = next(i for i in Region if k == i.db_key)
-                url = f"https://{region.code_prefix}.wargaming.net/shop/redeem/?bonus_mode=" + code
-                view.add_item(Button(url=url, label=region.name, style=ButtonStyle.url, emoji=region.emote))
+        for i in regions:
+            region = next(r for r in Region if i == r.db_key)
+            e.colour = region.colour
+            url = f"https://{region.code_prefix}.wargaming.net/shop/redeem/?bonus_mode={code}"
+            view.add_item(Button(url=url, label=region.name, style=ButtonStyle.url, emoji=region.emote))
         return await self.bot.reply(interaction, embed=e, view=view)
 
     @command()
@@ -436,7 +424,15 @@ class Warships(Cog):
                    eu: bool = True, na: bool = True, asia: bool = True) -> Message:
         """Send a message with region specific redeem buttons"""
         await interaction.response.defer(thinking=True)
-        return await self.send_code(code, contents, interaction, eu=eu, na=na, sea=asia)
+
+        regions = []
+        if eu:
+            regions.append('eu')
+        if na:
+            regions.append('na')
+        if asia:
+            regions.append('sea')
+        return await self.send_code(interaction, code, regions, contents)
 
     @command()
     @describe(code="Enter the code", contents="Enter the reward the code gives")
@@ -444,7 +440,7 @@ class Warships(Cog):
     async def code_cis(self, interaction: Interaction, code: str, contents: str) -> Message:
         """Send a message with a region specific redeem button"""
         await interaction.response.defer(thinking=True)
-        return await self.send_code(code, contents, interaction, cis=True)
+        return await self.send_code(interaction, code, regions=['cis'], contents=contents)
 
     @command()
     @describe(code_list="Enter a list of codes, | and , will be stripped, and a list will be returned.")
@@ -560,7 +556,6 @@ class Warships(Cog):
         v = player.view(interaction, mode, division, ship)
         return await v.mode_stats()
 
-    # TODO: DD/CV
     overmatch = Group(name="overmatch", description="Get information about shell/armour overmatch")
 
     @overmatch.command()
@@ -649,7 +644,7 @@ class Warships(Cog):
                 rows.append('\n'.join(wnr))
 
             e = Embed(title="Clan Battle Season Winners", colour=Colour.purple())
-            return await Paginator(interaction, rows_to_embeds(e, rows, max_rows=1)).update()
+            return await Paginator(interaction, rows_to_embeds(e, rows, rows=1)).update()
         else:
             region = next(i for i in Region if i.db_key == region)
             rows = []
@@ -661,7 +656,7 @@ class Warships(Cog):
                                 f"(`{clan['public_rating']}`)")
 
             e = Embed(title="Clan Battle Season Winners", colour=Colour.purple())
-            return await Paginator(interaction, rows_to_embeds(e, rows, max_rows=25)).update()
+            return await Paginator(interaction, rows_to_embeds(e, rows, rows=25)).update()
 
     @clan.command()
     @describe(region="Get Rankings for a specific region")

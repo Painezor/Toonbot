@@ -1,34 +1,29 @@
 """This Cog Grabs data from Flashscore and outputs the latest scores to user-configured live score channels"""
 from __future__ import annotations
 
-import datetime
-# Misc
 from collections import defaultdict
 from copy import deepcopy
+from datetime import datetime, timezone, timedelta
 from itertools import zip_longest
-# Type Hinting
-from typing import List, TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
-# Error Handling
 from asyncpg import ForeignKeyViolationError, Record
-# Discord
-from discord import Interaction, Message, TextChannel, ButtonStyle, Colour, Embed, PermissionOverwrite, Permissions, \
-    Guild, HTTPException, Forbidden
+from discord import TextChannel, ButtonStyle, Colour, Embed, PermissionOverwrite, Permissions, HTTPException, Forbidden
 from discord.app_commands import Group, describe, autocomplete
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import Button, Select, View
-from lxml import html, etree
-from lxml.etree import ParserError
+from lxml.etree import ParserError, tostring
+from lxml.html import fromstring
 
 import ext.toonbot_utils.gamestate
-# Utils
 from ext.toonbot_utils.flashscore import Competition, WORLD_CUP_LEAGUES, DEFAULT_LEAGUES, Team, Fixture, search, lg_ac
 from ext.utils.embed_utils import rows_to_embeds, stack_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
+    from discord import Message, Guild, Interaction
     from core import Bot
 
 # Constants.
@@ -44,13 +39,13 @@ class ScoreChannel:
 
     def __init__(self, channel: TextChannel) -> None:
         self.channel: TextChannel = channel
-        self.messages: List[Message | None] = []
-        self.leagues: List[str] = []
+        self.messages: list[Message | None] = []
+        self.leagues: list[str] = []
 
         # Iterate to avoid ratelimiting
         self.iteration: int = 0
 
-    def generate_embeds(self) -> List[Embed]:
+    def generate_embeds(self) -> list[Embed]:
         """Have each Competition generate it's livescore embeds"""
         embeds = []
         games = self.bot.games.copy()
@@ -58,10 +53,10 @@ class ScoreChannel:
         for comp in set(i.competition for i in games):
             for tracked in self.leagues:
                 if tracked == comp.title:
-                    embeds += getattr(comp, "score_embeds", [])
+                    embeds += comp.score_embeds
                     break
 
-                elif tracked + " -" in comp.title:
+                elif f"{tracked} -" in comp.title:
                     # For Competitions Such as EUROPE: Champions League - Playoffs, where we want fixtures of a part
                     # of a tournament, we need to do additional checks. We are not, for example, interested in U18, or
                     # women's tournaments unless explicitly tracked
@@ -73,27 +68,27 @@ class ScoreChannel:
                             break
                     else:
                         # If we do not break, we can fetch the score embeds for that league.
-                        embeds += getattr(comp, "score_embeds", [])
+                        embeds += comp.score_embeds
                         break
 
         if not embeds:
             return [Embed(title="No Games Found", description=NO_GAMES_FOUND)]
         return embeds
 
-    async def get_leagues(self) -> List[str]:
+    async def get_leagues(self) -> list[str]:
         """Fetch target leagues for the ScoreChannel from the database"""
         sql = """SELECT league FROM scores_leagues WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
         try:
             async with connection.transaction():
-                records: List[Record] = await connection.fetch(sql, self.channel.id)
+                records: list[Record] = await connection.fetch(sql, self.channel.id)
         finally:
             await self.bot.db.release(connection)
 
         self.leagues = [r['league'] for r in records]
         return self.leagues
 
-    async def reset_leagues(self) -> List[str]:
+    async def reset_leagues(self) -> list[str]:
         """Reset the Score Channel to the list of default leagues."""
         sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
         connection = await self.bot.db.acquire()
@@ -107,7 +102,7 @@ class ScoreChannel:
         self.leagues = DEFAULT_LEAGUES
         return self.leagues
 
-    async def add_leagues(self, leagues: List[str]) -> List[str]:
+    async def add_leagues(self, leagues: list[str]) -> list[str]:
         """Add a league to the ScoreChannel's tracked list"""
         sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
         connection = await self.bot.db.acquire()
@@ -119,7 +114,7 @@ class ScoreChannel:
         self.leagues += [i for i in leagues if i not in self.leagues]
         return self.leagues
 
-    async def remove_leagues(self, leagues: List[str]) -> List[str]:
+    async def remove_leagues(self, leagues: list[str]) -> list[str]:
         """Remove a list of leagues for the channel from the database"""
         sql = """DELETE from scores_leagues WHERE (channel_id, league) = ($1, $2)"""
         connection = await self.bot.db.acquire()
@@ -132,7 +127,7 @@ class ScoreChannel:
         self.leagues = [i for i in self.leagues if i not in leagues]
         return self.leagues
 
-    async def update(self) -> List[Message | None]:
+    async def update(self) -> list[Message | None]:
         """Edit a live-score channel to have the latest scores"""
         if self.channel.is_news():
             return []
@@ -152,7 +147,7 @@ class ScoreChannel:
         if not self.messages:
             try:
                 # Purge up to 10 messages from last 7 days because fuck you ratelimiting.
-                ts = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=7)
+                ts = datetime.now(tz=timezone.utc) - timedelta(days=7)
                 await self.channel.purge(after=ts, limit=10, reason="Clean livescores channel")
             except HTTPException:
                 pass
@@ -160,7 +155,7 @@ class ScoreChannel:
         self.messages.clear()
 
         message: Message | None
-        new_embeds: List[Embed]
+        new_embeds: list[Embed]
         # Zip longest will give (, None) in slot [0] // self.messages if we do not have enough messages for the embeds.
         for message, new_embeds in tuples[:4]:
             try:
@@ -192,7 +187,7 @@ class ScoresConfig(View):
         super().__init__()
         self.sc: ScoreChannel = channel
         self.interaction: Interaction = interaction
-        self.pages: List[Embed] = []
+        self.pages: list[Embed] = []
         self.index: int = 0
 
     async def on_timeout(self) -> Message:
@@ -203,13 +198,13 @@ class ScoresConfig(View):
         """Verify user of view is correct user."""
         return interaction.user.id == self.interaction.user.id
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Push the newest version of view to message"""
         self.clear_items()
         leagues = await self.sc.get_leagues()
 
         embed: Embed = Embed(colour=Colour.dark_teal())
-        embed.title = f"{self.interaction.client.user.name} Live Scores config"
+        embed.title = f"{self.bot.user.name} Live Scores config"
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
 
         missing = []
@@ -227,7 +222,7 @@ class ScoresConfig(View):
 
         if leagues:
             header = f'Tracked leagues for {self.sc.channel.mention}```yaml\n'
-            embeds = rows_to_embeds(embed, sorted(leagues), header=header, footer="```", max_rows=25)
+            embeds = rows_to_embeds(embed, sorted(leagues), header=header, footer="```", rows=25)
             self.pages = embeds
             add_page_buttons(self, row=1)
             embed = self.pages[self.index]
@@ -245,7 +240,7 @@ class ScoresConfig(View):
 
         return await self.bot.reply(self.interaction, content=content, embed=embed, view=self)
 
-    async def remove_leagues(self, leagues: List[str]) -> Message:
+    async def remove_leagues(self, leagues: list[str]) -> Message:
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
@@ -277,7 +272,7 @@ class ResetLeagues(Button):
 class RemoveLeague(Select):
     """Button to bring up the remove leagues dropdown."""
 
-    def __init__(self, leagues: List[str], row: int = 4) -> None:
+    def __init__(self, leagues: list[str], row: int = 4) -> None:
         super().__init__(placeholder="Remove tracked league(s)", row=row, max_values=len(leagues))
 
         for lg in sorted(leagues):
@@ -335,7 +330,7 @@ class Scores(Cog, name="LiveScores"):
                 self.bot.teams.append(team)
 
     # Database load: ScoreChannels
-    async def update_cache(self) -> List[ScoreChannel]:
+    async def update_cache(self) -> list[ScoreChannel]:
         """Grab the most recent data for all channel configurations"""
         connection = await self.bot.db.acquire()
         try:
@@ -366,7 +361,7 @@ class Scores(Cog, name="LiveScores"):
 
     # Core Loop
     @loop(minutes=1)
-    async def score_loop(self) -> List[ScoreChannel]:
+    async def score_loop(self) -> list[ScoreChannel]:
         """Score Checker Loop"""
         if not self.bot.score_channels:
             await self.update_cache()
@@ -377,7 +372,7 @@ class Scores(Cog, name="LiveScores"):
             return []
 
         # Used for ordinal checking, and then as a dummy value for getattr later.
-        now = datetime.datetime.now() + datetime.timedelta(hours=1)
+        now = datetime.now() + timedelta(hours=1)
         ordinal = now.toordinal()
 
         # Copy to avoid size change in iteration.
@@ -395,24 +390,24 @@ class Scores(Cog, name="LiveScores"):
             e = deepcopy(await comp.live_score_embed)
             fixtures = sorted([i for i in self.bot.games if i.competition == comp],
                               key=lambda c: now if c.kickoff is None else c.kickoff)
-            comp.score_embeds = rows_to_embeds(e, [i.live_score_text for i in fixtures], max_rows=50)
+            comp.score_embeds = rows_to_embeds(e, [i.live_score_text for i in fixtures], rows=50)
 
         for sc in self.bot.score_channels.copy():
             await sc.update()
         return self.bot.score_channels
 
     # Core Loop
-    async def fetch_games(self) -> List[Fixture]:
+    async def fetch_games(self) -> list[Fixture]:
         """Grab current scores from flashscore using aiohttp"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             match resp.status:
                 case 200:
-                    tree = html.fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
+                    tree = fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
                 case _:
                     raise ConnectionError(f'[ERR] Scores error {resp.status} ({resp.reason}) during score loop')
 
         inner_html = tree.xpath('.//div[@id="score-data"]')[0]
-        byt: bytes = etree.tostring(inner_html)
+        byt: bytes = tostring(inner_html)
         string: str = byt.decode('utf8')
         chunks = str(string).split('<br/>')
         competition: Competition = Competition(self.bot)  # Generic
@@ -420,7 +415,7 @@ class Scores(Cog, name="LiveScores"):
 
         for game in chunks:
             try:
-                tree = html.fromstring(game)
+                tree = fromstring(game)
             except ParserError:  # Document is empty because of trailing </div>
                 continue
 
@@ -535,16 +530,16 @@ class Scores(Cog, name="LiveScores"):
             if time_block and not hasattr(fixture, 'kickoff'):
                 if ":" in time_block[0]:
                     time = time_block[0]
-                    ko = datetime.datetime.strptime(time, "%H:%M") - datetime.timedelta(hours=1)
+                    ko = datetime.strptime(time, "%H:%M") - timedelta(hours=1)
 
                     # We use the parsed data to create a 'cleaner' datetime object, with no second or microsecond
                     # And set the day to today.
-                    now = datetime.datetime.now()
+                    now = datetime.now()
                     ko = now.replace(hour=ko.hour, minute=ko.minute, second=0, microsecond=0)  # Discard micros
 
                     # If the game appears to be in the past but has not kicked off yet, add a day.
                     if now.timestamp() > ko.timestamp() and state == "sched":
-                        ko += datetime.timedelta(days=1)
+                        ko += timedelta(days=1)
                     fixture.kickoff = ko
 
             # What we now need to do, is figure out the "state" of the game.
@@ -718,7 +713,7 @@ class Scores(Cog, name="LiveScores"):
         if comp:
             res = comp
         elif "http" not in league_name:
-            res = await search(interaction, league_name, competitions=True)
+            res = await search(interaction, league_name, mode=comp)
             if isinstance(res, Message):
                 return res
         else:

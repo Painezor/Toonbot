@@ -33,11 +33,11 @@ class Meta(Cog):
     async def help(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
         e: Embed = Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
-        e.set_footer(text=f"{interaction.client.user.name} is coded by Painezor and was created on ")
+        e.set_footer(text=f"{self.bot.user.name} is coded by Painezor and was created on ")
 
         me = self.bot.user
         e.set_thumbnail(url=me.display_avatar.url)
-        e.title = f"About {interaction.client.user.name}"
+        e.title = f"About {self.bot.user.name}"
 
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)

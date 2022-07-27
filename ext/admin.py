@@ -1,10 +1,12 @@
 """Administration commands for Painezor, including logging, debugging, and loading of modules"""
+from __future__ import annotations
+
 import datetime
 from inspect import isawaitable
 from os import system
 from sys import version
 from traceback import format_exception
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING
 
 from discord import Interaction, Embed, Colour, Activity, Attachment, Message, Object
 from discord.app_commands import Choice, describe, autocomplete, Group, command, guilds
@@ -25,16 +27,16 @@ def error_to_codeblock(error):
            f'{"".join(format_exception(type(error), error, error.__traceback__))}```'
 
 
-async def cg_ac(interaction: Interaction, current: str) -> List[Choice]:
+async def cg_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete from list of cogs"""
-    cogs = getattr(interaction.client, "COGS")
-    return [Choice(name=c, value=c) for c in sorted(cogs) if current.lower() in c.lower()]
+    bot: Bot | PBot = interaction.client
+    return [Choice(name=c, value=c) for c in sorted(bot.cogs) if current.lower() in c.lower()]
 
 
 class Admin(Cog):
     """Code debug & loading of modules"""
 
-    def __init__(self, bot: Union['Bot', 'PBot']) -> None:
+    def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
 
     @command()
@@ -258,6 +260,6 @@ class Admin(Cog):
         return await self.bot.reply(interaction, embed=e)
 
 
-async def setup(bot: Union['Bot', 'PBot']) -> None:
+async def setup(bot: Bot | PBot) -> None:
     """Load the Administration cog into the Bot"""
     await bot.add_cog(Admin(bot))

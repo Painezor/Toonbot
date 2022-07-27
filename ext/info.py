@@ -1,13 +1,13 @@
 """Commands about the meta-state of the bot and information about users and servers"""
 from __future__ import annotations
 
-import datetime
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
 from discord import Member, Embed, Colour, TextChannel, Forbidden, Interaction, Message
 from discord.app_commands import CommandAlreadyRegistered, context_menu, command, guild_only
 from discord.ext.commands import Cog
+from discord.utils import utcnow
 
 from ext.utils.embed_utils import get_colour, rows_to_embeds
 from ext.utils.timed_events import Timestamp
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 async def u_info(interaction: Interaction, member: Member) -> Message:
     """Show info about this member."""
     # Embed 1: Generic Info
+    bot: Bot = interaction.client
     await interaction.response.defer(thinking=True)
 
     e: Embed = Embed(colour=member.colour)
@@ -34,10 +35,10 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
     e.set_author(name=member, icon_url=ico)
     if member.display_avatar:
         e.set_thumbnail(url=member.display_avatar.url)
-    e.description = f"{'🤖 ' if member.bot else ''}{member.mention}\nUser ID: {member.id}"
+    desc = [f"{'🤖 ' if member.bot else ''}{member.mention}\nUser ID: {member.id}"]
 
     if hasattr(member, 'is_on_mobile') and member.is_on_mobile():
-        e.description += "\n📱 Using mobile app."
+        desc.append("📱 Using mobile app.")
 
     if hasattr(member, 'voice') and member.voice:
         voice = member.voice.channel
@@ -57,10 +58,11 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
         e.set_image(url=member.banner.url)
 
     try:
-        e.description += f'\nJoined Server: {Timestamp(member.joined_at).countdown}'
+        desc.append(f'Joined Server: {Timestamp(member.joined_at).countdown}')
     except AttributeError:
         pass
-    e.description += f'\nCreated Account: {Timestamp(member.created_at).countdown}'
+    desc.append(f'Created Account: {Timestamp(member.created_at).countdown}')
+    e.description = "\n".join(desc)
 
     # Embed 2 - User Permissions
     try:
@@ -76,10 +78,10 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
     av = Embed(colour=member.color, description=f"{member.mention}'s avatar")
     av.set_footer(text=member.display_avatar.url)
     av.set_image(url=member.display_avatar.url)
-    av.timestamp = datetime.datetime.now(datetime.timezone.utc)
+    av.timestamp = utcnow()
 
     # Shared Servers.
-    matches = [f"`{i.id}:` **{i.name}**" for i in interaction.client.guilds if i.get_member(member.id) is not None]
+    matches = [f"`{i.id}:` **{i.name}**" for i in bot.guilds if i.get_member(member.id) is not None]
 
     sh = Embed(colour=Colour.og_blurple())
     sh.set_footer(text=f"{member} (ID: {member})", icon_url=member.display_avatar.url)

@@ -1,8 +1,8 @@
 """Track when users begin streaming"""
 from __future__ import annotations
 
-import asyncio
-from typing import TYPE_CHECKING, List, Literal, Optional, Dict
+from asyncio import sleep, Semaphore
+from typing import TYPE_CHECKING, Literal, Optional, ClassVar
 
 from asyncpg import ForeignKeyViolationError
 from discord import ActivityType, Embed, Message, Interaction, Colour, Permissions, ButtonStyle, Role, TextChannel
@@ -31,16 +31,16 @@ REGIONS = Literal['eu', 'na', 'cis', 'sea']
 
 class Contributor:
     """An Object representing a World of Warships CC"""
-    bot: PBot
+    bot: ClassVar[PBot] = None
 
-    def __init__(self, name: str, links: List[str], language: List[str], region: 'Region'):
+    def __init__(self, name: str, links: list[str], language: list[str], region: 'Region'):
         self.name: str = name
-        self.links: List[str] = links
-        self.language: List[str] = language
+        self.links: list[str] = links
+        self.language: list[str] = language
         self.region: Region = region
 
     @property
-    def language_names(self) -> List[str]:
+    def language_names(self) -> list[str]:
         """Get the name of each language"""
         return [languages.get(alpha2=lang).name for lang in self.language]
 
@@ -163,7 +163,7 @@ class TrackerChannel:
     bot: PBot = None
 
     def __init__(self, channel: 'TextChannel') -> None:
-        self.tracked: List[Role] = []
+        self.tracked: list[Role] = []
         self.channel: TextChannel = channel
 
     async def create_tracker(self) -> Self:
@@ -184,7 +184,7 @@ class TrackerChannel:
             await self.bot.db.release(connection)
         return self
 
-    async def get_tracks(self) -> List[Role]:
+    async def get_tracks(self) -> list[Role]:
         """Set the list of tracked members for the TrackerChannel"""
         sql = """SELECT role_id FROM tracker_ids WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()
@@ -203,7 +203,7 @@ class TrackerChannel:
         self.tracked = tracked
         return tracked
 
-    async def track(self, role: Role) -> List[Role]:
+    async def track(self, role: Role) -> list[Role]:
         """Add a user to the list of tracked users for Go Live notifications"""
         sql = """INSERT INTO tracker_ids (channel_id, role_id) VALUES ($1, $2)"""
         connection = await self.bot.db.acquire()
@@ -217,7 +217,7 @@ class TrackerChannel:
         self.tracked.append(role)
         return self.tracked
 
-    async def untrack(self, roles: List[str]) -> List[Role]:
+    async def untrack(self, roles: list[str]) -> list[Role]:
         """Remove a list of users or roles from the list of tracked roles."""
         sql = """DELETE FROM tracker_ids WHERE (channel_id, role_id) = ($1, $2)"""
         connection = await self.bot.db.acquire()
@@ -240,10 +240,11 @@ class TrackerChannel:
         return TrackerConfig(interaction, self)
 
 
-async def cc_ac(interaction: Interaction, current: str) -> List[Choice]:
+async def cc_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete from the list of stored CCs"""
-    ccs = getattr(interaction.client, "contributors")
-    ccs = [i for i in ccs if getattr(i, 'name', None) is not None]
+    bot: PBot = interaction.client
+    ccs = bot.contributors
+    ccs = [i for i in ccs if i.name is not None]
 
     # Region Filtering
     match interaction.namespace.region:
@@ -263,7 +264,7 @@ async def cc_ac(interaction: Interaction, current: str) -> List[Choice]:
                    value=i.name) for i in ccs if current.lower() in i.auto_complete.lower()][:25]
 
 
-async def language_ac(interaction: Interaction, current: str) -> List[Choice]:
+async def language_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Filter by Language"""
     bot: PBot = getattr(interaction, 'client')
 
@@ -283,7 +284,7 @@ class TrackerConfig(View):
         self.interaction: Interaction = interaction
         self.tc: TrackerChannel = tc
         self.index: int = 0
-        self.pages: List[Embed] = []
+        self.pages: list[Embed] = []
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Verify interactor is person who ran command."""
@@ -315,7 +316,7 @@ class TrackerConfig(View):
             await self.tc.create_tracker()
         return await self.update(content=f"A Twitch Tracker was created for {self.tc.channel.mention}")
 
-    async def remove_tracked(self, roles: List[str]) -> Message:
+    async def remove_tracked(self, roles: list[str]) -> Message:
         """Bulk remove tracked items from a Twitch Tracker channel"""
         # Ask user to confirm their choice.
         _roles = [self.tc.channel.guild.get_role(int(r)) for r in roles]
@@ -333,7 +334,7 @@ class TrackerConfig(View):
         txt = "\n".join(i.name for i in _roles)
         return await self.update(f"Removed {self.tc.channel.mention} twitch trackers: {txt}")
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Regenerate view and push to message"""
         self.clear_items()
 
@@ -359,7 +360,7 @@ class TrackerConfig(View):
 
         else:
             header = f'Tracked roles for {self.tc.channel.mention}\n'
-            embeds = rows_to_embeds(e, [i.mention for i in self.tc.tracked], header=header, max_rows=25)
+            embeds = rows_to_embeds(e, [i.mention for i in self.tc.tracked], header=header, rows=25)
             self.pages = embeds
 
             self.add_item(Stop(row=1))
@@ -378,7 +379,7 @@ class TrackerConfig(View):
 class Untrack(Select):
     """Dropdown to roles from a Twitch Tracker Channel."""
 
-    def __init__(self, roles: List[Role], row: int = 0) -> None:
+    def __init__(self, roles: list[Role], row: int = 0) -> None:
         roles = sorted(set(roles), key=lambda role: role.name)
         super().__init__(placeholder="Remove tracked role(s)", row=row, max_values=len(roles))
         # No idea how we're getting duplicates here but fuck it I don't care.
@@ -398,8 +399,8 @@ class TwitchTracker(Cog):
         self.bot: PBot = bot
         self.twitch: TwitchBot = bot.twitch
 
-        self._cached: Dict[int, Embed] = {}  # user_id: Embed
-        self.semaphore = asyncio.Semaphore()
+        self._cached: dict[int, Embed] = {}  # user_id: Embed
+        self.semaphore = Semaphore()
 
         if TrackerConfig.bot is None:
             TrackerConfig.bot = bot
@@ -410,7 +411,7 @@ class TwitchTracker(Cog):
         await self.fetch_ccs()
         await self.update_cache()
 
-    async def update_cache(self) -> List[TrackerChannel]:
+    async def update_cache(self) -> list[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""
         connection = await self.bot.db.acquire()
         try:
@@ -439,7 +440,7 @@ class TwitchTracker(Cog):
         self.bot.tracker_channels = trackers
         return self.bot.tracker_channels
 
-    async def fetch_ccs(self) -> List[Contributor]:
+    async def fetch_ccs(self) -> list[Contributor]:
         """Fetch details about all World of Warships CCs"""
         ccs = 'https://wows-static-content.gcdn.co/contributors-program/members.json'
         async with self.bot.session.get(ccs) as resp:
@@ -450,7 +451,7 @@ class TwitchTracker(Cog):
                     return []
 
         contributors = []
-        if not hasattr(Contributor, 'bot'):
+        if Contributor.bot is None:
             Contributor.bot = self.bot
 
         for i in ccs:
@@ -506,7 +507,7 @@ class TwitchTracker(Cog):
                 desc.append(f"{member.mention}: {Timestamp().relative}")
 
                 # Stream Tags
-                tags: List[Tag] = await user.fetch_tags()
+                tags: list[Tag] = await user.fetch_tags()
                 if tags:
                     desc.append(f"\n**Tags**: {', '.join([i.localization_names['en-us'] for i in tags])}")
 
@@ -562,7 +563,7 @@ class TwitchTracker(Cog):
         for channel in valid_channels:
             await channel.dispatch(embed)
 
-        await asyncio.sleep(60)
+        await sleep(60)
         self._cached.pop(after.id)
 
     # TODO: Create a view, with CC & Language Filtering.
@@ -664,7 +665,7 @@ class TwitchTracker(Cog):
 
     # Database Cleanup
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel) -> List[TrackerChannel]:
+    async def on_guild_channel_delete(self, channel: TextChannel) -> list[TrackerChannel]:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM tracker_channels WHERE channel_id = $1"""
         connection = await self.bot.db.acquire()

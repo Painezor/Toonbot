@@ -16,7 +16,7 @@ from twitchio.ext import commands
 from ext.painezbot_utils.clan import ClanBuilding, Clan
 from ext.painezbot_utils.player import Player
 from ext.painezbot_utils.ship import ShipSentinel
-from ext.utils.pw_browser import make_browser
+from ext.utils.playwright_browser import make_browser
 from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 	from ext.devblog import Blog
 	from ext.twitch_tracker import Contributor, TrackerChannel
 	from playwright.async_api import BrowserContext
-	from typing import List, Optional
+	from typing import Optional
 	from asyncpg import Record, Pool
 	from asyncio import Task
 
@@ -71,20 +71,20 @@ class PBot(AutoShardedBot):
 		self.initialised_at = datetime.utcnow()
 
 		# Notifications
-		self.notifications_cache: List[Record] = []
+		self.notifications_cache: list[Record] = []
 
 		# Reminders
-		self.reminders: List[Task] = []
+		self.reminders: list[Task] = []
 
 		# Dev BLog
 		self.dev_blog: Optional[Task] = None
-		self.dev_blog_cache: List[Blog] = []
-		self.dev_blog_channels: List[int] = []
+		self.dev_blog_cache: list[Blog] = []
+		self.dev_blog_channels: list[int] = []
 
 		# RSS: Cache & Channels
 		self.news: Optional[Task] = None
-		self.news_cache: List[Article] = []
-		self.news_channels: List[NewsChannel] = []
+		self.news_cache: list[Article] = []
+		self.news_channels: list[NewsChannel] = []
 
 		# Session // Scraping
 		self.browser: Optional[BrowserContext] = None
@@ -92,23 +92,23 @@ class PBot(AutoShardedBot):
 
 		# Twitch API
 		self.twitch: TwitchBot = kwargs.pop('tbot')
-		self.tracker_channels: List[TrackerChannel] = []
+		self.tracker_channels: list[TrackerChannel] = []
 
 		# Wargaming API
 		self.WG_ID = kwargs.pop("wg_id")
 
-		self.contributors: List[Contributor] = []
-		self.clans: List[Clan] = []
-		self.clan_buildings: List[ClanBuilding] = []
-		self.maps: List[Map] = []
-		self.modes: List[GameMode] = []
-		self.modules: List[Module] = []
-		self.players: List[Player] = []
+		self.contributors: list[Contributor] = []
+		self.clans: list[Clan] = []
+		self.clan_buildings: list[ClanBuilding] = []
+		self.maps: list[Map] = []
+		self.modes: list[GameMode] = []
+		self.modules: list[Module] = []
+		self.players: list[Player] = []
 		self.pr_data: dict = {}
 		self.pr_data_updated_at: Optional[datetime] = None
 		self.pr_sums: Tuple[int, int, int]  # Dmg WR Kills
-		self.ships: List[Ship] = []
-		self.ship_types: List[ShipType] = []
+		self.ships: list[Ship] = []
+		self.ship_types: list[ShipType] = []
 
 		print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 

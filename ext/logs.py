@@ -1,12 +1,12 @@
 """Notify server moderators about specific events"""
 from __future__ import annotations
 
-import datetime
 from copy import deepcopy
-from typing import List, Sequence, TYPE_CHECKING, Callable, ClassVar
+from datetime import timedelta
+from typing import Sequence, TYPE_CHECKING, Callable, ClassVar
 
-from discord import Embed, Colour, HTTPException, AuditLogAction, Interaction, Member, User, Message, ButtonStyle
-from discord import Guild, Emoji, GuildSticker, TextChannel
+import discord
+from discord import Embed, Colour, HTTPException, AuditLogAction, ButtonStyle, RawMemberRemoveEvent, TextChannel
 from discord.app_commands import command, default_permissions
 from discord.ext.commands import Cog
 from discord.ui import Button, View
@@ -16,6 +16,7 @@ from ext.utils import timed_events, view_utils
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
+    from discord import File, Guild, Message, Emoji, GuildSticker, Interaction, Member, User
 
 TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 
@@ -57,9 +58,8 @@ class ToggleButton(Button):
 
         style = ButtonStyle.green if value else ButtonStyle.red
         emoji: str = '🟢' if value else '🔴'  # None (Off)
-        label: str = "On" if value else "Off"
         title: str = db_key.replace('_', ' ').title()
-        super().__init__(label=f"{title} ({label})", emoji=emoji, row=row, style=style)
+        super().__init__(label=f"{title}", emoji=emoji, row=row, style=style)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
@@ -84,9 +84,6 @@ qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2
 qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 
 
-# TODO: LogChannel Object.
-
-
 class LogsConfig(View):
     """Generic Config View"""
     bot: ClassVar[Bot] = None
@@ -103,7 +100,7 @@ class LogsConfig(View):
         """Hide menu on timeout."""
         return await self.bot.reply(self.interaction, view=None, followup=False)
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Regenerate view and push to message"""
         self.clear_items()
 
@@ -172,7 +169,7 @@ class Logs(Cog):
 
     # Join messages
     @Cog.listener()
-    async def on_member_join(self, member: Member) -> List[Message]:
+    async def on_member_join(self, member: Member) -> list[Message]:
         """Event handler to Dispatch new member information for servers that request it"""
         # Extended member join information.
         e: Embed = Embed(colour=0x7289DA)
@@ -192,7 +189,7 @@ class Logs(Cog):
         except AttributeError:
             pass
 
-        messages: List[Message] = []
+        messages: list[Message] = []
         for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i['member_joins']]:
             try:
                 ch: TextChannel = self.bot.get_channel(x['channel_id'])
@@ -203,110 +200,192 @@ class Logs(Cog):
 
     # Unban notifier.
     @Cog.listener()
-    async def on_member_unban(self, guild, user: User) -> None:
+    async def on_member_unban(self, guild: Guild, user: User) -> None:
         """Event handler for outputting information about unbanned users."""
-        e: Embed = Embed(title="User Unbanned", colour=Colour.dark_blue())
-        e.description = f"{user} (ID: {user.id}) was unbanned."
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['user_unbans']]
+        channels = [self.bot.get_channel(i) for i in channels]
+        channels = [i for i in channels if i is not None]
 
-        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['user_unbans']]:
+        if not channels:
+            return
+
+        e: Embed = Embed(title="User Unbanned",
+                         colour=Colour.dark_blue(),
+                         description=f"{user.mention} (ID: {user.id}) was unbanned.",
+                         timestamp=discord.utils.utcnow())
+
+        if guild.me.guild_permissions.view_audit_log:
             try:
-                ch: TextChannel = self.bot.get_channel(x['channel_id'])
+                ts = discord.utils.utcnow() - timedelta(seconds=30)
+                action = next(i async for i in guild.audit_logs(action=AuditLogAction.unban, after=ts)
+                              if i.target.id == user.id)
+                e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                e.add_field(name="Reason", value=action.reason)
+            except StopIteration:
+                pass
+
+        for ch in channels:
+            try:
                 await ch.send(embed=e)
-            except (AttributeError, HTTPException):
+            except HTTPException:
                 continue
 
     @Cog.listener()
-    async def on_member_ban(self, guild: Guild, user: User | Member) -> List[Message]:
+    async def on_member_ban(self, guild: Guild, user: User | Member) -> list[Message]:
         """Event handler for outputting information about unbanned users."""
-        channels = [self.bot.get_channel(i['channel_id']) for i in self.bot.notifications_cache
-                    if i['guild_id'] == guild.id and i['user_unbans']]
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['user_unbans']]
+        channels = [self.bot.get_channel(i) for i in channels]
         channels = [i for i in channels if i is not None]
 
         if not channels:
             return []
 
-        e: Embed = Embed(title="User Banned", colour=Colour.dark_red())
+        e: Embed = Embed(title="User Banned",
+                         colour=Colour.dark_red(),
+                         description=f"{user.mention} (ID: {user.id}) was banned.",
+                         timestamp=discord.utils.utcnow())
 
-        try:
-            e.description = f"{user.mention} (ID: {user.id}) was banned."
-        except AttributeError:  # Users do not have .mention
-            e.description = f"{user} (ID: {user.id}) was banned."
+        if guild.me.guild_permissions.view_audit_log:
+            try:
+                action = next(i async for i in guild.audit_logs(action=AuditLogAction.ban) if i.target.id == user.id)
+                e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                e.add_field(name="Reason", value=action.reason)
+            except StopIteration:
+                pass
 
-        try:
-            async for x in guild.audit_logs(limit=5):
-                if x.target.id == user.id:
-                    e.add_field(name="Reason", value=f"{x.user.mention}: {x.reason}")
-                    break
-        except HTTPException:
-            pass  # We cannot see audit logs.
-
-        messages: List[Message] = []
         for ch in channels:
             try:
-                messages.append(await ch.send(embed=e))
-            except (AttributeError, HTTPException):
+                await ch.send(embed=e)
+            except HTTPException:
                 continue
-        return messages
 
     @Cog.listener()
-    async def on_bulk_message_delete(self, messages: List[Message]) -> List[Message]:
+    async def on_bulk_message_delete(self, messages: list[Message]) -> list[Message]:
         """Yeet every single deleted message into the deletion log. Awful idea I know."""
-        for message in messages:
-            await self.on_message_delete(message)
+        guild = messages[0].guild
+        if guild is None:
+            return  # Ignore DMs & Do not log message deletions from bots.
+
+        ch = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['message_deletes']]
+        ch = [self.bot.get_channel(i) for i in ch]
+        ch = [i for i in ch if i is not None]
+        if not ch:
+            return
+
+        e: Embed = Embed(colour=Colour.dark_red(),
+                         title="Message Bulk Delete")
+
+        if guild.me.guild_permissions.view_audit_log:
+            try:
+                ts = discord.utils.utcnow() - timedelta(seconds=30)
+                action = next(i async for i in guild.audit_logs(action=AuditLogAction.message_bulk_delete, after=ts)
+                              if i.target.id == messages[0].channel.id)
+                e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                e.add_field(name="Reason", value=action.reason)
+            except StopIteration:
+                pass
+
+        e.description = f"**{len(messages)}** messages were deleted from {messages[0].channel.name}"
         return messages
 
     # Deleted message notif
     @Cog.listener()
-    async def on_message_delete(self, message: Message) -> List[Message]:
+    async def on_message_delete(self, message: Message) -> list[Message]:
         """Event handler for reposting deleted messages from users/"""
         if message.guild is None or message.author.bot:
             return []  # Ignore DMs & Do not log message deletions from bots.
 
+        ch = [i for i in self.bot.notifications_cache if i['guild_id'] == message.guild.id and i['message_deletes']]
+        ch = [self.bot.get_channel(i) for i in ch]
+        ch = [i for i in ch if i is not None]
+        if not ch:
+            return
+
         e: Embed = Embed(colour=Colour.dark_red())
-        t = timed_events.Timestamp(datetime.datetime.now(datetime.timezone.utc)).datetime
+        t = timed_events.Timestamp(discord.utils.utcnow()).datetime
         e.description = f"{t}\n{message.channel.mention} {message.author.mention}\n> {message.content}"
-        e.set_footer(text=f"Deleted Message from UserID: {message.author.id}")
+        e.set_footer(text=f"UserID: {message.author.id}")
 
-        for z in message.attachments:
-            if hasattr(z, "height"):
-                v = f"📎 *Attachment info*: {z.filename} ({z.size} bytes, {z.height}x{z.width})," \
-                    f"attachment url: {z.proxy_url}"
-                e.add_field(name="Attachment info", value=v)
+        attachments: list[File] = []
 
-        for x in [i for i in self.bot.notifications_cache
-                  if i['guild_id'] == message.guild.id and i['message_deletes']]:
+        for num, z in enumerate(message.attachments, 1):
+            v = f"📎 *Attachment info*: [{z.filename}]({z.proxy_url}) ({z.content_type} - {z.size} bytes)" \
+                f"\n*This is cached and will only be available for a limited time*"
+
+            e.add_field(name=f"Attachment #{num}", value=v)
+            attachments.append(await z.to_file(spoiler=True, use_cached=True))
+
+        if message.guild.me.guild_permissions.view_audit_log:
             try:
-                ch = self.bot.get_channel(x['channel_id'])
-                await ch.send(embed=e)
+                ts = discord.utils.utcnow() - timedelta(seconds=30)
+                action = next(i async for i in message.guild.audit_logs(action=AuditLogAction.message_delete, after=ts)
+                              if i.target.id == message.author.id)
+                e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                e.add_field(name="Reason", value=action.reason)
+            except StopIteration:
+                pass
+
+        for channel in ch:
+            try:
+                await channel.send(embed=e, files=attachments)
             except (AttributeError, HTTPException):
                 continue
 
     # Kick notif
     # Leave notif
     @Cog.listener()
-    async def on_member_remove(self, member: Member) -> None:
+    async def on_raw_member_remove(self, payload: RawMemberRemoveEvent) -> None:
         """Event handler for outputting information about member kick, ban, or other departures"""
         # Check if in mod action log and override to specific channels.
-        e: Embed = Embed(title="Member Left", description=f"{member.mention} | {member} (ID: {member.id})")
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
-        db_field: str = "member_leaves"
-        try:
-            async for x in member.guild.audit_logs(limit=5):
-                if x.target == member:
-                    if x.action == AuditLogAction.kick:
-                        e.title = "Member Kicked"
-                        e.colour = Colour.dark_red()
-                        e.description = f"{member.mention} kicked by {x.user} for {x.reason}."
-                        db_field = "member_kicks"
-                        break
-        except HTTPException:
-            pass  # We cannot see audit logs.
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == payload.guild_id]
+        leaves = [i for i in channels if i['member_leaves']]
+        kicks = [i for i in channels if i['member_kicks']]
 
-        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i[db_field]]:
+        leaves = [self.bot.get_channel(i) for i in leaves if self.bot.get_channel(i) is not None]
+        kicks = [self.bot.get_channel(i) for i in kicks if self.bot.get_channel(i) is not None]
+
+        if not leaves + kicks:
+            return
+
+        member: User | Member = payload.user
+        guild_id = payload.guild_id
+
+        if kicks:
+            guild = self.bot.get_guild(guild_id)
+            if guild is None:
+                guild = await self.bot.fetch_guild(guild_id)
+            if guild.me.guild_permissions.view_audit_log:
+                try:
+                    ts = discord.utils.utcnow() - timedelta(seconds=30)
+                    action = next(i async for i in guild.audit_logs(action=AuditLogAction.kick, after=ts)
+                                  if i.target.id == member.id)
+
+                    e: Embed = Embed(title="Member Kicked",
+                                     description=f"{member.mention} (ID: {member.id})",
+                                     colour=Colour.dark_red(),
+                                     timestamp=discord.utils.utcnow())
+                    e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                    e.add_field(name="Reason", value=action.reason)
+
+                    for ch in kicks:
+                        try:
+                            await ch.send(embed=e)
+                        except HTTPException:
+                            continue
+
+                    leaves = [i for i in leaves if i not in kicks]
+                except StopIteration:
+                    leaves += kicks
+
+        e: Embed = Embed(title="Member Left",
+                         description=f"{member.mention} (ID: {member.id})",
+                         colour=Colour.dark_red(),
+                         timestamp=discord.utils.utcnow())
+
+        for ch in leaves:
             try:
-                ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embed=e)
-            except (AttributeError, HTTPException):
+            except HTTPException:
                 continue
 
     # Timeout notif
@@ -318,76 +397,115 @@ class Logs(Cog):
             return []
 
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == after.guild.id and i['member_timeouts']]
+        channels = [self.bot.get_channel(i) for i in channels]
+        channels = [i for i in channels if i is not None]
 
         if not channels:
             return []
 
         if not before.is_timed_out():
-            e: Embed = Embed(title="User Timed Out")
+            e: Embed = Embed(title="User Timed Out", timestamp=discord.utils.utcnow())
+
             end_time = after.timed_out_until
-            diff = end_time - datetime.datetime.now(datetime.timezone.utc)
+            diff = end_time - discord.utils.utcnow()
             target_time = timed_events.Timestamp(end_time).day_time
             e.description = f"{after.mention} was timed out for {diff}\nTimeout ends: {target_time}"
+
+            if before.guild.me.guild_permissions.view_audit_log:
+                try:
+                    action = next(i async for i in before.guild.audit_logs(action=AuditLogAction.member_update)
+                                  if i.target.id == before.id)
+
+                    if action.after.timed_out_until:
+                        e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                        e.add_field(name="Reason", value=action.reason)
+                except StopIteration:
+                    pass
         else:
             e: Embed = Embed(title="Timeout ended", description=f"{after.mention} is no longer timed out.")
 
         for x in channels:
             try:
-                ch = self.bot.get_channel(x['channel_id'])
-                await ch.send(embed=e)
-            except (AttributeError, HTTPException):
+                await x.send(embed=e)
+            except HTTPException:
                 continue
 
     # emojis notif
     @Cog.listener()
-    async def on_guild_emojis_update(self, guild: Guild, before: Sequence[Emoji], after: Sequence[Emoji]) -> None:
+    async def on_guild_emojis_update(self, guild: Guild, before: list[Emoji], after: list[Emoji]) -> None:
         """Event listener for outputting information about updated emojis on a server"""
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['emote_changes']]
+        channels = [self.bot.get_channel(i) for i in channels]
+        channels = [i for i in channels if i is not None]
+
+        if not channels:
+            return
+
         e: Embed = Embed()
         # Find if it was addition or removal.
-        new_emoji = [i for i in after if i not in before]
+        added = [i for i in after if i not in before]
+        removed = [i for i in before if i not in after]
 
-        embeds: List[Embed] = []
+        embeds: list[Embed] = []
 
-        if new_emoji:
-            for emoji in new_emoji:
-                if emoji.user is not None:
-                    e.add_field(name="Uploaded by", value=emoji.user.mention)
+        if added:
+            for emoji in added:
                 e.colour = Colour.dark_purple() if emoji.managed else Colour.green()
                 if emoji.managed:
                     e.set_author(name="Twitch Integration", icon_url=TWITCH_LOGO)
                     if emoji.roles:
                         e.add_field(name='Available to roles', value=' '.join([i.mention for i in emoji.roles]))
+                else:
+                    if emoji.user is not None:
+                        e.set_author(name=emoji.user, icon_url=emoji.user.display_avatar.url)
 
                 e.title = f"New {'animated ' if emoji.animated else ''}emote: {emoji.name}"
                 e.set_image(url=emoji.url)
                 e.set_footer(text=emoji.url)
+
                 embeds.append(deepcopy(e))
                 e.clear_fields()
         else:
-            try:
-                removed_emoji = [i for i in before if i.id not in [i.id for i in after]][0]
-            except IndexError:
-                return  # Shrug?
+            if guild.me.guild_permissions.view_audit_log:
+                try:
+                    action = next(i async for i in guild.audit_logs(action=AuditLogAction.emoji_delete))
+                    e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                except StopIteration:
+                    pass
+
             e.title = "Emote removed"
             e.colour = Colour.light_gray()
-            e.description = f"The '{removed_emoji}' emote was removed"
+            for emoji in removed:
+                e.description = f"The '{emoji}' emote was removed"
+                embeds.append(deepcopy(e))
 
-        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['emote_changes']]:
+        for ch in channels:
             try:
-                ch = self.bot.get_channel(x['channel_id'])
                 await ch.send(embeds=embeds)
-            except (AttributeError, HTTPException):
+            except HTTPException:
                 continue
 
     # stickers notif
     @Cog.listener()
-    async def on_guild_stickers_update(self, guild: Guild, old: Sequence[GuildSticker], new: Sequence[GuildSticker]):
+    async def on_guild_stickers_update(self, guild: Guild,
+                                       old: Sequence[GuildSticker], new: Sequence[GuildSticker]) -> None:
         """Event listener for outputting information about updated stickers on a server"""
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['sticker_changes']]
+        channels = [self.bot.get_channel(i) for i in channels]
+        channels = [i for i in channels if i is not None]
+
+        if not channels:
+            return
+
         e: Embed = Embed()
         # Find if it was addition or removal.
-        new_stickers = [i for i in new if i not in old]
-        if new_stickers:
-            for sticker in new_stickers:
+        added = [i for i in new if i not in old]
+        removed = [i for i in old if i not in new]
+
+        embeds: list[Embed] = []
+
+        if added:
+            for sticker in added:
                 if sticker.user is not None:
                     e.add_field(name="Uploaded by", value=sticker.user.mention)
 
@@ -397,23 +515,38 @@ class Logs(Cog):
                 e.description = sticker.description
 
         else:
-            try:
-                removed_sticker = [i for i in old if i.id not in [i.id for i in new]][0]
-            except IndexError:
-                return  # Shrug?
-            e.title = "Emote removed"
-            e.colour = Colour.light_gray()
-            e.description = f"The '{removed_sticker}' emote was removed"
+            if guild.me.guild_permissions.view_audit_log:
+                try:
+                    ts = discord.utils.utcnow() - timedelta(seconds=30)
+                    action = next(i async for i in guild.audit_logs(action=AuditLogAction.emoji_delete, after=ts))
+                    e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+                except StopIteration:
+                    pass
 
-        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['sticker_changes']]:
+            e.title = "Sticker removed"
+            e.colour = Colour.light_gray()
+            for sticker in removed:
+                e.description = f"The '{sticker}' sticker was removed"
+                embeds.append(deepcopy(e))
+
+        for ch in channels:
             try:
-                ch = self.bot.get_channel(x['channel_id'])
-                await ch.send(embed=e)
-            except (AttributeError, HTTPException):
+                await ch.send(embeds=embeds)
+            except HTTPException:
                 continue
 
     @Cog.listener()
-    async def on_bot_notification(self, notification):
+    async def on_message_edit(self, before: Message, after: Message) -> None:
+        """Edited message output."""
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == before.guild.id and i['message_edits']]
+        channels = [self.bot.get_channel(i) for i in channels]
+        channels = [i for i in channels if i is not None]
+
+        if not channels:
+            return
+
+    @Cog.listener()
+    async def on_bot_notification(self, notification: str) -> None:
         """Custom event dispatched by painezor, output to tracked guilds."""
         e: Embed = Embed(description=notification)
 
@@ -426,6 +559,6 @@ class Logs(Cog):
                 continue
 
 
-async def setup(bot: Bot | PBot):
+async def setup(bot: Bot | PBot) -> None:
     """Loads the notifications cog into the bot"""
     await bot.add_cog(Logs(bot))

@@ -1,7 +1,6 @@
 """Commands for creating time triggered message reminders."""
 from __future__ import annotations
 
-import datetime
 from typing import TYPE_CHECKING, Optional
 
 from asyncpg import Record
@@ -10,7 +9,7 @@ from discord import Embed, Interaction, HTTPException, TextStyle, Message
 from discord.app_commands import Group, context_menu
 from discord.ext.commands import Cog
 from discord.ui import View, Button, Modal, TextInput
-from discord.utils import sleep_until
+from discord.utils import sleep_until, utcnow
 
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
@@ -19,7 +18,6 @@ from ext.utils.view_utils import Paginator
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
-    from discord import Client
 
 
 # TODO: Slash attachments pass - Add an attachment.
@@ -52,11 +50,11 @@ class RemindModal(Modal):
     minutes = TextInput(label="Number of minutes", default="0", placeholder="1", max_length=2, required=False)
     description = TextInput(label="Reminder Description", placeholder="Remind me about…", style=TextStyle.paragraph)
 
-    def __init__(self, bot: Bot | PBot | Client, title: str, target_message: Message = None):
+    def __init__(self, bot: Bot | PBot, title: str, target_message: Message = None):
         super().__init__(title=title)
         self.interaction: Optional[Interaction] = None
         self.target_message: Message = target_message
-        self.bot: Bot | Client | PBot = bot
+        self.bot: Bot | PBot = bot
 
     async def on_submit(self, interaction: Interaction):
         """Insert entry to the database when the form is submitted"""
@@ -66,11 +64,11 @@ class RemindModal(Modal):
         months = int(self.months.value) if self.months.value.isdigit() else 0
         delta = relativedelta(minutes=minutes, hours=hours, days=days, months=months)
 
-        remind_at = datetime.datetime.now(datetime.timezone.utc) + delta
+        time = utcnow()
+        remind_at = time + delta
         msg_id = None if self.target_message is None else self.target_message.id
         gid = None if interaction.guild is None else interaction.guild.id
         ch_id = interaction.channel.id
-        time = datetime.datetime.now(datetime.timezone.utc)
 
         connection = await self.bot.db.acquire()
         try:

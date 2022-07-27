@@ -1,20 +1,20 @@
 """Various image manipulation """
 from __future__ import annotations
 
-import datetime
 from asyncio import to_thread
 from copy import deepcopy
 from io import BytesIO
 from json import dumps
 from random import choice
 from re import findall
-from typing import Optional, TYPE_CHECKING, List
+from typing import Optional, TYPE_CHECKING
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord import Embed, Colour, Member, Attachment, Interaction, User, Message, PartialEmoji
 from discord.app_commands import command, describe, guild_only
 from discord.ext.commands import Cog
 from discord.ui import View
+from discord.utils import utcnow
 
 from ext.utils.embed_utils import embed_image, get_colour
 from ext.utils.view_utils import Paginator
@@ -26,7 +26,7 @@ KNOB_ICON = "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/18_icon_T
             "/48px-18_icon_TV_%28Hungary%29.svg.png"
 
 
-def message_emojis(s: str) -> List[PartialEmoji]:
+def message_emojis(s: str) -> list[PartialEmoji]:
     """ Returns a list of custom emojis in a message. """
     emojis = findall(r'<(?P<animated>a?):(?P<name>\w{2,32}):(?P<id>\d{18,22})>', s)
     return [PartialEmoji(animated=bool(animated), name=name, id=e_id) for animated, name, e_id in emojis]
@@ -297,7 +297,7 @@ class Images(Cog):
         e.colour = user.color
         e.set_footer(text=user.display_avatar.url)
         e.set_image(url=user.display_avatar.url)
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        e.timestamp = utcnow()
         return await self.bot.reply(interaction, embed=e)
 
     @command()

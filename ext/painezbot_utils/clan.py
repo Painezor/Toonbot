@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, List, Tuple, ClassVar
+from typing import TYPE_CHECKING, Optional, ClassVar
 
 from discord import Colour, Message, Embed, SelectOption
 from discord.ui import View
@@ -110,7 +110,7 @@ class Clan:
         self.leader_name: Optional[str] = kwargs.pop('leader_name', None)
         self.leader_id: Optional[int] = kwargs.pop('leader_id', None)
         self.members_count: Optional[int] = kwargs.pop('members_count', None)
-        self.member_ids: Optional[List[int]] = kwargs.pop('member_ids', None)
+        self.member_ids: Optional[list[int]] = kwargs.pop('member_ids', None)
         self.name: Optional[str] = kwargs.pop('name', None)
         self.old_name: Optional[str] = kwargs.pop('old_name', None)
         self.old_tag: Optional[str] = kwargs.pop('old_tag', None)
@@ -143,25 +143,25 @@ class Clan:
         self.is_qualified: bool = False  # In qualifications?
 
         # List of Clan Building IDs
-        self.academy: List[int] = []  # Academy - Commander XP
-        self.dry_dock: List[int] = []  # Service Cost Reduction
-        self.design_department: List[int] = []  # Design Bureau - Free XP
-        self.headquarters: List[int] = []  # Officers' Club - Members Count
-        self.shipbuilding_factory: List[int] = []  # Shipbuilding yard - Purchase Cost Discount
-        self.coal_yard: List[int] = []  # Bonus Coal
-        self.steel_yard: List[int] = []  # Bonus Steel
-        self.university: List[int] = []  # War College - Bonus XP
-        self.paragon_yard: List[int] = []  # Research Institute - Research Points
+        self.academy: list[int] = []  # Academy - Commander XP
+        self.dry_dock: list[int] = []  # Service Cost Reduction
+        self.design_department: list[int] = []  # Design Bureau - Free XP
+        self.headquarters: list[int] = []  # Officers' Club - Members Count
+        self.shipbuilding_factory: list[int] = []  # Shipbuilding yard - Purchase Cost Discount
+        self.coal_yard: list[int] = []  # Bonus Coal
+        self.steel_yard: list[int] = []  # Bonus Steel
+        self.university: list[int] = []  # War College - Bonus XP
+        self.paragon_yard: list[int] = []  # Research Institute - Research Points
 
         # Vanity Only.
-        self.monument: List[int] = []  # Rostral Column - Can be clicked for achievements.
-        self.vessels: List[int] = []  # Other Vessels in port, based on number of clan battles
-        self.ships: List[int] = []  # Ships in clan base, based on number of randoms played.
-        self.treasury: List[int] = []  # Clan Treasury
+        self.monument: list[int] = []  # Rostral Column - Can be clicked for achievements.
+        self.vessels: list[int] = []  # Other Vessels in port, based on number of clan battles
+        self.ships: list[int] = []  # Ships in clan base, based on number of randoms played.
+        self.treasury: list[int] = []  # Clan Treasury
 
         # Fetched and stored.
-        self._clan_battle_history: List[ClanBattleStats] = []  # A list of ClanBattleSeason dataclasses
-        self.members: List[Player] = []
+        self._clan_battle_history: list[ClanBattleStats] = []  # A list of ClanBattleSeason dataclasses
+        self.members: list[Player] = []
 
         # Dummy Data for leaderboard
         self.rank: int = None
@@ -478,7 +478,7 @@ class ClanView(View):
     """A View representing a World of Warships Clan"""
     bot: PBot = None
 
-    def __init__(self, interaction: Interaction, clan: Clan, parent: Tuple[View, str] = None) -> None:
+    def __init__(self, interaction: Interaction, clan: Clan, parent: tuple[View, str] = None) -> None:
         super().__init__()
         if self.__class__.bot is None:
             self.__class__.bot = interaction.client
@@ -654,13 +654,13 @@ class Leaderboard(View):
     """Leaderboard View with dropdowns."""
     bot: ClassVar[PBot] = None
 
-    def __init__(self, interaction: Interaction, clans: List[Clan]) -> None:
+    def __init__(self, interaction: Interaction, clans: list[Clan]) -> None:
         super().__init__()
 
         self.interaction: interaction = interaction
         self.index: int = 0  # Pages.
-        self.pages: List[Embed] = []  # Embeds
-        self.clans: List[Clan] = clans  # Rank, Clan
+        self.pages: list[Embed] = []  # Embeds
+        self.clans: list[Clan] = clans  # Rank, Clan
 
         if self.__class__.bot is None:
             self.__class__.bot = interaction.client

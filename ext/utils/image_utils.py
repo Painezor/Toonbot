@@ -1,11 +1,14 @@
 """Utilities for Image manipulation"""
+from __future__ import annotations
+
 from io import BytesIO
-from typing import List
+from typing import TYPE_CHECKING
 
-from PIL import Image
+if TYPE_CHECKING:
+    from PIL import Image
 
 
-def stitch(images: List[Image.Image]) -> BytesIO:
+def stitch(images: list[Image.Image]) -> BytesIO:
     """Stitch images side by side"""
     # images is a list of opened PIL images.
     w = int(images[0].width / 3 * 2 + sum(i.width / 3 for i in images))
@@ -22,7 +25,7 @@ def stitch(images: List[Image.Image]) -> BytesIO:
     return output
 
 
-def stitch_vertical(images: List[BytesIO]) -> BytesIO:
+def stitch_vertical(images: list[BytesIO]) -> BytesIO:
     """Stitch Images Vertically"""
     if len(images) == 1:
         return images[0]

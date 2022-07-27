@@ -1,6 +1,5 @@
 """Tracker for the World of Warships Development Blog"""
-import datetime
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from asyncpg import Record
 from discord import Interaction, Message, Colour, Embed, HTTPException, TextChannel
@@ -8,6 +7,7 @@ from discord.app_commands import Choice, command, autocomplete, describe, defaul
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View
+from discord.utils import utcnow
 from lxml import html
 from lxml.html import HtmlElement
 
@@ -107,7 +107,7 @@ class Blog:
         e: Embed = Embed(colour=0x00FFFF, title=''.join(tree.xpath('.//h2[@class="article__title"]/text()')),
                          url=self.url)
         e.set_author(name=f"World of Warships Development Blog #{blog_number}", url="https://blog.worldofwarships.com/")
-        e.timestamp = datetime.datetime.now(datetime.timezone.utc)
+        e.timestamp = utcnow()
         e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
         e.description = ""
         output = []
@@ -258,10 +258,10 @@ class Blog:
 class DevBlogView(View):
     """Browse Dev Blogs"""
 
-    def __init__(self, bot: 'PBot', interaction: Interaction, pages: List[Record], last: bool = False) -> None:
+    def __init__(self, bot: 'PBot', interaction: Interaction, pages: list[Record], last: bool = False) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
-        self.pages: List[Blog] = pages
+        self.pages: list[Blog] = pages
         self.index: int = len(pages) - 1 if last else 0
         self.bot: PBot = bot
 
@@ -273,10 +273,10 @@ class DevBlogView(View):
         return await self.bot.reply(self.interaction, embed=e, ephemeral=True)
 
 
-async def db_ac(interaction: Interaction, current: str) -> List[Choice]:
+async def db_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete dev blog by text"""
-    cache: List[Blog] = getattr(interaction.client, 'dev_blog_cache', [])
-    blogs = [i for i in cache if current.lower() in i.ac_row]
+    bot: PBot = interaction.client
+    blogs = [i for i in bot.dev_blog_cache if current.lower() in i.ac_row]
     choices = [Choice(name=f"{i.id}: {i.title}"[:100], value=str(i.id)) for i in blogs]
     return choices[:-25:-1]  # Last 25 items reversed
 

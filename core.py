@@ -6,15 +6,15 @@ from collections import defaultdict
 from datetime import datetime
 from json import load
 from logging import basicConfig, INFO
-from typing import Dict, List, Optional, Callable, TYPE_CHECKING
+from typing import List, Optional, Callable, TYPE_CHECKING
 
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from asyncpraw import Reddit
-from discord import Intents, Game
+from discord import Intents, Game, File
 from discord.ext.commands import AutoShardedBot
 
-from ext.utils.pw_browser import make_browser
+from ext.utils.playwright_browser import make_browser
 from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from asyncio import Task, Semaphore
     from asyncpg import Record, Pool
     from playwright.async_api import BrowserContext
+    from io import BytesIO
 
 basicConfig(level=INFO)
 
@@ -75,41 +76,41 @@ class Bot(AutoShardedBot):
         self.COGS = COGS
 
         # Livescores
-        self.games: List[Fixture] = []
-        self.teams: List[Team] = []
-        self.competitions: List[Competition] = []
-        self.score_channels: List[ScoreChannel] = []
+        self.games: list[Fixture] = []
+        self.teams: list[Team] = []
+        self.competitions: list[Competition] = []
+        self.score_channels: list[ScoreChannel] = []
         self.scores: Task | None = None
 
         # Notifications
-        self.notifications_cache: List[Record] = []
+        self.notifications_cache: list[Record] = []
 
         # QuoteDB
-        self.quote_blacklist: List[int] = []
-        self.quotes: List[Record] = []
+        self.quote_blacklist: list[int] = []
+        self.quotes: list[Record] = []
 
         # Reminders
-        self.reminders: List[Task] = []
+        self.reminders: list[Task] = []
 
         # Session // Scraping
         self.browser: Optional[BrowserContext] = None
         self.session: Optional[ClientSession] = None
 
         # Sidebar
-        self.reddit_teams: List[Record] = []
+        self.reddit_teams: list[Record] = []
         self.sidebar: Optional[Task] = None
         self.reddit = Reddit(**self.credentials["Reddit"])
 
         # Streams
-        self.streams: Dict[int, List] = defaultdict(list)
+        self.streams: dict[int, List] = defaultdict(list)
 
         # Ticker
-        self.ticker_channels: List[TickerChannel] = []
+        self.ticker_channels: list[TickerChannel] = []
 
         # Transfers
-        self.transfer_channels: List[TransferChannel] = []
+        self.transfer_channels: list[TransferChannel] = []
         self.transfers: Optional[Task] | None = None
-        self.parsed_transfers: List[str] = []
+        self.parsed_transfers: list[str] = []
 
         # TV
         self.tv: dict = {}
@@ -131,15 +132,24 @@ class Bot(AutoShardedBot):
 
     def get_competition(self, comp_id: str) -> Optional[Competition]:
         """Retrieve a competition from the ones stored in the bot."""
-        return next((i for i in self.competitions if getattr(i, 'id', None) == comp_id), None)
+        return next((i for i in self.competitions if i.id == comp_id), None)
 
     def get_team(self, team_id: str) -> Optional[Team]:
         """Retrieve a Team from the ones stored in the bot."""
-        return next((i for i in self.teams if getattr(i, 'id', None) == team_id), None)
+        return next((i for i in self.teams if i.id == team_id), None)
 
     def get_fixture(self, fixture_id: str) -> Optional[Fixture]:
         """Retrieve a Fixture from the ones stored in the bot."""
-        return next((i for i in self.games if getattr(i, 'id', None) == fixture_id), None)
+        return next((i for i in self.games if i.id == fixture_id), None)
+
+    async def dump_image(self, data: BytesIO) -> str:
+        """Save a stitched image"""
+        ch = self.get_channel(874655045633843240)
+        if ch is None:
+            return None
+
+        img_msg = await ch.send(file=File(fp=data, filename="dumped_image.png"))
+        return img_msg.attachments[0].url
 
 
 async def run() -> None:

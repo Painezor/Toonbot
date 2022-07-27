@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
-from discord import Embed, Permissions
-from discord import Member, Interaction, Message
+from discord import Embed, Permissions, Member, Interaction, Message
 from discord.app_commands import autocomplete, Choice, Group, describe
 from discord.ext.commands import Cog
 
@@ -24,9 +23,10 @@ class Stream:
         return f"[{self.link if self.name is None else self.name}]({self.link}) added by {self.added_by.mention}"
 
 
-async def st_ac(interaction: Interaction, current: str) -> List[Choice[str]]:
+async def st_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Return List of Guild Streams"""
-    guild_streams = interaction.client.streams.get(interaction.guild.id, {})
+    bot: Bot = interaction.client
+    guild_streams = bot.streams.get(interaction.guild.id, {})
     m = [i.name[:100] for i in guild_streams if current.lower() in i.name.lower() + i.link.lower()]
     return [Choice(name=item, value=item) for item in m if current.lower() in item.lower()][:25]
 

@@ -1,7 +1,9 @@
 """Commands specific to the r/NUFC discord"""
-import datetime
-import random
-from typing import List, TYPE_CHECKING
+from __future__ import annotations
+
+from datetime import timedelta
+from random import choice
+from typing import TYPE_CHECKING
 
 from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, Role, Message, File
 from discord.app_commands import command, guilds, describe, default_permissions
@@ -194,7 +196,7 @@ MBEMBA = [
 class MbembaView(View):
     """Generic View for the Mbemba Generator."""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction) -> None:
+    def __init__(self, bot: Bot, interaction: Interaction) -> None:
         self.interaction: Interaction = interaction
         self.bot: Bot = bot
         super().__init__()
@@ -203,12 +205,12 @@ class MbembaView(View):
         """Assure only person invoking the command can re-roll it."""
         return interaction.user.id == self.interaction.user.id
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Regenerate the embed and push to view."""
         self.clear_items()
         self.add_item(MbembaButton())
 
-        t = random.choice(MBEMBA)
+        t = choice(MBEMBA)
         e: Embed = Embed(title="Mbemba when", colour=Colour.purple(), description=f"<:mbemba:332196308825931777> {t}")
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
@@ -228,7 +230,7 @@ class MbembaButton(Button):
 class NUFC(Cog):
     """r/NUFC discord commands"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
     @command()
@@ -244,7 +246,7 @@ class NUFC(Cog):
     async def colour(self, interaction: Interaction, hex_code: str):
         """Gives you a colour"""
         # Get user's old colours.
-        remove_list: List[Role] = [i for i in interaction.user.roles if i.name.startswith('#')]
+        remove_list: list[Role] = [i for i in interaction.user.roles if i.name.startswith('#')]
 
         e: Embed = Embed(description=f"Your colour has been updated.")
         clr = hex_code.strip('#').replace('0x', "").upper()
@@ -328,12 +330,12 @@ class NUFC(Cog):
     async def roulette(self, interaction: Interaction):
         """Russian Roulette"""
         e = Embed()
-        if random.choice([False * 5, True]):
+        if choice([False * 5, True]):
             e.colour = Colour.red()
             e.title = "Bang"
             e.description = "Timed out for 1 minute."
             try:
-                await interaction.user.timeout(datetime.timedelta(minutes=1), reason="Roulette")
+                await interaction.user.timeout(timedelta(minutes=1), reason="Roulette")
                 await self.bot.reply(interaction, embed=e)
             except Forbidden:
                 e.description = "The bullet bounced off your thick fucking skull."
@@ -343,6 +345,6 @@ class NUFC(Cog):
             await self.bot.reply(interaction, emebd=e)
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Load the NUFC Cog into the bot"""
     await bot.add_cog(NUFC(bot))

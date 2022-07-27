@@ -1,6 +1,8 @@
 """User Created Polls"""
+from __future__ import annotations
+
 from collections import Counter
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from discord import ButtonStyle, Embed, Colour, TextStyle, Interaction, Message
 from discord.app_commands import command
@@ -36,11 +38,11 @@ class PollButton(Button):
 class PollView(View):
     """View for a poll commands"""
 
-    def __init__(self, bot: 'Bot', interaction: Interaction, question: str, answers: List[str]) -> None:
+    def __init__(self, interaction: Interaction, question: str, answers: list[str]) -> None:
         self.interaction: Interaction = interaction
         self.question: str = question
         self.votes: dict = {}
-        self.bot: Bot = bot
+        self.bot: Bot = interaction.client
         super().__init__(timeout=3600)
 
         buttons = [(None, i) for i in answers if i] if answers else [('👍', 'Yes'), ('👎', 'No')]
@@ -74,7 +76,7 @@ class PollView(View):
         e.set_footer(text=f"Final Results | {votes} votes")
         return await self.bot.reply(self.interaction, view=None, embed=e)
 
-    async def update(self, content: str = "") -> Message:
+    async def update(self, content: str = None) -> Message:
         """Refresh the view and send to user"""
         e: Embed = Embed(colour=Colour.og_blurple(), title=self.question + "?", description="")
         e.set_author(name=f"{self.interaction.user.name} asks…", icon_url=self.interaction.user.display_avatar.url)
@@ -101,29 +103,28 @@ class PollModal(Modal, title="Create a poll"):
     question = TextInput(label="Enter a question", placeholder="What is your favourite colour?")
     answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Red\nBlue\nYellow")
 
-    def __init__(self, bot: 'Bot') -> None:
-        self.bot: Bot = bot
+    def __init__(self) -> None:
         super().__init__()
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send the reply back"""
         question = self.question.value
         answers = self.answers.value.split('\n')[:25]
-        return await PollView(self.bot, interaction, question=question, answers=answers).update()
+        return await PollView(interaction, question=question, answers=answers).update()
 
 
 class Poll(Cog):
     """User Created Polls"""
 
-    def __init__(self, bot: 'Bot') -> None:
+    def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
     @command()
     async def poll(self, interaction: Interaction) -> PollModal:
         """Create a poll with multiple answers. Polls end after 1 hour of no responses."""
-        return await interaction.response.send_modal(PollModal(self.bot))
+        return await interaction.response.send_modal(PollModal())
 
 
-async def setup(bot: 'Bot') -> None:
+async def setup(bot: Bot) -> None:
     """Add the Poll cog to the Bot"""
     await bot.add_cog(Poll(bot))
