@@ -1,6 +1,7 @@
 """Flashscore GameState & GameTime Objects"""
 from __future__ import annotations
 
+import logging
 from enum import Enum
 
 from discord import Colour
@@ -83,4 +84,4 @@ class GameTime:
                 elif self.value.endswith("'") or self.value.isdigit():
                     return GameState.LIVE
                 else:
-                    raise ValueError(f"GameTime.state Could not get state from self.value: {self.value}")
+                    logging.error(f"GameTime.state Could not get state from self.value: {self.value}")

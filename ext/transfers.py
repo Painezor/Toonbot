@@ -1,6 +1,7 @@
 """Automated fetching of the latest football transfer information from transfermarkt"""
 from __future__ import annotations  # Cyclic Type hinting
 
+import logging
 from typing import TYPE_CHECKING, Optional, ClassVar
 
 from asyncpg import ForeignKeyViolationError
@@ -10,16 +11,15 @@ from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View, Button, Select
 from lxml import html
-from typing_extensions import Self
 
+import ext.toonbot_utils.transfermarkt as tfm
 from ext.ticker import IsLiveScoreError
-from ext.toonbot_utils.transfermarkt import Player, Team, Competition, Transfer, SearchView, DEFAULT_LEAGUES
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
     from core import Bot
-    from discord import Guild, Message
+    from discord import Message
 
 TF = "https://www.transfermarkt.co.uk"
 MIN_MARKET_VALUE = "200.000"
@@ -33,14 +33,14 @@ class TransferChannel:
     def __init__(self, bot: Bot, channel: TextChannel) -> None:
 
         self.channel: TextChannel = channel
-        self.leagues: list[Competition] = []  # Alias, Link
-        self.dispatched: dict[Transfer, Message] = {}
+        self.leagues: list[tfm.Competition] = []  # Alias, Link
+        self.dispatched: dict[tfm.Transfer, Message] = {}
 
         if self.__class__.bot is None:
             self.__class__.bot = bot
 
     # Message dispatching
-    async def dispatch(self, transfer: Transfer) -> Optional[Message]:
+    async def dispatch(self, transfer: tfm.Transfer) -> Optional[Message]:
         """Dispatch a transfer to this channel"""
         # Do not send duplicate events.
         if transfer in self.dispatched:
@@ -61,105 +61,90 @@ class TransferChannel:
         return message
 
     # Database management
-    async def get_leagues(self) -> list[Competition]:
+    async def get_leagues(self) -> list[tfm.Competition]:
         """Get the leagues needed for this channel"""
         sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, self.channel.id)
-        finally:
-            await self.bot.db.release(connection)
 
-        _ = [Competition(name=r['name'], country=r['country'], link=r['link']) for r in records]
+        _ = [tfm.Competition(name=r['name'], country=r['country'], link=r['link']) for r in records]
         self.leagues = _
         return self.leagues
 
-    async def create_ticker(self) -> Self:
+    async def create_ticker(self) -> TransferChannel:
         """Create a ticker for the channel"""
-        connection = await self.bot.db.acquire()
-
-        try:
-            # Verify that this is not a livescores channel.
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
+                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
+                await connection.execute(sql, self.channel.guild.id)
+
                 sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
                 invalidate = await connection.fetchrow(sql, self.channel.id)
                 if invalidate:
                     raise IsLiveScoreError
 
-            # Create the ticker itself.
-            sql = """INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-            async with connection.transaction():
+                # Create the ticker itself.
+                sql = """INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 await connection.execute(sql, self.channel.guild.id, self.channel.id)
-
-        except ForeignKeyViolationError as e:
-            async with connection.transaction():
-                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)"""
-                await connection.execute(sql, self.channel.guild.id)
-                raise e
-        finally:
-            await self.bot.db.release(connection)
 
         await self.reset_leagues()
         return self
 
     async def delete_ticker(self) -> None:
         """Delete the ticker channel from the database and remove it from the bots loop"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", self.channel.id)
-        finally:
-            await self.bot.db.release(connection)
-        self.bot.transfer_channels.remove(self)
 
-    async def add_leagues(self, leagues: list[Competition]) -> list[Competition]:
+        try:
+            self.bot.transfer_channels.remove(self)
+        except ValueError:
+            pass
+
+    async def add_leagues(self, leagues: list[tfm.Competition]) -> list[tfm.Competition]:
         """Add a list of leagues for the channel to the database"""
-        sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) 
-        VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
-        leagues = [i for i in leagues if i is not None]  # sanitise.
+        leagues = [i for i in leagues if i is not None].copy()  # sanitise.
+
+        for i in leagues:
+            try:
+                i.country = next(iter(i.country))
+            except StopIteration:
+                i.country = None
 
         if not leagues:
             return self.leagues
 
-        connection = await self.bot.db.acquire()
-
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
-                await connection.executemany(sql, [(self.channel.id, i.name, i.country[0], i.link) for i in leagues])
-        finally:
-            await self.bot.db.release(connection)
+                sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) 
+                         VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
+                await connection.executemany(sql, [(self.channel.id, i.name, i.country, i.link) for i in leagues])
 
         self.leagues += [i for i in leagues if i not in self.leagues]
         return self.leagues
 
-    async def remove_leagues(self, leagues: list[Competition]) -> list[Competition]:
+    async def remove_leagues(self, leagues: list[tfm.Competition]) -> list[tfm.Competition]:
         """Remove a list of leagues for the channel from the database"""
-        sql = """DELETE from transfers_leagues WHERE (channel_id, link) = ($1, $2)"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
+                sql = """DELETE from transfers_leagues WHERE (channel_id, link) = ($1, $2)"""
                 await connection.executemany(sql, [(self.channel.id, x.link) for x in leagues])
-        finally:
-            await self.bot.db.release(connection)
 
         self.leagues = [i for i in self.leagues if i not in leagues]
         return self.leagues
 
-    async def reset_leagues(self) -> list[Competition]:
+    async def reset_leagues(self) -> list[tfm.Competition]:
         """Reset the Ticker Channel to the list of default leagues."""
         sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) VALUES ($1, $2, $3, $4)
                  ON CONFLICT DO NOTHING"""
-        self.leagues = DEFAULT_LEAGUES
-        connection = await self.bot.db.acquire()
-        try:
+
+        fields = [(self.channel.id, x.name, x.country[0], x.link) for x in tfm.DEFAULT_LEAGUES]
+        self.leagues = tfm.DEFAULT_LEAGUES
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute('''DELETE FROM transfers_leagues WHERE channel_id = $1''', self.channel.id)
-                await connection.executemany(sql,
-                                             [(self.channel.id, x.name, x.country[0], x.link) for x in DEFAULT_LEAGUES])
-        finally:
-            await self.bot.db.release(connection)
-
+                await connection.executemany(sql, fields)
         return self.leagues
 
     def view(self, interaction: Interaction) -> TransfersConfig:
@@ -194,7 +179,7 @@ class DeleteTicker(Button):
 class RemoveLeague(Select):
     """Dropdown to remove leagues from a match event ticker."""
 
-    def __init__(self, leagues: list[Competition], row: int = 2):
+    def __init__(self, leagues: list[tfm.Competition], row: int = 2):
         super().__init__(placeholder="Remove tracked league(s)", row=row)
         self.leagues = leagues
 
@@ -238,7 +223,7 @@ class TransfersConfig(View):
         """Hide menu on timeout."""
         return await self.bot.reply(self.interaction, view=None, followup=False)
 
-    async def remove_leagues(self, leagues: list[Competition]) -> Message:
+    async def remove_leagues(self, leagues: list[tfm.Competition]) -> Message:
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
@@ -344,14 +329,11 @@ class TransfersConfig(View):
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
-class TransfersCog(Cog):
+class Transfers(Cog):
     """Create and configure Transfer Ticker channels"""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-
-        if SearchView.bot is None:
-            SearchView.bot = bot
 
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
@@ -364,12 +346,9 @@ class TransfersCog(Cog):
     async def update_cache(self) -> list[TransferChannel]:
         """Load Transfer Channels into the bot."""
         sql = f"""SELECT * FROM transfers_channels"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql)
-        finally:
-            await self.bot.db.release(connection)
 
         # Purge dead
         cached = set([r['channel_id'] for r in records])
@@ -389,22 +368,10 @@ class TransfersCog(Cog):
             self.bot.transfer_channels.append(tc)
         return self.bot.transfer_channels
 
-    async def _get_team_league(self, link) -> Competition:
-        """Fetch additional data for parsed player"""
-        async with self.bot.session.get(link) as resp:
-            src = await resp.text()
-
-        tree = html.fromstring(src)
-        name = ''.join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/text()')).strip()
-        link = ''.join(tree.xpath('.//div[@class="dataZusatzbox"]//span[@class="hauptpunkt"]/a/@href'))
-
-        link = TF + link if link else ""
-        return Competition(name=name, link=link)
-
     # Core Loop
     @loop(minutes=1)
     async def transfers_loop(self) -> None:
-        """Core transfer ticker loop - refresh every x seconds and get all new transfers from transfermarkt"""
+        """Core transfer ticker loop - refresh every minute and get all new transfers from transfermarkt"""
         if self.bot.db is None:
             return
         if self.bot.session is None:
@@ -413,6 +380,7 @@ class TransfersCog(Cog):
             return
 
         if not self.bot.transfer_channels:
+            logging.error("Transfer Loop - No transfer_channels found..")
             return await self.update_cache()
 
         async with self.bot.session.get(LOOP_URL) as resp:
@@ -423,66 +391,92 @@ class TransfersCog(Cog):
                     raise ConnectionError(f'Transfers: bad status: {resp.status}')
 
         skip_output = True if not self.bot.parsed_transfers else False
-        for i in tree.xpath('.//div[@class="responsive-table"]/div/table/tbody/tr'):
-            name = ''.join(i.xpath('.//td[1]//tr[1]/td[2]/a/text()')).strip()
-            link = TF + ''.join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
 
-            if not name or name in self.bot.parsed_transfers:
+        transfers = tree.xpath('.//div[@class="responsive-table"]/div/table/tbody/tr')
+
+        for i in transfers:
+            if not (name := ''.join(i.xpath('.//td[1]//tr[1]/td[2]/a/text()')).strip()):
+                continue
+            if name in self.bot.parsed_transfers:
                 continue  # skip when duplicate / void.
             else:
+                logging.info(f'New transfer found, {name}')
                 self.bot.parsed_transfers.append(name)
-                player = Player(name, link)
 
             # We don't need to output when populating after a restart.
             if skip_output:
                 continue
 
-            # Player Info
-            player.age = ''.join(i.xpath('./td[2]//text()')).strip()
-            player.position = ''.join(i.xpath('./td[1]//tr[2]/td/text()'))
-            player.country = i.xpath('.//td[3]/img/@title')
+            link = TF + ''.join(i.xpath('.//td[1]//tr[1]/td[2]/a/@href'))
+
+            player = tfm.Player(name, link)
+
+            # Box 1 - Player Info
             player.picture = ''.join(i.xpath('.//img/@data-src'))
+            logging.info(f"New Transfer picture = {player.picture}")
 
-            transfer = Transfer(player=player)
+            player.position = ''.join(i.xpath('./td[1]//tr[2]/td/text()'))
 
-            # Leagues & Fee
-            team = ''.join(i.xpath('.//td[5]//td[2]/a/text()')).strip()
-            team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[5]//td[2]/a/@href')).strip()
+            # Box 2 - Age
+            player.age = ''.join(i.xpath('./td[2]//text()')).strip()
 
-            league = await self._get_team_league(team_link)
-            new_team = Team(name=team, link=team_link, league=league)
-            new_team.country = ''.join(i.xpath('.//td[5]/table//tr[2]/td//img/@alt'))
-            transfer.new_team = new_team
+            # Box 3 - Country
+            player.country = i.xpath('.//td[3]/img/@title')
+            logging.info(f"New Transfer country = {player.country}")
 
-            player.team = new_team
+            transfer = tfm.Transfer(player=player)
 
-            team = ''.join(i.xpath('.//td[4]//td[2]/a/text()')).strip()
-            team_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[4]//td[2]/a/@href')).strip()
+            # Box 4 - Old Team
+            team = ''.join(i.xpath('.//td[4]//td[1]/a/@title')).strip()
+            team_link = TF + ''.join(i.xpath('.//td[4]//td[1]/a/@href')).strip()
 
-            league = await self._get_team_league(team_link)
-            old_team = Team(name=team, link=team_link, league=league)
-            old_team.country = ''.join(i.xpath('.//td[4]/table//tr[2]/td//img/@alt'))
+            logging.info(f"New Transfer Old Team = {team} / {team_link}")
+
+            league = ''.join(i.xpath('.//td[4]//td[2]/a/@title'))
+            league_link = ''.join(i.xpath('.//td[4]//td[2]/a/@href'))
+            country = ''.join(i.xpath('.//td[4]//img[@class="flaggenrahmen"]/@alt'))
+            logging.info(f"New Transfer Old League = {league} / {league_link} / {country}")
+
+            old_league = tfm.Competition(name=league, link=league_link, country=country)
+            old_team = tfm.Team(name=team, link=team_link, league=old_league, country=country)
+
             transfer.old_team = old_team
 
+            # Box 5 - New Team
+            team = ''.join(i.xpath('.//td[5]//tr[1]/a/@title')).strip()
+            team_link = TF + ''.join(i.xpath('.//td[5]//tr[1]/a/@href')).strip()
+
+            logging.info(f"New Transfer New Team = {team} / {team_link}")
+            league = ''.join(i.xpath('.//td[5]//td[2]/a/@title'))
+            league_link = ''.join(i.xpath('.//td[5]//td[2]/a/@href'))
+            country = ''.join(i.xpath('.//td[5]//img[@class="flaggenrahmen"]/@alt'))
+            logging.info(f"New Transfer New League = {league} / {league_link} / {country}")
+
+            new_league = tfm.Competition(name=league, link=league_link, country=country)
+            new_team = tfm.Team(name=team, link=team_link, league=new_league, country=country)
+
+            transfer.new_team = new_team
+            player.team = new_team
+
+            # Box 6 - Leagues & Fee
             transfer.fee = ''.join(i.xpath('.//td[6]//a/text()'))
             transfer.fee_link = "https://www.transfermarkt.co.uk" + ''.join(i.xpath('.//td[6]//a/@href'))
 
             transfer.generate_embed()
-            old_link = transfer.old_team.league.link if old_team.league is not None else None
-            new_link = transfer.new_team.league.link if new_team.league is not None else None
+            old_link = TF + old_league.link.replace('transfers', 'startseite').split('/saison_id')[0]
+            new_link = TF + new_league.link.replace('transfers', 'startseite').split('/saison_id')[0]
 
+            logging.info(f"Fetching list of target channels\n===================== \n{old_link}\n{new_link}")
             # Fetch the list of channels to output the transfer to.
-            connection = await self.bot.db.acquire()
-            try:
+            async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
                     records = await connection.fetch("""
-                    SELECT DISTINCT transfers_channels.channel_id
-                    FROM transfers_channels LEFT OUTER JOIN transfers_leagues
-                    ON transfers_channels.channel_id = transfers_leagues.channel_id
-                    WHERE link in ($1, $2)
-                    """, old_link, new_link)
-            finally:
-                await self.bot.db.release(connection)
+                                SELECT DISTINCT transfers_channels.channel_id
+                                FROM transfers_channels LEFT OUTER JOIN transfers_leagues
+                                ON transfers_channels.channel_id = transfers_leagues.channel_id
+                                WHERE link in ($1, $2)""", old_link, new_link)
+
+            logging.info(f"Dispatching target transfer to {len(records)} channels")
 
             for r in records:
                 try:
@@ -536,7 +530,7 @@ class TransfersCog(Cog):
 
             self.bot.transfer_channels.append(tc)
 
-        view = SearchView(interaction, league_name, category='competition', fetch=True)
+        view = tfm.CompetitionSearch(interaction, league_name, fetch=True)
         await view.update()
         await view.wait()
 
@@ -548,24 +542,14 @@ class TransfersCog(Cog):
         await tc.add_leagues([result])
         return await tc.view(interaction).update(f"{result.flag} {result.name} added to {tc.channel.mention} tracker")
 
-    # Database Cleanup
-    @Cog.listener()
-    async def on_guild_remove(self, guild: Guild) -> None:
-        """Delete all transfer info for a guild from database upon leaving"""
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM transfers_channels WHERE guild_id = $1""", guild.id)
-        await self.bot.db.release(connection)
-
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Delete all transfer info for a channel from database upon deletion"""
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
-        await self.bot.db.release(connection)
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
 
 
 async def setup(bot: Bot):
     """Load the transfer ticker cog into the bot"""
-    await bot.add_cog(TransfersCog(bot))
+    await bot.add_cog(Transfers(bot))

@@ -1,7 +1,7 @@
 """Utility Component for fetching from footballgroundmap.com"""
 from __future__ import annotations
 
-from typing import NoReturn, Optional, ClassVar, TYPE_CHECKING
+from typing import Optional, ClassVar, TYPE_CHECKING
 from urllib.parse import quote_plus
 
 from discord import Embed
@@ -55,7 +55,7 @@ class Stadium:
         self.website: Optional[str] = kwargs.pop('website', None)
         self.attendance_record: int = kwargs.pop('attendance_record', 0)
 
-    async def fetch_more(self) -> NoReturn:
+    async def fetch_more(self) -> None:
         """Fetch more data about a target stadium"""
         async with self.bot.session.get(self.url) as resp:
             match resp.status:

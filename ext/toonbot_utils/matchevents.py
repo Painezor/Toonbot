@@ -1,10 +1,11 @@
 """Match Events used for the ticker"""
 from __future__ import annotations
 
+import logging
 from enum import Enum
-from typing import Optional, List, TYPE_CHECKING, Type
+from typing import Optional, TYPE_CHECKING, Type
 
-from discord import Colour
+from discord import Colour, Embed
 from lxml import etree
 
 from ext.toonbot_utils.gamestate import GameTime
@@ -13,9 +14,7 @@ if TYPE_CHECKING:
     from ext.toonbot_utils.flashscore import Team, Fixture, Player
 
 
-# TODO: Create .embed attribute for events.
-
-
+# This function Generates Event Objects from the etree.
 def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
     """Get a list of match events"""
     from ext.toonbot_utils.flashscore import Player
@@ -43,7 +42,9 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
             case team_detection if "empty" in team_detection:
                 continue  # No events in half signifier.
             case _:
-                raise ValueError(f"No team found for team_detection {team_detection}")
+                logging.error(f"No team found for team_detection {team_detection}")
+                print(f"No team found for team_detection {team_detection}")
+                continue
 
         node = i.xpath('./div[contains(@class, "incident")]')[0]  # event_node
         icon = ''.join(node.xpath('.//div[contains(@class, "incidentIcon")]//svg/@class')).strip()
@@ -51,48 +52,84 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
         description = title.replace('<br />', ' ')
         icon_desc = ''.join(node.xpath('.//div[contains(@class, "incidentIcon")]//svg//text()')).strip()
 
-        match (icon, icon_desc):
-            # Missed Penalties
-            case ("penaltyMissed-ico", _) | (_, "Penalty missed"):
-                event = Penalty(missed=True)
-            case (_, "Penalty") | (_, "Penalty Kick"):
-                event = Penalty()
-            case (_, "Own goal") | ("footballOwnGoal-ico", _):
+        match icon.lower():
+            # Goal types
+            case "footballGoal-ico" | "soccer":
+                match icon_desc.lower():
+                    case "goal" | "":
+                        event = Goal()
+                    case "penalty":
+                        event = Penalty()
+                    case _:
+                        logging.error(f"[GOAL] icon: <{icon}> unhandled icon_desc: <{icon_desc}> on {fixture.url}")
+                        continue
+            case "footballowngoal-ico" | "soccer footballowngoal-ico":
                 event = OwnGoal()
-            case (_, "Goal") | ("footballGoal-ico", _):
-                event = Goal()
-                if icon_desc and icon_desc.lower() != "goal":
-                    raise ValueError(f"unhandled icon_desc for goal {icon_desc}")
-            # Red card
-            case (_, "Red Card") | ("card-ico", _):
-                event = RedCard()
-                if icon_desc != "Red Card":
-                    event.note = icon_desc
-            # Second Yellow
-            case (_, "Yellow card / Red card") | ("redYellowCard-ico", _):
+            case "penaltymissed-ico":
+                event = Penalty(missed=True)
+            # Card Types
+            case "yellowcard-ico" | "card-ico yellowcard-ico":
+                event = Booking()
+                event.note = icon_desc
+            case "redyellowcard-ico":
                 event = SecondYellow()
                 if "card / Red" not in icon_desc:
                     event.note = icon_desc
-            # Single Yellow
-            case ("yellowCard-ico", _):
+            case "redcard-ico" | "card-ico redcard-ico":
+                event = RedCard()
+                if icon_desc != "Red Card":
+                    event.note = icon_desc
+            case "card-ico":
                 event = Booking()
-                event.note = icon_desc
-            case (_, "Substitution - In") | ("substitution-ico", _):
+                if icon_desc != "Yellow Card":
+                    event.note = icon_desc
+            # Substitutions
+            case "substitution-ico" | "substitution":
                 event = Substitution()
                 p = Player(fixture.bot)
                 p.name = "".join(node.xpath('.//div[contains(@class, "incidentSubOut")]/a/text()')).strip()
                 p.url = "".join(node.xpath('.//div[contains(@class, "incidentSubOut")]/a/@href')).strip()
                 event.player_off = p
-            case ("var-ico", _):
+            # VAR types
+            case "var-ico" | "var":
                 event = VAR()
                 icon_desc = icon_desc if icon_desc else ''.join(node.xpath('./div//text()')).strip()
                 if icon_desc:
                     event.note = icon_desc
-            case ("varLive-ico", _):
+            case "varlive-ico" | "var varlive-ico":
                 event = VAR(in_progress=True)
                 event.note = icon_desc
-            case _:
-                raise ValueError(f"Unhandled Match Event (icon: {icon}, icon_desc: {icon_desc}")
+            case _:  # Backup checks.
+                match icon_desc.strip().lower():
+                    case "penalty" | "penalty kick":
+                        event = Penalty()
+                    case "penalty missed":
+                        event = Penalty(missed=True)
+                    case "own goal":
+                        event = OwnGoal()
+                    case "goal":
+                        event = Goal()
+                        if icon_desc and icon_desc.lower() != "goal":
+                            logging.error(f"[GOAL] unhandled icon_desc for TYPE OF GOAL: {icon_desc}")
+                            continue
+                    # Red card
+                    case "red card":
+                        event = RedCard()
+                    # Second Yellow
+                    case "yellow card / red card":
+                        event = SecondYellow()
+                    case "warning":
+                        event = Booking()
+                    # Substitution
+                    case "substitution - in":
+                        event = Substitution()
+                        p = Player(fixture.bot)
+                        p.name = "".join(node.xpath('.//div[contains(@class, "incidentSubOut")]/a/text()')).strip()
+                        p.url = "".join(node.xpath('.//div[contains(@class, "incidentSubOut")]/a/@href')).strip()
+                        event.player_off = p
+                    case _:
+                        logging.error(f"Unhandled Match Event (icon: {icon}, icon_desc: {icon_desc} on {fixture.url}")
+                        continue
 
         event.team = team
 
@@ -119,21 +156,58 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
     return events
 
 
+# TODO: Create .embed attribute for events.
 class MatchEvent:
     """An object representing an event happening in a football fixture from Flashscore"""
-    __slots__ = ("note", "description", "player", "team", "time")
+    __slots__ = ("note", "description", "player", "team", "time", "fixture")
+
+    colour: Colour = None
+    icon_url: str = None
 
     def __init__(self) -> None:
         self.note: Optional[str] = None
         self.description: Optional[str] = None
+        self.fixture: Optional[Fixture] = None
         self.player: Optional[Player] = None
         self.team: Optional[Team] = None
         self.time: Optional[GameTime] = None
+
+    def is_done(self) -> bool:
+        """Check to see if more information is required"""
+        if self.player is None:
+            return False
+        else:
+            return True
+
+    @property
+    def embed(self) -> Embed:
+        """The Embed for this match event"""
+        e = Embed(description=str(self), colour=self.colour)
+        e.set_author(name=f"{self.__class__.__name__} ({self.team.name})", icon_url=self.icon_url)
+
+        if self.team is not None:
+            e.set_thumbnail(url=self.team.logo_url)
+        return e
+
+    @property
+    def embed_extended(self) -> Embed:
+        """The Extended Embed for this match event"""
+        e = self.embed
+        if self.fixture:
+            if self.fixture.events:
+
+                for x in self.fixture.events:
+                    if x == self:
+                        continue
+                    e.description += f"\n{str(x)}"
+        return e
 
 
 class Substitution(MatchEvent):
     """A substitution event for a fixture"""
     __slots__ = ['player_off']
+
+    Colour = Colour.greyple()
 
     def __init__(self) -> None:
         super().__init__()
@@ -141,23 +215,20 @@ class Substitution(MatchEvent):
 
     def __str__(self) -> str:
         o = ['`🔄`:'] if self.time is None else [f"`🔄 {self.time.value}`:"]
+        if self.player is not None:
+            o.append(f"🔺 {self.player.markdown}")
         if self.player_off is not None:
             o.append(f"🔻 {self.player_off.markdown}")
-        if self.player_on is not None:
-            o.append(f"🔺 {self.player_on.markdown}")
         if self.team is not None:
             o.append(f"({self.team.tag})")
         return ' '.join(o)
-
-    @property
-    def player_on(self) -> Optional[Player]:
-        """player_on is an alias to player."""
-        return self.player
 
 
 class Goal(MatchEvent):
     """A Generic Goal Event"""
     __slots__ = "assist"
+
+    colour = Colour.green()
 
     def __init__(self) -> None:
         super().__init__()
@@ -189,6 +260,8 @@ class Goal(MatchEvent):
 class OwnGoal(Goal):
     """An own goal event"""
 
+    colour = Colour.dark_green()
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -201,6 +274,8 @@ class OwnGoal(Goal):
 class Penalty(Goal):
     """A Penalty Event"""
     __slots__ = ['missed']
+
+    colour = Colour.brand_green()
 
     def __init__(self, missed: bool = False) -> None:
         super().__init__()
@@ -221,6 +296,8 @@ class Penalty(Goal):
 
 class RedCard(MatchEvent):
     """An object representing the event of a dismissal of a player"""
+
+    colour = Colour.red()
 
     def __init__(self) -> None:
         super().__init__()
@@ -244,6 +321,8 @@ class RedCard(MatchEvent):
 class SecondYellow(RedCard):
     """An object representing the event of a dismissal of a player after a second yellow card"""
 
+    colour = Colour.brand_red()
+
     def __init__(self) -> None:
         super().__init__()
 
@@ -265,6 +344,8 @@ class SecondYellow(RedCard):
 
 class Booking(MatchEvent):
     """An object representing the event of a player being given a yellow card"""
+
+    colour = Colour.yellow()
 
     def __init__(self) -> None:
         super().__init__()
@@ -289,6 +370,8 @@ class VAR(MatchEvent):
     """An Object Representing the event of a Video Assistant Referee Review Decision"""
     __slots__ = ["in_progress", "assist"]
 
+    colour = Colour.og_blurple()
+
     def __init__(self, in_progress: bool = False) -> None:
         super().__init__()
         self.assist: Optional[Player] = None
@@ -310,7 +393,7 @@ class VAR(MatchEvent):
 class EventType(Enum):
     """An Enum representing an EventType for ticker events"""
 
-    def __init__(self, value: str, colour: Colour, db_fields: List, valid_events: Type[MatchEvent]):
+    def __init__(self, value: str, colour: Colour, db_fields: list[str], valid_events: Type[MatchEvent]):
         self._value_ = value
         self.colour = colour
         self.db_fields = db_fields

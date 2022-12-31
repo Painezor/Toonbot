@@ -1,23 +1,25 @@
 """Commands for fetching information about football entities from transfermarkt"""
 from __future__ import annotations
 
+from importlib import reload
 from typing import Optional, TYPE_CHECKING
 
 from discord import Interaction, Message
 from discord.app_commands import command, describe, Group
 from discord.ext.commands import Cog
 
-from ext.toonbot_utils.transfermarkt import SearchView
+import ext.toonbot_utils.transfermarkt as tfm
 
 if TYPE_CHECKING:
     from core import Bot
 
 
-class Lookups(Cog):
+class Lookup(Cog):
     """Transfer market lookups"""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
+        reload(tfm)
 
     lookup = Group(name="lookup", description="Search for something on transfermarkt")
 
@@ -25,44 +27,50 @@ class Lookups(Cog):
     @describe(query="Enter a player name")
     async def lookup_player(self, interaction: Interaction, query: str):
         """Search for a player on TransferMarkt"""
-        return await SearchView(interaction, query, 'player').update()
+        await interaction.response.defer(thinking=True)
+        return await tfm.PlayerSearch(interaction, query).update()
 
     @lookup.command(name="team")
     @describe(query="Enter a team name")
-    async def lookup_player(self, interaction: Interaction, query: str):
+    async def lookup_team(self, interaction: Interaction, query: str):
         """Search for a team on TransferMarkt"""
-        return await SearchView(interaction, query, 'team').update()
+        await interaction.response.defer(thinking=True)
+        return await tfm.TeamSearch(interaction, query).update()
 
     @lookup.command(name="staff")
     @describe(query="Enter a club official name")
-    async def lookup_player(self, interaction: Interaction, query: str):
+    async def lookup_staff(self, interaction: Interaction, query: str):
         """Search for a club official on TransferMarkt"""
-        return await SearchView(interaction, query, 'staff').update()
+        await interaction.response.defer(thinking=True)
+        return await tfm.StaffSearch(interaction, query).update()
 
     @lookup.command(name="referee")
     @describe(query="Enter a referee name")
-    async def lookup_player(self, interaction: Interaction, query: str):
+    async def lookup_referee(self, interaction: Interaction, query: str):
         """Search for a referee on TransferMarkt"""
-        return await SearchView(interaction, query, 'referee').update()
+        await interaction.response.defer(thinking=True)
+        return await tfm.RefereeSearch(interaction, query).update()
 
     @lookup.command(name="competition")
     @describe(query="Enter a competition name")
-    async def lookup_player(self, interaction: Interaction, query: str):
+    async def lookup_competition(self, interaction: Interaction, query: str):
         """Search for a competition on TransferMarkt"""
-        return await SearchView(interaction, query, 'competition').update()
+        await interaction.response.defer(thinking=True)
+        return await tfm.CompetitionSearch(interaction, query).update()
 
     @lookup.command(name="agent")
     @describe(query="Enter an agency name")
-    async def lookup_player(self, interaction: Interaction, query: str):
+    async def lookup_agent(self, interaction: Interaction, query: str):
         """Search for an agency on TransferMarkt"""
-        return await SearchView(interaction, query, 'agent').update()
+        await interaction.response.defer(thinking=True)
+        return await tfm.AgentSearch(interaction, query).update()
 
     @command()
     @describe(team_name="enter a team name to search for")
     async def transfers(self, interaction: Interaction, team_name: str) -> Message:
         """Get this window's transfers for a team on transfermarkt"""
         await interaction.response.defer(thinking=True)
-        view = SearchView(interaction, team_name, category="team", fetch=True)
+        view = tfm.TeamSearch(interaction, team_name, fetch=True)
         await view.update()
         await view.wait()
 
@@ -75,7 +83,7 @@ class Lookups(Cog):
         """Get the latest transfer rumours for a team"""
         await interaction.response.defer(thinking=True)
 
-        view = SearchView(interaction, team_name, category="team", fetch=True)
+        view = tfm.TeamSearch(interaction, team_name, fetch=True)
         await view.update()
         await view.wait()
 
@@ -86,7 +94,7 @@ class Lookups(Cog):
     @describe(team_name="name of a team")
     async def contracts(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's expiring contracts"""
-        view = SearchView(interaction, team_name, category="team", fetch=True)
+        view = tfm.TeamSearch(interaction, team_name, fetch=True)
         await view.update()
         await view.wait()
 
@@ -97,7 +105,7 @@ class Lookups(Cog):
     @describe(team_name="name of a team")
     async def trophies(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's trophy case"""
-        view = SearchView(interaction, team_name, category="team", fetch=True)
+        view = tfm.TeamSearch(interaction, team_name, fetch=True)
         await view.update()
         await view.wait()
 
@@ -108,7 +116,7 @@ class Lookups(Cog):
     @describe(query="league name to search for")
     async def attendance(self, interaction: Interaction, query: str) -> Message:
         """Get a list of a league's average attendances."""
-        view = SearchView(interaction, query, category="competition", fetch=True)
+        view = tfm.CompetitionSearch(interaction, query, fetch=True)
         await view.update()
         await view.wait()
 
@@ -118,4 +126,4 @@ class Lookups(Cog):
 
 async def setup(bot: Bot) -> None:
     """Load the lookup cog into the bot"""
-    await bot.add_cog(Lookups(bot))
+    await bot.add_cog(Lookup(bot))

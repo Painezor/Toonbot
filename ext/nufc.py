@@ -253,17 +253,21 @@ class NUFC(Cog):
 
         try:
             d_colo = Colour(int(clr, 16))
+
+            if d_colo.value > 16777215:
+                return await self.bot.error(interaction, 'Invalid colour specified.')
+
         except ValueError:
             view = View()
             btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
             view.add_item(btn)
             return await self.bot.error(interaction, content='Invalid colour.', view=view)
 
+        guild = interaction.guild
         # Create new role or fetch if already exists.
-        role = utils.get(interaction.guild.roles, name=f"#{hex_code}")
+        role = utils.get(guild.roles, name=f"#{hex_code}")
         if role is None:
-            role = await interaction.guild.create_role(name=f"#{hex_code}",
-                                                       reason=f"Colour for {interaction.user}", color=d_colo)
+            role = await guild.create_role(name=f"#{hex_code}", reason=f"Colour for {interaction.user}", color=d_colo)
 
         await interaction.user.add_roles(role, reason="Apply colour role")
         e.colour = role.color
@@ -342,7 +346,7 @@ class NUFC(Cog):
                 await self.bot.reply(interaction, embed=e)
         else:
             e.colour = Colour.green()
-            await self.bot.reply(interaction, emebd=e)
+            await self.bot.reply(interaction, embed=e)
 
 
 async def setup(bot: Bot) -> None:

@@ -1,6 +1,7 @@
 """Background loop to update the wiki page and sidebar for the r/NUFC subreddit"""
 from __future__ import annotations
 
+import logging
 from asyncio import sleep
 from datetime import datetime
 from math import ceil
@@ -71,15 +72,15 @@ class NUFCSidebar(Cog):
         subreddit = await self.bot.reddit.subreddit('NUFC')
         page = await subreddit.wiki.get_page("config/sidebar")
         await page.edit(content=markdown)
-        print(f'{datetime.now()} The sidebar of r/NUFC was updated.')
+
+        logging.info(f'{datetime.now()} The sidebar of r/NUFC was updated.')
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self) -> None:
         """Grab information about teams from local database."""
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            self.bot.reddit_teams = await connection.fetch("""SELECT * FROM team_data""")
-        await self.bot.db.release(connection)
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                self.bot.reddit_teams = await connection.fetch("""SELECT * FROM team_data""")
 
     async def make_sidebar(self, subreddit: str = "NUFC", qry: str = "newcastle", team_id: str = "p6ahwuwJ"):
         """Build the sidebar markdown"""
@@ -115,7 +116,8 @@ class NUFCSidebar(Cog):
                 case 'team has moved down':
                     table += f'🔻 {rank} | '
                 case _:
-                    raise ValueError(f"Invalid movement for team detected {movement}")
+                    logging.error(f"Invalid movement for team detected {movement}")
+                    table += f"rank | "
             team = p[2].strip()
             # Insert subreddit link from db
             team = next((f"[{i['name']}]({i['subreddit']})" for i in self.bot.reddit_teams if i['name'] == team), team)

@@ -54,7 +54,7 @@ def rows_to_embeds(e: Embed, items: list[str], rows: int = 10, header: str = Non
                 count += 1
                 continue
 
-        if footer:  # Usually "```" to end a codeblock
+        if footer is not None:  # Usually "```" to end a codeblock
             desc += footer
 
         e.description = desc
@@ -64,7 +64,7 @@ def rows_to_embeds(e: Embed, items: list[str], rows: int = 10, header: str = Non
         desc = f"{header}\n{row}\n" if header else f"{row}\n"
         count = 1
 
-    e.description = f"{desc}{footer}"
+    e.description = f"{desc}{footer}" if footer is not None else desc
     embeds.append(deepcopy(e))
     return embeds
 

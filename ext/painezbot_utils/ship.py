@@ -1,11 +1,12 @@
 """Ship Objects and associated classes"""
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from copy import deepcopy
 from enum import Enum
 from types import DynamicClassAttribute
-from typing import TYPE_CHECKING, Type, Callable
+from typing import TYPE_CHECKING, Type, Callable, Optional
 
 import unidecode as unidecode
 from discord import Interaction, Message, Embed, SelectOption
@@ -15,8 +16,6 @@ from ext.utils.view_utils import FuncButton
 
 if TYPE_CHECKING:
     from painezBot import PBot
-    from typing import Optional
-    from typing_extensions import Self
 
 
 class Nation(Enum):
@@ -60,15 +59,6 @@ class Fitting:
 
         # Current Configuration
         self.modules: dict[Type[Module], int] = {}
-        # self.artillery: Artillery = None
-        # self.dive_bomber: DiveBomber = None
-        # self.engine: Engine = None
-        # self.fire_control: FireControl = None
-        # self.flight_control: FlightControl = None
-        # self.hull: Hull = None
-        # self.rocket_planes: RocketPlane = None
-        # self.torpedo_bomber: TorpedoBomber = None
-        # self.torpedoes: Torpedoes = None
 
         # Parsed Data
         self.data: dict = data
@@ -113,7 +103,7 @@ class Ship:
     # Class attr.
     bot: PBot = None
 
-    def __init__(self, bot: 'PBot') -> None:
+    def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
         self.name: str = 'Unknown Ship'
         self.ship_id: Optional[int] = None
@@ -176,7 +166,7 @@ class Ship:
                 case 'TorpedoBomber':
                     fit.modules[TorpedoBomber] = module_id
                 case _:
-                    raise ValueError(f'Unhandled Module type "{module_type}" setting default fit, id: {module_id}')
+                    logging.error(f'Unhandled Module type "{module_type}" setting default fit, id: {module_id}')
         return fit
 
     async def fetch_modules(self) -> list[Module]:
@@ -225,7 +215,8 @@ class Ship:
                     case 'Torpedoes':
                         module = Torpedoes(**args)
                     case _:
-                        raise ValueError(f'Unhandled Module type {module_type}')
+                        logging.error(f'Unhandled Module type {module_type}')
+                        module = Module(**args)
 
                 self.bot.modules.append(module)
                 self.modules.update({int(module_id): deepcopy(module)})
@@ -244,7 +235,7 @@ class Ship:
 class ShipSentinel(Enum):
     """A special Sentinel Ship object if we cannot find the original ship"""
 
-    def __new__(cls, *args, **kwargs) -> Self:
+    def __new__(cls, *args, **kwargs) -> ShipSentinel:
         value = len(cls.__members__) + 1
         obj = object.__new__(cls)
         obj._value_ = value
@@ -319,7 +310,7 @@ class ShipButton(Button):
 class ShipView(View):
     """A view representing a ship, with buttons to change between different menus."""
 
-    def __init__(self, bot: 'PBot', interaction: Interaction, ship: Ship) -> None:
+    def __init__(self, bot: PBot, interaction: Interaction, ship: Ship) -> None:
         super().__init__()
         self.bot: PBot = bot
         self.interaction: Interaction = interaction

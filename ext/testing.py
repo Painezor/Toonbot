@@ -1,6 +1,7 @@
 """Testing Cog for new commands."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from discord import Interaction
@@ -27,9 +28,9 @@ class Test(commands.Cog):
         if "get_lootbox/" not in request.url:
             return
 
-        print(f'REQUEST RECEIVED {request.url}\n')
+        logging.debug(f'REQUEST RECEIVED {request.url}\n')
         resp = await request.response()
-        print(resp.json())
+        logging.debug(resp.json())
 
     @command()
     @guilds(250252535699341312)

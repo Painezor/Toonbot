@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
 # TODO: comp.archive -> https://www.flashscore.com/football/england/premier-league/archive/
 # TODO: comp.Form table.
-# TODO: Merge pick recent game into search
 
 
 async def team_autocomplete_with_defaults(interaction: Interaction, current: str) -> list[Choice]:
@@ -34,13 +33,10 @@ async def team_autocomplete_with_defaults(interaction: Interaction, current: str
         if interaction.guild is None:
             interaction.extras['default'] = None
         else:
-            connection = await bot.db.acquire()
-            try:
+            async with bot.db.acquire() as connection:
                 q = """SELECT default_team FROM fixtures_defaults WHERE (guild_id) = $1"""
                 async with connection.transaction():
                     r = await connection.fetchrow(q, interaction.guild.id)
-            finally:
-                await bot.db.release(connection)
 
             if r is None or r['default_team'] is None:
                 interaction.extras['default'] = None
@@ -67,13 +63,10 @@ async def competition_autocomplete_with_defaults(interaction: Interaction, curre
         if interaction.guild is None:
             interaction.extras['default'] = None
         else:
-            connection = await bot.db.acquire()
-            try:
+            async with bot.db.acquire() as connection:
                 async with connection.transaction():
                     q = """SELECT default_league FROM fixtures_defaults WHERE (guild_id) = $1"""
                     r = await connection.fetchrow(q, interaction.guild.id)
-            finally:
-                await bot.db.release(connection)
 
             if r is None or r['default_league'] is None:
                 interaction.extras['default'] = None
@@ -124,15 +117,14 @@ class Fixtures(Cog):
             if isinstance(fsr, Message):
                 return fsr  # Not Found
 
-        c = await self.bot.db.acquire()
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
+                await connection.execute(sql, interaction.guild.id)
 
-        q = """INSERT INTO fixtures_defaults (guild_id, default_team) VALUES ($1,$2)
-               ON CONFLICT (guild_id) DO UPDATE SET default_team = $2  WHERE excluded.guild_id = $1"""
-        try:
-            async with c.transaction():
-                await c.execute(q, interaction.guild.id, fsr.id)
-        finally:
-            await self.bot.db.release(c)
+                q = """INSERT INTO fixtures_defaults (guild_id, default_team) VALUES ($1,$2)
+                       ON CONFLICT (guild_id) DO UPDATE SET default_team = $2  WHERE excluded.guild_id = $1"""
+                await connection.execute(q, interaction.guild.id, fsr.id)
 
         e = await fsr.base_embed
         e.description = f'Your Fixtures commands will now use {fsr.markdown} as a default team.'
@@ -154,16 +146,11 @@ class Fixtures(Cog):
             if isinstance(fsr, Message):
                 return fsr  # Not Found
 
-        c = await self.bot.db.acquire()
-
         q = f"""INSERT INTO fixtures_defaults (guild_id, default_league) VALUES ($1,$2)
                 ON CONFLICT (guild_id) DO UPDATE SET default_league = $2  WHERE excluded.guild_id = $1"""
-
-        try:
-            async with c.transaction():
-                await c.execute(q, interaction.guild.id, fsr.id)
-        finally:
-            await self.bot.db.release(c)
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(q, interaction.guild.id, fsr.id)
 
         e = await fsr.base_embed
         e.description = f'Your Fixtures commands will now use {fsr.markdown} as a default competition'
@@ -206,10 +193,15 @@ class Fixtures(Cog):
         """Fetch upcoming fixtures for a team."""
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
+
+        print('fx_team get_team result', fsr)
+
         if fsr is None:
             fsr = await search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
+
+        print('fx_team - Got fsr', fsr)
         return await fsr.view(interaction).push_fixtures()
 
     @fixtures.command(name="competition")
@@ -317,10 +309,10 @@ class Fixtures(Cog):
                 output = f"{y}\n"
 
             if len(e.description + output) < 2048:
-                e.description += output
+                e.description = f"{e.description}{output}"
             else:
                 embeds.append(deepcopy(e))
-                e.description = header + f"\n**{x}**\n{y}\n"
+                e.description = f"{header}\n**{x}**\n{y}\n"
         else:
             embeds.append(deepcopy(e))
 

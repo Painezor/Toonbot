@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
 # TODO: Slash attachments pass - Add an attachment.
 
-
 class Hide(Button):
     """A generic button to stop a View"""
 
@@ -70,17 +69,18 @@ class RemindModal(Modal):
         gid = None if interaction.guild is None else interaction.guild.id
         ch_id = interaction.channel.id
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
-                record = await connection.fetchrow("""INSERT INTO reminders
-                (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
-                VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *""", msg_id, ch_id, gid, self.description.value,
-                                                   time, remind_at, interaction.user.id)
-        finally:
-            await self.bot.db.release(connection)
+                sql = """INSERT INTO reminders 
+                        (message_id, channel_id, guild_id, reminder_content, created_time, target_time, user_id)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *"""
+                record = await connection.fetchrow(sql, msg_id, ch_id, gid, self.description.value, time, remind_at,
+                                                   interaction.user.id)
 
-        self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, record)))
+        reminder_task = self.bot.loop.create_task(spool_reminder(self.bot, record))
+
+        self.bot.reminders.add(reminder_task)
+        reminder_task.add_done_callback(self.bot.reminders.discard)
 
         t = Timestamp(remind_at).time_relative
         e: Embed = Embed(colour=0x00ffff, description=f"**{t}**\n\n> {self.description}")
@@ -122,12 +122,9 @@ class ReminderView(View):
             except HTTPException:
                 pass
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute('''DELETE FROM reminders WHERE message_id = $1''', r['message_id'])
-        finally:
-            await self.bot.db.release(connection)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Only reminder owner can interact to hide or snooze"""
@@ -135,7 +132,7 @@ class ReminderView(View):
 
 
 @context_menu(name="Create reminder")
-async def add_reminder(interaction: Interaction, message: Message):
+async def create_reminder(interaction: Interaction, message: Message):
     """Create a reminder with a link to a message."""
     await interaction.response.send_modal(
         RemindModal(interaction.client, title="Remind me about this message", target_message=message))
@@ -146,40 +143,37 @@ class Reminders(Cog):
 
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
-        self.bot.reminders = []  # A list of tasks.
-        self.bot.tree.add_command(add_reminder)
+        self.bot.reminders = set()  # A set of tasks.
+        self.bot.tree.add_command(create_reminder)
 
     async def cog_load(self) -> None:
         """Do when the cog loads"""
-        connection = await self.bot.db.acquire()
-        records = await connection.fetch("""SELECT * FROM reminders""")
-        async with connection.transaction():
-            for r in records:
-                self.bot.reminders.append(self.bot.loop.create_task(spool_reminder(self.bot, r)))
-        await self.bot.db.release(connection)
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                records = await connection.fetch("""SELECT * FROM reminders""")
+
+        for r in records:
+            self.bot.reminders.add(self.bot.loop.create_task(spool_reminder(self.bot, r)))
 
     async def cog_unload(self) -> None:
         """Cancel all active tasks on cog reload"""
-        self.bot.tree.remove_command(add_reminder.name)
+        self.bot.tree.remove_command(create_reminder.name)
         for i in self.bot.reminders:
             i.cancel()
 
-    reminder = Group(name="reminder", description="Set Reminders for yourself")
+    reminder = Group(name="reminders", description="Set Reminders for yourself")
 
     @reminder.command()
-    async def add(self, interaction: Interaction) -> Message:
+    async def create_reminder(self, interaction: Interaction) -> Message:
         """Remind you of something at a specified time."""
         return await interaction.response.send_modal(RemindModal(self.bot, title="Create a reminder"))
 
     @reminder.command()
-    async def list(self, interaction: Interaction) -> Message:
+    async def list_reminders(self, interaction: Interaction) -> Message:
         """Check your active reminders"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 records = await connection.fetch("""SELECT * FROM reminders WHERE user_id = $1""", interaction.user.id)
-        finally:
-            await self.bot.db.release(connection)
 
         def short(r: Record):
             """Get oneline version of reminder"""

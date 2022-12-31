@@ -15,7 +15,7 @@ INV = "https://discord.com/api/oauth2/authorize" \
       "?client_id=250051254783311873&permissions=1514244730006&scope=bot%20applications.commands"
 
 
-class Meta(Cog):
+class MetaToonbot(Cog):
     """"Meta Information about Toonbot"""
 
     def __init__(self, bot: Bot):
@@ -30,7 +30,7 @@ class Meta(Cog):
         return await self.bot.reply(interaction, embed=e, view=view, ephemeral=True)
 
     @command()
-    async def help(self, interaction: Interaction) -> Message:
+    async def about(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
         e: Embed = Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         e.set_footer(text=f"{self.bot.user.name} is coded by Painezor and was created on ")
@@ -41,9 +41,13 @@ class Meta(Cog):
 
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)
-        members = f"{total_members} Members across {len(self.bot.guilds)} servers."
+        members = f"{format(total_members, ',')} users across {format(len(self.bot.guilds), ',')} servers."
 
-        e.description = f"I do football lookup related things.\n I have {members}"
+        e.description = f"I do football lookup related things.\n I serve commands from {members}\n"
+        e.description = "I was created by Painezor#8489 as a hobby, feel free to send a donation if you would like to" \
+                        "help support me with this project. " \
+                        "\nToonbot has no premium features and is offered completely " \
+                        "for free at the expense of my own time and hosting."
 
         view = View()
         s = ("Join my Support Server", "http://www.discord.gg/a5NHvPx", "<:Toonbot:952717855474991126>")
@@ -56,4 +60,4 @@ class Meta(Cog):
 
 async def setup(bot: Bot):
     """Load the meta cog into the bot"""
-    await bot.add_cog(Meta(bot))
+    await bot.add_cog(MetaToonbot(bot))

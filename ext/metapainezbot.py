@@ -15,7 +15,7 @@ INV = "https://discord.com/api/oauth2/authorize" \
       "?client_id=964870918738419752&scope=bot%20applications.commands"
 
 
-class Meta(Cog):
+class MetaPainezbot(Cog):
     """"Meta Information about painezBot"""
 
     def __init__(self, bot: PBot):
@@ -30,7 +30,7 @@ class Meta(Cog):
         return await self.bot.reply(interaction, embed=e, view=view, ephemeral=True)
 
     @command()
-    async def help(self, interaction: Interaction) -> Message:
+    async def about(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
         e: Embed = Embed(colour=0x2ecc71, timestamp=self.bot.user.created_at)
         e.set_footer(text=f"painezBot is coded (badly) by Painezor and was created on ")
@@ -51,4 +51,4 @@ class Meta(Cog):
 
 async def setup(bot: PBot):
     """Load the meta cog into the bot"""
-    await bot.add_cog(Meta(bot))
+    await bot.add_cog(MetaPainezbot(bot))

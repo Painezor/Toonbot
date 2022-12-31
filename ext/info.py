@@ -103,6 +103,8 @@ class Info(Cog):
     @guild_only()
     async def server_info(self, interaction: Interaction) -> Message:
         """Shows information about the server"""
+        await interaction.response.defer(thinking=True)
+
         e: Embed = Embed(title=interaction.guild.name)
 
         desc = []
@@ -158,7 +160,7 @@ class Info(Cog):
             pass
 
         roles = [role.mention for role in interaction.guild.roles]
-        e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 20 else f'{len(roles)} roles', inline=False)
+        e.add_field(name='Roles', value=', '.join(roles) if len(roles) < 15 else f'{len(roles)} roles', inline=False)
         e.add_field(name="Creation Date", value=Timestamp(interaction.guild.created_at).date_relative)
         e.description = "\n".join(desc)
         return await self.bot.reply(interaction, embed=e)

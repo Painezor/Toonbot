@@ -1,9 +1,11 @@
 """Tracker for the World of Warships Development Blog"""
-from typing import TYPE_CHECKING
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Literal
 
 from asyncpg import Record
 from discord import Interaction, Message, Colour, Embed, HTTPException, TextChannel
-from discord.app_commands import Choice, command, autocomplete, describe, default_permissions, guild_only
+from discord.app_commands import Choice, command, autocomplete, describe, default_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import View
@@ -54,7 +56,7 @@ def get_emote(node: HtmlElement):
 
 class Blog:
     """A world of Warships DevBlog"""
-    bot: 'PBot' = None
+    bot: PBot = None
 
     def __init__(self, _id: int, title: str = None, text: str = None):
         self.id: int = _id
@@ -87,13 +89,10 @@ class Blog:
         else:
             return
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 q = """INSERT INTO dev_blogs (id, title, text) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, self.id, self.title, self.text)
-        finally:
-            await self.bot.db.release(connection)
 
     async def parse(self):
         """Get Embed from the Dev Blog page"""
@@ -103,13 +102,12 @@ class Blog:
         article_html = tree.xpath('.//div[@class="article__content"]')[0]
 
         blog_number = self.id
+        title = ''.join(tree.xpath('.//h2[@class="article__title"]/text()'))
+        e: Embed = Embed(colour=0x00FFFF, url=self.url, description="", timestamp=utcnow(), title=title)
 
-        e: Embed = Embed(colour=0x00FFFF, title=''.join(tree.xpath('.//h2[@class="article__title"]/text()')),
-                         url=self.url)
         e.set_author(name=f"World of Warships Development Blog #{blog_number}", url="https://blog.worldofwarships.com/")
-        e.timestamp = utcnow()
         e.set_thumbnail(url="https://cdn.discordapp.com/emojis/814963209978511390.png")
-        e.description = ""
+
         output = []
 
         def parse(node: HtmlElement):
@@ -258,7 +256,7 @@ class Blog:
 class DevBlogView(View):
     """Browse Dev Blogs"""
 
-    def __init__(self, bot: 'PBot', interaction: Interaction, pages: list[Record], last: bool = False) -> None:
+    def __init__(self, bot: PBot, interaction: Interaction, pages: list[Record], last: bool = False) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.pages: list[Blog] = pages
@@ -284,7 +282,7 @@ async def db_ac(interaction: Interaction, current: str) -> list[Choice]:
 class DevBlog(Cog):
     """DevBlog Commands"""
 
-    def __init__(self, bot: 'PBot'):
+    def __init__(self, bot: PBot):
         self.bot: PBot = bot
         self.bot.dev_blog = self.blog_loop.start()
 
@@ -298,7 +296,7 @@ class DevBlog(Cog):
     async def cog_load(self) -> None:
         """Do this on Cog Load"""
         await self.get_blogs()
-        self.bot.loop.create_task(self.update_cache())
+        await self.update_cache()
 
     async def cog_unload(self) -> None:
         """Stop previous runs of tickers upon Cog Reload"""
@@ -315,11 +313,20 @@ class DevBlog(Cog):
 
         articles = tree.xpath('.//item')
         for i in articles:
-            link = ''.join(i.xpath('.//guid/text()'))
+            try:
+                link = next(x for x in i.xpath('.//guid/text() | .//link/text()') if x)
+            except StopIteration:
+                continue
+
             if ".ru" in link:
                 continue
 
-            blog_id = int(link.split('/')[-1])
+            try:
+                blog_id = int(link.split('/')[-1])
+            except ValueError:
+                print('Could not parse blog_id from link ', link)
+                continue
+
             if blog_id in [r.id for r in self.bot.dev_blog_cache]:
                 continue
 
@@ -336,54 +343,44 @@ class DevBlog(Cog):
                     await ch.send(embed=e)
                 except (AttributeError, HTTPException):
                     continue
-        self.bot.dev_dev_blog_cached = True
 
     @blog_loop.before_loop
     async def update_cache(self) -> None:
         """Assure dev blog channel list is loaded."""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 channels = await connection.fetch("""SELECT * FROM dev_blog_channels""")
                 self.bot.dev_blog_channels = [r['channel_id'] for r in channels]
-        finally:
-            await self.bot.db.release(connection)
 
     async def get_blogs(self) -> None:
         """Get a list of old dev blogs stored in DB"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 q = """SELECT * FROM dev_blogs"""
                 records = await connection.fetch(q)
-        finally:
-            await self.bot.db.release(connection)
 
         self.bot.dev_blog_cache = [Blog(_id=r['id'], title=r['title'], text=r['text']) for r in records]
 
     @command()
-    @guild_only()
     @default_permissions(manage_channels=True)
-    async def blog_tracker(self, interaction: Interaction) -> Message:
+    async def blog_tracker(self, interaction: Interaction, enabled: Literal['on', 'off']) -> Message:
         """Enable/Disable the World of Warships dev blog tracker in this channel."""
         await interaction.response.defer(thinking=True)
-        if interaction.channel.id in self.bot.dev_blog_channels:
+
+        if enabled:
             q = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""
             args = [interaction.channel.id]
             output = "New Dev Blogs will no longer be sent to this channel."
             colour = Colour.red()
         else:
-            q = """INSERT INTO dev_blog_channels (channel_id, guild_id) VALUES ($1, $2)"""
+            q = """INSERT INTO dev_blog_channels (channel_id, guild_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
             args = [interaction.channel.id, interaction.guild.id]
             output = "new Dev Blogs will now be sent to this channel."
             colour = Colour.green()
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute(q, *args)
-        finally:
-            await self.bot.db.release(connection)
 
         await self.update_cache()
 
@@ -412,15 +409,11 @@ class DevBlog(Cog):
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
-        q = f"""DELETE FROM dev_blog_channels WHERE channel_id = $1"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
-                await connection.execute(q, channel.id)
-        finally:
-            await self.bot.db.release(connection)
+                await connection.execute(f"""DELETE FROM dev_blog_channels WHERE channel_id = $1""", channel.id)
 
 
-async def setup(bot: 'PBot') -> None:
+async def setup(bot: PBot) -> None:
     """Load the Dev Blog Cog into the bot."""
     await bot.add_cog(DevBlog(bot))

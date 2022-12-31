@@ -86,7 +86,7 @@ OM_CA = {6: ['Tier 3 Plating'],
               '127mm and below equipped super lights',
               ''],
          19: ['Tier 7 CL Side plating',
-              'Tier 7 Superstructure',
+              'All Superstructure',
               'Tier 7 Bow/Stern (Except Pensacola/New Orleans/Yorck). ',
               'Tier \⭐ British CL/Smolensk plating',
               '127mm super lights plating'],
@@ -264,8 +264,8 @@ class Warships(Cog):
         if not self.bot.ships:
             self.bot.ships = await self.cache_ships()
 
-        if not self.bot.clan_buildings:
-            self.bot.clan_buildings = await self.cache_clan_base()
+        # if not self.bot.clan_buildings:
+        #     self.bot.clan_buildings = await self.cache_clan_base()
 
     async def cache_clan_base(self) -> list[ClanBuilding]:
         """Cache the CLan Buildings from the API"""
@@ -323,20 +323,20 @@ class Warships(Cog):
                 ships.append(ship)
         return ships
 
-    async def send_code(self, interaction: Interaction, code: str, regions: list[str], contents: str = None) -> Message:
+    async def send_code(self, interaction: Interaction, code: str, regions: list[str], contents: str) -> Message:
         """Generate the Embed for the code."""
-        e = Embed(title="World of Warships Redeemable Code")
-        e.title = code
-        e.set_author(name="World of Warships Bonus Code")
-        e.set_thumbnail(url=self.bot.user.avatar.url)
+        e = Embed(title=code, url=f"https://eu.wargaming.net/shop/redeem/?bonus_mode={code}", colour=Colour.red())
+        e.set_author(name="Bonus Code", icon_url="https://cdn.iconscout.com/icon/free/png-256/wargaming-1-283119.png")
+        e.set_thumbnail(url="https://wg-art.com/media/filer_public_thumbnails/filer_public/"
+                            "72/22/72227d3e-d42f-4e16-a3e9-012eb239214c/"
+                            "wg_wows_logo_mainversion_tm_fullcolor_ru_previewwebguide.png")
         if contents:
-            e.description = f"```yaml\n{contents}```"
+            e.add_field(name="Contents", value=f"```yaml\n{contents}```")
         e.set_footer(text="Click on a button below to redeem for your region")
 
         view = View()
         for i in regions:
             region = next(r for r in Region if i == r.db_key)
-            e.colour = region.colour
             url = f"https://{region.code_prefix}.wargaming.net/shop/redeem/?bonus_mode={code}"
             view.add_item(Button(url=url, label=region.name, style=ButtonStyle.url, emoji=region.emote))
         return await self.bot.reply(interaction, embed=e, view=view)
@@ -702,7 +702,6 @@ class Warships(Cog):
             clans.append(clan)
 
         return await Leaderboard(interaction, clans).update()
-
 
 async def setup(bot: PBot):
     """Load the cog into the bot"""

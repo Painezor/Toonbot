@@ -2,7 +2,7 @@
 from __future__ import annotations  # Cyclic Type hinting
 
 from asyncio import sleep, Semaphore
-from typing import List, Optional, TYPE_CHECKING, Type, Dict, ClassVar
+from typing import Optional, TYPE_CHECKING, Type, ClassVar
 
 from asyncpg import ForeignKeyViolationError
 from discord import Colour, ButtonStyle, Embed, HTTPException, Permissions, Interaction, TextChannel, Message
@@ -10,7 +10,7 @@ from discord.app_commands import Group, describe, autocomplete
 from discord.ext.commands import Cog
 from discord.ui import Select, View, Button
 
-from ext.toonbot_utils.flashscore import Fixture, Competition, search, Team, DEFAULT_LEAGUES, WORLD_CUP_LEAGUES, lg_ac
+from ext.toonbot_utils.flashscore import Fixture, Competition, search, Team, DEFAULT_LEAGUES, lg_ac
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import MatchEvent, Penalty, Substitution, EventType
 from ext.utils.embed_utils import rows_to_embeds
@@ -18,7 +18,7 @@ from ext.utils.view_utils import add_page_buttons, Confirmation
 
 if TYPE_CHECKING:
     from core import Bot
-    from asyncpg import Record, Connection
+    from asyncpg import Record
 
 
 class IsLiveScoreError(Exception):
@@ -26,6 +26,8 @@ class IsLiveScoreError(Exception):
 
 
 semaphore = Semaphore(value=5)
+
+_ticker_tasks = set()
 
 
 # TODO: Migrate Event embed generation to the individual Events
@@ -50,7 +52,9 @@ class TickerEvent:
         self.event: Optional[MatchEvent] = None
 
         # Begin loop on init
-        self.bot.loop.create_task(self.event_loop())
+        task = self.bot.loop.create_task(self.event_loop())
+        _ticker_tasks.add(task)
+        task.add_done_callback(_ticker_tasks.discard)
 
     @property
     async def _embed(self) -> Embed:
@@ -85,10 +89,10 @@ class TickerEvent:
 
                 shootout = [i for i in self.fixture.events if isinstance(i, Penalty) and i.shootout]
                 # iterate through everything after penalty header
-                for _ in [self.fixture.home, self.fixture.away]:
-                    value = "\n".join([str(i) for i in shootout if i.team == _])
+                for team in set(i.team for i in shootout):
+                    value = "\n".join([str(i) for i in shootout if i.team == team])
                     if value:
-                        e.add_field(name=_, value=value)
+                        e.add_field(name=team, value=value)
 
         # Append our event
         if self.event is not None:
@@ -136,12 +140,10 @@ class TickerEvent:
 
     async def event_loop(self) -> list[Message]:
         """The Fixture event's internal loop"""
-        # Handle Match Events with no game events.
-        if self.long:
-            await self._full_embed
-        else:
-            await self._embed
+        if not self.channels:
+            return  # This should never happen.
 
+        # Handle Match Events with no game events.
         if self.event_type == EventType.KICK_OFF:
             for x in self.channels:
                 await x.dispatch(self)
@@ -153,34 +155,36 @@ class TickerEvent:
                 await self.fixture.refresh()
 
             # Figure out which event we're supposed to be using (Either newest event, or Stored if refresh)
-            if index is not None:
-                try:
-                    self.event = self.fixture.events[index]
-                except IndexError:
-                    self.event = None
-                    break
-            else:
+            if index is None:
                 team: Team = self.fixture.home if self.home else self.fixture.away
 
                 events = self.fixture.events
                 if team is not None:
-                    events: List = [i for i in self.fixture.events if i.team.name == team.name]
+                    events = [i for i in self.fixture.events if i.team.name == team.name]
 
                 valid: Type[MatchEvent] = self.event_type.valid_events
-                if valid is not None and events:
+                if valid and events:
                     try:
                         events.reverse()
                         self.event = next(i for i in events if isinstance(i, valid))
                         index = self.fixture.events.index(self.event)
                     except StopIteration:
                         pass
-
-            if self.long and index is not None:
-                if all((i.player is not None) for i in self.fixture.events[:index + 1]):
+            else:
+                try:
+                    self.event = self.fixture.events[index]
+                except IndexError:
+                    self.event = None
                     break
-            if not self.event:
-                break
-            if self.event.player is not None:
+
+            if self.long and index:
+                if all(i.player is not None for i in self.fixture.events[:index + 1]):
+                    break
+
+            try:
+                if self.event.player is not None:
+                    break
+            except AttributeError:
                 break
 
             await sleep(x + 1 * 120)
@@ -201,7 +205,7 @@ class TickerChannel:
     def __init__(self, channel: int) -> None:
         self.channel: int = channel
         self.leagues: list[str] = []
-        self.settings: Dict = {}
+        self.settings: dict = {}
         self.dispatched: dict[TickerEvent, Message] = {}
 
     # Send messages
@@ -238,19 +242,12 @@ class TickerChannel:
         return message
 
     # Database management.
-    async def get_settings(self) -> Dict:
+    async def get_settings(self) -> dict:
         """Retrieve the settings of the TickerChannel from the database"""
-        connection: Connection = await self.bot.db.acquire()
-
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
-                sql = """SELECT * FROM ticker_settings WHERE channel_id = $1"""
-                stg = await connection.fetchrow(sql, self.channel)
-
-                sql = """SELECT * FROM ticker_leagues WHERE channel_id = $1"""
-                leagues = await connection.fetch(sql, self.channel)
-        finally:
-            await self.bot.db.release(connection)
+                stg = await connection.fetchrow("""SELECT * FROM ticker_settings WHERE channel_id = $1""", self.channel)
+                leagues = await connection.fetch("""SELECT * FROM ticker_leagues WHERE channel_id = $1""", self.channel)
 
         if stg is not None:
             for k, v in stg.items():
@@ -263,9 +260,8 @@ class TickerChannel:
 
     async def create_ticker(self) -> TickerChannel:
         """Create a ticker for the target channel"""
-        connection = await self.bot.db.acquire()
         guild = self.bot.get_channel(self.channel).guild.id
-        try:
+        async with self.bot.db.acquire() as connection:
             # Verify that this is not a livescores channel.
             async with connection.transaction():
                 q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
@@ -280,18 +276,13 @@ class TickerChannel:
                 await connection.execute(qq, self.channel)
                 qqq = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 await connection.executemany(qqq, [(self.channel, x) for x in DEFAULT_LEAGUES])
-        finally:
-            await self.bot.db.release(connection)
         return self
 
     async def delete_ticker(self) -> None:
         """Delete the ticker for this channel from the database"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute("""DELETE FROM ticker_channels WHERE channel_id = $1""", self.channel)
-        finally:
-            await self.bot.db.release(connection)
         self.bot.ticker_channels.remove(self)
 
     async def add_leagues(self, leagues: list[str]) -> list[str]:
@@ -300,12 +291,9 @@ class TickerChannel:
 
         sql = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.executemany(sql, [(self.channel, x) for x in leagues])
-        finally:
-            await self.bot.db.release(connection)
 
         self.leagues += leagues
         return self.leagues
@@ -313,12 +301,9 @@ class TickerChannel:
     async def remove_leagues(self, leagues: list[str]) -> list[str]:
         """Remove a list of leagues for the channel from the database"""
         sql = """DELETE from ticker_leagues WHERE (channel_id, league) = ($1, $2)"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.executemany(sql, [(self.channel, x) for x in leagues])
-        finally:
-            await self.bot.db.release(connection)
 
         self.leagues = [i for i in self.leagues if i not in leagues]
         return self.leagues
@@ -327,25 +312,19 @@ class TickerChannel:
         """Reset the Ticker Channel to the list of default leagues."""
         sql = """INSERT INTO ticker_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.executemany(sql, [(self.channel, x) for x in DEFAULT_LEAGUES])
-        finally:
-            await self.bot.db.release(connection)
 
         self.leagues = DEFAULT_LEAGUES
         return self.leagues
 
     async def toggle_setting(self, db_key: str, new_value: Optional[bool]) -> dict:
         """Toggle a database setting"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 q = f"""UPDATE ticker_settings SET {db_key} = $1 WHERE channel_id = $2"""
                 await connection.execute(q, new_value, self.channel)
-        finally:
-            await self.bot.db.release(connection)
 
         self.settings[db_key] = new_value
         return self.settings
@@ -430,7 +409,9 @@ class DeleteTicker(Button):
 
         bot: Bot = interaction.client
         ch = bot.get_channel(self.view.tc.channel)
-        return await self.view.update(content=f"The Ticker for {ch.mention} was deleted.")
+
+        e = Embed(colour=Colour.red(), description=f"The Ticker for {ch.mention} was deleted.")
+        return await bot.reply(interaction, embed=e)
 
 
 class RemoveLeague(Select):
@@ -597,12 +578,9 @@ class TickerCog(Cog, name="Ticker"):
     async def update_cache(self) -> None:
         """Store a list of all Ticker Channels into the bot"""
         sql = f"""SELECT DISTINCT channel_id FROM transfers_channels"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql)
-        finally:
-            await self.bot.db.release(connection)
 
         for r in records:
             tc = TickerChannel(r['channel_id'])
@@ -613,21 +591,19 @@ class TickerCog(Cog, name="Ticker"):
     async def on_fixture_event(self, event_type: EventType, f: Fixture, home: bool = None) -> Optional[TickerEvent]:
         """Event handler for when something occurs during a fixture."""
         # Update the competition's Table on certain events.
-        match event_type:
-            case EventType.GOAL | EventType.FULL_TIME:
-                self.bot.loop.create_task(f.competition.table())
-
         c: str = ", ".join(event_type.db_fields)
         not_nulls = " AND ".join([f'({x} IS NOT NULL)' for x in event_type.db_fields])
         sql = f"""SELECT {c}, ticker_settings.channel_id FROM ticker_settings LEFT JOIN ticker_leagues 
                 ON ticker_settings.channel_id = ticker_leagues.channel_id WHERE {not_nulls} AND (league = $1::text)"""
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, f.competition.title)
-        finally:
-            await self.bot.db.release(connection)
+
+        if records:
+            match event_type:
+                case EventType.GOAL | EventType.FULL_TIME:
+                    await f.competition.table()
 
         channels: list[TickerChannel] = []
         long: bool = False
@@ -669,7 +645,7 @@ class TickerCog(Cog, name="Ticker"):
 
     @ticker.command()
     @describe(channel="Manage which channel?")
-    async def manage(self, interaction: Interaction, channel: TextChannel = None) -> Message:
+    async def manage_ticker(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View the config of this channel's Match Event Ticker"""
         await interaction.response.defer(thinking=True)
         if channel is None:
@@ -688,7 +664,7 @@ class TickerCog(Cog, name="Ticker"):
     @ticker.command()
     @autocomplete(query=lg_ac)
     @describe(query="Search for a league by name", channel="Add to which channel?")
-    async def add(self, interaction: Interaction, query: str, channel: TextChannel = None) -> Message:
+    async def add_league(self, interaction: Interaction, query: str, channel: TextChannel = None) -> Message:
         """Add a league to your Match Event Ticker"""
         await interaction.response.defer(thinking=True)
 
@@ -726,42 +702,13 @@ class TickerCog(Cog, name="Ticker"):
         await tc.add_leagues([fsr.title])
         await tc.view(interaction).update(f"Added {fsr.title} to {channel.mention} tracked leagues")
 
-    @ticker.command()
-    @describe(channel="Add to which channel?")
-    async def add_world_cup(self, interaction: Interaction, channel: TextChannel = None) -> Message:
-        """Add the qualifying tournaments for the World Cup to a channel's ticker"""
-        await interaction.response.defer(thinking=True)
-
-        if channel is None:
-            channel = interaction.channel
-
-        # Validate channel is a ticker channel.
-        try:
-            tc = next(i for i in self.bot.ticker_channels if i.channel == channel.id)
-        except StopIteration:
-            tc = TickerChannel(channel.id)
-            success = await tc.view(interaction).creation_dialogue()
-            if not success:
-                return
-
-            self.bot.ticker_channels.append(tc)
-
-        await tc.add_leagues(WORLD_CUP_LEAGUES)
-        leagues = "\n".join(WORLD_CUP_LEAGUES)
-        msg = f"Added tracked leagues to {channel.mention}```yaml\n{leagues}```"
-        return await tc.view(interaction).update(msg)
-
     # Event listeners for channel deletion or guild removal.
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Handle deletion of channel data from database upon channel deletion."""
-        sql = f"""DELETE FROM ticker_channels WHERE channel_id = $1"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
-                await connection.execute(sql, channel.id)
-        finally:
-            await self.bot.db.release(connection)
+                await connection.execute(f"""DELETE FROM ticker_channels WHERE channel_id = $1""", channel.id)
 
         for x in self.bot.ticker_channels.copy():
             if x.channel == channel.id:

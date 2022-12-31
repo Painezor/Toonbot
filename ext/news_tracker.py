@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from asyncpg import Record
-from discord import Embed, Interaction, Message, Colour, TextChannel, Guild, ButtonStyle, HTTPException
+from discord import Embed, Interaction, Message, Colour, TextChannel, ButtonStyle, HTTPException
 from discord.app_commands import command, describe, guild_only, default_permissions, autocomplete, Choice
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -25,7 +25,7 @@ class ToggleButton(Button):
     """A Button to toggle the notifications settings."""
     view: NewsConfig
 
-    def __init__(self, bot: 'PBot', region: Region, value: bool) -> None:
+    def __init__(self, bot: PBot, region: Region, value: bool) -> None:
         self.value: bool = value
         self.region: Region = region
         self.bot: PBot = bot
@@ -40,13 +40,10 @@ class ToggleButton(Button):
         await interaction.response.defer()
         new_value: bool = not self.value
 
-        sql = f"""UPDATE news_trackers SET {self.region.db_key} = $1 WHERE channel_id = $2"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
+                sql = f"""UPDATE news_trackers SET {self.region.db_key} = $1 WHERE channel_id = $2"""
                 await connection.execute(sql, new_value, self.view.channel.id)
-        finally:
-            await self.bot.db.release(connection)
 
         on = "Enabled" if new_value else "Disabled"
         r = self.region.name
@@ -59,7 +56,7 @@ class Article:
     embed: Embed
     view: View
 
-    def __init__(self, bot: 'PBot', partial: str) -> None:
+    def __init__(self, bot: PBot, partial: str) -> None:
         self.bot = bot
         # Partial is the trailing part of the URL.
         self.partial: str = partial
@@ -81,23 +78,15 @@ class Article:
 
     async def save_to_db(self) -> None:
         """Store the article in the database for quicker retrieval in future"""
-        sql = """INSERT INTO news_articles 
-                 (title, description, partial, link, image, category, date, eu, na, cis, sea)
-                 VALUES 
-                 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
-                 ON CONFLICT (partial) DO UPDATE SET 
-                 (title, description, link, image, category, date, eu, na, cis, sea) = 
-                 (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link, EXCLUDED.image, EXCLUDED.category, EXCLUDED.date,
-                 EXCLUDED.eu, EXCLUDED.na, EXCLUDED.cis, EXCLUDED.sea)
-                 """
-        connection = await self.bot.db.acquire()
-        try:
+        sql = """INSERT INTO news_articles (title, description, partial, link, image, category, date, eu, na, cis, sea)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+                 ON CONFLICT (partial) DO UPDATE SET (title, description, link, image, category, date, eu, na, cis, sea)
+                 = (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link, EXCLUDED.image, EXCLUDED.category, 
+                    EXCLUDED.date, EXCLUDED.eu, EXCLUDED.na, EXCLUDED.cis, EXCLUDED.sea) """
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute(sql, self.title, self.description, self.partial, self.link, self.image,
                                          self.category, self.date, self.eu, self.na, self.cis, self.sea)
-        finally:
-            await self.bot.db.release(connection)
-        return
 
     async def generate_embed(self) -> Embed:
         """Handle dispatching of news article."""
@@ -159,7 +148,7 @@ class Article:
 class NewsChannel:
     """An Object representing a NewsChannel"""
 
-    def __init__(self, bot: 'PBot', channel: TextChannel, eu=False, na=False, sea=False, cis=False) -> None:
+    def __init__(self, bot: PBot, channel: TextChannel, eu=False, na=False, sea=False, cis=False) -> None:
         self.channel: TextChannel = channel
         self.bot: PBot = bot
 
@@ -203,7 +192,7 @@ class NewsChannel:
 class NewsConfig(View):
     """News Tracker Config View"""
 
-    def __init__(self, bot: 'PBot', interaction: Interaction, channel: TextChannel) -> None:
+    def __init__(self, bot: PBot, interaction: Interaction, channel: TextChannel) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.channel: TextChannel = channel
@@ -223,12 +212,9 @@ class NewsConfig(View):
         self.clear_items()
 
         sql = """SELECT * FROM news_trackers WHERE channel_id = $1"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(sql, self.channel.id)
-        finally:
-            await self.bot.db.release(connection)
 
         e: Embed = Embed(colour=Colour.dark_teal())
         e.title = f"World of Warships News Tracker config"
@@ -255,7 +241,7 @@ async def news_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     bot: PBot = interaction.client
     matches = [i for i in bot.news_cache if current.lower() in f"{i.title}: {i.description}".lower()]
 
-    now = utcnow()
+    now = datetime.now()
     matches = sorted(matches, key=lambda x: now if x.date is None else x.date, reverse=True)
     return [Choice(name=f"{i.title}: {i.description}"[:100], value=i.link) for i in matches][:25]
 
@@ -263,7 +249,7 @@ async def news_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 class NewsTracker(Cog):
     """NewsTracker Commands"""
 
-    def __init__(self, bot: 'PBot') -> None:
+    def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
         self.bot.news = self.news_loop.start()
 
@@ -343,13 +329,10 @@ class NewsTracker(Cog):
         if not self.bot.is_ready():
             await self.bot.wait_until_ready()
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 channels = await connection.fetch("""SELECT * FROM news_trackers""")
                 articles = await connection.fetch("""SELECT * FROM news_articles""")
-        finally:
-            await self.bot.db.release(connection)
 
         partials = [i.partial for i in self.bot.news_cache]
 
@@ -408,14 +391,9 @@ class NewsTracker(Cog):
         try:
             target = next(i for i in self.bot.news_channels if i.channel.id == channel.id)
         except StopIteration:
-            sql = """INSERT INTO news_trackers (channel_id) VALUES ($1)"""
-            connection = await self.bot.db.acquire()
-
-            try:
+            async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
-                    await connection.execute(sql, channel.id)
-            finally:
-                await self.bot.db.release(connection)
+                    await connection.execute("""INSERT INTO news_trackers (channel_id) VALUES ($1)""", channel.id)
 
             target = NewsChannel(self.bot, channel=channel)
             self.bot.news_channels.append(target)
@@ -426,31 +404,14 @@ class NewsTracker(Cog):
     async def on_guild_channel_delete(self, channel: TextChannel) -> list[NewsChannel]:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM news_trackers WHERE channel_id = $1"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute(q, channel.id)
-        finally:
-            await self.bot.db.release(connection)
 
         self.bot.news_channels = [i for i in self.bot.news_channels if i.channel.id != channel.id]
         return self.bot.news_channels
 
-    @Cog.listener()
-    async def on_guild_remove(self, guild: Guild) -> list[NewsChannel]:
-        """Purge news trackers for deleted guilds"""
-        q = f"""DELETE FROM news_trackers WHERE guild_id = $1"""
-        connection = await self.bot.db.acquire()
-        try:
-            async with connection.transaction():
-                await connection.execute(q, guild.id)
-        finally:
-            await self.bot.db.release(connection)
 
-        self.bot.news_channels = [i for i in self.bot.news_channels if i.channel.guild.id != guild.id]
-        return self.bot.news_channels
-
-
-async def setup(bot: 'PBot') -> None:
+async def setup(bot: PBot) -> None:
     """Load the NewsTracker Cog into the bot."""
     await bot.add_cog(NewsTracker(bot))

@@ -1,6 +1,7 @@
 """Fetch the televised matches from livesoccertv.com"""
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from json import load
 from typing import TYPE_CHECKING
@@ -122,7 +123,7 @@ class Tv(commands.Cog):
                 date = ''.join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
                 time = ''.join(i.xpath('.//td[@class="timecell"]//span/text()')).strip()
                 if time not in ["Postp.", "TBA"]:
-                    raise ValueError(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
+                    logging.warning(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
                 ts = time
 
             rows.append(f'{ts}: [{match}]({link})')

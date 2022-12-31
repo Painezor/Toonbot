@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 from inspect import isawaitable
 from os import system
 from sys import version
@@ -9,7 +10,8 @@ from traceback import format_exception
 from typing import TYPE_CHECKING
 
 from discord import Interaction, Embed, Colour, Activity, Attachment, Message, Object
-from discord.app_commands import Choice, describe, autocomplete, Group, command, guilds
+from discord.app_commands import Choice, describe, autocomplete, Group, command, guilds, Command, ContextMenu
+from discord.app_commands import locale_str as _T
 from discord.ext.commands import Cog, NotOwner
 
 if TYPE_CHECKING:
@@ -39,30 +41,30 @@ class Admin(Cog):
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
 
-    @command()
-    @describe(guild="enter guild ID to sync")
+    @command(name=_T("sync"))
+    @describe(guild=_T("enter guild ID"))
     async def sync(self, interaction: Interaction, guild: bool = False) -> Message:
         """Sync the command tree with discord"""
         await interaction.response.defer(thinking=True)
 
         if not guild:
             await self.bot.tree.sync()
-            return await self.bot.reply(interaction, content="Asked discord to sync, please wait up to 1 hour.")
+            return await self.bot.reply(interaction, content=_T("Asked discord to sync, please wait up to 1 hour."))
         else:
             await self.bot.tree.sync(guild=Object(id=interaction.guild.id))
-            return await self.bot.reply(interaction, content="Guild synced")
+            return await self.bot.reply(interaction, content=_T("Guild Synced"))
 
     cogs = Group(name="cogs", description="Load and unload modules", guild_ids=[250252535699341312])
 
-    @cogs.command()
-    @describe(cog="pick a cog to reload")
+    @cogs.command(name=_T("reload"))
+    @describe(cog=_T("pick a cog to reload"))
     @autocomplete(cog=cg_ac)
     async def reload(self, interaction: Interaction, cog: str) -> Message:
         """Reloads a module."""
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.reload_extension(f'ext.{cog}')
+            await self.bot.reload_extension(f'ext.{cog.lower()}')
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
         e: Embed = Embed(title="Modules", colour=Colour.og_blurple(), description=f':gear: Reloaded {cog}')
@@ -76,7 +78,7 @@ class Admin(Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.load_extension(f'ext.{cog}')
+            await self.bot.load_extension(f'ext.{cog.lower()}')
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
@@ -90,7 +92,7 @@ class Admin(Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.unload_extension(f'ext.{cog}')
+            await self.bot.unload_extension(f'ext.{cog.lower()}')
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
@@ -106,7 +108,7 @@ class Admin(Cog):
         e: Embed = Embed(title="Currently loaded Cogs", colour=Colour.og_blurple(), description="\n".join(loaded))
         return await self.bot.reply(interaction, embed=e)
 
-    @command(name="print")
+    @command(name=_T("print"))
     @guilds(250252535699341312)
     async def _print(self, interaction: Interaction, to_print: str) -> Message:
         """Print something to console."""
@@ -118,7 +120,7 @@ class Admin(Cog):
         e: Embed = Embed(colour=Colour.og_blurple(), description=f"```\n{to_print}```")
         return await self.bot.reply(interaction, embed=e)
 
-    @command()
+    @command(name=_T("clear"))
     @guilds(250252535699341312)
     async def clear(self, interaction: Interaction) -> Message:
         """Clear the command window."""
@@ -133,7 +135,7 @@ class Admin(Cog):
         e: Embed = Embed(title="Bot Console", colour=Colour.og_blurple(), description="```\nConsole Log Cleared.```")
         return await self.bot.reply(interaction, embed=e)
 
-    @command()
+    @command(name=_T("quit"))
     @guilds(250252535699341312)
     async def quit(self, interaction: Interaction) -> Message:
         """Log the bot out gracefully."""
@@ -142,9 +144,9 @@ class Admin(Cog):
         await self.bot.reply(interaction, content='Logging out.')
         return await self.bot.close()
 
-    @command()
+    @command(name=_T("debug"))
     @guilds(250252535699341312)
-    @describe(code=">>> Code Go Here")
+    @describe(code=_T(">>> Code Go Here"))
     async def debug(self, interaction: Interaction, code: str) -> Message:
         """Evaluates code."""
         await interaction.response.defer(thinking=True)
@@ -155,8 +157,9 @@ class Admin(Cog):
         env = {'bot': self.bot, 'ctx': interaction, 'interaction': interaction}
         env.update(globals())
 
-        e: Embed = Embed(title="Code Evaluation", colour=Colour.og_blurple())
-        e.set_footer(text=f"Python Version: {version}")
+        e1: Embed = Embed(title="Input", colour=Colour.lighter_grey())
+        e2: Embed = Embed(title="Output", colour=Colour.darker_grey())
+        e2.set_footer(text=f"Python Version: {version}")
 
         try:
             result = eval(code, env)
@@ -165,16 +168,17 @@ class Admin(Cog):
         except Exception as err:
             result = error_to_codeblock(err)
 
-        e.description = f"**Input**```py\n>>> {code}```**Output**```py\n{result}```"
-        if len(e.description) > 4000:
-            print("DEBUG command input\n", code)
-            print("DEBUG command output\n", e.description)
-            e.description = 'Too long for discord, output sent to console.'
-        return await self.bot.reply(interaction, embed=e)
+        e1.description = f"```py\n{code}\n```"
+        e2.description = f"```py\n{result}\n```"
+        if len(e2.description) > 4000:
+            logging.log("DEBUG command input\n", code)
+            logging.log("DEBUG command output\n", result)
+            e1.description = 'Too long for discord, output sent to logger.'
+        return await self.bot.reply(interaction, embeds=[e1, e2])
 
-    @command()
+    @command(name=_T("notify"))
     @guilds(250252535699341312)
-    @describe(notification="Message to send to aLL servers.")
+    @describe(notification=_T("Message to send to aLL servers."))
     async def notify(self, interaction: Interaction, notification: str) -> Message:
         """Send a global notification to channels that track it."""
         if interaction.user.id != self.bot.owner_id:
@@ -190,7 +194,7 @@ class Admin(Cog):
     edit_bot = Group(name="bot", description="Edit the bot profile", guild_ids=[250252535699341312])
 
     @edit_bot.command()
-    @describe(file='The file to upload', link="Provide a link")
+    @describe(file=_T('The file to upload'), link=_T("Provide a link"))
     async def avatar(self, interaction: Interaction, file: Attachment = None, link: str = None) -> Message:
         """Change the avatar of the bot"""
         await interaction.response.defer(thinking=True)
@@ -217,32 +221,32 @@ class Admin(Cog):
     # Presence Commands
     status = Group(name="status", description="Set bot activity", parent=edit_bot)
 
-    @status.command()
-    @describe(status="What game is the bot playing")
+    @status.command(name=_T("playing"))
+    @describe(status=_T("What game is the bot playing"))
     async def playing(self, interaction: Interaction, status: str) -> Message:
         """Set bot status to playing {status}"""
         await interaction.response.defer(thinking=True)
 
         return await self.update_presence(interaction, Activity(type=0, name=status))
 
-    @status.command()
-    @describe(status="What is the bot streaming")
+    @status.command(name=_T("streaming"))
+    @describe(status=_T("What is the bot streaming"))
     async def streaming(self, interaction: Interaction, status: str) -> Message:
         """Change status to streaming {status}"""
         await interaction.response.defer(thinking=True)
 
         return await self.update_presence(interaction, Activity(type=1, name=status))
 
-    @status.command()
-    @describe(status="What is the bot watching")
+    @status.command(name=_T("watching"))
+    @describe(status=_T("What is the bot watching"))
     async def watching(self, interaction: Interaction, status: str) -> Message:
         """Change status to watching {status}"""
         await interaction.response.defer(thinking=True)
 
         return await self.update_presence(interaction, Activity(type=2, name=status))
 
-    @status.command()
-    @describe(status="What is the bot listening to")
+    @status.command(name=_T("listening"))
+    @describe(status=_T("What is the bot listening to"))
     async def listening(self, interaction: Interaction, status: str) -> Message:
         """Change status to listening to {status}"""
         await interaction.response.defer(thinking=True)
@@ -258,6 +262,13 @@ class Admin(Cog):
         e: Embed = Embed(title="Activity", colour=Colour.og_blurple())
         e.description = f"Set status to {act.type} {act.name}"
         return await self.bot.reply(interaction, embed=e)
+
+    @Cog.listener()
+    async def on_application_command_completion(self, interaction: Interaction, cmd: Command | ContextMenu) -> None:
+        """Log which commands have been ran"""
+        print(f'{type(cmd)} Used | [{interaction.user} on {interaction.guild.name}]{cmd.qualified_name}\n'
+              f'{cmd.parameters}{interaction.guild}')
+        return
 
 
 async def setup(bot: Bot | PBot) -> None:

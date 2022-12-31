@@ -1,15 +1,16 @@
 """Generic Objects for discord Views"""
 from __future__ import annotations
 
-from typing import Iterable, List, Callable, Tuple, TYPE_CHECKING, Dict, ClassVar
+from typing import Callable, TYPE_CHECKING, ClassVar
 
-from discord import Interaction, ButtonStyle, NotFound, Embed, Message, SelectOption
+from discord import ButtonStyle, NotFound, Embed, SelectOption
 from discord.ui import Button, Select, Modal, View, TextInput
 from pyppeteer.page import Page
 
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
+    from discord import Message, Interaction
 
 
 def add_page_buttons(view: View, row: int = 0) -> View:
@@ -46,7 +47,6 @@ class Parent(Button):
     async def callback(self, interaction: Interaction) -> Message:
         """When clicked, call the parent view's update button"""
         return await self.view.parent.update()
-
 
 
 class First(Button):
@@ -98,7 +98,7 @@ class JumpModal(Modal):
         """Validate entered data & set parent index."""
         await interaction.response.defer()
 
-        pages: List = getattr(self.view, "pages", [])
+        pages: list = getattr(self.view, "pages", [])
         update: Callable = getattr(self.view, "update")
         try:
             _ = pages[int(self.page.value)]
@@ -151,7 +151,7 @@ class Stop(Button):
     async def callback(self, interaction: Interaction) -> None:
         """Do this when button is pressed"""
         try:
-            await self.view.interaction.delete_original_message()
+            await self.view.interaction.delete_original_response()
         except NotFound:
             pass
 
@@ -164,7 +164,7 @@ class Stop(Button):
 class PageSelect(Select):
     """Page Selector Dropdown"""
 
-    def __init__(self, placeholder: str = None, options: List = None, row: int = 4) -> None:
+    def __init__(self, placeholder: str = None, options: list = None, row: int = 4) -> None:
         super().__init__(placeholder=placeholder, options=options, row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
@@ -226,7 +226,7 @@ class ObjectSelectView(View):
 class MultipleSelect(Select):
     """Select multiple matching items."""
 
-    def __init__(self, placeholder: str, options: Iterable[Tuple[str, str, str]], attribute: str, row: int = 0) -> None:
+    def __init__(self, placeholder: str, options: list[tuple[str, str, str]], attribute: str, row: int = 0) -> None:
         self.attribute = attribute
 
         super().__init__(placeholder=placeholder, max_values=len(list(options)), row=row)
@@ -244,7 +244,7 @@ class MultipleSelect(Select):
 class ItemSelect(Select):
     """A Dropdown That Returns a Generic Selected Item"""
 
-    def __init__(self, placeholder: str, options: list[Tuple[str, str, str]], row: int = 0) -> None:
+    def __init__(self, placeholder: str, options: list[tuple[str, str, str]], row: int = 0) -> None:
         super().__init__(placeholder=placeholder)
         self.row = row
         for index, (emoji, label, description) in enumerate(options):
@@ -282,7 +282,7 @@ class FuncDropdown(Select):
 
     # Passed List of [Select Option, Dict of args to setattr, Function to apply.]
 
-    def __init__(self, options: list[Tuple[SelectOption, Dict, Callable]],
+    def __init__(self, options: list[tuple[SelectOption, dict, Callable]],
                  placeholder: str = None, row: int = 3) -> None:
         self.raw = options
         super().__init__(placeholder=placeholder, options=[o[0] for o in options][:25], row=row)

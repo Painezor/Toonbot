@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import timedelta
-from typing import Sequence, TYPE_CHECKING, Callable, ClassVar
+from typing import TYPE_CHECKING, Callable, ClassVar
 
 import discord
 from discord import Embed, Colour, HTTPException, AuditLogAction, ButtonStyle, RawMemberRemoveEvent, TextChannel
@@ -12,6 +12,7 @@ from discord.ext.commands import Cog
 from discord.ui import Button, View
 
 from ext.utils import timed_events, view_utils
+from ext.utils.timed_events import Timestamp
 
 if TYPE_CHECKING:
     from core import Bot
@@ -23,8 +24,6 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 
 # TODO: Handle events.
 # Unhandled Events
-# on_message_edit
-# TODO: Message edited
 # on_reaction_clear
 # on_guild_channel_create
 # on_guild_channel_delete
@@ -41,7 +40,6 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 # on_scheduled_event_create
 # on_scheduled_event_update
 # on_scheduled_event_delete
-
 # on_automod_action,
 # on_automod_rule_create,
 # on_automod_rule_update,
@@ -65,13 +63,11 @@ class ToggleButton(Button):
         """Set view value to button value"""
         await interaction.response.defer()
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 q = f"""UPDATE notifications_settings SET {self.db_key} = $1 WHERE channel_id = $2"""
                 await connection.execute(q, not self.value, self.view.channel.id)
-        finally:
-            await self.bot.db.release(connection)
+
         cog: Cog = self.bot.get_cog("Logs")
         upd: Callable = getattr(cog, "update_cache")
         await upd()
@@ -104,29 +100,24 @@ class LogsConfig(View):
         """Regenerate view and push to message"""
         self.clear_items()
 
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 stg = await connection.fetchrow(q_stg, self.channel.id)
             if not stg:
                 await connection.execute(qq, self.interaction.guild.id, self.channel.id)
                 await connection.execute(qqq, self.channel.id)
                 return await self.update()
-        finally:
-            await self.bot.db.release(connection)
 
         e: Embed = Embed(color=0x7289DA, title="Notification Logs config")
         e.description = "Click the buttons below to turn on or off logging for events."
         e.set_author(name=self.interaction.guild.name, icon_url=self.interaction.guild.icon.url)
 
-        count = 0
         row = 0
-        for k, v in sorted(stg.items()):
+        for num, (k, v) in enumerate(sorted(stg.items())):
             if k == "channel_id":
                 continue
 
-            count += 1
-            if count % 5 == 0:
+            if num % 5 == 0:
                 row += 1
 
             self.add_item(ToggleButton(self.bot, db_key=k, value=v, row=row))
@@ -160,10 +151,9 @@ class Logs(Cog):
         q = """SELECT * FROM notifications_channels LEFT OUTER JOIN notifications_settings
             ON notifications_channels.channel_id = notifications_settings.channel_id"""
 
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            self.bot.notifications_cache = await connection.fetch(q)
-        await self.bot.db.release(connection)
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                self.bot.notifications_cache = await connection.fetch(q)
 
     # Master info command.
 
@@ -190,7 +180,7 @@ class Logs(Cog):
             pass
 
         messages: list[Message] = []
-        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i['member_joins']]:
+        for x in [i for i in self.bot.notifications_cache if i['guild_id'] == member.guild.id and i['user_joins']]:
             try:
                 ch: TextChannel = self.bot.get_channel(x['channel_id'])
                 messages.append(await ch.send(embed=e))
@@ -231,14 +221,14 @@ class Logs(Cog):
                 continue
 
     @Cog.listener()
-    async def on_member_ban(self, guild: Guild, user: User | Member) -> list[Message]:
+    async def on_member_ban(self, guild: Guild, user: User | Member) -> None:
         """Event handler for outputting information about unbanned users."""
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['user_unbans']]
         channels = [self.bot.get_channel(i) for i in channels]
         channels = [i for i in channels if i is not None]
 
         if not channels:
-            return []
+            return
 
         e: Embed = Embed(title="User Banned",
                          colour=Colour.dark_red(),
@@ -338,55 +328,57 @@ class Logs(Cog):
         """Event handler for outputting information about member kick, ban, or other departures"""
         # Check if in mod action log and override to specific channels.
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == payload.guild_id]
-        leaves = [i for i in channels if i['member_leaves']]
-        kicks = [i for i in channels if i['member_kicks']]
 
-        leaves = [self.bot.get_channel(i) for i in leaves if self.bot.get_channel(i) is not None]
+        # First, we check if the user was kicked.
+        kicks = [i for i in channels if i['user_kicks']]
         kicks = [self.bot.get_channel(i) for i in kicks if self.bot.get_channel(i) is not None]
 
-        if not leaves + kicks:
-            return
-
-        member: User | Member = payload.user
         guild_id = payload.guild_id
+        member: User | Member = payload.user
 
-        if kicks:
-            guild = self.bot.get_guild(guild_id)
-            if guild is None:
-                guild = await self.bot.fetch_guild(guild_id)
-            if guild.me.guild_permissions.view_audit_log:
-                try:
-                    ts = discord.utils.utcnow() - timedelta(seconds=30)
-                    action = next(i async for i in guild.audit_logs(action=AuditLogAction.kick, after=ts)
-                                  if i.target.id == member.id)
+        leaves = [i for i in channels if i['user_leaves'] or i['user_kicks']]
+        leaves = [self.bot.get_channel(i) for i in leaves if self.bot.get_channel(i) is not None]
 
-                    e: Embed = Embed(title="Member Kicked",
-                                     description=f"{member.mention} (ID: {member.id})",
-                                     colour=Colour.dark_red(),
-                                     timestamp=discord.utils.utcnow())
-                    e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
-                    e.add_field(name="Reason", value=action.reason)
-
-                    for ch in kicks:
-                        try:
-                            await ch.send(embed=e)
-                        except HTTPException:
-                            continue
-
-                    leaves = [i for i in leaves if i not in kicks]
-                except StopIteration:
-                    leaves += kicks
+        ts = discord.utils.utcnow()
+        timestamp = Timestamp(ts).relative
 
         e: Embed = Embed(title="Member Left",
-                         description=f"{member.mention} (ID: {member.id})",
+                         description=f"{member.mention}\n{timestamp}",
                          colour=Colour.dark_red(),
-                         timestamp=discord.utils.utcnow())
+                         timestamp=ts)
+        e.set_thumbnail(url=member.display_avatar.url)
+        e.set_footer(text=f"User ID: {member.id}")
 
-        for ch in leaves:
+        for channel in leaves:
             try:
-                await ch.send(embed=e)
+                await channel.send(embed=e)
             except HTTPException:
-                continue
+                pass
+
+        if not kicks:
+            return
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            guild = await self.bot.fetch_guild(guild_id)
+
+        if guild.me.guild_permissions.view_audit_log:
+            ts = discord.utils.utcnow() - timedelta(seconds=30)
+            try:
+                action = next(i async for i in guild.audit_logs(action=AuditLogAction.kick, after=ts)
+                              if i.target.id == member.id)
+            except StopIteration:
+                return
+
+            e.title = "Member Kicked"
+            e.set_author(name=f"{action.user} ({action.user.id})", icon_url=action.user.display_avatar.url)
+            e.add_field(name="Reason", value=action.reason)
+
+            for ch in kicks:
+                try:
+                    await ch.send(embed=e)
+                except HTTPException:
+                    continue
 
     # Timeout notif
     # Timeout end notif
@@ -396,7 +388,7 @@ class Logs(Cog):
         if after.is_timed_out() == before.is_timed_out():
             return []
 
-        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == after.guild.id and i['member_timeouts']]
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == after.guild.id and i['user_timeouts']]
         channels = [self.bot.get_channel(i) for i in channels]
         channels = [i for i in channels if i is not None]
 
@@ -487,8 +479,7 @@ class Logs(Cog):
 
     # stickers notif
     @Cog.listener()
-    async def on_guild_stickers_update(self, guild: Guild,
-                                       old: Sequence[GuildSticker], new: Sequence[GuildSticker]) -> None:
+    async def on_guild_stickers_update(self, guild: Guild, old: list[GuildSticker], new: list[GuildSticker]) -> None:
         """Event listener for outputting information about updated stickers on a server"""
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id and i['sticker_changes']]
         channels = [self.bot.get_channel(i) for i in channels]
@@ -538,12 +529,34 @@ class Logs(Cog):
     @Cog.listener()
     async def on_message_edit(self, before: Message, after: Message) -> None:
         """Edited message output."""
+        if before.guild is None:
+            return
+
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == before.guild.id and i['message_edits']]
         channels = [self.bot.get_channel(i) for i in channels]
         channels = [i for i in channels if i is not None]
 
         if not channels:
             return
+
+        if before.content == after.content:
+            return
+
+        e: Embed = Embed(title="Message Edited", colour=Colour.brand_red(), timestamp=before.created_at,
+                         description=f"{before.channel.mention} {before.mention} {before.content}")
+        e2: Embed = Embed(title="New Content", colour=Colour.brand_green(), timestamp=after.edited_at,
+                          description=f"{after.channel.mention} {after.mention} {after.content}")
+        e.set_author(name=str(before.author), icon_url=before.author.display_icon.url)
+        e2.set_author(name=str(after.author), icon_url=after.author.display_icon.url)
+
+        v = View()
+        v.add_item(Button(label="Jump to message", url=before.jump_url, style=ButtonStyle.url))
+
+        for ch in channels:
+            try:
+                await ch.send(embeds=[e, e2], view=v)
+            except HTTPException:
+                continue
 
     @Cog.listener()
     async def on_bot_notification(self, notification: str) -> None:

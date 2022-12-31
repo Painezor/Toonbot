@@ -41,7 +41,7 @@ class GuildStreams(Cog):
     streams = Group(name="streams", description="Stream list for your server", guild_only=True, default_permissions=prm)
 
     @streams.command()
-    async def list(self, interaction: Interaction) -> Message:
+    async def list_streams(self, interaction: Interaction) -> Message:
         """List all streams for the match added by users."""
         guild_streams = self.bot.streams.get(interaction.guild.id, {})
 
@@ -53,7 +53,7 @@ class GuildStreams(Cog):
 
     @streams.command()
     @describe(name="Enter a name for the stream", link="Enter the link oF the stream")
-    async def add(self, interaction: Interaction, link: str, name: str):
+    async def add_stream(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
 
         guild_streams = self.bot.streams.get(interaction.guild.id, {})
@@ -70,14 +70,14 @@ class GuildStreams(Cog):
         await self.bot.reply(interaction, content=f"Added <{stream.link}> to stream list.", embed=e)
 
     @streams.command()
-    async def clear(self, interaction: Interaction):
+    async def clear_streams(self, interaction: Interaction):
         """Remove all streams from guild stream list"""
         self.bot.streams[interaction.guild.id] = []
         await self.bot.reply(interaction, content=f"{interaction.guild.name} stream list cleared.")
 
     @streams.command()
     @autocomplete(stream=st_ac)
-    async def delete(self, interaction: Interaction, stream: str):
+    async def delete_stream(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""
         guild_streams = self.bot.streams.get(interaction.guild.id, {})
         matches = [i for i in guild_streams if stream.lower() in i.name.lower() + i.link.lower()]

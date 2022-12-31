@@ -1,13 +1,14 @@
 """Master file for toonbot."""
 from __future__ import annotations
 
+import logging
 from asyncio import new_event_loop
 from collections import defaultdict
 from datetime import datetime
 from json import load
-from logging import basicConfig, INFO
-from typing import List, Optional, Callable, TYPE_CHECKING
+from typing import Optional, Callable, TYPE_CHECKING
 
+import discord.utils
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from asyncpraw import Reddit
@@ -22,23 +23,21 @@ if TYPE_CHECKING:
     from ext.ticker import TickerChannel
     from ext.transfers import TransferChannel
     from ext.toonbot_utils.flashscore import Team, Competition, Fixture
-
     from asyncio import Task, Semaphore
     from asyncpg import Record, Pool
     from playwright.async_api import BrowserContext
     from io import BytesIO
 
-basicConfig(level=INFO)
-
+discord.utils.setup_logging()
 
 with open('credentials.json') as f:
     credentials = load(f)
 
 COGS = ['errors',  # Utility Cogs
         # Slash commands.
-        'meta-toonbot',
-        'admin', 'fixtures', 'fun', 'images', 'info', 'scores', 'ticker', "transfers", 'tv', 'logs', 'lookup', 'mod',
-        'nufc', 'poll', 'quotes', 'reminders', 'sidebar', 'streams',
+        'metatoonbot',
+        'admin', 'bans', 'fixtures', 'fun', 'images', 'info', 'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes',
+        'reminders', 'scores', 'sidebar', 'streams', 'ticker', 'transfers', 'tv', 'translations'
         ]
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
@@ -90,7 +89,7 @@ class Bot(AutoShardedBot):
         self.quotes: list[Record] = []
 
         # Reminders
-        self.reminders: list[Task] = []
+        self.reminders: set[Task] = set()
 
         # Session // Scraping
         self.browser: Optional[BrowserContext] = None
@@ -102,7 +101,7 @@ class Bot(AutoShardedBot):
         self.reddit = Reddit(**self.credentials["Reddit"])
 
         # Streams
-        self.streams: dict[int, List] = defaultdict(list)
+        self.streams: dict[int, list] = defaultdict(list)
 
         # Ticker
         self.ticker_channels: list[TickerChannel] = []
@@ -125,9 +124,9 @@ class Bot(AutoShardedBot):
         for c in COGS:
             try:
                 await self.load_extension(f'ext.{c}')
-                print(f'Loaded ext.{c}')
+                logging.info(f'Loaded ext.{c}')
             except Exception as e:
-                print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
+                logging.error(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
         return
 
     def get_competition(self, comp_id: str) -> Optional[Competition]:

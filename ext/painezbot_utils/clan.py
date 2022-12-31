@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Optional, ClassVar
 
 from discord import Colour, Message, Embed, SelectOption
 from discord.ui import View
-from typing_extensions import Self
 
 from ext.painezbot_utils.player import Region, Player
 from ext.utils.embed_utils import rows_to_embeds
@@ -335,7 +334,7 @@ class Clan:
 
         self.members = [parse_member(member) for member in json.pop('items')]
 
-    async def get_data(self) -> Self:
+    async def get_data(self) -> Clan:
         """Fetch clan information."""
         if self.clan_id is None:
             return self
@@ -436,35 +435,31 @@ class Clan:
                 if season_id > 99:
                     continue  # Discard Brawls.
 
-                try:
-                    season = next(i for i in self._clan_battle_history if i.season_id == season_id)
-                except StopIteration:
-                    season = ClanBattleStats(self, season_id)
+                season = ClanBattleStats(self, season_id)
 
                 maximums = x.pop('max_position', None)
                 if maximums is not None:
-                    max_league = min(season.max_league.value, maximums.pop('league'), 4)
+                    max_league = maximums.pop('league')
                     season.max_league = next(i for i in League if i.value == max_league)
-                    season.max_division = min(season.max_division, maximums.pop('division'), 3)
-                    season.max_rating = max(season.max_rating, maximums.pop('public_rating', 0))
+                    season.max_division = maximums.pop('division')
+                    season.max_rating = maximums.pop('public_rating', 0)
 
-                season.max_win_streak = max(season.max_win_streak, x.pop('longest_winning_streak', 0))
-                season.battles_played = season.battles_played + x.pop('battles_count', 0)
+                season.max_win_streak = x.pop('longest_winning_streak', 0)
+                season.battles_played = x.pop('battles_count', 0)
                 season.games_won = season.games_won + x.pop('wins_count', 0)
 
                 last = x.pop('last_win_at', None)
-                ts3 = datetime.fromordinal(1) if last is None else datetime.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
+                if last is not None:
+                    season.last_win_at = last.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
 
-                if season.last_win_at is None or season.last_win_at < ts3:
-                    season.final_rating = x.pop('public_rating', 0)
-                    season.final_league = next(i for i in League if i.value == x.pop('league', 4))
-                    season.final_division = x.pop('division', 3)
+                season.final_rating = x.pop('public_rating', 0)
+                season.final_league = next(i for i in League if i.value == x.pop('league', 4))
+                season.final_division = x.pop('division', 3)
 
         buildings = json.pop('buildings', None)
         if buildings is not None:
             for k, v in buildings.items():
                 setattr(self, k, v['modifiers'])
-
         return self
 
     # achievements = json.pop('achievements')  # This information is complete garbage.
@@ -615,7 +610,7 @@ class ClanView(View):
     async def history(self) -> Message:
         """Get a clan's Clan Battle History"""
         # https://clans.worldofwarships.eu/api/members/500140589/?battle_type=cvc&season=17
-        #   TODO: Clan Battle History
+        # TODO: Clan Battle History
         self._disabled = self.history
         e = self.base_embed
         e.description = "```diff\n-Not Implemented Yet.```"

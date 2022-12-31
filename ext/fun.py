@@ -97,14 +97,15 @@ class ChoiceModal(Modal):
 
         choices = str(self.answers).split("\n")
         shuffle(choices)
-        e.description = f"\n\n🥇 **{choices.pop(0)}**\n"
-        try:
-            e.description += f"🥈 **{choices.pop(0)}**\n"
-            e.description += f"🥉 **{choices.pop(0)}**\n"
-            e.description += ' ,'.join([f"*{i}*" for i in choices])
-        except IndexError:
-            pass
 
+        output, medals = [], ['🥇', '🥈', '🥉']
+        for x in range(min(len(choices), 3)):
+            output.append(f"{medals.pop()} **{choices.pop()}**")
+
+        if choices:
+            output.append(', '.join(f"*{i}*" for i in choices))
+
+        e.description = '\n'.join(output)
         bot: Bot = interaction.client
         return await bot.reply(interaction, embed=e)
 
@@ -241,6 +242,8 @@ class Fun(Cog):
     @describe(dice="enter a roll (format: 1d20+3)")
     async def roll(self, interaction: Interaction, dice: str = "d20") -> Message:
         """Roll a set of dice in the format XdY+Z. Use 'adv' or 'dis' for (dis)advantage"""
+        await interaction.response.defer(thinking=True)
+
         advantage = dice.startswith("adv")
         disadvantage = dice.startswith("dis")
 

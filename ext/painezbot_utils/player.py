@@ -4,7 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, Tuple, Callable, Dict, ClassVar
+from typing import TYPE_CHECKING, Optional, Callable, ClassVar
 
 from discord import Colour, Embed, Message, SelectOption
 from discord.ui import View, Button
@@ -138,7 +138,7 @@ class Player:
     """A World of Warships player."""
     bot: ClassVar[PBot] = None
 
-    def __init__(self, bot: 'PBot', account_id: int, **kwargs) -> None:
+    def __init__(self, bot: PBot, account_id: int, **kwargs) -> None:
 
         if self.__class__.bot is None:
             self.__class__.bot = bot
@@ -340,7 +340,7 @@ class PlayerView(View):
     """A View representing a World of Warships player"""
     bot: PBot = None
 
-    def __init__(self, bot: 'PBot', interaction: Interaction, player: Player, mode: GameMode,
+    def __init__(self, bot: PBot, interaction: Interaction, player: Player, mode: GameMode,
                  div_size: int, ship: Ship = None) -> None:
         super().__init__()
         self.bot: PBot = bot
@@ -386,7 +386,7 @@ class PlayerView(View):
         return e
 
     @staticmethod
-    def sum_stats(dicts: list[Dict]) -> dict:
+    def sum_stats(dicts: list[dict]) -> dict:
         """Sum The Stats from multiple game modes."""
         output = {}
 
@@ -425,7 +425,7 @@ class PlayerView(View):
         output = unflatten(output, splitter='dot')
         return output
 
-    async def filter_stats(self) -> Tuple[str, dict]:
+    async def filter_stats(self) -> tuple[str, dict]:
         """Fetch the appropriate stats for the mode tag"""
         if self.ship not in self.player.statistics:
             await self.player.get_stats(self.ship)
@@ -436,7 +436,7 @@ class PlayerView(View):
             case "PVP", 2:
                 return "Random Battles (2-person Division)", self.player.statistics[self.ship]['pvp_div2']
             case "PVP", 3:
-                return "Random Battles (3-person Division)", self.player.statistics[self.ship]['pvp_div3'],
+                return "Random Battles (3-person Division)", self.player.statistics[self.ship]['pvp_div3']
             case "PVP", _:
                 return "Random Battles (Overall)", self.player.statistics[self.ship]['pvp']
             case "COOPERATIVE", 1:
@@ -761,16 +761,20 @@ class PlayerView(View):
 
         ds = self.div_size
         match self.mode.tag:
+            # Event and Brawl aren't in API.
+            case "BRAWL" | "EVENT":
+                pass
+            # Pre-made & Cawaalan don't have div sizes.
             case "CLAN":
                 opts = []
+
+                if self.player.clan is not None and self.player.clan.season_number is None:
+                    await self.player.clan.get_data()
+
                 for x in range(self.player.clan.season_number):
                     opt = SelectOption(label=f"Season {x}", emoji=self.mode.emoji, value=str(x))
                     opts.append((opt, {'cb_season': x}, self.clan_battles))
                 self.add_item(FuncDropdown(options=opts, row=1, placeholder="Change Season"))
-            case "BRAWL" | "EVENT":
-                # Event and Brawl aren't in API.
-                # Pre-made & Clan don't have div sizes.
-                pass
             case "PVE" | "PVE_PREMADE":
                 easy = next(i for i in self.bot.modes if i.tag == "PVE")
                 hard = next(i for i in self.bot.modes if i.tag == "PVE_PREMADE")

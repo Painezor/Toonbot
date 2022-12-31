@@ -5,50 +5,14 @@ from typing import Literal, TYPE_CHECKING
 
 from discord import Guild, Member, TextChannel, Interaction, Colour, Embed, HTTPException, Forbidden, Object, Message, \
     TextStyle, NotFound
-from discord.app_commands import command, describe, default_permissions
+from discord.app_commands import command, describe, default_permissions, guild_only
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Modal, TextInput
 
-from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.view_utils import Paginator
-
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
-
-
-class BanModal(Modal, title="Bulk ban user IDs"):
-    """Modal for user to enter multi line bans on."""
-    ban_list = TextInput(label="Enter User IDs to ban, one per line", style=TextStyle.paragraph,
-                         placeholder="12345678901234\n12345678901235\n12345678901236\n…")
-    reason = TextInput(label="Enter a reason", placeholder="<Insert your reason here>", default="No reason provided")
-
-    def __init__(self, bot: Bot | PBot) -> None:
-        super().__init__()
-        self.bot: Bot | PBot = bot
-
-    async def on_submit(self, interaction: Interaction) -> None:
-        """Ban users on submit."""
-        e: Embed = Embed(title="Users Banned", description="")
-        e.add_field(name="reason", value=self.reason.value)
-
-        targets = [int(i.strip()) for i in self.ban_list.value.split('\n')]
-
-        for i in targets:
-            try:
-                target = await self.bot.fetch_user(int(i))
-            except NotFound:
-                e.description += f"Could not find user with ID# {i}"
-                continue
-
-            try:
-                await self.bot.http.ban(i, interaction.guild.id)
-            except HTTPException:
-                e.description += f"⚠ Banning failed for {i} {target}."
-            else:
-                e.description += f'☠ Banned UserID {i} {target}'
-        await self.bot.reply(interaction, embed=e)
 
 
 class EmbedModal(Modal, title="Send an Embed"):
@@ -95,6 +59,7 @@ class Mod(Cog):
     @command()
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
+    @guild_only()
     @describe(destination="target channel", colour="embed colour")
     async def embed(self, interaction: Interaction, destination: TextChannel = None,
                     colour: Literal['red', 'blue', 'green', 'yellow', 'white'] = None) -> Message:
@@ -176,13 +141,6 @@ class Mod(Cog):
     @command()
     @default_permissions(ban_members=True)
     @bot_has_permissions(ban_members=True)
-    async def ban(self, interaction: Interaction):
-        """Bans a list of user IDs"""
-        await interaction.response.send_modal(BanModal(self.bot))
-
-    @command()
-    @default_permissions(ban_members=True)
-    @bot_has_permissions(ban_members=True)
     @describe(user_id="User ID# of the person to unban")
     async def unban(self, interaction: Interaction, user_id: str):
         """Unbans a user from the server"""
@@ -196,27 +154,6 @@ class Mod(Cog):
             target = await self.bot.fetch_user(int(user_id))
             e = Embed(title=user_id, description=f"User ID: {user_id} ({target}) was unbanned", colour=Colour.green())
             await self.bot.reply(interaction, embed=e)
-
-    # TODO: Banlist as View
-    # TODO: Dropdown to unban users.
-    @command()
-    @default_permissions(view_audit_log=True)
-    @bot_has_permissions(view_audit_log=True)
-    async def banlist(self, interaction: Interaction) -> Message:
-        """Show the ban list for the server"""
-        bans = []
-        async for x in interaction.guild.bans():
-            bans.append(f"{x.user.id} | {x.user.name}#{x.user.discriminator}" f"```yaml\n{x.reason}```")
-
-        if not bans:
-            bans = ["No bans found"]
-
-        e: Embed = Embed(color=0x111)
-        n = f"{interaction.guild.name} ban list"
-        _ = interaction.guild.icon.url if interaction.guild.icon is not None else None
-        e.set_author(name=n, icon_url=_)
-
-        return await Paginator(interaction, rows_to_embeds(e, bans)).update()
 
     @command()
     @default_permissions(manage_messages=True)
@@ -258,26 +195,19 @@ class Mod(Cog):
 
     # Listeners
     @Cog.listener()
-    async def on_guild_join(self, guild) -> None:
+    async def on_guild_join(self, guild: Guild) -> None:
         """Create database entry for new guild"""
-        q = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
+                q = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, guild.id)
-        finally:
-            await self.bot.db.release(connection)
 
     @Cog.listener()
     async def on_guild_remove(self, guild: Guild) -> None:
         """Delete guild's info upon leaving one."""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
-        finally:
-            await self.bot.db.release(connection)
-
 
 async def setup(bot: Bot | PBot):
     """Load the mod cog into the bot"""

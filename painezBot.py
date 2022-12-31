@@ -1,17 +1,16 @@
 """Master file for painezBot."""
 from __future__ import annotations
 
+import logging
 from asyncio import new_event_loop
 from datetime import datetime
 from json import load
-from logging import basicConfig, INFO
-from typing import TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING
 
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot, when_mentioned
-from twitchio.ext import commands
 
 from ext.painezbot_utils.clan import ClanBuilding, Clan
 from ext.painezbot_utils.player import Player
@@ -24,23 +23,22 @@ if TYPE_CHECKING:
 	from ext.painezbot_utils.ship import ShipType, Module, Ship
 	from ext.news_tracker import NewsChannel, Article
 	from ext.devblog import Blog
-	from ext.twitch_tracker import Contributor, TrackerChannel
+	from ext.twitch import Contributor, TrackerChannel, TBot
 	from playwright.async_api import BrowserContext
 	from typing import Optional
 	from asyncpg import Record, Pool
 	from asyncio import Task
 
-basicConfig(level=INFO)
+handler = logging.FileHandler(filename='painezbot.log', encoding='utf-8', mode='w')
 
 with open('credentials.json') as f:
 	credentials = load(f)
 
 COGS = [
 	# Utility Cogs
-	'errors', 'meta_painezbot',
+	'errors', 'metapainezbot',
 	# Slash commands.
-	'admin', 'devblog', 'info', 'logs', 'mod', 'reminders', 'news_tracker',
-	'twitch_tracker', 'warships'
+	'admin', 'bans', 'devblog', 'info', 'logs', 'mod', 'reminders', 'news_tracker', 'translations', 'twitch', 'warships'
 ]
 
 
@@ -74,7 +72,7 @@ class PBot(AutoShardedBot):
 		self.notifications_cache: list[Record] = []
 
 		# Reminders
-		self.reminders: list[Task] = []
+		self.reminders: set[Task] = set()
 
 		# Dev BLog
 		self.dev_blog: Optional[Task] = None
@@ -91,7 +89,7 @@ class PBot(AutoShardedBot):
 		self.session: Optional[ClientSession] = None
 
 		# Twitch API
-		self.twitch: TwitchBot = kwargs.pop('tbot')
+		self.twitch: TBot = None
 		self.tracker_channels: list[TrackerChannel] = []
 
 		# Wargaming API
@@ -106,7 +104,7 @@ class PBot(AutoShardedBot):
 		self.players: list[Player] = []
 		self.pr_data: dict = {}
 		self.pr_data_updated_at: Optional[datetime] = None
-		self.pr_sums: Tuple[int, int, int]  # Dmg WR Kills
+		self.pr_sums: tuple[int, int, int]  # Dmg WR Kills
 		self.ships: list[Ship] = []
 		self.ship_types: list[ShipType] = []
 
@@ -160,22 +158,14 @@ class PBot(AutoShardedBot):
 		return next(i for i in self.ship_types if i.match == match)
 
 
-class TwitchBot(commands.Bot):
-	"""Twitch Bot."""
-	def __init__(self, twitch_token: str):
-		super().__init__(token=twitch_token, prefix="!")
-
-
 async def run():
 	"""Start the bot running, loading all credentials and the database."""
 	db = await create_pool(**credentials['painezBotDB'])
-	wg_id = credentials['Wargaming']['client_id']
-	tbot = TwitchBot.from_client_credentials(**credentials['Twitch API'])
-	bot = PBot(database=db, wg_id=wg_id, tbot=tbot)
+
+	bot = PBot(database=db, wg_id=credentials['Wargaming']['client_id'])
 
 	try:
 		await bot.start(credentials['painezbot']['token'])
-		await bot.twitch.start()
 	except KeyboardInterrupt:
 		for i in bot.cogs:
 			await bot.unload_extension(i)

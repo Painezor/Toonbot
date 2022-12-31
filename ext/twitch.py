@@ -1,6 +1,7 @@
 """Track when users begin streaming"""
 from __future__ import annotations
 
+import logging
 from asyncio import sleep, Semaphore
 from typing import TYPE_CHECKING, Literal, Optional, ClassVar
 
@@ -11,7 +12,7 @@ from discord.ext.commands import Cog
 from discord.ui import View, Select
 from iso639 import languages
 from twitchio import PartialUser, Tag, ChannelInfo, User, ChatSettings
-from typing_extensions import Self
+from twitchio.ext.commands import Bot as TBot
 
 from ext.logs import TWITCH_LOGO
 from ext.painezbot_utils.player import Region
@@ -21,8 +22,10 @@ from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import Paginator, Confirmation, Stop
 
 if TYPE_CHECKING:
-    from painezBot import PBot, TwitchBot
+    from painezBot import PBot
     from discord import Member
+
+from painezBot import credentials
 
 WOWS_GAME_ID = 32502
 PARTNER_ICON = "https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab77-b780518f00a3/1"
@@ -166,34 +169,24 @@ class TrackerChannel:
         self.tracked: list[Role] = []
         self.channel: TextChannel = channel
 
-    async def create_tracker(self) -> Self:
+    async def create_tracker(self) -> TrackerChannel:
         """Create a ticker for the channel"""
-        connection = await self.bot.db.acquire()
-
-        try:
-            # Create the ticker itself.
-            sql = """INSERT INTO tracker_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
-                await connection.execute(sql, self.channel.guild.id, self.channel.id)
-        except ForeignKeyViolationError as e:
-            async with connection.transaction():
-                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)"""
+                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
                 await connection.execute(sql, self.channel.guild.id)
-                raise e
-        finally:
-            await self.bot.db.release(connection)
+
+                sql = """INSERT INTO tracker_channels (guild_id, channel_id) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+                await connection.execute(sql, self.channel.guild.id, self.channel.id)
         return self
 
     async def get_tracks(self) -> list[Role]:
         """Set the list of tracked members for the TrackerChannel"""
-        sql = """SELECT role_id FROM tracker_ids WHERE channel_id = $1"""
-        connection = await self.bot.db.acquire()
 
-        try:
+        sql = """SELECT role_id FROM tracker_ids WHERE channel_id = $1"""
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, self.channel.id)
-        finally:
-            await self.bot.db.release(connection)
 
         tracked = []
         for r in records:
@@ -206,13 +199,9 @@ class TrackerChannel:
     async def track(self, role: Role) -> list[Role]:
         """Add a user to the list of tracked users for Go Live notifications"""
         sql = """INSERT INTO tracker_ids (channel_id, role_id) VALUES ($1, $2)"""
-        connection = await self.bot.db.acquire()
-
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute(sql, self.channel.id, role.id)
-        finally:
-            await self.bot.db.release(connection)
 
         self.tracked.append(role)
         return self.tracked
@@ -220,14 +209,12 @@ class TrackerChannel:
     async def untrack(self, roles: list[str]) -> list[Role]:
         """Remove a list of users or roles from the list of tracked roles."""
         sql = """DELETE FROM tracker_ids WHERE (channel_id, role_id) = ($1, $2)"""
-        connection = await self.bot.db.acquire()
 
         roles = [int(r) for r in roles]
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.executemany(sql, [(self.channel.id, r) for r in roles])
-        finally:
-            await self.bot.db.release(connection)
+
         self.tracked = [t for t in self.tracked if t.id not in roles]
         return self.tracked
 
@@ -397,7 +384,6 @@ class TwitchTracker(Cog):
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
-        self.twitch: TwitchBot = bot.twitch
 
         self._cached: dict[int, Embed] = {}  # user_id: Embed
         self.semaphore = Semaphore()
@@ -411,14 +397,14 @@ class TwitchTracker(Cog):
         await self.fetch_ccs()
         await self.update_cache()
 
+        self.bot.twitch = TBot.from_client_credentials(**credentials['Twitch API'])
+        await self.bot.twitch.start()
+
     async def update_cache(self) -> list[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 channel_ids = await connection.fetch("""SELECT DISTINCT channel_id FROM tracker_channels""")
-        finally:
-            await self.bot.db.release(connection)
 
         channel_ids = [r['channel_id'] for r in channel_ids]
 
@@ -465,7 +451,8 @@ class TwitchTracker(Cog):
                 case 'EU':
                     region = Region.EU
                 case _:
-                    raise ValueError(f'No identifier found for realm {i["realm"]}')
+                    logging.error(f'No identifier found for realm {i["realm"]}')
+                    region = None
 
             c = Contributor(name=i['name'], region=region, language=i['lang'].split(','), links=i['links'])
             contributors.append(c)
@@ -480,7 +467,7 @@ class TwitchTracker(Cog):
         match member.activity.platform:
             case "Twitch":
                 e.colour = 0x9146FF
-                info: ChannelInfo = await self.twitch.fetch_channel(member.activity.twitch_name)
+                info: ChannelInfo = await self.bot.twitch.fetch_channel(member.activity.twitch_name)
                 if info.delay > 0:
                     minutes, seconds = divmod(info.delay, 60)
                     delay = f"{minutes} minutes"
@@ -524,7 +511,7 @@ class TwitchTracker(Cog):
                     case _:
                         e.set_footer(text=f"Streaming {member.activity.game}")
             case _:
-                raise ValueError(f'Unhandled stream tracker platform {member.activity.platform}')
+                logging.error(f'Unhandled stream tracker platform {member.activity.platform}')
 
         e.description = " ".join(desc)
         return e
@@ -574,7 +561,7 @@ class TwitchTracker(Cog):
         """Get a list of everyone currently streaming World of Warships on Twitch"""
         await interaction.response.defer()
 
-        streams = await self.twitch.fetch_streams(game_ids=[WOWS_GAME_ID])
+        streams = await self.bot.twitch.fetch_streams(game_ids=[WOWS_GAME_ID])
         streams = [Stream(s.language, s.user, s.viewer_count, s.title.strip(),
                           Timestamp(s.started_at)) for s in streams]
 
@@ -667,13 +654,9 @@ class TwitchTracker(Cog):
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> list[TrackerChannel]:
         """Remove dev blog trackers from deleted channels"""
-        q = f"""DELETE FROM tracker_channels WHERE channel_id = $1"""
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             async with connection.transaction():
-                await connection.execute(q, channel.id)
-        finally:
-            await self.bot.db.release(connection)
+                await connection.execute(f"""DELETE FROM tracker_channels WHERE channel_id = $1""", channel.id)
 
         self.bot.tracker_channels = [i for i in self.bot.tracker_channels if i.channel.id != channel.id]
         return self.bot.tracker_channels

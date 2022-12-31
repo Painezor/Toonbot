@@ -66,13 +66,11 @@ class MatchThread:
 
             pre = await subreddit.submit(selftext=markdown, title=title)
             await pre.load()
-            connection = await self.bot.db.acquire()
-            try:
+
+            async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
-                    self.record = await connection.fetchrow("""UPDATE mtb_history SET pre_match_url = $1 WHERE 
-                        (subreddit, fs_link) = ($2, $3)""", pre.url, self.settings['subreddit'], self.fixture.url)
-            finally:
-                await self.bot.db.release(connection)
+                    sql = """UPDATE mtb_history SET pre_match_url = $1 WHERE (subreddit, fs_link) = ($2, $3)"""
+                    self.record = await connection.fetchrow(sql, pre.url, self.settings['subreddit'], self.fixture.url)
         else:
             pre = await self.bot.reddit.submission(url=self.record["pre_match_url"])
             await pre.edit(markdown)
@@ -102,11 +100,12 @@ class MatchThread:
             if c:
                 await c.send(f'{self.settings["subreddit"]} Match Thread Posted: {match.url} | <{self.fixture.url}>')
 
-            connection = await self.bot.db.acquire()
-            async with connection.transaction():
-                self.record = await connection.fetchrow("""UPDATE mtb_history SET match_thread_url = $1 WHERE 
-                (subreddit, fs_link) = ($2, $3) RETURNING *""", match.url, self.settings['subreddit'], self.fixture.url)
-            await self.bot.db.release(connection)
+            async with self.bot.db.acquire() as connection:
+                async with connection.transaction():
+                    sql = """UPDATE mtb_history SET match_thread_url = $1 
+                             WHERE (subreddit, fs_link) = ($2, $3) RETURNING *"""
+                    self.record = await connection.fetchrow(sql, match.url, self.settings['subreddit'],
+                                                            self.fixture.url)
         else:
             match = await self.bot.reddit.submission(url=self.record["match_thread_url"])
             await match.edit(markdown)
@@ -135,14 +134,10 @@ class MatchThread:
             post = await subreddit.submit(selftext=markdown, title=title)
             await post.load()
 
-            connection = await self.bot.db.acquire()
-            try:
+            async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
                     self.record = await connection.fetchrow("""UPDATE mtb_history SET post_match_url = $1 WHERE 
                             (subreddit, fs_link) = ($2, $3)""", post.url, self.settings['subreddit'], self.fixture.url)
-            finally:
-                await self.bot.db.release(connection)
-
             if c:
                 await c.send(f'{self.settings["subreddit"]} Post-Match Thread: <{post.url}> | <{self.fixture.url}>')
 
@@ -380,11 +375,8 @@ class MatchThreadCommands(commands.Cog):
     async def schedule_threads(self) -> None:
         """Schedule tomorrow's match threads"""
         # Number of minutes before the match to post
-        connection = await self.bot.db.acquire()
-        try:
+        async with self.bot.db.acquire() as connection:
             records = await connection.fetch("""SELECT * FROM mtb_schedule""")
-        finally:
-            await self.bot.db.release(connection)
 
         for r in records:
             # Get upcoming games from flashscore.
@@ -401,7 +393,7 @@ class MatchThreadCommands(commands.Cog):
 
     async def spool_thread(self, f: flashscore.Fixture, settings: asyncpg.Record) -> None:
         """Create match threads for all scheduled games."""
-        diff = f.kickoff - datetime.datetime.now()
+        diff = f.kickoff - datetime.datetime.now(tz=datetime.timezone.utc)
         if diff.days > 7:
             return
 
@@ -410,18 +402,17 @@ class MatchThreadCommands(commands.Cog):
             if x.fixture == f and x.settings == settings:
                 return
 
-        con = await self.bot.db.acquire()
-        async with con.transaction():
-            _ = """SELECT * FROM mtb_history WHERE (subreddit, fs_link) = ($1, $2)"""
-            record = await con.fetchrow(_, sub, f.url)
-            if not record:
-                _ = """INSERT INTO mtb_history (subreddit, fs_link) VALUES ($1, $2) RETURNING *"""
-                record = await con.fetchrow(_, sub, f.url)
-        await self.bot.db.release(con)
+        sql = """SELECT * FROM mtb_history WHERE (subreddit, fs_link) = ($1, $2)"""
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                record = await connection.fetchrow(sql, sub, f.url)
+                if not record:
+                    sql = """INSERT INTO mtb_history (subreddit, fs_link) VALUES ($1, $2) RETURNING *"""
+                    record = await connection.fetchrow(sql, sub, f.url)
 
-        _ = MatchThread(self.bot, f, settings, record)
-        self.active_threads.append(_)
-        await _.start()
+        thread = MatchThread(self.bot, f, settings, record)
+        self.active_threads.append(thread)
+        await thread.start()
 
 
 async def setup(bot: Bot) -> None:

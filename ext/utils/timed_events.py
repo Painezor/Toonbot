@@ -10,7 +10,7 @@ class Timestamp:
 
     def __init__(self, time: dt.datetime = None):
         if time is None:
-            time = dt.datetime.now()
+            time = dt.datetime.now(tz=dt.timezone.utc)
         self.value = time
         self.time = str(time.timestamp()).split('.')[0]
 
