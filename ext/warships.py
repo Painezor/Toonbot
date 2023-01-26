@@ -137,7 +137,7 @@ async def map_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 
         bot.maps = maps
 
-    filtered = sorted([i for i in bot.maps if current.lower() in i.ac_row.lower()], key=lambda x: x.name)
+    filtered = sorted([i for i in bot.maps if current.lower() in i.ac_match.lower()], key=lambda x: x.name)
     return [Choice(name=i.ac_row[:100], value=i.battle_arena_id) for i in filtered][:25]
 
 

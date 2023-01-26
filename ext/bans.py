@@ -38,7 +38,8 @@ class BanView(View):
     def embed(self) -> Embed:
         """Generic Embed for this server"""
         e = Embed(title=f"{self.message.guild.name} bans", colour=Colour.blurple())
-        e.set_thumbnail(url=self.message.guild.icon.url)
+        if self.message.guild.icon:
+            e.set_thumbnail(url=self.message.guild.icon.url)
         return e
 
     async def update(self):

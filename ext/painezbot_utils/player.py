@@ -48,6 +48,11 @@ class Map:
         return f"{self.name}: {self.description}"
 
     @property
+    def ac_match(self) -> str:
+        """Autocomplete match for this map"""
+        return f"{self.name}: {self.description} {self.icon}"
+
+    @property
     def embed(self) -> Embed:
         """Return an embed representing this map"""
         e = Embed(title=self.name, colour=Colour.greyple())

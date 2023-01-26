@@ -290,6 +290,8 @@ class Images(Cog):
     @describe(user="Select a user to fetch their avatar")
     async def avatar(self, interaction: Interaction, user: User | Member = None) -> Message:
         """Shows a member's avatar"""
+        await interaction.response.defer(thinking=True)
+
         if user is None:
             user = interaction.user
 

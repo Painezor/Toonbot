@@ -450,14 +450,16 @@ class TickerConfig(View):
         return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def remove_leagues(self, leagues: list[str]) -> Message:
-        """Bulk remove leagues from a live scores channel"""
+        """Bulk remove leagues from a ticker channel"""
         # Ask user to confirm their choice.
         view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
         lg_text = "```yaml\n" + '\n'.join(sorted(leagues)) + "```"
 
         ch = self.bot.get_channel(self.tc.channel)
-        txt = f"Remove these leagues from {ch.mention}? {lg_text}"
-        await self.bot.reply(self.interaction, content=txt, embed=None, view=view)
+
+        e = Embed(title="Transfer Ticker", colour=Colour.red())
+        e.description = f"Remove these leagues from {ch.mention}?\n{lg_text}"
+        await self.bot.reply(self.interaction, embed=e, view=view)
         await view.wait()
 
         if not view.value:
@@ -538,7 +540,10 @@ class TickerConfig(View):
 
             add_page_buttons(self)
 
-            e = self.pages[self.index]
+            try:
+                e = self.pages[self.index]
+            except IndexError:
+                e = self.pages[-1]
 
             if len(self.tc.leagues) > 25:
                 # Get everything after index * 25 (page len), then up to 25 items from that page.
@@ -560,7 +565,7 @@ class TickerConfig(View):
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
 
 
-class TickerCog(Cog, name="Ticker"):
+class Ticker(Cog):
     """Get updates whenever match events occur"""
 
     def __init__(self, bot: Bot) -> None:
@@ -717,4 +722,4 @@ class TickerCog(Cog, name="Ticker"):
 
 async def setup(bot):
     """Load the goal tracker cog into the bot."""
-    await bot.add_cog(TickerCog(bot))
+    await bot.add_cog(Ticker(bot))

@@ -22,8 +22,8 @@ from playwright.async_api import Page, TimeoutError
 from ext.toonbot_utils.gamestate import GameState, GameTime
 from ext.toonbot_utils.matchevents import EventType
 from ext.toonbot_utils.matchevents import parse_events
-from ext.toonbot_utils.transfermarkt import get_flag
 from ext.utils.embed_utils import rows_to_embeds, get_colour
+from ext.utils.flags import get_flag
 from ext.utils.image_utils import stitch_vertical
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import ObjectSelectView, MultipleSelect, Stop, add_page_buttons, FuncDropdown, FuncButton
@@ -533,13 +533,6 @@ class Competition(FlashScoreItem):
         return f"{self.country.upper()}: {self.name}"
 
     @property
-    async def live_score_embed(self) -> Embed:
-        """Base Embed but with image"""
-        e = await self.base_embed
-        e.add_field(name="Table")
-        return e.set_image(url=self._table)
-
-    @property
     def link(self) -> str:
         """Long form URL"""
 
@@ -854,7 +847,7 @@ class Fixture(FlashScoreItem):
         if self.penalties_home is not None:
             ph, pa = self.penalties_home, self.penalties_away
             s = min(self.score_home, self.score_away)
-            output.append(f"{self.home.name} [{ph} - {pa}]({self.link}) {self.away.name} (FT: {s} - {s})")
+            output.append(f"{self.home.name} [{s} - {s}]({self.link}) ( p: {ph} - {pa}) {self.away.name}")
             return ' '.join(output)
 
         if self._score_home is None:
@@ -1315,6 +1308,9 @@ class Fixture(FlashScoreItem):
                     fx._score_home, fx._score_away = int(h.strip()), int(a.strip())
                 except IndexError:
                     pass
+                except ValueError:
+                    string = game.xpath('.//span[contains(@class, "regularTime")]//text()')[0]
+                    logging.error(f'ValueError trying to split string, {string}')
 
                 fx_list.append(fx)
             games.update({header: fx_list})
@@ -1688,7 +1684,7 @@ class CompetitionView(View):
         return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def update(self, content: str = None) -> Message:
-        """Update the view for the Competition"""
+        """Send the latest version of the CompetitionView to the user"""
         self.clear_items()
 
         if self._filter_mode:
@@ -1863,7 +1859,7 @@ class TeamView(View):
         return interaction.user.id == self.interaction.user.id
 
     async def update(self, content: str = None) -> Message:
-        """Update the view for the user"""
+        """Push the latest version of the TeamView to the user"""
         self.clear_items()
         if self.league_select:
             self.add_item(LeagueTableSelect(leagues=self.league_select))
@@ -2047,8 +2043,6 @@ class LeagueTableSelect(Select):
 async def search(interaction: Interaction, query: str, mode: Literal['comp', 'team'], get_recent: bool = False) \
         -> Competition | Team | Message:
     """Fetch a list of items from flashscore matching the user's query"""
-
-    print('Accessing search')
 
     for r in ["'", "[", "]", "#", '<', '>']:  # Fucking morons.
         query = query.replace(r, "")

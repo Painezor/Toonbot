@@ -22,11 +22,11 @@ if TYPE_CHECKING:
     from ext.scores import ScoreChannel
     from ext.ticker import TickerChannel
     from ext.transfers import TransferChannel
-    from ext.toonbot_utils.flashscore import Team, Competition, Fixture
     from asyncio import Task, Semaphore
     from asyncpg import Record, Pool
     from playwright.async_api import BrowserContext
     from io import BytesIO
+    import ext.toonbot_utils.flashscore as fs
 
 discord.utils.setup_logging()
 
@@ -75,9 +75,9 @@ class Bot(AutoShardedBot):
         self.COGS = COGS
 
         # Livescores
-        self.games: list[Fixture] = []
-        self.teams: list[Team] = []
-        self.competitions: list[Competition] = []
+        self.games: list[fs.Fixture] = []
+        self.teams: list[fs.Team] = []
+        self.competitions: list[fs.Competition] = []
         self.score_channels: list[ScoreChannel] = []
         self.scores: Task | None = None
 
@@ -129,17 +129,17 @@ class Bot(AutoShardedBot):
                 logging.error(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
         return
 
-    def get_competition(self, comp_id: str) -> Optional[Competition]:
-        """Retrieve a competition from the ones stored in the bot."""
-        return next((i for i in self.competitions if i.id == comp_id), None)
+    def get_competition(self, comp_id: str) -> Optional[fs.Competition]:
+	    """Retrieve a competition from the ones stored in the bot."""
+	    return next((i for i in self.competitions if i.id == comp_id), None)
 
-    def get_team(self, team_id: str) -> Optional[Team]:
-        """Retrieve a Team from the ones stored in the bot."""
-        return next((i for i in self.teams if i.id == team_id), None)
+    def get_team(self, team_id: str) -> Optional[fs.Team]:
+	    """Retrieve a Team from the ones stored in the bot."""
+	    return next((i for i in self.teams if i.id == team_id), None)
 
-    def get_fixture(self, fixture_id: str) -> Optional[Fixture]:
-        """Retrieve a Fixture from the ones stored in the bot."""
-        return next((i for i in self.games if i.id == fixture_id), None)
+    def get_fixture(self, fixture_id: str) -> Optional[fs.Fixture]:
+	    """Retrieve a Fixture from the ones stored in the bot."""
+	    return next((i for i in self.games if i.id == fixture_id), None)
 
     async def dump_image(self, data: BytesIO) -> str:
         """Save a stitched image"""

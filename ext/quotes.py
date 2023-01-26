@@ -10,7 +10,7 @@ from discord.app_commands import Group, context_menu, describe, autocomplete, Ch
 from discord.ext import commands
 from discord.ui import Button, View
 
-from ext.utils.view_utils import Confirmation, add_page_buttons
+from ext.utils import view_utils
 
 if TYPE_CHECKING:
     from core import Bot
@@ -33,13 +33,13 @@ class TargetOptedOutError(AppCommandError):
 
 
 # Delete quotes
-class Delete(Button):
+class DeleteQuote(Button):
     """Button to spawn a new view to delete a quote."""
 
-    def __init__(self, bot: Bot, quote: Record) -> None:
+    def __init__(self, bot: Bot, quote: Record, row: int = 3) -> None:
         self.bot: Bot = bot
         self.quote: Record = quote
-        super().__init__(style=ButtonStyle.red, label="Delete", emoji="🗑️")
+        super().__init__(style=ButtonStyle.red, label="Delete", emoji="🗑️", row=row)
 
     async def callback(self, interaction: Interaction):
         """Delete quote by quote ID"""
@@ -51,7 +51,8 @@ class Delete(Button):
 
         _ = self.view.interaction.user.id in [r["author_user_id"], r["submitter_user_id"]]
         if _ or interaction.app_permissions.manage_messages:
-            view = Confirmation(self.view.interaction, label_a="Delete", colour_a=ButtonStyle.red, label_b="Cancel")
+            view = view_utils.Confirmation(self.view.interaction, label_a="Delete",
+                                           colour_a=ButtonStyle.red, label_b="Cancel")
             m = await self.bot.reply(interaction, content="Delete this quote?", view=view)
             await view.wait()
 
@@ -88,11 +89,11 @@ class Global(Button):
         return await self.view.update()
 
 
-class Rand(Button):
+class RandomQuote(Button):
     """Push a random quote to the view."""
 
-    def __init__(self) -> None:
-        super().__init__(row=1, label="Random", emoji="🎲")
+    def __init__(self, row: int = 3) -> None:
+        super().__init__(row=row, label="Random", emoji="🎲")
 
     async def callback(self, interaction: Interaction) -> Message:
         """Randomly select a number"""
@@ -177,18 +178,37 @@ class QuotesView(View):
     async def update(self, content: str = None) -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
-        add_page_buttons(self)
-        self.add_item(Rand())
-        self.add_item(Global(label="All" if not self.all_guilds else self.interaction.guild.name + " Only",
-                             style=ButtonStyle.blurple if not self.all_guilds else ButtonStyle.gray))
+
+        if self.all_guilds:
+            self.add_item(Global(label=f"Show All Servers", style=ButtonStyle.blurple))
+        else:
+            self.add_item(Global(label=f"Show {self.interaction.guild.name} only", style=ButtonStyle.gray))
 
         try:
             q = self.all[self.index] if self.all_guilds else self.pages[self.index]
             is_mod = self.interaction.user.resolved_permissions.manage_messages
             if self.interaction.user.id in [q['author_user_id'], q['submitter_user_id']] or is_mod:
-                self.add_item(Delete(self.bot, quote=q))
+                self.add_item(DeleteQuote(self.bot, quote=q))
         except IndexError:
             q = None
+
+        if len(self.pages) > 1:
+            p = view_utils.Previous()
+            if self.index == 0:
+                p.disabled = True
+            self.add_item(p)
+
+            if len(self.pages) > 3:
+                self.add_item(view_utils.Jump(label=f"Page {self.index + 1} of {len(self.pages)}"))
+
+            n = view_utils.Next()
+            if self.index + 1 >= self.pages:
+                n.disabled = True
+            self.add_item(n)
+            self.add_item(RandomQuote())
+            self.add_item(view_utils.Stop(row=0))
+        else:
+            self.add_item(view_utils.Stop())
 
         e = self.embed_quote(q)
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
@@ -375,7 +395,7 @@ class QuoteDB(commands.Cog):
         """Remove all quotes about, or added by you, and prevent future quotes being added."""
         if i.user.id in self.bot.quote_blacklist:
             #   Opt Back In confirmation Dialogue
-            v = Confirmation(i, label_a="Opt In", colour_a=ButtonStyle.green, label_b="Cancel")
+            v = view_utils.Confirmation(i, label_a="Opt In", colour_a=ButtonStyle.green, label_b="Cancel")
             await self.bot.reply(i, content=OPT_IN, view=v)
             await v.wait()
 
@@ -414,7 +434,7 @@ class QuoteDB(commands.Cog):
                 title = "Your quotes will be deleted if you opt out."
                 e = Embed(colour=Colour.red(), title=title, description=msg)
 
-            v = Confirmation(i, label_a="Opt out", colour_a=ButtonStyle.red, label_b="Cancel")
+            v = view_utils.Confirmation(i, label_a="Opt out", colour_a=ButtonStyle.red, label_b="Cancel")
             v.message = await self.bot.reply(i, content="Opt out of QuoteDB?", embed=e, view=v)
 
             if not v.value:

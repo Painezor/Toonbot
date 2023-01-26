@@ -30,6 +30,63 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 # TODO: Macros Command OPTION enum for command.
 
 
+class DiceButton(Button):
+    """A Generic Button for a die"""
+    view: DiceBox
+
+    def __init__(self, sides: int = 6, row: int = 0):
+        super().__init__(label=f"Roll D{sides}", row=row, style=ButtonStyle.blurple)
+        self.sides: int = sides
+
+    async def callback(self, interaction: Interaction) -> View:
+        """When clicked roll"""
+        await interaction.response.defer()
+        roll = randrange(1, self.sides + 1)
+
+        if not self.view.rolls:
+            self.view.rolls = [roll]
+        else:
+            self.view.rolls[-1].append(roll)
+
+        return await self.view.update()
+
+
+class DiceBox(View):
+    """A View with buttons for various dice"""
+
+    def __init__(self, interaction: Interaction) -> None:
+        super().__init__()
+        self.interaction = interaction
+        self.bot: Bot = interaction.client
+        self.rolls: list[list[int]] = []
+
+    async def on_timeout(self) -> Message:
+        """Clear view"""
+        return await self.bot.reply(self.interaction, view=None, followup=False)
+
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        """Verify clicker is owner of interaction"""
+        return self.interaction.user.id == interaction.user.id
+
+    async def update(self) -> Message:
+        """Update embed and push to view"""
+        e: Embed = Embed(colour=Colour.og_blurple(), description="")
+        e.set_author(name="Dice Tray")
+
+        self.clear_items()
+        self.add_item(DiceButton(4))
+        self.add_item(DiceButton(6))
+        self.add_item(DiceButton(8))
+        self.add_item(DiceButton(10))
+        self.add_item(DiceButton(12))
+        self.add_item(DiceButton(20, row=1))
+
+        for row in self.rolls:
+            e.description += f"{', '.join(row)} (Sum: {sum(row)})\n"
+
+        return await self.bot.reply(self.interaction, view=self, embed=e)
+
+
 class CoinView(View):
     """A View with a counter for 2 results"""
 

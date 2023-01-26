@@ -16,8 +16,8 @@ from twitchio.ext.commands import Bot as TBot
 
 from ext.logs import TWITCH_LOGO
 from ext.painezbot_utils.player import Region
-from ext.toonbot_utils.transfermarkt import get_flag
 from ext.utils.embed_utils import rows_to_embeds
+from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import Paginator, Confirmation, Stop
 

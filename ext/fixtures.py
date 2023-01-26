@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from importlib import reload
 from typing import TYPE_CHECKING
 
 # D.py
 from discord import Embed, Colour, Interaction, Message, Permissions
 from discord.app_commands import Choice, command, describe, autocomplete, Group
+from discord.app_commands import locale_str as _T
 from discord.ext.commands import Cog
 from discord.ui import View
 
 # Custom Utils
-from ext.toonbot_utils.flashscore import Team, search
+import ext.toonbot_utils.flashscore as fs
 from ext.toonbot_utils.stadiums import get_stadiums, Stadium
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import ObjectSelectView, Paginator
@@ -27,7 +29,7 @@ if TYPE_CHECKING:
 async def team_autocomplete_with_defaults(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete from list of stored teams"""
     bot: Bot = interaction.client
-    teams: list[Team] = sorted(bot.teams, key=lambda x: x.name)
+    teams: list[fs.Team] = sorted(bot.teams, key=lambda x: x.name)
 
     if "default" not in interaction.extras:
         if interaction.guild is None:
@@ -96,6 +98,7 @@ class Fixtures(Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
+        reload(fs)
 
     # Group Commands for those with multiple available subcommands.
     default = Group(name="default", description="Set the server's default team and competition for commands.",
@@ -112,7 +115,7 @@ class Fixtures(Cog):
         fsr = self.bot.get_team(team)
 
         if fsr is None:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
 
             if isinstance(fsr, Message):
                 return fsr  # Not Found
@@ -141,7 +144,7 @@ class Fixtures(Cog):
         fsr = self.bot.get_competition(competition)
 
         if fsr is None:
-            fsr = await search(interaction, competition, mode="comp")
+            fsr = await fs.search(interaction, competition, mode="comp")
 
             if isinstance(fsr, Message):
                 return fsr  # Not Found
@@ -166,7 +169,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_competition(competition)
         if fsr is None:
-            fsr = await search(interaction, competition, mode="comp")
+            fsr = await fs.search(interaction, competition, mode="comp")
         if isinstance(fsr, Message | None):
             return fsr
         return await fsr.view(interaction).push_table()
@@ -179,7 +182,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
         if fsr is None:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
         return await fsr.view(interaction).select_table()
@@ -194,14 +197,11 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
 
-        print('fx_team get_team result', fsr)
-
         if fsr is None:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
 
-        print('fx_team - Got fsr', fsr)
         return await fsr.view(interaction).push_fixtures()
 
     @fixtures.command(name="competition")
@@ -212,7 +212,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_competition(competition)
         if fsr is None:
-            fsr = await search(interaction, competition, mode="comp")
+            fsr = await fs.search(interaction, competition, mode="comp")
             if isinstance(fsr, Message):
                 return fsr
         return await fsr.view(interaction).push_fixtures()
@@ -227,7 +227,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
         if fsr is None:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
         return await fsr.view(interaction).push_results()
@@ -240,7 +240,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_competition(competition)
         if fsr is None:
-            fsr = await search(interaction, competition, mode="comp")
+            fsr = await fs.search(interaction, competition, mode="comp")
             if isinstance(fsr, Message):
                 return fsr
         return await fsr.view(interaction).push_results()
@@ -255,7 +255,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
         if fsr is None:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
         return await fsr.view(interaction).push_scorers()
@@ -268,7 +268,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_competition(competition)
         if fsr is None:
-            fsr = await search(interaction, competition, mode="comp")
+            fsr = await fs.search(interaction, competition, mode="comp")
             if isinstance(fsr, Message | None):
                 return fsr
         return await fsr.view(interaction).push_scorers()
@@ -327,7 +327,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
         if not fsr:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
         return await fsr.view(interaction).push_news()
@@ -340,7 +340,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
         if not fsr:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
         return await fsr.view(interaction).push_injuries()
@@ -353,7 +353,7 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fsr = self.bot.get_team(team)
         if not fsr:
-            fsr = await search(interaction, team, mode="team")
+            fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
         return await fsr.view(interaction).push_squad()
@@ -361,26 +361,26 @@ class Fixtures(Cog):
     # FIXTURE commands
     @command()
     @autocomplete(fixture=fixture_autocomplete)
-    @describe(fixture="Search for a fixture by team name")
+    @describe(fixture=_T("Search for a fixture by team name"))
     async def stats(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the stats for a fixture."""
         await interaction.response.defer(thinking=True)
         fix = self.bot.get_fixture(fixture)
         if fix is None:
-            fix = await search(interaction, fixture, mode="team", get_recent=True)
+            fix = await fs.search(interaction, fixture, mode="team", get_recent=True)
         if isinstance(fix, Message | None):
             return fix
         return await fix.view(interaction).push_stats()
 
     @command()
     @autocomplete(fixture=fixture_autocomplete)
-    @describe(fixture="Search for a fixture by team name")
+    @describe(fixture=_T("Search for a fixture by team name"))
     async def formations(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the formation for a Fixture."""
         await interaction.response.defer(thinking=True)
         fix = self.bot.get_fixture(fixture)
         if fix is None:
-            fix = await search(interaction, fixture, mode="team", get_recent=True)
+            fix = await fs.search(interaction, fixture, mode="team", get_recent=True)
         if isinstance(fix, Message | None):
             return fix
         return await fix.view(interaction).push_lineups()
@@ -393,20 +393,20 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         fix = self.bot.get_fixture(fixture)
         if fix is None:
-            fix = await search(interaction, fixture, mode="team", get_recent=True)
+            fix = await fs.search(interaction, fixture, mode="team", get_recent=True)
         if isinstance(fix, Message | None):
             return fix
         return await fix.view(interaction).push_summary()
 
     @command()
     @autocomplete(fixture=fixture_autocomplete)
-    @describe(fixture="Search for a fixture by team name")
+    @describe(fixture=_T("Search for a fixture by team name"))
     async def head_to_head(self, interaction: Interaction, fixture: str) -> Message:
         """Lookup the head-to-head details for a Fixture"""
         await interaction.response.defer(thinking=True)
         fix = self.bot.get_fixture(fixture)
         if not fix:
-            fix = await search(interaction, fixture, mode="team", get_recent=True)
+            fix = await fs.search(interaction, fixture, mode="team", get_recent=True)
         if isinstance(fix, Message):
             return fix
         return await fix.view(interaction).push_head_to_head()

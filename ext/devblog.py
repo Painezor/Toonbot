@@ -1,6 +1,7 @@
 """Tracker for the World of Warships Development Blog"""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Literal
 
 from asyncpg import Record
@@ -13,7 +14,7 @@ from discord.utils import utcnow
 from lxml import html
 from lxml.html import HtmlElement
 
-from ext.toonbot_utils.transfermarkt import get_flag
+from ext.utils.flags import get_flag
 from ext.utils.view_utils import add_page_buttons
 
 if TYPE_CHECKING:
@@ -85,7 +86,7 @@ class Blog:
         self.text = tree.xpath('.//div[@class="article__content"]')[0].text_content()
 
         if self.text:
-            print("Storing Dev Blog #", self.id)
+            logging.info(f"Storing Dev Blog #{self.id}")
         else:
             return
 

@@ -5,6 +5,7 @@ import logging
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime, timezone, timedelta
+from importlib import reload
 from itertools import zip_longest
 from typing import TYPE_CHECKING, ClassVar
 
@@ -18,8 +19,8 @@ from discord.ui import Button, Select, View
 from lxml.etree import ParserError, tostring
 from lxml.html import fromstring
 
+import ext.toonbot_utils.flashscore as fs
 import ext.toonbot_utils.gamestate
-from ext.toonbot_utils.flashscore import Competition, DEFAULT_LEAGUES, Team, Fixture, search, lg_ac
 from ext.utils.embed_utils import rows_to_embeds, stack_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation
 
@@ -95,8 +96,8 @@ class ScoreChannel:
                 await connection.execute('''DELETE FROM scores_leagues WHERE channel_id = $1''', self.channel.id)
 
                 sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
-                await connection.executemany(sql, [(self.channel.id, x) for x in DEFAULT_LEAGUES])
-        self.leagues = DEFAULT_LEAGUES
+                await connection.executemany(sql, [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES])
+        self.leagues = fs.DEFAULT_LEAGUES
         return self.leagues
 
     async def add_leagues(self, leagues: list[str]) -> list[str]:
@@ -282,13 +283,15 @@ class RemoveLeague(Select):
         return await self.view.remove_leagues(self.values)
 
 
-class Scores(Cog, name="LiveScores"):
+class Scores(Cog):
     """Live Scores channel module"""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
         self.iteration: int = 0
+
+        reload(fs)
 
         if ScoreChannel.bot is None:
             ScoreChannel.bot = bot
@@ -314,13 +317,14 @@ class Scores(Cog, name="LiveScores"):
 
         for c in comps:
             if self.bot.get_competition(c['id']) is None:
-                comp = Competition(self.bot, flashscore_id=c['id'], link=c['url'], name=c['name'], country=c['country'])
+                comp = fs.Competition(self.bot, flashscore_id=c['id'], link=c['url'], name=c['name'])
+                comp.country = c['country']
                 comp.logo_url = c['logo_url']
                 self.bot.competitions.append(comp)
 
         for t in teams:
             if self.bot.get_team(t['id']) is None:
-                team = Team(self.bot)
+                team = fs.Team(self.bot)
                 team.id = t['id']
                 team.url = t['url']
                 team.name = t['name']
@@ -377,7 +381,7 @@ class Scores(Cog, name="LiveScores"):
         comps = set(i.competition for i in self.bot.games)
 
         for comp in comps.copy():
-            e = deepcopy(await comp.live_score_embed)
+            e = deepcopy(await comp.base_embed)
             fix = sorted([i for i in self.bot.games if i.competition == comp],
                          key=lambda c: now if c.kickoff is None else c.kickoff)
 
@@ -404,7 +408,7 @@ class Scores(Cog, name="LiveScores"):
                 pass
 
     # Core Loop
-    async def fetch_games(self) -> list[Fixture]:
+    async def fetch_games(self) -> list[fs.Fixture]:
         """Grab current scores from flashscore using aiohttp"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             match resp.status:
@@ -417,7 +421,7 @@ class Scores(Cog, name="LiveScores"):
         byt: bytes = tostring(inner_html)
         string: str = byt.decode('utf8')
         chunks = str(string).split('<br/>')
-        competition: Competition = Competition(self.bot)  # Generic
+        competition: fs.Competition = fs.Competition(self.bot)  # Generic
         competition.name = "Unrecognised competition"
 
         for game in chunks:
@@ -447,7 +451,7 @@ class Scores(Cog, name="LiveScores"):
                         partial.sort(key=lambda x: len(x.name))
                         competition = partial[0]
                     else:
-                        competition = Competition(self.bot)
+                        competition = fs.Competition(self.bot)
                         if country:
                             competition.country = country.strip()
                         if name:
@@ -471,8 +475,8 @@ class Scores(Cog, name="LiveScores"):
                 if teams[0].startswith('updates'):  # ???
                     teams[0] = teams[0].replace('updates', '')
 
-                home = Team(self.bot)
-                away = Team(self.bot)
+                home = fs.Team(self.bot)
+                away = fs.Team(self.bot)
 
                 if len(teams) == 1:
                     teams = teams[0].split(' - ')
@@ -496,7 +500,7 @@ class Scores(Cog, name="LiveScores"):
                     case _:
                         logging.error(f"Fetch games team problem {len(teams)} teams found: {teams}")
 
-                fixture = Fixture(self.bot)
+                fixture = fs.Fixture(self.bot)
                 fixture.url = url
                 fixture.id = match_id
                 fixture.home = home
@@ -694,7 +698,7 @@ class Scores(Cog, name="LiveScores"):
             await self.bot.reply(interaction, content=f"Created {channel.mention}, but I need send_messages perms.")
 
     @livescores.command()
-    @autocomplete(league_name=lg_ac)
+    @autocomplete(league_name=fs.lg_ac)
     @describe(league_name="league name to search for or direct flashscore link", channel="Target Channel")
     async def add_league(self, interaction: Interaction, league_name: str, channel: TextChannel = None) -> Message:
         """Add a league to an existing live-scores channel"""
@@ -713,7 +717,7 @@ class Scores(Cog, name="LiveScores"):
         if comp:
             res = comp
         elif "http" not in league_name:
-            res = await search(interaction, league_name, mode=comp)
+            res = await fs.search(interaction, league_name, mode=comp)
             if isinstance(res, Message):
                 return res
         else:
@@ -721,7 +725,7 @@ class Scores(Cog, name="LiveScores"):
                 return await self.bot.error(interaction, content="Invalid link provided.")
 
             qry = str(league_name).strip('[]<>')  # idiots
-            res = await Competition.by_link(self.bot, qry)
+            res = await fs.Competition.by_link(self.bot, qry)
 
             if res is None:
                 err = f"Failed to get data for {qry} channel not modified."

@@ -9,146 +9,20 @@ from typing import TYPE_CHECKING, Optional, ClassVar
 from discord import Interaction, Embed, Colour, Message, SelectOption
 from discord.ui import View, Select
 from lxml import html
-from pycountry import countries
 
 from ext.utils.embed_utils import rows_to_embeds
+from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import FuncButton, add_page_buttons, Parent
 
 if TYPE_CHECKING:
     from core import Bot
 
-# Manual Country Code Flag dict
-country_dict = {
-    "American Virgin Islands": "vi",
-    "Antigua and Barbuda": "ag",
-    "Bolivia": "bo",
-    "Bosnia-Herzegovina": "ba",
-    "Bosnia and Herzegovina": "ba",
-    "Botsuana": "bw",
-    "British Virgin Islands": "vg",
-    "Cape Verde": "cv",
-    "Cayman-Inseln": "ky",
-    "Chinese Taipei (Taiwan)": "tw",
-    "Congo DR": "cd",
-    "Curacao": "cw",
-    "DR Congo": "cd",
-    "Cote d'Ivoire": "ci",
-    "CSSR": "cz",
-    "Czech Republic": "cz",
-    "East Timor": "tl",
-    "Faroe Island": "fo",
-    "Federated States of Micronesia": "fm",
-    "Hongkong": "hk",
-    "Iran": "ir",
-    "Ivory Coast": "ci",
-    "Korea, North": "kp",
-    "Korea, South": "kr",
-    "Kosovo": "xk",
-    "Laos": "la",
-    "Macedonia": "mk",
-    "Mariana Islands": "mp",
-    "Moldova": "md",
-    "N/A": "x",
-    "Netherlands Antilles": "nl",
-    "Neukaledonien": "nc",
-    "Northern Ireland": "gb",
-    "Osttimor": "tl",
-    "Palästina": "ps",
-    "Palestine": "pa",
-    "Republic of the Congo": "cd",
-    "Rumänien": "ro",
-    "Russia": "ru",
-    "Sao Tome and Principe": "st",
-    "Sao Tome and Princip": "st",
-    "Sint Maarten": "sx",
-    "Southern Sudan": "ss",
-    "South Korea": "kr",
-    "St. Kitts & Nevis": "kn",
-    "St. Lucia": "lc",
-    "St. Vincent & Grenadinen": "vc",
-    "Syria": "sy",
-    "Tahiti": "fp",
-    "Tanzania": "tz",
-    "The Gambia": "gm",
-    "Trinidad and Tobago": "tt",
-    "Turks- and Caicosinseln": "tc",
-    "USA": "us",
-    "Venezuela": "ve",
-    "Vietnam": "vn"}
-
-UNI_DICT = {
-    "a": "🇦", "b": "🇧", "c": "🇨", "d": "🇩", "e": "🇪",
-    "f": "🇫", "g": "🇬", "h": "🇭", "i": "🇮", "j": "🇯",
-    "k": "🇰", "l": "🇱", "m": "🇲", "n": "🇳", "o": "🇴",
-    "p": "🇵", "q": "🇶", "r": "🇷", "s": "🇸", "t": "🇹",
-    "u": "🇺", "v": "🇻", "w": "🇼", "x": "🇽", "y": "🇾", "z": "🇿"
-}
-
 FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/Transfermarkt_favicon.png"
 TF = "https://www.transfermarkt.co.uk"
 
 
-def get_flag(country: str) -> Optional[str]:
-    """Get a flag emoji from a string representing a country"""
-    for x in ['Retired', 'Without Club']:
-        country = country.strip().replace(x, '')
-
-    if not country.strip():
-        return ''
-
-    country = country.strip()
-
-    if country in country_dict:
-        country = country_dict.get(country)
-
-    match country.lower():
-        case "england" | 'en':
-            return '🏴󠁧󠁢󠁥󠁮󠁧󠁿'
-        case "scotland":
-            return '🏴󠁧󠁢󠁳󠁣󠁴󠁿'
-        case "wales":
-            return '🏴󠁧󠁢󠁷󠁬󠁳󠁿'
-        case 'uk':
-            return '🇬🇧'
-        case "world":
-            return '🌍'
-        case 'cs':
-            return '🇨🇿'
-        case 'da':
-            return '🇩🇰'
-        case 'ko':
-            return '🇰🇷'
-        case 'zh':
-            return '🇨🇳'
-        case 'ja':
-            return '🇯🇵'
-        case 'usa':
-            return '🇺🇸'
-        case 'pan_america':
-            return "<:PanAmerica:991330048390991933>"
-        case "commonwealth":
-            return "<:Commonwealth:991329664591212554>"
-        case "ussr":
-            return "<:USSR:991330483445186580>"
-        case "other":
-            return '🌍'
-
-    # Check if py country has country
-    try:
-        country = countries.get(name=country.title()).alpha_2
-    except (KeyError, AttributeError):
-        pass
-
-    if len(country) != 2:
-        print(f'print - No flag country found for {country}')
-        logging.info(f'No flag country found for {country}')
-        return ''
-
-    return ''.join(UNI_DICT[c] for c in country.lower() if c)
-
-
-class TransferResult:
+class SearchResult:
     """A result from a transfermarkt search"""
     emoji: str = None
 
@@ -158,7 +32,7 @@ class TransferResult:
         self.country: list[str] = kwargs.pop('country', [])
 
     def __repr__(self) -> str:
-        return f"TransferResult({self.__dict__})"
+        return f"SearchResult({self.__dict__})"
 
     @property
     def base_embed(self) -> Embed:
@@ -186,7 +60,7 @@ class TransferResult:
             return get_flag(self.country)
 
 
-class Competition(TransferResult):
+class Competition(SearchResult):
     """An Object representing a competition from transfermarkt"""
     emoji: str = '🏆'
 
@@ -202,7 +76,7 @@ class Competition(TransferResult):
         return CompetitionView(interaction, self)
 
 
-class Team(TransferResult):
+class Team(SearchResult):
     """An object representing a Team from Transfermarkt"""
     emoji: str = '👕'
 
@@ -244,7 +118,7 @@ class Team(TransferResult):
         return TeamView(interaction, self)
 
 
-class Player(TransferResult):
+class Player(SearchResult):
     """An Object representing a player from transfermarkt"""
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
@@ -267,7 +141,7 @@ class Player(TransferResult):
         return ' '.join([i for i in desc if i is not None])
 
 
-class Referee(TransferResult):
+class Referee(SearchResult):
     """An object representing a referee from transfermarkt"""
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
@@ -283,7 +157,7 @@ class Referee(TransferResult):
         return output
 
 
-class Staff(TransferResult):
+class Staff(SearchResult):
     """An object representing a Trainer or Manager from a Transfermarkt search"""
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
@@ -300,7 +174,7 @@ class Staff(TransferResult):
         return f"{self.flag} {self.markdown} {self.age}, {self.job} {team}".strip()
 
 
-class Agent(TransferResult):
+class Agent(SearchResult):
     """An object representing an Agent from transfermarkt"""
 
     def __init__(self, name: str, link: str):
@@ -344,12 +218,12 @@ class Transfer:
     @property
     def inbound(self) -> str:
         """Get inbound text."""
-        return f"{self.player}\nFrom: {self.old_team}\n{self.loan_fee}"
+        return f"{self.player} {self.loan_fee}\nFrom: {self.old_team}\n"
 
     @property
     def outbound(self) -> str:
         """Get outbound text."""
-        return f"{self.player}\nTo: {self.new_team}\n{self.loan_fee}"
+        return f"{self.player} {self.loan_fee}\nTo: {self.new_team}\n"
 
     def generate_embed(self) -> Embed:
         """An embed representing a transfermarkt player transfer."""
@@ -404,12 +278,15 @@ class TeamView(View):
         self.clear_items()
         if self.parent:
             self.add_item(Parent())
+            hide_row = 2
+        else:
+            hide_row = 3
 
-        add_page_buttons(self)
         self.add_item(FuncButton(label="Transfers", func=self.push_transfers, emoji='🔄'))
         self.add_item(FuncButton(label="Rumours", func=self.push_rumours, emoji='🕵'))
         self.add_item(FuncButton(label="Trophies", func=self.push_trophies, emoji='🏆'))
         self.add_item(FuncButton(label="Contracts", func=self.push_contracts, emoji='📝'))
+        add_page_buttons(self, row=hide_row)
 
         e = self.pages[self.index]
         return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
@@ -481,7 +358,7 @@ class TeamView(View):
                 transfer.old_team = self.team if out else team
 
                 # Block 6 - Fee or Loan
-                transfer.fee = next(i.xpath('.//td[6]//text()'), 'Unknown')
+                transfer.fee = ''.join(i.xpath('.//td[6]//text()'))
                 transfer.fee_link = TF + ''.join(i.xpath('.//td[6]//@href')).strip()
                 transfer.date = ''.join(i.xpath('.//i/text()'))
                 transfers.append(transfer)
@@ -536,7 +413,6 @@ class TeamView(View):
         e.set_author(name="Transfermarkt", url=url, icon_url=FAVICON)
 
         rows = []
-        print(url)
         for i in tree.xpath('.//div[@class="large-8 columns"]/div[@class="box"]')[0].xpath('.//tbody/tr'):
             name = ''.join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@title')).strip()
             link = ''.join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@href')).strip()
@@ -787,8 +663,8 @@ class CompetitionView(View):
 class SearchSelect(Select):
     """Dropdown."""
 
-    def __init__(self, objects: list[Team | Competition]) -> None:
-        super().__init__(row=3, placeholder="Select correct option")
+    def __init__(self, objects: list[Team | Competition], row: int = 4) -> None:
+        super().__init__(row=row, placeholder="Select correct option")
         self.objects: list[Team | Competition] = objects
         for n, obj in enumerate(objects):
             desc = obj.country[0] if obj.country else ""
@@ -855,8 +731,6 @@ class SearchView(View):
         # TransferMarkt Search indexes from 1.
         p = {"query": self.query, self.query_string: self.index + 1}
 
-        logging.info(f"Accessing 'update' function with query = {self.query} [{self.query_string}] = {self.index}")
-
         async with self.bot.session.post(url, params=p) as resp:
             match resp.status:
                 case 200:
@@ -864,20 +738,17 @@ class SearchView(View):
                 case _:
                     raise ConnectionError(f"Error {resp.status} Connecting to Transfermarkt")
 
-        logging.info(f"Accessing Url {resp.url}")
         # Get trs of table after matching header / {ms} name.
 
         header_xpath = f".//div[@class='box']/h2[@class='content-box-headline'][contains(text(),'{self.match_string}')]"
 
         trs = f"{header_xpath}/following::div[1]//tbody/tr"
         header = ''.join(tree.xpath(f"{header_xpath}//text()"))
-        logging.info(f"Found {len(trs)} results in {header}")
 
         try:
             matches = int(''.join([i for i in header if i.isdecimal()]))
-            logging.info(f"Found {matches} matches")
         except ValueError:
-            logging.info("ValueError when parsing header")
+            logging.error(f"ValueError when parsing header, {header}")
             matches = 0
 
         e: Embed = Embed(title=f"{matches} results for {self.query}", url=resp.url)
@@ -894,7 +765,7 @@ class SearchView(View):
         self.pages = [None] * max(matches // 10, 1)
 
         self.clear_items()
-        add_page_buttons(self)
+        add_page_buttons(self, row=1)
 
         if self.fetch and self._results:
             self.add_item(SearchSelect(objects=self._results))

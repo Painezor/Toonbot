@@ -32,7 +32,11 @@ class EmbedModal(Modal, title="Send an Embed"):
     async def on_submit(self, interaction: Interaction) -> None:
         """Send the embed"""
         e = Embed(title=self.e_title, colour=self.colour)
-        e.set_author(name=self.interaction.guild.name, icon_url=self.interaction.guild.icon.url)
+
+        try:
+            e.set_author(name=self.interaction.guild.name, icon_url=self.interaction.guild.icon.url)
+        except AttributeError:
+            e.set_author(name=self.interaction.guild.name)
 
         if self.image.value is not None and "http:" in self.image.value:
             e.set_image(url=self.image.value)
@@ -57,9 +61,8 @@ class Mod(Cog):
     # TODO: Slash attachments pass
     # TODO: Custom RGB Colour for embed command
     @command()
-    @default_permissions(manage_messages=True)
-    @bot_has_permissions(manage_messages=True)
     @guild_only()
+    @default_permissions(manage_messages=True)
     @describe(destination="target channel", colour="embed colour")
     async def embed(self, interaction: Interaction, destination: TextChannel = None,
                     colour: Literal['red', 'blue', 'green', 'yellow', 'white'] = None) -> Message:
@@ -68,6 +71,12 @@ class Mod(Cog):
 
         if destination.guild.id != interaction.guild.id:
             return await self.bot.error(interaction, content="You cannot send messages to other servers.")
+
+        perms = destination.permissions_for(interaction.channel.me)
+        if not perms.send_messages:
+            return await self.bot.error(interaction, content="I need send_messages permissions in that channel.")
+        if not perms.embed_links:
+            return await self.bot.error(interaction, content="I need embed_links permissions in that channel.")
 
         match colour:
             case 'red':
@@ -90,6 +99,8 @@ class Mod(Cog):
     @describe(message="text to send", destination="target channel")
     async def say(self, interaction: Interaction, message: str, destination: TextChannel = None) -> Message:
         """Say something as the bot in specified channel"""
+        await interaction.response.defer(thinking=True, ephemeral=True)
+
         if len(message) > 2000:
             return await self.bot.error(interaction, content="Message too long. Keep it under 2000.")
 
@@ -100,43 +111,9 @@ class Mod(Cog):
 
         try:
             await destination.send(message)
-            await self.bot.reply(interaction, content="Message sent.", ephemeral=True)
+            await interaction.edit_original_response(content="Message sent.")
         except Forbidden:
-            return await self.bot.error(interaction, content="I can't send messages to that channel.")
-
-    @command()
-    @default_permissions(manage_channels=True)
-    @bot_has_permissions(manage_channels=True)
-    @describe(new_topic="Type the new topic for this channel..")
-    async def topic(self, interaction: Interaction, new_topic: str):
-        """Set the topic for the current channel"""
-        await interaction.channel.edit(topic=new_topic)
-        await self.bot.reply(interaction, content=f"{interaction.channel.mention} Topic updated")
-
-    @command()
-    @default_permissions(manage_channels=True)
-    @bot_has_permissions(manage_channels=True)
-    @describe(message="Type a message to be pinned in this channel.")
-    async def pin(self, interaction: Interaction, message: str):
-        """Pin a message to the current channel"""
-        message = await self.bot.reply(interaction, content=message)
-        await message.pin()
-
-    @command()
-    @default_permissions(manage_nicknames=True)
-    @bot_has_permissions(manage_nicknames=True)
-    @describe(member="Pick a user to rename", new_nickname="Choose a new nickname for the member")
-    async def rename(self, interaction: Interaction, member: Member, new_nickname: str):
-        """Rename a member"""
-        try:
-            await member.edit(nick=new_nickname)
-        except Forbidden:
-            await self.bot.error(interaction, content="I can't change that member's nickname.")
-        except HTTPException:
-            await self.bot.error(interaction, content="❔ Member edit failed.")
-        else:
-            e = Embed(colour=Colour.og_blurple(), description=f"{member.mention} has been renamed.")
-            await self.bot.reply(interaction, embed=e, ephemeral=True)
+            return interaction.edit_original_response(content="I can't send messages to that channel.")
 
     @command()
     @default_permissions(ban_members=True)
@@ -208,6 +185,7 @@ class Mod(Cog):
         async with self.bot.db.acquire() as connection:
             async with connection.transaction():
                 await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
+
 
 async def setup(bot: Bot | PBot):
     """Load the mod cog into the bot"""
