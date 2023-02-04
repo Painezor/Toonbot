@@ -397,9 +397,8 @@ class Images(Cog):
     async def emote(self, interaction: Interaction, emoji: str) -> Message:
         """View a bigger version of an Emoji"""
         await interaction.response.defer(thinking=True)
-        emojis = message_emojis(emoji)
 
-        if not emojis:
+        if not (emojis := message_emojis(emoji)):
             return await self.bot.error(interaction, f"No emotes found in {emoji}")
 
         embeds = []

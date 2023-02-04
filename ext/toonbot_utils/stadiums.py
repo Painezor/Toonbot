@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from core import Bot
 
 
-# TODO: Store stadiums to database to allow for autocompletes, or find autocompleter on footballgroundmap
+# TODO: Store stadiums to database to allow for autocomplete, or find autocomplete on footballgroundmap
 class Stadium:
     """An object representing a football Stadium from football ground map.com"""
     __slots__ = {'url': 'A Url representing a link to this stadium on football ground map',
@@ -35,11 +35,9 @@ class Stadium:
     bot: ClassVar[Bot] = None
 
     def __init__(self, bot: Bot, **kwargs):
+        self.__class__.bot = bot
 
-        if self.__class__.bot is None:
-            self.__class__.bot = bot
-
-        self.url: Optional[str] = kwargs.pop('link', None)
+        self.url: Optional[str] = kwargs.pop('url', None)
         self.name: Optional[str] = kwargs.pop('name', None)
         self.team: Optional[str] = kwargs.pop('team', None)
         self.league: Optional[str] = kwargs.pop('league', None)
@@ -139,27 +137,18 @@ async def get_stadiums(bot: Bot, query: str) -> list[Stadium]:
     for i in tree.xpath(".//div[@class='using-grid'][1]/div[@class='grid']/div"):
         team = ''.join(i.xpath('.//small/preceding-sibling::a//text()')).title()
         badge = i.xpath('.//img/@src')[0]
-        comp_info = i.xpath('.//small/a//text()')
 
-        if not comp_info:
+        if not (comp_info := i.xpath('.//small/a//text()')):
             continue
 
         country = comp_info.pop(0)
         league = comp_info[0] if comp_info else None
 
-        sub_nodes = i.xpath('.//small/following-sibling::a')
-        for s in sub_nodes:
-            stad = Stadium(bot)
-            stad.name = ''.join(s.xpath('.//text()')).title()
-            stad.url = ''.join(s.xpath('./@href'))
-
-            if query.lower() not in stad.name.lower() + team.lower():
+        for s in i.xpath('.//small/following-sibling::a'):
+            name = ''.join(s.xpath('.//text()')).title()
+            if query.lower() not in name.lower() + team.lower():
                 continue  # Filtering.
 
-            if stad not in stadiums:
-                stad.team = team
-                stad.team_badge = badge
-                stad.country = country
-                stad.league = league
-                stadiums.append(stad)
+            stadiums.append(Stadium(bot, name=name, url=''.join(s.xpath('./@href')), team=team, team_badge=badge,
+                                    country=country, league=league))
     return stadiums

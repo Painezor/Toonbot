@@ -10,7 +10,6 @@ from flashscore import Competition, Team
 if TYPE_CHECKING:
     from discord import Interaction, Message
     from typing import Literal
-    from flashscore import Fixture
     from core import Bot
 
 # slovak - 7
@@ -58,13 +57,9 @@ locales = {
 async def search(interaction: Interaction, query: str, mode: Literal['comp', 'team'], get_recent: bool = False) \
         -> Competition | Team | Message:
     """Fetch a list of items from flashscore matching the user's query"""
-
-    query = "".join([i for i in query if i not in ["'", "[", "]", "#", '<', '>']])
+    query = quote(query.translate(dict.fromkeys(map(ord, "'[]#<>"), None)))
 
     bot: Bot = interaction.client
-
-    query = quote(query)
-    # One day we could probably expand upon this if we ever figure out what the other variables are.
 
     try:
         lang_id = locales[interaction.locale]
@@ -75,7 +70,6 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
             lang_id = 1
 
     # Type IDs: 1 - , 2 - , 3 - Player, 3 - ???, 4 - ???
-
     url = f"https://s.livesport.services/api/v2/search/?q={query}&lang-id={lang_id}&type-ids=1,2,3,4&sport-ids=1"
 
     async with bot.session.get(url) as resp:
@@ -86,9 +80,7 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
                 raise ConnectionError(f"HTTP {resp.status} error in fs_search")
 
     # Un-fuck FS JSON reply.
-
     results: list[Competition | Team] = []
-
     for x in res:
         for t in x["participantTypes"]:
             match t["name"]:
@@ -96,8 +88,7 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
                     # This is a player, we don't want those.
                     continue
                 case "National" | "Team":
-                    team = bot.get_team(x['id'])
-                    if not team:
+                    if not (team := bot.get_team(x['id'])):
                         team = Team(bot)
                         team.name = x['name']
                         team.url = x['url']
@@ -107,8 +98,7 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
                         await team.save_to_db()
                     results.append(team)
                 case "TournamentTemplate":
-                    comp = bot.get_competition(x['id'])
-                    if not comp:
+                    if not (comp := bot.get_competition(x['id'])):
                         comp = Competition(bot)
                         comp.country = x['defaultCountry']['name']
                         comp.id = x['id']
@@ -122,7 +112,7 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
         raise LookupError(f"Flashscore Search: No results found for {query}")
 
     if len(results) == 1:
-        fsr = results[0]
+        fsr = next(results)
     else:
         view = ObjectSelectView(interaction, [('🏆', str(i), i.link) for i in results], timeout=30)
         await view.update()
@@ -134,8 +124,7 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
     if not get_recent:
         return fsr
 
-    items: list[Fixture] = await fsr.results()
-    if not items:
+    if not (items := await fsr.results()):
         raise LookupError(f"No recent games found for {fsr.title}")
 
     view = ObjectSelectView(interaction, objects=[("⚽", i.score_line, f"{i.competition}") for i in items], timeout=30)

@@ -3,6 +3,7 @@ import logging
 
 from pycountry import countries
 
+# TODO: string.translate mapping instead of dict.
 # Manual Country Code Flag dict
 country_dict = {
     "American Virgin Islands": "vi",
@@ -79,9 +80,7 @@ def get_flag(country: str) -> str | None:
     if not country.strip():
         return ''
 
-    country = country.strip()
-
-    if country in country_dict:
+    if (country := country.strip()) in country_dict:
         country = country_dict.get(country)
 
     match country.lower():

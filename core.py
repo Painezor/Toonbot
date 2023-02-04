@@ -37,7 +37,7 @@ COGS = ['errors',  # Utility Cogs
         # Slash commands.
         'metatoonbot',
         'admin', 'bans', 'fixtures', 'fun', 'images', 'info', 'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes',
-        'reminders', 'scores', 'sidebar', 'streams', 'ticker', 'transfers', 'tv', 'translations'
+        'reminders', 'scores', 'sidebar', 'streams', 'ticker', 'transfers', 'tv', 'translations', 'urbandictionary'
         ]
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
@@ -130,16 +130,16 @@ class Bot(AutoShardedBot):
         return
 
     def get_competition(self, comp_id: str) -> Optional[fs.Competition]:
-	    """Retrieve a competition from the ones stored in the bot."""
-	    return next((i for i in self.competitions if i.id == comp_id), None)
+        """Retrieve a competition from the ones stored in the bot."""
+        return next((i for i in self.competitions if i.id == comp_id), None)
 
     def get_team(self, team_id: str) -> Optional[fs.Team]:
-	    """Retrieve a Team from the ones stored in the bot."""
-	    return next((i for i in self.teams if i.id == team_id), None)
+        """Retrieve a Team from the ones stored in the bot."""
+        return next((i for i in self.teams if i.id == team_id), None)
 
     def get_fixture(self, fixture_id: str) -> Optional[fs.Fixture]:
-	    """Retrieve a Fixture from the ones stored in the bot."""
-	    return next((i for i in self.games if i.id == fixture_id), None)
+        """Retrieve a Fixture from the ones stored in the bot."""
+        return next((i for i in self.games if i.id == fixture_id), None)
 
     async def dump_image(self, data: BytesIO) -> str:
         """Save a stitched image"""
@@ -149,6 +149,12 @@ class Bot(AutoShardedBot):
 
         img_msg = await ch.send(file=File(fp=data, filename="dumped_image.png"))
         return img_msg.attachments[0].url
+
+    async def cache_quotes(self) -> None:
+        """Cache the QuoteDB"""
+        async with self.db.acquire() as connection:
+            async with connection.transaction():
+                self.quotes = await connection.fetch("""SELECT * FROM quotes""")
 
 
 async def run() -> None:

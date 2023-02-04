@@ -14,7 +14,7 @@ from discord.ui import View
 
 # Custom Utils
 import ext.toonbot_utils.flashscore as fs
-from ext.toonbot_utils.stadiums import get_stadiums, Stadium
+from ext.toonbot_utils.stadiums import get_stadiums
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import ObjectSelectView, Paginator
 
@@ -285,12 +285,8 @@ class Fixtures(Cog):
             return await self.bot.error(interaction, "No live games found")
 
         if competition:
-            matches = [i for i in self.bot.games if i.competition.id == competition]
-
-            if not matches:
-                matches = [i for i in self.bot.games if competition.lower() in i.competition.title.lower()]
-
-                if not matches:
+            if not (matches := [i for i in self.bot.games if i.competition.id == competition]):
+                if not (matches := [i for i in self.bot.games if competition.lower() in i.competition.title.lower()]):
                     return await self.bot.error(interaction, f"No live games found for `{competition}`")
         else:
             matches = self.bot.games
@@ -325,8 +321,8 @@ class Fixtures(Cog):
     async def news(self, interaction: Interaction, team: str) -> Message:
         """Get the latest news for a team"""
         await interaction.response.defer(thinking=True)
-        fsr = self.bot.get_team(team)
-        if not fsr:
+
+        if not (fsr := self.bot.get_team(team)):
             fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
@@ -338,8 +334,8 @@ class Fixtures(Cog):
     async def injuries(self, interaction: Interaction, team: str) -> Message:
         """Get a team's current injuries"""
         await interaction.response.defer(thinking=True)
-        fsr = self.bot.get_team(team)
-        if not fsr:
+
+        if not (fsr := self.bot.get_team(team)):
             fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
@@ -351,8 +347,8 @@ class Fixtures(Cog):
     async def squad(self, interaction: Interaction, team: str) -> Message:
         """Lookup a team's squad members"""
         await interaction.response.defer(thinking=True)
-        fsr = self.bot.get_team(team)
-        if not fsr:
+
+        if not (fsr := self.bot.get_team(team)):
             fsr = await fs.search(interaction, team, mode="team")
             if isinstance(fsr, Message | None):
                 return fsr
@@ -404,8 +400,8 @@ class Fixtures(Cog):
     async def head_to_head(self, interaction: Interaction, fixture: str) -> Message:
         """Lookup the head-to-head details for a Fixture"""
         await interaction.response.defer(thinking=True)
-        fix = self.bot.get_fixture(fixture)
-        if not fix:
+
+        if not (fix := self.bot.get_fixture(fixture)):
             fix = await fs.search(interaction, fixture, mode="team", get_recent=True)
         if isinstance(fix, Message):
             return fix
@@ -418,8 +414,7 @@ class Fixtures(Cog):
         """Lookup information about a team's stadiums"""
         await interaction.response.defer(thinking=True)
 
-        stadiums: list[Stadium] = await get_stadiums(self.bot, stadium)
-        if not stadiums:
+        if not (stadiums := await get_stadiums(self.bot, stadium)):
             return await self.bot.error(interaction, f"🚫 No stadiums found matching `{stadium}`")
 
         markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.name})") for i in stadiums]

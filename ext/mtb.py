@@ -284,8 +284,8 @@ class MatchThread:
         title = f"Post-Match Thread: {home} {score}{pens}{away}" if post_match else f"Match Thread: {home} vs {away}"
 
         # Referee and Venue
-        r = f"**🙈 Referee**: {self.fixture.referee}" if hasattr(self.fixture, 'referee') else ""
-        s = f"**🥅 Venue**: {self.fixture.stadium}" if hasattr(self.fixture, 'stadium') else ""
+        r = f"**🙈 Referee**: {self.fixture.referee}" if self.fixture.referee is not None else ""
+        s = f"**🥅 Venue**: {self.fixture.stadium}" if self.fixture.stadium is not None else ""
         a = f"**👥 Attendance**: {self.fixture.attendance})" if self.fixture.attendance is not None else ""
 
         if any([r, s, a]):

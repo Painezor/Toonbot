@@ -37,24 +37,20 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
         e.set_thumbnail(url=member.display_avatar.url)
     desc = [f"{'🤖 ' if member.bot else ''}{member.mention}\nUser ID: {member.id}"]
 
-    if hasattr(member, 'is_on_mobile') and member.is_on_mobile():
+    if member.is_on_mobile():
         desc.append("📱 Using mobile app.")
 
-    if hasattr(member, 'voice') and member.voice:
+    if member.voice:
         voice = member.voice.channel
         voice_other = len(voice.members) - 1
 
         voice = f'In voice channel {voice.mention} {f"with {voice_other} others" if voice_other else "alone"}'
         e.add_field(name="Connected to voice chat", value=voice)
 
-    try:
-        roles = [role.mention for role in reversed(member.roles) if not role.position == 0]
-        if roles:
-            e.add_field(name='Roles', value=' '.join(roles))
-    except AttributeError:
-        pass
+    if roles := [r.mention for r in filter(lambda r: r.position != 0, reversed(member.roles))]:
+        e.add_field(name='Roles', value=' '.join(roles))
 
-    if hasattr(member, "banner") and member.banner:
+    if member.banner:
         e.set_image(url=member.banner.url)
 
     try:

@@ -22,10 +22,8 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
     events = []
 
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
-        team_detection = i.attrib['class']
-
         # Detection of Teams
-        match team_detection:
+        match (team_detection := i.attrib['class']):
             case team_detection if "Header" in team_detection:
                 parts = [x.strip() for x in i.xpath('.//text()')]
                 if "Penalties" in parts:
@@ -43,16 +41,14 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
                 continue  # No events in half signifier.
             case _:
                 logging.error(f"No team found for team_detection {team_detection}")
-                print(f"No team found for team_detection {team_detection}")
                 continue
 
         node = i.xpath('./div[contains(@class, "incident")]')[0]  # event_node
-        icon = ''.join(node.xpath('.//div[contains(@class, "incidentIcon")]//svg/@class')).strip()
         title = ''.join(node.xpath('.//div[contains(@class, "incidentIcon")]//@title')).strip()
         description = title.replace('<br />', ' ')
         icon_desc = ''.join(node.xpath('.//div[contains(@class, "incidentIcon")]//svg//text()')).strip()
 
-        match icon.lower():
+        match (icon := ''.join(node.xpath('.//div[contains(@class, "incidentIcon")]//svg/@class')).strip()).lower():
             # Goal types
             case "footballGoal-ico" | "soccer":
                 match icon_desc.lower():
@@ -93,8 +89,7 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
             # VAR types
             case "var-ico" | "var":
                 event = VAR()
-                icon_desc = icon_desc if icon_desc else ''.join(node.xpath('./div//text()')).strip()
-                if icon_desc:
+                if icon_desc := icon_desc if icon_desc else ''.join(node.xpath('./div//text()')).strip():
                     event.note = icon_desc
             case "varlive-ico" | "var varlive-ico":
                 event = VAR(in_progress=True)
@@ -134,15 +129,13 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
         event.team = team
 
         # Data not always present.
-        name = ''.join(node.xpath('.//a[contains(@class, "playerName")]//text()')).strip()
-        if name:
+        if name := ''.join(node.xpath('.//a[contains(@class, "playerName")]//text()')).strip():
             p = Player(fixture.bot)
             p.name = name
             p.url = ''.join(node.xpath('.//a[contains(@class, "playerName")]//@href')).strip()
             event.player = p
 
-        assist = ''.join(node.xpath('.//div[contains(@class, "assist")]//text()'))
-        if assist:
+        if assist := ''.join(node.xpath('.//div[contains(@class, "assist")]//text()')):
             p = Player(fixture.bot)
             p.name = assist.strip('()')
             p.url = ''.join(node.xpath('.//div[contains(@class, "assist")]//@href'))
@@ -194,12 +187,10 @@ class MatchEvent:
         """The Extended Embed for this match event"""
         e = self.embed
         if self.fixture:
-            if self.fixture.events:
-
-                for x in self.fixture.events:
-                    if x == self:
-                        continue
-                    e.description += f"\n{str(x)}"
+            for x in self.fixture.events:
+                if x == self:
+                    continue
+                e.description += f"\n{str(x)}"
         return e
 
 

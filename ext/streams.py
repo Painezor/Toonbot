@@ -43,9 +43,7 @@ class GuildStreams(Cog):
     @streams.command()
     async def list_streams(self, interaction: Interaction) -> Message:
         """List all streams for the match added by users."""
-        guild_streams = self.bot.streams.get(interaction.guild.id, {})
-
-        if not guild_streams:
+        if not (guild_streams := self.bot.streams.get(interaction.guild.id, {})):
             return await self.bot.reply(interaction, content="Nobody has added any streams yet.")
 
         e = Embed(title="Streams", description="\n".join([str(i) for i in guild_streams]))
@@ -55,9 +53,7 @@ class GuildStreams(Cog):
     @describe(name="Enter a name for the stream", link="Enter the link oF the stream")
     async def add_stream(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
-
-        guild_streams = self.bot.streams.get(interaction.guild.id, {})
-        if not guild_streams:
+        if not (guild_streams := self.bot.streams.get(interaction.guild.id, {})):
             self.bot.streams[interaction.guild.id] = []
 
         if link in [i.link for i in guild_streams]:
@@ -80,14 +76,13 @@ class GuildStreams(Cog):
     async def delete_stream(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""
         guild_streams = self.bot.streams.get(interaction.guild.id, {})
-        matches = [i for i in guild_streams if stream.lower() in i.name.lower() + i.link.lower()]
-        if not matches:
+
+        if not (matches := filter(lambda i: i.name.lower() + i.link.lower() in stream.lower(), guild_streams)):
             err = f"Couldn't find that stream in {interaction.guild.name} stream list."
             return await self.bot.error(interaction, err)
 
         if not interaction.channel.permissions_for(interaction.guild.me).manage_messages:
-            matches = [i for i in matches if i.added_by == interaction.user]
-            if not matches:
+            if not (matches := filter(lambda i: i.added_by == interaction.user, matches)):
                 err = "You cannot remove a stream you did not add unless you have manage_messages permissions"
                 return await self.bot.error(interaction, err)
 

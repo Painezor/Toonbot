@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from copy import deepcopy
 from random import choice, randint, randrange, shuffle
-from re import finditer
 from typing import TYPE_CHECKING
 
 from discord import ButtonStyle, Colour, Embed, Interaction, TextStyle, Message, File
@@ -12,7 +10,7 @@ from discord.app_commands import command, context_menu, describe
 from discord.ext.commands import Cog
 from discord.ui import Button, View, Modal, TextInput
 
-from ext.utils.view_utils import Stop, Paginator
+from ext.utils.view_utils import Stop
 
 if TYPE_CHECKING:
     from core import Bot
@@ -245,55 +243,6 @@ class Fun(Cog):
             v.add_item(FlipButton(label=f"Flip {_}", count=_))
         v.add_item(Stop(row=1))
         return await v.update()
-
-    @command()
-    @describe(query="enter a search term")
-    async def urban(self, interaction: Interaction, query: str) -> Message:
-        """Lookup a definition from urban dictionary"""
-        url = f"http://api.urbandictionary.com/v0/define?term={query}"
-        async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    resp = await resp.json()
-                case _:
-                    return await self.bot.error(interaction, f"🚫 HTTP Error, code: {resp.status}")
-        tn = "http://d2gatte9o95jao.cloudfront.net/assets/apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
-
-        # Populate Embed, add to list
-        e: Embed = Embed(color=0xFE3511).set_author(name=f"Urban Dictionary").set_thumbnail(url=tn)
-
-        embeds = []
-        for i in resp["list"]:
-            embed = deepcopy(e)
-            embed.title = i["word"]
-            embed.url = i["permalink"]
-            de = rde = i["definition"]
-            for z in finditer(r'\[(.*?)]', de):
-                z1 = z.group(1).replace(' ', "%20")
-                z = z.group()
-                de = de.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
-
-            de = f"{de[:2046]} …" if len(rde) > 2048 else rde
-
-            if i["example"]:
-                ex = rex = i['example']
-                for z in finditer(r'\[(.*?)]', ex):
-                    z1 = z.group(1).replace(' ', "%20")
-                    z = z.group()
-                    rex = ex.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
-
-                ex = f"{ex[:1023]}…" if len(rex) > 1024 else rex
-
-                embed.add_field(name="Example", value=ex)
-
-            embed.description = de
-            embeds.append(embed)
-
-        if not embeds:
-            e.description = f"🚫 No flip_results found for {query}."
-            embeds = [e]
-
-        return await Paginator(interaction, embeds=embeds).update()
 
     @command()
     @describe(dice="enter a roll (format: 1d20+3)")

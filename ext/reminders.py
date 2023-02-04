@@ -104,8 +104,7 @@ class ReminderView(View):
         channel = self.bot.get_channel(r['channel_id'])
 
         if r['message_id'] is not None:
-            msg = await channel.fetch_message(r['message_id'])
-            if msg is not None:
+            if (msg := await channel.fetch_message(r['message_id'])) is not None:
                 self.add_item(Button(label="Original Message", url=msg.jump_url))
 
         e: Embed = Embed(colour=0x00ff00)

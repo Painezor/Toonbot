@@ -5,7 +5,6 @@ from typing import Callable, TYPE_CHECKING, ClassVar
 
 from discord import ButtonStyle, NotFound, Embed, SelectOption
 from discord.ui import Button, Select, Modal, View, TextInput
-from pyppeteer.page import Page
 
 if TYPE_CHECKING:
     from core import Bot
@@ -53,7 +52,7 @@ class First(Button):
     """Get the first item in a Pagination View"""
 
     def __init__(self, row: int = 0) -> None:
-        super().__init__(label="First", emoji="⏮", row=row)
+        super().__init__(emoji="⏮", row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
@@ -64,8 +63,9 @@ class First(Button):
 
 class Previous(Button):
     """Get the previous item in a Pagination View"""
-    def __init__(self, row: int = 0) -> None:
-        super().__init__(label="Previous", emoji="◀", row=row)
+
+    def __init__(self, row: int = 0, disabled: bool = False) -> None:
+        super().__init__(emoji="◀", row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
@@ -76,8 +76,9 @@ class Previous(Button):
 
 class Jump(Button):
     """Jump to a specific page in a Pagination view"""
-    def __init__(self, label: str = "Jump to page", row: int = 0):
-        super().__init__(label=label, style=ButtonStyle.blurple, emoji='⤴', row=row)
+
+    def __init__(self, label: str = "Jump", row: int = 0, disabled: bool = False):
+        super().__init__(label=label, style=ButtonStyle.blurple, emoji='🔎', row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction) -> Modal:
         """When button is clicked…"""
@@ -114,8 +115,8 @@ class JumpModal(Modal):
 class Next(Button):
     """Get the next item in a Pagination View"""
 
-    def __init__(self, row: int = 0) -> None:
-        super().__init__(label="Next", emoji="▶", row=row)
+    def __init__(self, row: int = 0, disabled: bool = False) -> None:
+        super().__init__(emoji="▶", row=row, disabled=disabled)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
@@ -146,7 +147,7 @@ class Stop(Button):
     """A generic button to stop a View"""
 
     def __init__(self, row=3) -> None:
-        super().__init__(label="Hide", emoji="🚫", row=row)
+        super().__init__(emoji="🚫", row=row)
 
     async def callback(self, interaction: Interaction) -> None:
         """Do this when button is pressed"""
@@ -155,8 +156,7 @@ class Stop(Button):
         except NotFound:
             pass
 
-        page: Page = getattr(self.view, "page", None)
-        if page is not None and not page.isClosed():
+        if (page := getattr(self.view, "page", None)) is not None and not page.isClosed():
             await page.close()
         self.view.stop()
 
@@ -186,8 +186,7 @@ class ObjectSelectView(View):
         self.objects: list = objects
         self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
 
-        if self.__class__.bot is None:
-            self.__class__.bot = interaction.client
+        self.__class__.bot = interaction.client
 
         super().__init__(timeout=timeout)
 
@@ -291,10 +290,8 @@ class FuncDropdown(Select):
         """Set View Index"""
         await interaction.response.defer()
 
-        index = int(self.values[0])
-        for k, v in self.raw[index][1].items():
+        for k, v in self.raw[index := int(self.values[0])][1].items():
             setattr(self.view, k, v)
-
         return await self.raw[index][2]()
 
 
@@ -307,9 +304,7 @@ class Paginator(View):
         self.interaction: Interaction = interaction
         self.pages: list[Embed] = embeds
         self.index: int = 0
-
-        if self.__class__.bot is None:
-            self.__class__.bot = interaction.client
+        self.__class__.bot = interaction.client
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
@@ -346,9 +341,7 @@ class BoolButton(Button):
     """Set View value"""
 
     def __init__(self, label="Yes", colour: ButtonStyle = None, value: bool = True) -> None:
-        if colour is None:
-            colour = ButtonStyle.secondary
-        super().__init__(label=label, style=colour)
+        super().__init__(label=label, style=ButtonStyle.secondary if colour is None else colour)
         self.value: bool = value
 
     async def callback(self, interaction: Interaction) -> None:

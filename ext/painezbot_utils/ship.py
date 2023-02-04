@@ -53,9 +53,7 @@ class Fitting:
 
     def __init__(self, ship: Ship, data: dict = None) -> None:
         self.ship: Ship = ship
-
-        if self.__class__.bot is None:
-            self.__class__.bot = ship.bot
+        self.__class__.bot = ship.bot
 
         # Current Configuration
         self.modules: dict[Type[Module], int] = {}
@@ -172,14 +170,13 @@ class Ship:
     async def fetch_modules(self) -> list[Module]:
         """Grab all data related to the ship from the API"""
         # Get needed module IDs
-        targets = [str(x) for v in self._modules.values() for x in v if x not in self.bot.modules]
-        existing = [x for x in self._modules.values() if x in [s.module_id for s in self.bot.modules]]
+        existing = filter(lambda x: x in [s.module_id for s in self.bot.modules], self._modules.values())
 
         # We use a deepcopy, because we're editing values with data from modules tree, but each module can be used on
         # a number of different ships, and we do not want to contaminate *their* data.
         self.modules.update({k.module_id: deepcopy(k) for k in existing})
 
-        if targets:
+        if targets := [str(i) for i in filter(lambda x: x not in self.bot.modules, self._modules.values())]:
             # We want the module IDs as str for the purposes of params
             p = {'application_id': self.bot.WG_ID, 'module_id': ','.join(targets)}
             url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
@@ -325,8 +322,7 @@ class ShipView(View):
         prem = any([self.ship.is_premium, self.ship.is_special])
 
         e = Embed()
-        _class = self.ship.type
-        if _class is not None:
+        if _class := self.ship.type:
             icon_url = _class.image_premium if prem else _class.image
             _class = _class.alias
         else:
@@ -356,16 +352,14 @@ class ShipView(View):
         e = self.base_embed
 
         # Rocket Planes are referred to as 'Fighters'
-        rp = self.fitting.data['fighters']
-        if rp is not None:
+        if (rp := self.fitting.data['fighters']) is not None:
             name = f"{rp['name']} (Tier {rp['plane_level']}, Rocket Planes)"
             value = [f"**Hit Points**: {format(rp['max_health'], ',')}",
                      f"**Cruising Speed**: {rp['cruise_speed']} kts",
                      f"\n*Rocket Plane Damage is not available in the API, sorry*"]
             e.add_field(name=name, value='\n'.join(value), inline=False)
 
-        tb = self.fitting.data['torpedo_bomber']
-        if tb is not None:
+        if (tb := self.fitting.data['torpedo_bomber']) is not None:
             name = f"{tb['name']} (Tier {tb['plane_level']}, Torpedo Bombers"
 
             t_name = 'Unnamed Torpedo' if tb['torpedo_name'] is None else tb['torpedo_name']
@@ -378,8 +372,7 @@ class ShipView(View):
                      ]
             e.add_field(name=name, value='\n'.join(value), inline=False)
 
-        db = self.fitting.data['dive_bomber']
-        if db is not None:
+        if (db := self.fitting.data['dive_bomber']) is not None:
             name = f"{db['name']} (Tier {db['plane_level']}, Dive Bombers"
 
             bomb_name = 'Bomb Stats' if db['bomb_name'] is None else db['bomb_name']
@@ -392,10 +385,8 @@ class ShipView(View):
                      f"**Accuracy**: {db['accuracy']['min']} - {db['accuracy']['max']}"
                      ]
 
-            fire_chance: float = db['bomb_burn_probability']
-            if fire_chance is not None:
+            if (fire_chance := db['bomb_burn_probability']) is not None:
                 value.append(f"**Fire Chance**: {round(fire_chance, 1)}%")
-
             e.add_field(name=name, value='\n'.join(value), inline=False)
 
         self.disabled = self.aircraft
@@ -411,8 +402,7 @@ class ShipView(View):
 
         desc = []
 
-        sec = self.fitting.data['atbas']
-        if sec is None:
+        if (sec := self.fitting.data['atbas']) is None:
             e.add_field(name='No Secondary Armament',
                         value="```diff\n- This ship does not have a secondary armament.```")
         elif 'slots' not in sec:
@@ -432,14 +422,12 @@ class ShipView(View):
                          f"**Shell Weight**: {v['bullet_mass']}kg"
                          ]
 
-                fire_chance: float = v['burn_probability']
-                if fire_chance:
+                if fire_chance := v['burn_probability']:
                     value.append(f'**Fire Chance**: {round(fire_chance, 1)}')
 
                 e.add_field(name=name, value='\n'.join(value))
 
-        aa = self.fitting.data['anti_aircraft']
-        if aa is None:
+        if (aa := self.fitting.data['anti_aircraft']) is None:
             aa_desc = ["```diff\n- This ship does not have any AA Capabilities.```"]
         else:
             aa_guns: dict[str, list] = defaultdict(list)
@@ -488,8 +476,8 @@ class ShipView(View):
             shell_data = [f"**Damage**: {format(shell_type['damage'], ',')}",
                           f"**Initial Velocity**: {format(shell_type['bullet_speed'], ',')}m/s",
                           f"**Shell Weight**: {format(shell_type['bullet_mass'], ',')}kg"]
-            fire_chance = shell_type['burn_probability']
-            if fire_chance is not None:
+
+            if (fire_chance := shell_type['burn_probability']) is not None:
                 shell_data.append(f"**Fire Chance**: {fire_chance}%")
 
             e.add_field(name=f"{shell_type['type']}: {shell_type['name']}", value="\n".join(shell_data))
@@ -559,9 +547,7 @@ class ShipView(View):
                 f"**Turning Radius**: {params['mobility']['turning_radius']}m"]
 
         # f"-{params['armour']['flood_prob']}% flood chance."  This field appears to be Garbage.
-
-        belt = params['armour']['flood_prob']
-        if belt != 0:
+        if params['armour']['flood_prob'] != 0:
             desc.append(f"**Torpedo Belt**: -{params['armour']['flood_prob']}% damage")
 
         # Build Rest of embed description
@@ -631,8 +617,7 @@ class ShipView(View):
             await self.ship.fetch_modules()
 
         # Dropdown - setattr
-        excluded = self.ship.modules.keys() - self.fitting.modules.values()
-        if excluded:
+        if excluded := self.ship.modules.keys() - self.fitting.modules.values():
             available_modules = [self.ship.modules[module_id].select_option for module_id in excluded]
             self.add_item(ModuleSelect(options=available_modules))
 

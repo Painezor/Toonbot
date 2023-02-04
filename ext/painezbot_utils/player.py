@@ -1,6 +1,7 @@
 """Utilities for World of Warships related commands."""
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from datetime import datetime
 from enum import Enum
@@ -144,9 +145,7 @@ class Player:
     bot: ClassVar[PBot] = None
 
     def __init__(self, bot: PBot, account_id: int, **kwargs) -> None:
-
-        if self.__class__.bot is None:
-            self.__class__.bot = bot
+        self.__class__.bot = bot
 
         self.account_id: int = account_id
         self.nickname: str = kwargs.pop('nickname', None)
@@ -215,14 +214,13 @@ class Player:
 
     async def get_pr(self) -> int:
         """Calculate a player's personal rating"""
-        link = 'https://api.wows-numbers.com/personal/rating/expected/json/'
         if not self.bot.pr_data_updated_at:
-            async with self.bot.session.get(link) as resp:
+            async with self.bot.session.get('https://api.wows-numbers.com/personal/rating/expected/json/') as resp:
                 match resp.status:
                     case 200:
                         pass
                     case _:
-                        raise ConnectionError(f'{resp.status} Error accessing {link}')
+                        raise ConnectionError(f'{resp.status} Error accessing {resp.url}')
         # TODO: Get PR
         raise NotImplementedError
 
@@ -238,8 +236,7 @@ class Player:
                 case _:
                     return None
 
-        data = json['data'].pop(str(self.account_id))
-        if data is None:
+        if (data := json['data'].pop(str(self.account_id))) is None:
             self.clan = False
             return None
 
@@ -279,19 +276,10 @@ class Player:
         else:
             url = f'https://api.worldofwarships.{self.region.domain}/wows/ships/stats/'
             p.update({'ship_id': ship.ship_id})
-            p.update({'extra': 'pvp_solo,'
-                               'pvp_div2, '
-                               'pvp_div3, '
-                               'rank_solo, '
-                               'rank_div2, '
-                               'rank_div3, '
-                               'pve, '
-                               'pve_div2, '
-                               'pve_div3, '
-                               'pve_solo, '
-                               'oper_solo, '
-                               'oper_div, '
-                               'oper_div_hard'})
+            p.update({'extra': 'pvp_solo, pvp_div2, pvp_div3, '
+                               'rank_solo, rank_div2, rank_div3, '
+                               'pve, pve_div2, pve_div3, pve_solo, '
+                               'oper_solo, oper_div, oper_div_hard'})
 
         async with self.bot.session.get(url, params=p) as resp:
             match resp.status:
@@ -499,8 +487,7 @@ class PlayerView(View):
         e = await self.base_embed
         e.title, p_stats = await self.filter_stats()
 
-        mb = p_stats.pop('main_battery', {})
-        if mb:
+        if mb := p_stats.pop('main_battery', {}):
             mb_kills = mb.pop('frags')
             mb_ship = self.bot.get_ship(mb.pop('max_frags_ship_id'))
             mb_max = mb.pop('max_frags_battle')
@@ -512,9 +499,7 @@ class PlayerView(View):
             e.add_field(name='Main Battery', value=mb, inline=False)
 
         # Secondary Battery
-        sb = p_stats.pop('second_battery', {})
-
-        if sb:
+        if sb := p_stats.pop('second_battery', {}):
             sb_kills = sb.pop('frags', 0)
             sb_ship = self.bot.get_ship(sb.pop('max_frags_ship_id', None))
             sb_max = sb.pop('max_frags_battle', 0)
@@ -539,20 +524,16 @@ class PlayerView(View):
             e.add_field(name='Torpedoes', value=trp, inline=False)
 
         # Ramming
-        ram = p_stats.pop('ramming', {})
-        if ram:
+        if ram := p_stats.pop('ramming', {}):
             out = f"Kills: {ram.pop('frags', 0)}"
-            ram_ship = self.bot.get_ship(ram.pop('max_frags_ship_id', None))
-            if ram_ship is not None:
+            if ram_ship := self.bot.get_ship(ram.pop('max_frags_ship_id', None)):
                 out += f" (Max: {ram.pop('max_frags_battle', 0)} - {ram_ship.name})\n"
             e.add_field(name='Ramming', value=out)
 
         # Aircraft
-        cv = p_stats.pop('aircraft', {})
-        if cv:
+        if cv := p_stats.pop('aircraft', {}):
             out = f"Kills: {cv.pop('frags')}"
-            cv_ship = self.bot.get_ship(cv.pop('max_frags_ship_id', None))
-            if cv_ship is not None:
+            if cv_ship := self.bot.get_ship(cv.pop('max_frags_ship_id', None)):
                 out += f" (Max: {cv.pop('max_frags_battle')} - {cv_ship.name})\n"
             e.add_field(name='Aircraft', value=out)
 
@@ -720,6 +701,7 @@ class PlayerView(View):
                                                  f"{format(tot_xp, ',')}\n{format(planes, ',')}")
             except ZeroDivisionError:
                 desc.append('```diff\n- Could not find player stats for this game mode and division size```')
+                logging.error(f'Could not find stats for size [{self.div_size}] mode [{self.mode}]')
 
         # Operations specific stats.
         try:

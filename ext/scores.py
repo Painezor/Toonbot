@@ -508,7 +508,7 @@ class Scores(Cog):
                 self.bot.games.append(fixture)
 
             # Set the competition of the fixture
-            if not hasattr(fixture, 'Competition'):
+            if fixture.competition is None:
                 fixture.competition = competition
 
             # Handling red cards is done relatively simply, so we do this first.

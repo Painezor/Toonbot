@@ -344,7 +344,7 @@ class Clan:
         async with self.bot.session.get(url, params=p) as resp:
             match resp.status:
                 case 200:
-                    data = await resp.json()
+                    data: dict = await resp.json()
                 case _:
                     return self
 
@@ -354,16 +354,16 @@ class Clan:
         self.updated_at = Timestamp(datetime.utcfromtimestamp(data.pop('updated_at', None)))
         self.created_at = Timestamp(datetime.utcfromtimestamp(data.pop('created_at', None)))
 
-        rn = data.pop('renamed_at', None)
-        if rn is not None:
+        if (rn := data.pop('renamed_at', None)) is not None:
             self.renamed_at = Timestamp(datetime.utcfromtimestamp(rn))
 
         for x in ['league', 'max_league']:
-            _x = data.pop(x, None)
-
-            if _x is not None:
+            try:
+                _x = data.pop(x)
                 league = next(i for i in League if _x == i)
                 setattr(self, x, league)
+            except KeyError:
+                pass
 
         def parse_player(pl: dict) -> Player:
             """Convert Dict to Player Objects"""
@@ -391,16 +391,14 @@ class Clan:
         # clan = json.pop('clan')  # This information is also already known to us
 
         ladder = json.pop('wows_ladder')  # This info we care about.
-        lbt = ladder.pop('last_battle_at', None)
-        if lbt is not None:
+        if lbt := ladder.pop('last_battle_at', {}):
             self.current_winning_streak = ladder.pop('current_winning_streak', 0)
             self.longest_winning_streak = ladder.pop('longest_winning_streak', 0)
             self.leading_team_number: int = ladder.pop('leading_team_number', None)
             ts = datetime.strptime(lbt, "%Y-%m-%dT%H:%M:%S%z")
             self.last_battle_at = Timestamp(ts)
 
-            lwt = ladder.pop('last_win_at', None)
-            if lwt is not None:
+            if lwt := ladder.pop('last_win_at', {}):
                 ts2 = datetime.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
                 self.last_win_at = Timestamp(ts2)
 
@@ -416,29 +414,23 @@ class Clan:
             league = ladder.pop('league')
             self.league = next(i for i in League if i.value == league)
 
-            highest = ladder.pop('max_position', {})
-            if highest:
-                max_league = highest.pop('league', None)
-                self.max_league = next(i for i in League if i.value == max_league)
+            if highest := ladder.pop('max_position', {}):
+                self.max_league = next(i for i in League if i.value == highest.pop('league', None))
                 self.max_division = highest.pop('division', None)
 
             self.division = ladder.pop('division', None)
             self.colour: Colour = Colour(ladder.pop('colour', 0x000000))
 
-            ratings = ladder.pop('ratings', [])
-
-            if ratings:
+            if ratings := ladder.pop('ratings', []):
                 self._clan_battle_history = []
 
             for x in ratings:
-                season_id = x.pop('season_number', 999)
-                if season_id > 99:
+                if (season_id := x.pop('season_number', 999)) > 99:
                     continue  # Discard Brawls.
 
                 season = ClanBattleStats(self, season_id)
 
-                maximums = x.pop('max_position', None)
-                if maximums is not None:
+                if (maximums := x.pop('max_position', {})):
                     max_league = maximums.pop('league')
                     season.max_league = next(i for i in League if i.value == max_league)
                     season.max_division = maximums.pop('division')
@@ -448,16 +440,14 @@ class Clan:
                 season.battles_played = x.pop('battles_count', 0)
                 season.games_won = season.games_won + x.pop('wins_count', 0)
 
-                last = x.pop('last_win_at', None)
-                if last is not None:
+                if last := x.pop('last_win_at', {}):
                     season.last_win_at = last.strptime(lwt, "%Y-%m-%dT%H:%M:%S%z")
 
                 season.final_rating = x.pop('public_rating', 0)
                 season.final_league = next(i for i in League if i.value == x.pop('league', 4))
                 season.final_division = x.pop('division', 3)
 
-        buildings = json.pop('buildings', None)
-        if buildings is not None:
+        if buildings := json.pop('buildings', {}):
             for k, v in buildings.items():
                 setattr(self, k, v['modifiers'])
         return self
@@ -475,8 +465,7 @@ class ClanView(View):
 
     def __init__(self, interaction: Interaction, clan: Clan, parent: tuple[View, str] = None) -> None:
         super().__init__()
-        if self.__class__.bot is None:
-            self.__class__.bot = interaction.client
+        self.__class__.bot = interaction.client
 
         self.interaction: Interaction = interaction
         self.clan: Clan = clan
@@ -502,10 +491,9 @@ class ClanView(View):
     @property
     def base_embed(self) -> Embed:
         """Generic Embed for all view functions"""
-        e = Embed()
+        e = Embed(colour=self.clan.league.colour)
         e.set_author(name=f"[{self.clan.tag}] {self.clan.name}")
         e.set_thumbnail(url=self.clan.league.thumbnail)
-        e.colour = self.clan.league.colour
         return e
 
     async def overview(self) -> Message:
@@ -571,8 +559,7 @@ class ClanView(View):
 
         e.description = ', '.join(members).replace('_', '\\_')  # Discord formatting.
 
-        banned = [i for i in self.clan.members if i.is_banned]
-        if banned:
+        if banned := filter(lambda x: x.is_banned, self.clan.members):
             e.add_field(name="Banned Members", value=', '.join(banned))
 
         # Clan Records:
@@ -657,8 +644,7 @@ class Leaderboard(View):
         self.pages: list[Embed] = []  # Embeds
         self.clans: list[Clan] = clans  # Rank, Clan
 
-        if self.__class__.bot is None:
-            self.__class__.bot = interaction.client
+        self.__class__.bot = interaction.client
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Only invoker may browse data."""
