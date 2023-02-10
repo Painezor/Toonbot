@@ -65,9 +65,11 @@ class Lookup(Cog):
         await interaction.response.defer(thinking=True)
         return await tfm.AgentSearch(interaction, query).update()
 
-    @command()
+    transfer = Group(name="transfer", description="Transfers & Rumours for a team")
+
+    @transfer.command(name="list")
     @describe(team_name="enter a team name to search for")
-    async def transfers(self, interaction: Interaction, team_name: str) -> Message:
+    async def listing(self, interaction: Interaction, team_name: str) -> Message:
         """Get this window's transfers for a team on transfermarkt"""
         await interaction.response.defer(thinking=True)
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
@@ -77,8 +79,8 @@ class Lookup(Cog):
         if view.value:
             return await view.value.view(interaction).push_transfers()
 
-    @command()
-    @describe(team_name="name of a team")
+    @transfer.command()
+    @describe(team_name="enter a team name to search for")
     async def rumours(self, interaction: Interaction, team_name: str) -> Optional[Message]:
         """Get the latest transfer rumours for a team"""
         await interaction.response.defer(thinking=True)

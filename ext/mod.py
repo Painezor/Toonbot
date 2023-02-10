@@ -72,7 +72,7 @@ class Mod(Cog):
         if destination.guild.id != interaction.guild.id:
             return await self.bot.error(interaction, content="You cannot send messages to other servers.")
 
-        perms = destination.permissions_for(interaction.channel.me)
+        perms = destination.permissions_for(interaction.guild.me)
         if not perms.send_messages:
             return await self.bot.error(interaction, content="I need send_messages permissions in that channel.")
         if not perms.embed_links:
@@ -174,7 +174,7 @@ class Mod(Cog):
     @Cog.listener()
     async def on_guild_join(self, guild: Guild) -> None:
         """Create database entry for new guild"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, guild.id)
@@ -182,7 +182,7 @@ class Mod(Cog):
     @Cog.listener()
     async def on_guild_remove(self, guild: Guild) -> None:
         """Delete guild's info upon leaving one."""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
 

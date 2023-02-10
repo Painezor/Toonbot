@@ -108,7 +108,8 @@ class PBot(AutoShardedBot):
 		self.ships: list[Ship] = []
 		self.ship_types: list[ShipType] = []
 
-		print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
+		logging.info(
+			f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
 
 	async def setup_hook(self):
 		"""Load Cogs asynchronously"""
@@ -118,9 +119,9 @@ class PBot(AutoShardedBot):
 		for c in COGS:
 			try:
 				await self.load_extension('ext.' + c)
-				print(f"Loaded extension {c}")
+				logging.info(f"Loaded extension {c}")
 			except Exception as e:
-				print(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
+				logging.info(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
 
 	def get_player(self, account_id: int) -> Player:
 		"""Get a Player object from those stored within the bot, or generate a new one."""

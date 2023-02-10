@@ -22,6 +22,7 @@ NO_SLASH_COMM = ("Due to changes with discord, I will soon be unable to parse me
                  "All commands have been moved to use the new /slashcommands system, bots must be re-invited to servers"
                  " with a new scope to use them. Use the link below to re-invite me. All old prefixes are disabled.")
 
+logger = logging.getLogger('Admin')
 
 def error_to_codeblock(error):
     """Formatting of python errors into codeblocks"""
@@ -162,8 +163,7 @@ class Admin(Cog):
         e2.set_footer(text=f"Python Version: {version}")
 
         try:
-            result = eval(code, env)
-            if isawaitable(result):
+            if isawaitable(result := eval(code, env)):
                 result = await result
         except Exception as err:
             result = error_to_codeblock(err)
@@ -171,9 +171,9 @@ class Admin(Cog):
         e1.description = f"```py\n{code}\n```"
         e2.description = f"```py\n{result}\n```"
         if len(e2.description) > 4000:
-            logging.log("DEBUG command input\n", code)
-            logging.log("DEBUG command output\n", result)
-            e1.description = 'Too long for discord, output sent to logger.'
+            logger.log("DEBUG command input\n", code)
+            logger.log("DEBUG command output\n", result)
+            e2.description = 'Too long for discord, output sent to logger.'
         return await self.bot.reply(interaction, embeds=[e1, e2])
 
     @command(name=_T("notify"))
@@ -201,9 +201,11 @@ class Admin(Cog):
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
 
-        try:
-            avatar = next(i for i in [getattr(file, 'url', None), link] if i is not None)
-        except StopIteration:
+        if file is not None:
+            avatar = file.url
+        elif link:
+            avatar = link
+        else:
             return await self.bot.error(interaction, content="You need to provide either a link or an attachment.")
 
         async with self.bot.session.get(avatar) as resp:
@@ -234,7 +236,6 @@ class Admin(Cog):
     async def streaming(self, interaction: Interaction, status: str) -> Message:
         """Change status to streaming {status}"""
         await interaction.response.defer(thinking=True)
-
         return await self.update_presence(interaction, Activity(type=1, name=status))
 
     @status.command(name=_T("watching"))
@@ -264,10 +265,10 @@ class Admin(Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @Cog.listener()
-    async def on_application_command_completion(self, interaction: Interaction, cmd: Command | ContextMenu) -> None:
-        """Log which commands have been ran"""
-        print(f'{type(cmd)} Used | [{interaction.user} on {interaction.guild.name}]{cmd.qualified_name}\n'
-              f'{cmd.parameters}{interaction.guild}')
+    async def on_app_command_completion(self, interaction: Interaction, cmd: Command | ContextMenu) -> None:
+        """Log commands as they are run"""
+        guild = interaction.guild.name if interaction.guild else 'DM'
+        logger.info(f'Command Ran [{interaction.user} {guild}] /{cmd.qualified_name}')
         return
 
 

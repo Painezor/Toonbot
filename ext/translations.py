@@ -48,7 +48,7 @@ class TL(Translator):
             return None
 
 
-class TranslatorCog(Cog):
+class Translations(Cog):
     """The translation cog."""
 
     def __init__(self, bot: Bot | PBot) -> None:
@@ -66,4 +66,4 @@ class TranslatorCog(Cog):
 
 async def setup(bot: Bot | PBot):
     """Load the translation Cog into the bot"""
-    await bot.add_cog(TranslatorCog(bot))
+    await bot.add_cog(Translations(bot))

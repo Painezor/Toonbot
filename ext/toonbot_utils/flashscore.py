@@ -78,7 +78,7 @@ async def lg_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete from list of stored leagues"""
     bot: Bot = interaction.client
     matches = filter(lambda x: current.lower() in x.title.lower(), filter(lambda c: c.id is not None, bot.competitions))
-    return [Choice(name=i.title[:100], value=i.id) for i in matches[:25]]
+    return [Choice(name=i.title[:100], value=i.id) for i in list(matches)[:25]]
 
 
 class FlashScoreItem:
@@ -103,10 +103,10 @@ class FlashScoreItem:
         return f"FlashScoreItem(id:{self.id} url: {self.url}, {self.name}, {self.logo_url})"
 
     def __eq__(self, other: FlashScoreItem):
-        if None not in [self.id, other.id]:
+        if None not in [self.id, other]:
             return self.id == other.id
 
-        if None not in [self.link, other.link]:
+        if None not in [self.link, other]:
             return self.link == other.link
 
         if hasattr(self, 'title') and hasattr(other, 'title'):
@@ -218,26 +218,28 @@ class FlashScoreItem:
 
             # State Corrections
             override = "".join([i for i in parsed if i.isalpha()])
+            logging.info(f'Detected Override {override}')
             parsed.replace(override, '')
+            logging.info(f'Parsed = {parsed}')
 
             match override:
-                case '':
+                case override if override == '':
                     pass
-                case 'AET':
+                case override if override == 'AET':
                     state = GameState.AFTER_EXTRA_TIME
-                case 'Pen':
+                case override if override == 'Pen':
                     state = GameState.AFTER_PENS
-                case 'Postp':
+                case override if override == 'Postp':
                     state = GameState.POSTPONED
-                case 'FRO':
+                case override if override == 'FRO':
                     state = GameState.FINAL_RESULT_ONLY
-                case 'WO':
+                case override if override == 'WO':
                     state = GameState.WALKOVER
-                case 'Awrd':
+                case override if override == 'Awrd':
                     state = GameState.AWARDED
-                case 'Postp':
+                case override if override == 'Postp':
                     state = GameState.POSTPONED
-                case 'Abn':
+                case override if override == 'Abn':
                     state = GameState.ABANDONED
 
             dtn = datetime.now(tz=timezone.utc)
@@ -341,7 +343,7 @@ class Team(FlashScoreItem):
 
     async def save_to_db(self) -> None:
         """Save the Team to the Bot Database"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """INSERT INTO fs_teams (id, name, logo_url, url) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, self.id, self.name, self.logo_url, self.url)
@@ -548,7 +550,7 @@ class Competition(FlashScoreItem):
 
     async def save_to_db(self) -> None:
         """Save the competition to the bot database"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """INSERT INTO fs_competitions (id, country, name, logo_url, url) 
                     VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"""
@@ -1029,7 +1031,7 @@ class Fixture(FlashScoreItem):
             case GameState.STOPPAGE_TIME:
                 return
 
-        logging.error(f'logging - Unhandled State change: {self.url} {old} -> {new} @ {self.time}')
+        logging.error(f'Unhandled State change: {self.url} {old} -> {new} @ {self.time}')
 
     # High Cost lookups.
     async def refresh(self) -> None:

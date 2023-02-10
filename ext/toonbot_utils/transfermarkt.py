@@ -397,7 +397,7 @@ class TeamView(View):
                 case _:
                     return await self.bot.error(self.interaction, f"Error {resp.status} connecting to {resp.url}")
 
-        e.url = resp.url
+        e.url = str(resp.url)
         e.title = f"Transfer rumours for {self.team.name}"
         e.set_author(name="Transfermarkt", url=resp.url, icon_url=FAVICON)
 
@@ -914,8 +914,8 @@ class TeamSearch(SearchView):
 
             r.append(Team(name=name, link=link,
                           league=Competition(name=''.join(i.xpath('.//tr[2]/td/a/text()')).strip(), link=lg_lnk),
-                          country=filter(None, [_.strip() for _ in
-                                                i.xpath('.//td/img[@class="flaggenrahmen" ]/@title')]),
+                          country=list(filter(None, [_.strip() for _ in
+                                                     i.xpath('.//td/img[@class="flaggenrahmen" ]/@title')])),
                           logo=''.join(i.xpath('.//td[@class="suche-vereinswappen"]/img/@src'))))
         self._results = r
 

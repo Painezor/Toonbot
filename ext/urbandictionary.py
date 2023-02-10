@@ -1,4 +1,6 @@
 """Fetch Definitions from UrbanDictionary"""
+# TODO: Fix Jump Button to be clickable and to show page number.
+
 from __future__ import annotations
 
 from importlib import reload
@@ -53,7 +55,7 @@ class UrbanView(View):
 
         self.add_item(view_utils.Previous(disabled=self.index == 0))
         if len(self.pages) > 3:
-            self.add_item(view_utils.Jump(label=f"{self.index + 1}/{len(self.pages)}"))
+            self.add_item(view_utils.Jump())
         self.add_item(view_utils.Next(disabled=self.index + 1 >= len(self.pages)))
         self.add_item(view_utils.Stop(row=0))
         return await self.interaction.edit_original_response(embed=self.pages[self.index], view=self)
@@ -84,7 +86,7 @@ def parse(results: dict) -> list[Embed]:
             e.add_field(name="Usage", value=ex)
 
         e.set_footer(text=f"👍{i['thumbs_up']} 👎{i['thumbs_down']} - {i['author']}")
-        e.timestamp = parser(i['written_on'])
+        e.timestamp = parser().parse(i['written_on'])
         embeds.append(e)
     return embeds
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from asyncio import sleep, Semaphore
+from json import load
 from typing import TYPE_CHECKING, Literal, Optional, ClassVar
 
 from asyncpg import ForeignKeyViolationError
@@ -14,7 +15,6 @@ from iso639 import languages
 from twitchio import PartialUser, Tag, ChannelInfo, User, ChatSettings
 from twitchio.ext.commands import Bot as TBot
 
-from ext.logs import TWITCH_LOGO
 from ext.painezbot_utils.player import Region
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.flags import get_flag
@@ -25,11 +25,13 @@ if TYPE_CHECKING:
     from painezBot import PBot
     from discord import Member
 
-from painezBot import credentials
+with open('credentials.json') as f:
+    credentials = load(f)
 
 WOWS_GAME_ID = 32502
 PARTNER_ICON = "https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab77-b780518f00a3/1"
 REGIONS = Literal['eu', 'na', 'cis', 'sea']
+TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 
 
 class Contributor:
@@ -53,29 +55,29 @@ class Contributor:
         output = []
         for i in self.links:
             match i:
-                case i if 'youtube' in i:
+                case i.find('youtube'):
                     output.append(f'• [YouTube]({i})')
-                case i if 'twitch' in i:
+                case i.find('twitch'):
                     output.append(f'• [Twitch]({i})')
-                case i if 'bilibili' in i:
+                case i.find('bilibili'):
                     output.append(f'• [bilibili]({i})')
-                case i if 'reddit' in i:
+                case i.find('reddit'):
                     output.append(f'• [Reddit]({i})')
-                case i if 'nicovideo' in i:
+                case i.find('nicovideo'):
                     output.append(f'• [Niconico]({i})')
-                case i if 'facebook' in i:
+                case i.find('facebook'):
                     output.append(f'• [Facebook]({i})')
-                case i if 'instagram' in i:
+                case i.find('instagram'):
                     output.append(f'• [Instagram]({i})')
-                case i if 'twitter' in i:
+                case i.find('twitter'):
                     output.append(f'• [Twitter]({i})')
-                case i if 'discord' in i:
+                case i.find('discord'):
                     output.append(f'• [Discord]({i})')
-                case i if 'yandex' in i:
+                case i.find('yandex'):
                     output.append(f'• [Zen]({i})')
-                case i if 'trovo' in i:
+                case i.find('trovo'):
                     output.append(f'• [Trovo]({i})')
-                case i if 'forum.worldofwarships' in i:
+                case i.find('forum.worldofwarships'):
                     output.append(f'• [WOWS Forum]({i})')
                 case _:
                     output.append(f"• {i}")
@@ -163,15 +165,15 @@ class Stream:
 
 class TrackerChannel:
     """A Twitch Tracker Channel"""
-    bot: PBot = None
+    bot: ClassVar[PBot]
 
-    def __init__(self, channel: 'TextChannel') -> None:
+    def __init__(self, channel: TextChannel) -> None:
         self.tracked: list[Role] = []
         self.channel: TextChannel = channel
 
     async def create_tracker(self) -> TrackerChannel:
         """Create a ticker for the channel"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
                 await connection.execute(sql, self.channel.guild.id)
@@ -184,7 +186,7 @@ class TrackerChannel:
         """Set the list of tracked members for the TrackerChannel"""
 
         sql = """SELECT role_id FROM tracker_ids WHERE channel_id = $1"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, self.channel.id)
 
@@ -199,7 +201,7 @@ class TrackerChannel:
     async def track(self, role: Role) -> list[Role]:
         """Add a user to the list of tracked users for Go Live notifications"""
         sql = """INSERT INTO tracker_ids (channel_id, role_id) VALUES ($1, $2)"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(sql, self.channel.id, role.id)
 
@@ -211,7 +213,7 @@ class TrackerChannel:
         sql = """DELETE FROM tracker_ids WHERE (channel_id, role_id) = ($1, $2)"""
 
         roles = [int(r) for r in roles]
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(sql, [(self.channel.id, r) for r in roles])
 
@@ -238,17 +240,17 @@ async def cc_ac(interaction: Interaction, current: str) -> list[Choice]:
         case None:
             pass
         case 'eu':
-            ccs = [i for i in ccs if i.region == Region.EU]
+            ccs = filter(lambda i: i.region == Region.EU, ccs)
         case 'na':
-            ccs = [i for i in ccs if i.region == Region.NA]
+            ccs = filter(lambda i: i.region == Region.NA, ccs)
         case 'cis':
-            ccs = [i for i in ccs if i.region == Region.CIS]
+            ccs = filter(lambda i: i.region == Region.CIS, ccs)
         case 'sea':
-            ccs = [i for i in ccs if i.region == Region.SEA]
+            ccs = filter(lambda i: i.region == Region.SEA, ccs)
 
     ccs = sorted(ccs, key=lambda x: x.name)
-    return [Choice(name=f"{i.name} ({i.region.name})"[:100],
-                   value=i.name) for i in ccs if current.lower() in i.auto_complete.lower()][:25]
+    return [Choice(name=f"{i.name} ({i.region.name})"[:100], value=i.name)
+            for i in ccs if current.lower() in i.auto_complete.lower()][:25]
 
 
 async def language_ac(interaction: Interaction, current: str) -> list[Choice]:
@@ -264,7 +266,7 @@ async def language_ac(interaction: Interaction, current: str) -> list[Choice]:
 
 class TrackerConfig(View):
     """Config View for a Twitch Tracker channel"""
-    bot: PBot = None
+    bot: ClassVar[PBot]
 
     def __init__(self, interaction: Interaction, tc: TrackerChannel):
         super().__init__()
@@ -383,26 +385,30 @@ class TwitchTracker(Cog):
     """Track when users go live to twitch."""
 
     def __init__(self, bot: PBot) -> None:
+        logging.info('Entering __init__')
         self.bot: PBot = bot
 
         self._cached: dict[int, Embed] = {}  # user_id: Embed
         self.semaphore = Semaphore()
 
-        if TrackerConfig.bot is None:
-            TrackerConfig.bot = bot
-            TrackerChannel.bot = bot
+        TrackerConfig.bot = bot
+        TrackerChannel.bot = bot
+        logging.info('Exiting __init__')
 
     async def cog_load(self) -> None:
         """On cog load, generate list of Tracker Channels"""
+        logging.info('Entering Cog Load...')
         await self.fetch_ccs()
         await self.update_cache()
-
+        logging.info('Creating TBot...')
         self.bot.twitch = TBot.from_client_credentials(**credentials['Twitch API'])
-        await self.bot.twitch.start()
+        logging.info('Success!')
+        self.bot.loop.create_task(self.bot.twitch.connect())
+        logging.info('Exiting Cog Load...')
 
     async def update_cache(self) -> list[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 channel_ids = await connection.fetch("""SELECT DISTINCT channel_id FROM tracker_channels""")
 
@@ -654,7 +660,7 @@ class TwitchTracker(Cog):
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> list[TrackerChannel]:
         """Remove dev blog trackers from deleted channels"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(f"""DELETE FROM tracker_channels WHERE channel_id = $1""", channel.id)
 

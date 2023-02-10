@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 
 import yatg
 
+logger = logging.getLogger('Devblog')
+
 SHIP_EMOTES = {'aircarrier': {'normal': '<:aircarrier:991362771662930032>',
                               'premium': '<:aircarrier_premium:991362995424862228>',
                               'special': '<:aircarrier_special:991362955696406578>'},
@@ -41,9 +43,7 @@ SHIP_EMOTES = {'aircarrier': {'normal': '<:aircarrier:991362771662930032>',
 
 def get_emote(node: HtmlElement):
     """Get the appropriate emote for ship class & rarity combination"""
-    s_class = node.attrib.get('data-type', None)
-
-    if s_class is None:
+    if (s_class := node.attrib.get('data-type', None)) is None:
         return ''
 
     if node.attrib.get('data-premium', None) == 'true':
@@ -86,11 +86,11 @@ class Blog:
         self.text = tree.xpath('.//div[@class="article__content"]')[0].text_content()
 
         if self.text:
-            logging.info(f"Storing Dev Blog #{self.id}")
+            logger.info(f"Storing Dev Blog #{self.id}")
         else:
             return
 
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """INSERT INTO dev_blogs (id, title, text) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, self.id, self.title, self.text)
@@ -181,15 +181,13 @@ class Blog:
                         sub_out = []
 
                         try:
-                            country = node.attrib.get('data-nation', None)
-                            if country is not None:
+                            if (country := node.attrib.get('data-nation', None)) is not None:
                                 sub_out.append(' ' + get_flag(country))
                         except AttributeError:
                             pass
 
                         try:
-                            _class = node.attrib.get('data-type', None)
-                            if _class is not None:
+                            if node.attrib.get('data-type', False):
                                 sub_out.append(get_emote(node))
                         except AttributeError:
                             pass
@@ -245,8 +243,7 @@ class Blog:
         for elem in article_html.iterchildren():
             output.append(parse(elem))
 
-        output = ''.join(output)
-        if len(output) > 4000:
+        if len(output := ''.join(output)) > 4000:
             trunc = f"…\n[Read Full Article]({self.url})"
             e.description = output.ljust(4000)[:4000 - len(trunc)] + trunc
         else:
@@ -257,11 +254,11 @@ class Blog:
 class DevBlogView(View):
     """Browse Dev Blogs"""
 
-    def __init__(self, bot: PBot, interaction: Interaction, pages: list[Record], last: bool = False) -> None:
+    def __init__(self, bot: PBot, interaction: Interaction, pages: list[Record]) -> None:
         super().__init__()
         self.interaction: Interaction = interaction
         self.pages: list[Blog] = pages
-        self.index: int = len(pages) - 1 if last else 0
+        self.index: int = 0
         self.bot: PBot = bot
 
     async def update(self) -> Message:
@@ -274,10 +271,8 @@ class DevBlogView(View):
 
 async def db_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete dev blog by text"""
-    bot: PBot = interaction.client
-    blogs = [i for i in bot.dev_blog_cache if current.lower() in i.ac_row]
-    choices = [Choice(name=f"{i.id}: {i.title}"[:100], value=str(i.id)) for i in blogs]
-    return choices[:-25:-1]  # Last 25 items reversed
+    blogs = filter(lambda i: current.lower() in i.ac_row, interaction.client.dev_blog_cache)
+    return [Choice(name=f"{i.id}: {i.title}"[:100], value=str(i.id)) for i in blogs][:-25:-1]  # Last 25 items reversed
 
 
 class DevBlog(Cog):
@@ -291,8 +286,7 @@ class DevBlog(Cog):
         self.bot.dev_blog_cache.clear()
         self.bot.dev_blog_channels.clear()
 
-        if Blog.bot is None:
-            Blog.bot = bot
+        Blog.bot = bot
 
     async def cog_load(self) -> None:
         """Do this on Cog Load"""
@@ -315,11 +309,8 @@ class DevBlog(Cog):
         articles = tree.xpath('.//item')
         for i in articles:
             try:
-                link = next(x for x in i.xpath('.//guid/text() | .//link/text()') if x)
+                link = next(filter(lambda l: '.ru' not in l, i.xpath('.//guid/text() | .//link/text()')))
             except StopIteration:
-                continue
-
-            if ".ru" in link:
                 continue
 
             try:
@@ -339,8 +330,8 @@ class DevBlog(Cog):
             e = await blog.parse()
 
             for x in self.bot.dev_blog_channels:
-                ch = self.bot.get_channel(x)
                 try:
+                    ch = self.bot.get_channel(x)
                     await ch.send(embed=e)
                 except (AttributeError, HTTPException):
                     continue
@@ -348,14 +339,14 @@ class DevBlog(Cog):
     @blog_loop.before_loop
     async def update_cache(self) -> None:
         """Assure dev blog channel list is loaded."""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 channels = await connection.fetch("""SELECT * FROM dev_blog_channels""")
                 self.bot.dev_blog_channels = [r['channel_id'] for r in channels]
 
     async def get_blogs(self) -> None:
         """Get a list of old dev blogs stored in DB"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """SELECT * FROM dev_blogs"""
                 records = await connection.fetch(q)
@@ -379,7 +370,7 @@ class DevBlog(Cog):
             output = "new Dev Blogs will now be sent to this channel."
             colour = Colour.green()
 
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(q, *args)
 
@@ -410,7 +401,7 @@ class DevBlog(Cog):
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(f"""DELETE FROM dev_blog_channels WHERE channel_id = $1""", channel.id)
 

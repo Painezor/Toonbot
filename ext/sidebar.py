@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from ext.toonbot_utils.flashscore import Fixture, Team
 NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
+REDDIT_THUMBNAIL = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
+
 
 def rows_to_md_table(header, strings, per=20, max_length=10240):
     """Create sidebar pop out tables"""
@@ -78,7 +80,7 @@ class NUFCSidebar(Cog):
     @sidebar_loop.before_loop
     async def fetch_team_data(self) -> None:
         """Grab information about teams from local database."""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 self.bot.reddit_teams = await connection.fetch("""SELECT * FROM team_data""")
 
@@ -226,15 +228,13 @@ class NUFCSidebar(Cog):
         await interaction.response.defer(thinking=True)
         # Check if message has an attachment, for the new sidebar image.
         e: Embed = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")
-        th = "http://vignette2.wikia.nocookie.net/valkyriecrusade/images/b/b5/Reddit-The-Official-App-Icon.png"
-        e.set_author(icon_url=th, name="r/NUFC Sidebar updated")
+        e.set_author(icon_url=REDDIT_THUMBNAIL, name="r/NUFC Sidebar updated")
         file = None
 
         if caption:
-            _ = await self.bot.reddit.subreddit('NUFC')
-            _ = await _.wiki.get_page('sidebar')
-            markdown = sub(r'---.*?---', f"---\n\n> {caption}\n\n---", _.content_md, flags=DOTALL)
-            await _.edit(content=markdown)
+            page = await (await self.bot.reddit.subreddit('NUFC')).wiki.get_page('sidebar')
+            markdown = sub(r'---.*?---', f"---\n\n> {caption}\n\n---", page.content_md, flags=DOTALL)
+            await page.edit(content=markdown)
             e.description = f"Set caption to: {caption}"
 
         if image:

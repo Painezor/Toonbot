@@ -1,8 +1,10 @@
 """Cog for managing and bulk banning members"""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
+import discord.utils
 from discord import Embed, BanEntry, SelectOption, Colour, TextStyle, NotFound, HTTPException
 from discord.app_commands import command, default_permissions, describe
 from discord.app_commands.checks import bot_has_permissions
@@ -16,19 +18,23 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
+logger = logging.getLogger('bans')
+
 
 class BanView(View):
     """View to hold the BanList"""
 
-    def __init__(self, interaction: Interaction, members: list[list[BanEntry]]) -> None:
+    def __init__(self, interaction: Interaction, bans: list[BanEntry]) -> None:
         super().__init__()
         self.interaction = interaction
         self.message = None
         self.bot: Bot | PBot = interaction.client
 
-        self.pages = members
-        self.page = 0
-        self.entries: dict[int, BanEntry] = {}  # discord id, BanEntry
+        self.pages = [bans[i:i + 25] for i in range(0, len(bans), 25)]
+        self.index = 0
+
+        self.bans = bans
+        self.page_bans: list[BanEntry] = []
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Make sure only the person running the command can select options"""
@@ -37,45 +43,54 @@ class BanView(View):
     @property
     def embed(self) -> Embed:
         """Generic Embed for this server"""
-        e = Embed(title=f"{self.message.guild.name} bans", colour=Colour.blurple())
-        if self.message.guild.icon:
-            e.set_thumbnail(url=self.message.guild.icon.url)
+        e = Embed(title=f"{self.interaction.guild.name} bans", colour=Colour.blurple())
+        if self.interaction.guild.icon:
+            e.set_thumbnail(url=self.interaction.guild.icon.url)
         return e
 
-    async def update(self):
+    async def update(self) -> None:
         """Refresh the view with the latest page"""
         # Clear Old items
+        self.pages = [self.bans[i:i + 25] for i in range(0, len(self.bans), 25)]
+
         self.clear_items()
-
-        page = self.pages[self.page]
-
-        options = []
-        self.entries.clear()
-
+        self.page_bans = self.pages[self.index]
         e = self.embed.copy()
-        strings = []
-        for b in page:
-            uid = str(b.user.id)
-            options.append(SelectOption(label=f"{b.user}", description=f"User #{uid}", emoji="☠", value=uid))
-            self.entries.update({b.user.id: b})
-            strings += [f"`{b.user.id}`", b.user.mention, str(b.user)]
-        e.description = "".join(strings)
 
-        self.add_item(BanSelect(options))
+        self.add_item(BanSelect([SelectOption(label=str(b.user), description=f"User #{b.user.id}", emoji="☠",
+                                              value=str(b.user.id)) for b in self.page_bans]))
+        e.description = '\n'.join([f"`{b.user.id}` {b.user.mention} {str(b.user)}" for b in self.page_bans])
+
         add_page_buttons(self, 1)
-        return self.bot.reply(view=self, embed=e)
+        logger.info('Dispatching Reply')
+        return await self.bot.reply(self.interaction, view=self, embed=e)
 
     async def unban(self, bans: list[str]):
         """Perform unbans on the entries passed back from the SelectOption"""
-        entries = [self.entries[int(i)] for i in bans]
+        e = Embed(colour=Colour.green(), title="Users unbanned", description="", timestamp=discord.utils.utcnow())
+        e.set_footer(text=f"Action performed by {self.interaction.user}\n{self.interaction.user.id}",
+                     icon_url=self.interaction.user.display_avatar.url)
 
-        e = Embed(colour=Colour.green(), title="The following users were unbanned")
-        e.set_footer(text=f"Action performed by {self.interaction.user}")
-        for ban in entries:
-            await self.message.guild.unban(ban.user, reason=f"Requested by {self.interaction.user}")
+        for ban in filter(lambda b: str(b.user.id) in bans, self.page_bans):
+            await self.interaction.guild.unban(ban.user, reason=f"Requested by {self.interaction.user}")
+
+            logging.info(f'Unbanning user {ban}')
+
             e.description += f"{ban.user} {ban.user.mention} ({ban.user.id})\n"
+            self.bans.remove(ban)
 
-        return self.bot.reply(self.interaction, embed=e)
+        self.pages = [self.bans[i:i + 25] for i in range(0, len(self.bans), 25)]
+
+        self.clear_items()
+        self.page_bans = self.pages[self.index]
+        e = self.embed.copy()
+
+        self.add_item(BanSelect([SelectOption(label=str(b.user), description=f"User #{b.user.id}", emoji="☠",
+                                              value=str(b.user.id)) for b in self.page_bans]))
+        e.description = '\n'.join([f"`{b.user.id}` {b.user.mention} {str(b.user)}" for b in self.page_bans])
+
+        add_page_buttons(self, 1)
+        return await self.bot.reply(self.interaction, embed=e, view=self)
 
 
 class BanSelect(Select):
@@ -83,10 +98,12 @@ class BanSelect(Select):
     view: BanView
 
     def __init__(self, options: list[SelectOption]) -> None:
+        logging.info(f'Generating Ban Select with {len(options)} options')
         super().__init__(placeholder="Unban members", max_values=len(options), options=options, row=0)
 
     async def callback(self, interaction: Interaction) -> Message:
         """When the select is triggered"""
+        await interaction.response.defer()
         return await self.view.unban(self.values)
 
 
@@ -141,25 +158,22 @@ class BanCog(Cog):
         await interaction.response.send_modal(BanModal(self.bot))
 
     @command()
-    @describe(name="Search for a specific user in the ban list")
+    @describe(name="Search by name")
     @default_permissions(ban_members=True)
     @bot_has_permissions(ban_members=True)
     async def banlist(self, interaction: Interaction, name: str = None) -> Message:
         """Show the ban list for the server"""
+        await interaction.response.defer(thinking=True)
 
-        bans: list[BanEntry] = []
         # Exhaust All Bans.
-        async for ban in interaction.guild.bans():
-            if name is not None and name not in ban.user.name:
-                continue
+        if not (bans := [i async for i in interaction.guild.bans()]):
+            return await self.bot.error(interaction, f"{interaction.guild.name} has no bans!")
 
-            bans.append(ban)
-
-        if not bans:
-            return await self.bot.reply(interaction, f"{interaction.guild.name} has no bans!")
-
-        pages = [bans[i:i + 25] for i in range(0, len(bans), 25)]
-        return await BanView(interaction, pages).update()
+        if name:
+            bans = list(filter(lambda i: name in i.user.name, bans))
+            if not bans:
+                return await self.bot.error(interaction, f"No bans found matching {name}")
+        return await BanView(interaction, bans).update()
 
 
 async def setup(bot) -> None:

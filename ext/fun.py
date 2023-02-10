@@ -5,6 +5,7 @@ from collections import Counter
 from random import choice, randint, randrange, shuffle
 from typing import TYPE_CHECKING
 
+import discord
 from discord import ButtonStyle, Colour, Embed, Interaction, TextStyle, Message, File
 from discord.app_commands import command, context_menu, describe
 from discord.ext.commands import Cog
@@ -20,6 +21,7 @@ EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" 
 COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thumb.png"
 
 
+# TODO: Walrus Operator for everything after fun cog.
 # TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
 # Add Timestamp of the last roll.
 
@@ -42,7 +44,7 @@ class DiceButton(Button):
         roll = randrange(1, self.sides + 1)
 
         if not self.view.rolls:
-            self.view.rolls = [roll]
+            self.view.rolls = [[roll]]
         else:
             self.view.rolls[-1].append(roll)
 
@@ -73,7 +75,7 @@ class DiceBox(View):
 
         self.clear_items()
         self.add_item(DiceButton(4))
-        self.add_item(DiceButton(6))
+        self.add_item(DiceButton())
         self.add_item(DiceButton(8))
         self.add_item(DiceButton(10))
         self.add_item(DiceButton(12))
@@ -94,7 +96,7 @@ class CoinView(View):
         self.flip_results: list[str] = []
         self.bot: Bot = interaction.client
         for x in range(count):
-            self.flip_results.append(choice(['Heads', 'Tails']))
+            self.flip_results.append(choice(['H', 'T']))
 
     async def on_timeout(self) -> Message:
         """Clear view"""
@@ -108,17 +110,13 @@ class CoinView(View):
         """Update embed and push to view"""
         e: Embed = Embed(colour=Colour.og_blurple(), title=self.flip_results[-1])
         e.set_thumbnail(url=COIN_IMAGE)
-        e.set_author(name="🪙 Coin Flip")
+        e.set_author(name="Coin Flip")
 
-        if len(self.flip_results) > 1:
-            counter = Counter(self.flip_results)
-            for c in counter.most_common():
-                e.add_field(name=f"Total {c[0]}", value=c[1])
+        counter = Counter(self.flip_results)
+        e.description = f"*{self.flip_results[-50:]}*"
+        for c in counter.most_common():
+            e.description += f"\n**Total {c[0]}**: {c[1]}"
 
-            res = [f'*{i}*' for i in self.flip_results[-200:]]
-            if len(self.flip_results) > 200:
-                res.append("\n…")
-            e.description = ', '.join(res)
         return await self.bot.reply(self.interaction, content=content, view=self, embed=e)
 
 
@@ -133,7 +131,7 @@ class FlipButton(Button):
         """When clicked roll"""
         await interaction.response.defer()
         for x in range(self.count):
-            self.view.flip_results.append(choice(['Heads', 'Tails']))
+            self.view.flip_results.append(choice(['H', 'T']))
         return await self.view.update()
 
 
@@ -198,14 +196,28 @@ class Fun(Cog):
                "mebbe like", "dain't bet on it like"
                ]
 
-        if len(question) > 256:
-            question = f"{question[:255]}…"
-
-        e: Embed = Embed(title=question, colour=0x000001, description=choice(res))
-        e.set_author(icon_url=self.bot.user.display_avatar.url, name=f'🎱 8 Ball')
+        e: Embed = Embed(title=f'🎱 8 Ball', colour=0x000001, description=f"**{question}**\n{choice(res)}")
+        e.set_author(icon_url=interaction.user.display_icon.url, name=interaction.user)
         return await self.bot.reply(interaction, embed=e)
 
-    @command()
+    memes = discord.app_commands.Group()
+
+    @memes.command()
+    async def dead(self, interaction: Interaction) -> Message:
+        """STOP, STOP HE'S ALREADY DEAD"""
+        return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
+
+    @memes.command(name="f")
+    async def press_f(self, interaction) -> Message:
+        """Press F to pay respects"""
+        return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
+
+    @memes.command()
+    async def helmet(self, interaction: Interaction) -> Message:
+        """Helmet"""
+        return await self.bot.reply(interaction, file=File(fp="Images/helmet.jpg"))
+
+    @memes.command()
     async def lenny(self, interaction: Interaction) -> Message:
         """( ͡° ͜ʖ ͡°)"""
         lennys = ['( ͡° ͜ʖ ͡°)', '(ᴗ ͜ʖ ᴗ)', '(⟃ ͜ʖ ⟄) ', '(͠≖ ͜ʖ͠≖)', 'ʕ ͡° ʖ̯ ͡°ʔ', '( ͠° ͟ʖ ͡°)', '( ͡~ ͜ʖ ͡°)',
@@ -214,20 +226,10 @@ class Fun(Cog):
                   '( ͡☉ ͜ʖ ͡☉)', 'ʕ ͡° ͜ʖ ͡°ʔ', '( ͡° ͜ʖ ͡ °)']
         return await self.bot.reply(interaction, content=choice(lennys))
 
-    @command()
+    @memes.command()
     async def thatsthejoke(self, interaction: Interaction) -> Message:
         """That's the joke"""
         return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=xECUrlnXCqk")
-
-    @command()
-    async def helmet(self, interaction: Interaction) -> Message:
-        """Helmet"""
-        return await self.bot.reply(interaction, file=File(fp="Images/helmet.jpg"))
-
-    @command()
-    async def dead(self, interaction: Interaction) -> Message:
-        """STOP, STOP HE'S ALREADY DEAD"""
-        return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
 
     @command()
     @describe(count="Enter a number of coins")
@@ -353,20 +355,13 @@ class Fun(Cog):
 
             total += total_roll
 
-        if len(roll_list) > 1:
-            e.description += f"\n**Total: {total}**"
-
+        e.description += f"\n**Total: {total}**"
         return await self.bot.reply(interaction, embed=e)
 
     @command()
     async def choose(self, interaction: Interaction) -> ChoiceModal:
         """Make a decision for you (separate choices with new lines)"""
         return await interaction.response.send_modal(ChoiceModal())
-
-    @command(name="f")
-    async def press_f(self, interaction) -> Message:
-        """Press F to pay respects"""
-        return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
 
 
 async def setup(bot: Bot) -> None:

@@ -40,7 +40,7 @@ class ToggleButton(Button):
         await interaction.response.defer()
         new_value: bool = not self.value
 
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = f"""UPDATE news_trackers SET {self.region.db_key} = $1 WHERE channel_id = $2"""
                 await connection.execute(sql, new_value, self.view.channel.id)
@@ -83,7 +83,7 @@ class Article:
                  ON CONFLICT (partial) DO UPDATE SET (title, description, link, image, category, date, eu, na, cis, sea)
                  = (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link, EXCLUDED.image, EXCLUDED.category, 
                     EXCLUDED.date, EXCLUDED.eu, EXCLUDED.na, EXCLUDED.cis, EXCLUDED.sea) """
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(sql, self.title, self.description, self.partial, self.link, self.image,
                                          self.category, self.date, self.eu, self.na, self.cis, self.sea)
@@ -212,7 +212,7 @@ class NewsConfig(View):
         self.clear_items()
 
         sql = """SELECT * FROM news_trackers WHERE channel_id = $1"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(sql, self.channel.id)
 
@@ -329,7 +329,7 @@ class NewsTracker(Cog):
         if not self.bot.is_ready():
             await self.bot.wait_until_ready()
 
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 channels = await connection.fetch("""SELECT * FROM news_trackers""")
                 articles = await connection.fetch("""SELECT * FROM news_articles""")
@@ -391,7 +391,7 @@ class NewsTracker(Cog):
         try:
             target = next(i for i in self.bot.news_channels if i.channel.id == channel.id)
         except StopIteration:
-            async with self.bot.db.acquire() as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     await connection.execute("""INSERT INTO news_trackers (channel_id) VALUES ($1)""", channel.id)
 
@@ -404,7 +404,7 @@ class NewsTracker(Cog):
     async def on_guild_channel_delete(self, channel: TextChannel) -> list[NewsChannel]:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM news_trackers WHERE channel_id = $1"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(q, channel.id)
 

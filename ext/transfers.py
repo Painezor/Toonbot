@@ -7,7 +7,7 @@ from importlib import reload
 from typing import TYPE_CHECKING, ClassVar
 
 from asyncpg import ForeignKeyViolationError
-from discord import ButtonStyle, Interaction, Embed, Colour, TextChannel, Permissions, HTTPException
+from discord import ButtonStyle, Embed, Colour, TextChannel, Permissions, HTTPException
 from discord.app_commands import Group, describe
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -21,11 +21,14 @@ from ext.utils.view_utils import Confirmation, Previous, Jump, Stop, Next
 
 if TYPE_CHECKING:
     from core import Bot
-    from discord import Message
+    from discord import Message, Interaction
 
 TF = "https://www.transfermarkt.co.uk"
 MIN_MARKET_VALUE = "200.000"
 LOOP_URL = f'{TF}/transfers/neuestetransfers/statistik?minMarktwert={MIN_MARKET_VALUE}'
+
+logger = logging.getLogger('Transfers')
+logger.setLevel(logging.DEBUG)
 
 
 class TransferChannel:
@@ -41,7 +44,7 @@ class TransferChannel:
     async def get_leagues(self) -> list[tfm.Competition]:
         """Get the leagues needed for this channel"""
         sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, self.channel.id)
 
@@ -50,25 +53,23 @@ class TransferChannel:
 
     async def create_ticker(self) -> TransferChannel:
         """Create a ticker for the channel"""
-        async with self.bot.db.acquire() as connection:
-            async with connection.transaction():
+        async with self.bot.db.acquire(timeout=60) as c:
+            async with c.transaction():
                 # Create the ticker itself.
-                if not await connection.fetchrow("""SELECT * FROM scores_channels WHERE channel_id = $1""",
-                                                 self.channel.id):
-                    await connection.execute("""INSERT INTO guild_settings (guild_id) VALUES ($1) 
-                                                ON CONFLICT DO NOTHING""", self.channel.guild.id)
-                    await connection.execute("""INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1, $2) 
-                                                ON CONFLICT DO NOTHING""", self.channel.guild.id, self.channel.id)
-
-        if invalidate:
-            raise IsLiveScoreError
+                if await c.fetchrow("""SELECT * FROM scores_channels WHERE channel_id = $1""", self.channel.id):
+                    raise IsLiveScoreError
+                else:
+                    await c.execute("""INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING""",
+                                    self.channel.guild.id)
+                    await c.execute("""INSERT INTO transfers_channels (guild_id, channel_id) VALUES ($1, $2) 
+                                       ON CONFLICT DO NOTHING""", self.channel.guild.id, self.channel.id)
 
         await self.reset_leagues()
         return self
 
     async def delete_ticker(self) -> None:
         """Delete the ticker channel from the database and remove it from the bots loop"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", self.channel.id)
 
@@ -76,18 +77,14 @@ class TransferChannel:
 
     async def add_leagues(self, leagues: list[tfm.Competition]) -> list[tfm.Competition]:
         """Add a list of leagues for the channel to the database"""
-        leagues = filter(None, leagues)
+        for i in leagues.copy():
+            if not i:
+                leagues.remove(i)
+                continue
+            if isinstance(i.country, list):
+                i.country = i.country[0]
 
-        for i in leagues:
-            try:
-                i.country = next(iter(i.country))
-            except StopIteration:
-                i.country = None
-
-        if not leagues:
-            return self.leagues
-
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO transfers_leagues (channel_id, name, country, link) 
                          VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
@@ -98,7 +95,7 @@ class TransferChannel:
 
     async def remove_leagues(self, leagues: list[tfm.Competition]) -> list[tfm.Competition]:
         """Remove a list of leagues for the channel from the database"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """DELETE from transfers_leagues WHERE (channel_id, link) = ($1, $2)"""
                 await connection.executemany(sql, [(self.channel.id, x.link) for x in leagues])
@@ -112,7 +109,7 @@ class TransferChannel:
                  ON CONFLICT DO NOTHING"""
 
         fields = [(self.channel.id, x.name, x.country, x.link) for x in tfm.DEFAULT_LEAGUES]
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute('''DELETE FROM transfers_leagues WHERE channel_id = $1''', self.channel.id)
                 await connection.executemany(sql, fields)
@@ -193,7 +190,10 @@ class TransfersConfig(View):
 
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
-        return await self.interaction.delete_original_response()
+        try:
+            return await self.interaction.delete_original_response()
+        except HTTPException:
+            pass
 
     async def remove_leagues(self, leagues: list[tfm.Competition]) -> Message:
         """Bulk remove leagues from a live scores channel"""
@@ -328,7 +328,7 @@ class TransfersConfig(View):
 
         if len(self.pages) > 1:
             self.add_item(Previous(row=2, disabled=self.index == 0))
-            self.add_item(Jump(row=2, label=f"Page {self.index + 1} of {len(self.pages)}", disabled=self.pages < 3))
+            self.add_item(Jump(row=2, disabled=self.pages < 3))
             self.add_item(Next(row=2, disabled=self.index + 1 >= len(self.pages)))
             self.add_item(Stop(row=2))
         else:
@@ -358,7 +358,7 @@ class Transfers(Cog):
     async def update_cache(self) -> list[TransferChannel]:
         """Load Transfer Channels into the bot."""
         sql = f"""SELECT * FROM transfers_channels"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql)
 
@@ -392,7 +392,7 @@ class Transfers(Cog):
             return
 
         if not self.bot.transfer_channels:
-            logging.error("Transfer Loop - No transfer_channels found.")
+            logger.error("Transfer Loop - No transfer_channels found.")
             return await self.update_cache()
 
         async with self.bot.session.get(LOOP_URL) as resp:
@@ -400,7 +400,7 @@ class Transfers(Cog):
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    logging.error(f'Transfers: bad status: {resp.status}')
+                    logger.error(f'Loop returned Bad status: {resp.status}')
                     return
 
         skip_output = True if not self.bot.parsed_transfers else False
@@ -487,7 +487,7 @@ class Transfers(Cog):
                 new_link = new_league.link.replace('transfers', 'startseite')
 
             # Fetch the list of channels to output the transfer to.
-            async with self.bot.db.acquire() as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     records = await connection.fetch("""
                                 SELECT DISTINCT transfers_channels.channel_id
@@ -572,10 +572,12 @@ class Transfers(Cog):
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Delete all transfer info for a channel from database upon deletion"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 log = await connection.execute("""DELETE FROM transfers_channels WHERE channel_id = $1""", channel.id)
-                logging.info(f"Transfer Channel {channel.id}: {log}")
+
+                if log != "DELETE 0":
+                    logger.info(f"Channel: {channel.id} was deleted automatically.")
 
 
 async def setup(bot: Bot):

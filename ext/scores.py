@@ -9,6 +9,7 @@ from importlib import reload
 from itertools import zip_longest
 from typing import TYPE_CHECKING, ClassVar
 
+import discord
 from asyncpg import Record
 from discord import TextChannel, ButtonStyle, Colour, Embed, PermissionOverwrite, Permissions, Message, \
     Forbidden, NotFound
@@ -82,7 +83,7 @@ class ScoreChannel:
     async def get_leagues(self) -> list[str]:
         """Fetch target leagues for the ScoreChannel from the database"""
         sql = """SELECT league FROM scores_leagues WHERE channel_id = $1"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records: list[Record] = await connection.fetch(sql, self.channel.id)
 
@@ -91,7 +92,7 @@ class ScoreChannel:
 
     async def reset_leagues(self) -> list[str]:
         """Reset the Score Channel to the list of default leagues."""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute('''DELETE FROM scores_leagues WHERE channel_id = $1''', self.channel.id)
 
@@ -102,7 +103,7 @@ class ScoreChannel:
 
     async def add_leagues(self, leagues: list[str]) -> list[str]:
         """Add a league to the ScoreChannel's tracked list"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 await connection.executemany(sql, [(self.channel.id, x) for x in leagues])
@@ -113,7 +114,7 @@ class ScoreChannel:
     async def remove_leagues(self, leagues: list[str]) -> list[str]:
         """Remove a list of leagues for the channel from the database"""
         sql = """DELETE from scores_leagues WHERE (channel_id, league) = ($1, $2)"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(sql, [(self.channel.id, x) for x in leagues])
 
@@ -165,7 +166,7 @@ class ScoreChannel:
             except Forbidden:
                 self.bot.score_channels.remove(self)
                 return
-            except NotFound:
+            except discord.HTTPException:
                 continue
             finally:
                 count += 1
@@ -310,7 +311,7 @@ class Scores(Cog):
     # Database load: Leagues & Teams
     async def load_database(self) -> None:
         """Load all stored leagues and competitions into the bot"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 comps = await connection.fetch("""SELECT * from fs_competitions""")
                 teams = await connection.fetch("""SELECT * from fs_teams""")
@@ -334,7 +335,7 @@ class Scores(Cog):
     # Database load: ScoreChannels
     async def update_cache(self) -> list[ScoreChannel]:
         """Grab the most recent data for all channel configurations"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch("""SELECT * FROM scores_leagues""")
 
@@ -650,7 +651,7 @@ class Scores(Cog):
         if channel is None:
             channel = interaction.channel
 
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 row = await connection.fetchrow("""SELECT * FROM scores_channels WHERE channel_id = $1""", channel.id)
 
@@ -680,7 +681,7 @@ class Scores(Cog):
             except Forbidden:
                 pass
 
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, interaction.guild.id)
@@ -741,7 +742,7 @@ class Scores(Cog):
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove all of a channel's stored data upon deletion"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute("""DELETE FROM scores_channels WHERE channel_id = $1""", channel.id)
 

@@ -1,6 +1,7 @@
 """Error Handling for Commands"""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from discord import Message, Interaction
@@ -13,6 +14,8 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
+logger = logging.getLogger('Errors')
+
 
 class Errors(Cog):
     """Error Handling Cog"""
@@ -23,14 +26,13 @@ class Errors(Cog):
 
     async def error_handler(self, interaction: Interaction, error) -> Message:
         """Event listener for when commands raise exceptions"""
-        if isinstance(error, NotOwner):
-            return await self.bot.error(interaction, 'You do not own this bot.')
-
         # Unpack CIE
         if isinstance(error, CommandInvokeError):
             error = error.original
 
         match error:
+            case NotOwner():
+                return await self.bot.error(interaction, 'You do not own this bot.')
             case TargetOptedOutError() | OptedOutError():  # QuoteDB Specific
                 return await self.bot.error(interaction, error.args[0])
             case BotMissingPermissions():
@@ -41,6 +43,8 @@ class Errors(Cog):
                 return await self.bot.error(interaction, f"You required {miss} permissions to run this command")
             case _:
                 await self.bot.error(interaction, f'An Internal error occurred.\n{error.args}')
+
+                logger.error(f"Error from {interaction.command.qualified_name} {interaction.data.items()}")
                 raise error
 
 

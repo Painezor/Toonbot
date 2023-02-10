@@ -67,7 +67,7 @@ class MatchThread:
             pre = await subreddit.submit(selftext=markdown, title=title)
             await pre.load()
 
-            async with self.bot.db.acquire() as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     sql = """UPDATE mtb_history SET pre_match_url = $1 WHERE (subreddit, fs_link) = ($2, $3)"""
                     self.record = await connection.fetchrow(sql, pre.url, self.settings['subreddit'], self.fixture.url)
@@ -85,9 +85,9 @@ class MatchThread:
 
         # Sleep until ready to post.
         if isinstance(self.fixture.time, datetime.datetime):
-            os = self.settings["match_offset"]
-            _ = 15 if os is None else os
-            await discord.utils.sleep_until(self.fixture.kickoff - datetime.timedelta(minutes=_))
+            if (offset := self.settings["match_offset"]) is None:
+                offset = 15
+            await discord.utils.sleep_until(self.fixture.kickoff - datetime.timedelta(minutes=offset))
 
         # Refresh fixture at kickoff.
         await self.fixture.refresh()
@@ -100,7 +100,7 @@ class MatchThread:
             if c:
                 await c.send(f'{self.settings["subreddit"]} Match Thread Posted: {match.url} | <{self.fixture.url}>')
 
-            async with self.bot.db.acquire() as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     sql = """UPDATE mtb_history SET match_thread_url = $1 
                              WHERE (subreddit, fs_link) = ($2, $3) RETURNING *"""
@@ -134,7 +134,7 @@ class MatchThread:
             post = await subreddit.submit(selftext=markdown, title=title)
             await post.load()
 
-            async with self.bot.db.acquire() as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     self.record = await connection.fetchrow("""UPDATE mtb_history SET post_match_url = $1 WHERE 
                             (subreddit, fs_link) = ($2, $3)""", post.url, self.settings['subreddit'], self.fixture.url)
@@ -375,7 +375,7 @@ class MatchThreadCommands(commands.Cog):
     async def schedule_threads(self) -> None:
         """Schedule tomorrow's match threads"""
         # Number of minutes before the match to post
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             records = await connection.fetch("""SELECT * FROM mtb_schedule""")
 
         for r in records:
@@ -403,7 +403,7 @@ class MatchThreadCommands(commands.Cog):
                 return
 
         sql = """SELECT * FROM mtb_history WHERE (subreddit, fs_link) = ($1, $2)"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(sql, sub, f.url)
                 if not record:

@@ -28,7 +28,7 @@ async def u_info(interaction: Interaction, member: Member) -> Message:
     e: Embed = Embed(colour=member.colour)
 
     try:
-        ico = member.display_icon.url
+        ico = member.display_avatar.url
     except AttributeError:
         ico = None
 

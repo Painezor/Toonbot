@@ -152,7 +152,7 @@ class Bot(AutoShardedBot):
 
     async def cache_quotes(self) -> None:
         """Cache the QuoteDB"""
-        async with self.db.acquire() as connection:
+        async with self.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 self.quotes = await connection.fetch("""SELECT * FROM quotes""")
 

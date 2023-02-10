@@ -67,7 +67,7 @@ class DeleteQuote(Button):
                 pass
 
             if view.value:
-                async with bot.db.acquire() as connection:
+                async with bot.db.acquire(timeout=60) as connection:
                     async with connection.transaction():
                         await connection.execute("DELETE FROM quotes WHERE quote_id = $1", r['quote_id'])
 
@@ -174,22 +174,16 @@ class QuotesView(View):
         e.timestamp = quote['timestamp']
 
         submitter = self.bot.get_user(quote["submitter_user_id"])
-        if submitter is None:
-            e.set_footer(text=f"Quote #{quote['quote_id']}"
-                              f"\n{guild} #{channel})"
-                              f"\nAdded by a deleted user", icon_url=QUOTE_IMG)
-        else:
-            e.set_footer(text=f"Quote #{quote['quote_id']}"
-                              f"\n{guild} #{channel}"
-                              f"\nAdded by {submitter}",
-                         icon_url=QUOTE_IMG if submitter.display_avatar.url is None else submitter.display_avatar.url)
 
+        sub = submitter if submitter else "a deleted user"
+        ico = submitter.display_avatar.url if submitter else QUOTE_IMG
+        if submitter is None:
+            e.set_footer(text=f"Quote #{quote['quote_id']}\n{guild} #{channel}\nAdded by {sub}", icon_url=ico)
         author = self.bot.get_user(quote["author_user_id"])
         if author is None:
             e.set_author(name=f"Deleted User", icon_url=QUOTE_IMG)
         else:
-            e.set_author(name=f"{author}",
-                         icon_url=QUOTE_IMG if author.display_avatar.url is None else author.display_avatar.url)
+            e.set_author(name=f"{author}", icon_url=author.display_avatar.url)
 
         is_mod = self.interaction.user.resolved_permissions.manage_messages and not self.all_guilds
         if self.interaction.user.id in [quote['author_user_id'], quote['submitter_user_id']] or is_mod:
@@ -201,7 +195,7 @@ class QuotesView(View):
             self.add_item(RandomQuote(row=0))
             self.add_item(view_utils.Previous(disabled=self.index == 0))
             if len(self.pages) > 3:
-                self.add_item(view_utils.Jump(label=f"{self.index + 1}/{len(self.pages)}"))
+                self.add_item(view_utils.Jump())
             self.add_item(view_utils.Next(disabled=self.index + 1 >= len(self.pages)))
             self.add_item(view_utils.Stop(row=0))
         else:
@@ -231,7 +225,7 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
     if not message.content:
         return await bot.error(interaction, content='That message has no content.')
 
-    async with bot.db.acquire() as connection:
+    async with bot.db.acquire(timeout=60) as connection:
         async with connection.transaction():
             try:
                 await connection.fetchrow(
@@ -246,12 +240,7 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
         await bot.cache_quotes()
 
         e = Embed(colour=Colour.green(), description="Added to quote database")
-        try:
-            await interaction.followup.send(embed=e, ephemeral=True)
-        except Exception as e:
-            logging.error(f"{e} | oi dickhead you can't use ephemeral on followup.send ")
-        else:
-            logging.info("oi dickhead you can use ephemeral on followup.send")
+        await interaction.followup.send(embed=e, ephemeral=True)
 
         v = QuotesView(interaction)
         v.index = -1
@@ -271,7 +260,7 @@ async def u_quote(interaction: Interaction, user: Member):
     if user.id in blacklist:
         raise TargetOptedOutError(user)
 
-    async with bot.db.acquire() as connection:
+    async with bot.db.acquire(timeout=60) as connection:
         async with connection.transaction():
             sql = """SELECT * FROM quotes WHERE author_user_id = $1 ORDER BY random()"""
             r = await connection.fetch(sql, user.id)
@@ -296,7 +285,7 @@ async def quote_stats(interaction: Interaction, member: Member):
                     (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
     escaped = [member.id, interaction.guild.id]
 
-    async with bot.db.acquire() as connection:
+    async with bot.db.acquire(timeout=60) as connection:
         async with connection.transaction():
             r = await connection.fetchrow(sql, *escaped)
 
@@ -338,7 +327,7 @@ class QuoteDB(commands.Cog):
 
     async def opt_outs(self) -> None:
         """Cache the list of users who have opted out of the quote DB"""
-        async with self.bot.db.acquire() as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch("""SELECT * FROM quotes_optout""")
         self.bot.quote_blacklist = [r['userid'] for r in records]
@@ -388,10 +377,16 @@ class QuoteDB(commands.Cog):
         if interaction.user.id in self.bot.quote_blacklist:
             raise OptedOutError
 
-        quotes = [i for i in self.bot.quotes if i['quote_id'] == quote_id]
-        if quotes:
-            return await QuotesView(interaction, quotes).update()
-        return await self.bot.error(interaction, f"Quote #{quote_id} was not found.")
+        logging.info(quote_id)
+        logging.info(type(quote_id))
+
+        try:
+            v = QuotesView(interaction)
+            v.all_guilds = True
+            v.index = v.all_quotes.index(next(i for i in v.all_quotes if i['quote_id'] == quote_id))
+            return await v.update()
+        except StopIteration:
+            return await self.bot.error(interaction, f"Quote #{quote_id} was not found.")
 
     @quotes.command()
     async def opt_out(self, i: Interaction):
@@ -403,7 +398,7 @@ class QuoteDB(commands.Cog):
             await v.wait()
 
             if v.value:  # User has chosen to opt in.
-                async with self.bot.db.acquire() as connection:
+                async with self.bot.db.acquire(timeout=60) as connection:
                     await connection.execute("""DELETE FROM quotes_optout WHERE userid = $1""", i.user.id)
 
                 await self.bot.reply(i, content="You have opted back into the Quotes Database.", view=None)
@@ -415,7 +410,7 @@ class QuoteDB(commands.Cog):
                             (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
                             (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
 
-            async with self.bot.db.acquire() as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     r = await connection.fetchrow(sql, i.user.id, i.guild.id)
 
@@ -444,7 +439,7 @@ class QuoteDB(commands.Cog):
                 return await self.bot.error(i, "Opt out cancelled, you can still quote and be quoted")
 
             if e is not None:
-                async with self.bot.db.acquire() as connection:
+                async with self.bot.db.acquire(timeout=60) as connection:
                     async with connection.transaction():
                         sql = """DELETE FROM quotes WHERE author_user_id = $1 OR submitter_user_id = $2"""
                         r = await connection.execute(sql, i.user.id, i.user.id)

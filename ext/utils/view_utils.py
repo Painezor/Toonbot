@@ -26,7 +26,7 @@ def add_page_buttons(view: View, row: int = 0) -> View:
         p.disabled = index == 0
         view.add_item(p)
 
-        j = Jump(row=row, label=f"Page {index + 1} of {pages}")
+        j = Jump(row=row, label=f"{index + 1}/{pages}")
         j.disabled = pages < 3
         view.add_item(j)
 
@@ -77,8 +77,18 @@ class Previous(Button):
 class Jump(Button):
     """Jump to a specific page in a Pagination view"""
 
-    def __init__(self, label: str = "Jump", row: int = 0, disabled: bool = False):
-        super().__init__(label=label, style=ButtonStyle.blurple, emoji='🔎', row=row, disabled=disabled)
+    def __init__(self, label: str = None, row: int = 0):
+        super().__init__(style=ButtonStyle.blurple, emoji='🔎', row=row)
+        if not label:
+            try:
+                self.label = f"{self.view.index - 1}/{len(self.view.pages)}"
+            except AttributeError:
+                self.label = "Jump"
+
+        try:
+            self.disabled = len(self.view.pages) > 3
+        except AttributeError:
+            self.disabled = True
 
     async def callback(self, interaction: Interaction) -> Modal:
         """When button is clicked…"""

@@ -1,6 +1,7 @@
 """Information about World of Warships Clans"""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -280,8 +281,8 @@ class Clan:
                 case _:
                     raise ConnectionError(f'{resp.status} error accessing {url}')
 
-        print('DEBUG: Season Stats')
-        print(season_stats)
+        logging.info('DEBUG: Season Stats')
+        logging.info(season_stats)
 
         for x in season_stats['items']:
             player = self.bot.get_player(x['id'])
@@ -430,7 +431,7 @@ class Clan:
 
                 season = ClanBattleStats(self, season_id)
 
-                if (maximums := x.pop('max_position', {})):
+                if maximums := x.pop('max_position', False):
                     max_league = maximums.pop('league')
                     season.max_league = next(i for i in League if i.value == max_league)
                     season.max_division = maximums.pop('division')

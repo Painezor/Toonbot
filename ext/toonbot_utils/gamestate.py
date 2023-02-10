@@ -70,7 +70,7 @@ class GameTime:
         return f"GameTime({self.__dict__})"
 
     def __eq__(self, other: GameTime) -> bool:
-        return self.value == other.value
+        return False if other is None else self.value == other.value
 
     @property
     def state(self) -> GameState:
