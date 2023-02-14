@@ -5,7 +5,7 @@ import logging
 from asyncio import new_event_loop
 from datetime import datetime
 from json import load
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
@@ -13,13 +13,11 @@ from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot, when_mentioned
 
 from ext.painezbot_utils.clan import ClanBuilding, Clan
-from ext.painezbot_utils.player import Player
-from ext.painezbot_utils.ship import ShipSentinel
 from ext.utils.playwright_browser import make_browser
 from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
-	from ext.painezbot_utils.player import Map, GameMode
+	from ext.painezbot_utils.player import Map, GameMode, Player
 	from ext.painezbot_utils.ship import ShipType, Module, Ship
 	from ext.news_tracker import NewsChannel, Article
 	from ext.devblog import Blog
@@ -38,7 +36,8 @@ COGS = [
 	# Utility Cogs
 	'errors', 'metapainezbot',
 	# Slash commands.
-	'admin', 'bans', 'devblog', 'info', 'logs', 'mod', 'reminders', 'news_tracker', 'translations', 'twitch', 'warships'
+	'admin', 'bans', 'devblog', 'images', 'info', 'logs', 'mod', 'reminders', 'news_tracker', 'translations', 'twitch',
+	'warships'
 ]
 
 
@@ -98,15 +97,21 @@ class PBot(AutoShardedBot):
 		self.contributors: list[Contributor] = []
 		self.clans: list[Clan] = []
 		self.clan_buildings: list[ClanBuilding] = []
+		self.players: list[Player] = []
 		self.maps: list[Map] = []
 		self.modes: list[GameMode] = []
 		self.modules: list[Module] = []
-		self.players: list[Player] = []
 		self.pr_data: dict = {}
 		self.pr_data_updated_at: Optional[datetime] = None
 		self.pr_sums: tuple[int, int, int]  # Dmg WR Kills
 		self.ships: list[Ship] = []
 		self.ship_types: list[ShipType] = []
+
+		# Callables
+		self.get_player: Callable = None
+		self.get_ship: Callable = None
+		self.get_clan: Callable = None
+		self.get_ship_type: Callable = None
 
 		logging.info(
 			f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
@@ -122,41 +127,6 @@ class PBot(AutoShardedBot):
 				logging.info(f"Loaded extension {c}")
 			except Exception as e:
 				logging.info(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
-
-	def get_player(self, account_id: int) -> Player:
-		"""Get a Player object from those stored within the bot, or generate a new one."""
-		try:
-			return next(i for i in self.players if i.account_id == account_id)
-		except StopIteration:
-			p = Player(self, account_id)
-			self.players.append(p)
-			return p
-
-	def get_ship(self, identifier: str | int) -> Optional[Ship | ShipSentinel]:
-		"""Get a Ship object from a list of the bots ships"""
-		if identifier is None:
-			return None
-
-		try:
-			return next(i for i in self.ships if getattr(i, 'ship_id_str', None) == identifier)
-		except StopIteration:  # Fallback
-			try:
-				return next(i for i in self.ships if getattr(i, 'ship_id', None) == identifier)
-			except StopIteration:
-				return next(i for i in ShipSentinel if i.id == identifier)
-
-	def get_clan(self, clan_id: int) -> Clan:
-		"""Get a Clan object from Stored Clans"""
-		try:
-			clan = next(i for i in self.clans if i.clan_id == clan_id)
-		except StopIteration:
-			clan = Clan(self, clan_id)
-			self.clans.append(clan)
-		return clan
-
-	def get_ship_type(self, match: str) -> ShipType:
-		"""Get a ShipType object matching a string"""
-		return next(i for i in self.ship_types if i.match == match)
 
 
 async def run():

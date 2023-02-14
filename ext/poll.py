@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from asyncio import Task
 
 # TODO: Database table, persistent views
+# TODO: Use a collections.counter.
 
 
 _active_polls: set[Task] = set()

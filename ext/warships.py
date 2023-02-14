@@ -1,6 +1,7 @@
 """Private world of warships related commands"""
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal
@@ -11,9 +12,9 @@ from discord.ext.commands import Cog
 from discord.ui import View, Button
 from unidecode import unidecode
 
-from ext.painezbot_utils.clan import ClanBuilding, League, Leaderboard
-from ext.painezbot_utils.player import Region, Map, GameMode
-from ext.painezbot_utils.ship import Nation, ShipType, Ship
+from ext.painezbot_utils.clan import ClanBuilding, League, Leaderboard, Clan
+from ext.painezbot_utils.player import Region, Map, GameMode, Player
+from ext.painezbot_utils.ship import Nation, ShipType, Ship, ShipSentinel
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import Paginator
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
 # TODO: Browse all Ships command. Filter Dropdowns. Dropdown to show specific ships.
 # TODO: Clan Base Commands # https://api.worldofwarships.eu/wows/clans/glossary/
 # TODO: Recent command. # https://api.worldofwarships.eu/wows/account/statsbydate/
+
+logger = logging.getLogger('warships')
 
 # noinspection SpellCheckingInspection
 ASLAIN = 'https://aslain.com/index.php?/topic/2020-download-%E2%98%85-world-of-warships-%E2%98%85-modpack/'
@@ -110,6 +113,48 @@ OM_CA = {6: ['Tier 3 Plating'],
 # TODO: Calculation of player's PR
 # https://wows-numbers.com/personal/rating
 
+def get_player(bot: PBot, account_id: int) -> Player:
+    """Get a Player object from those stored within the bot, or generate a new one."""
+    try:
+        return next(i for i in bot.players if i.account_id == account_id)
+    except StopIteration:
+        p = Player(account_id)
+        bot.players.append(p)
+        return p
+
+
+def get_ship(self, identifier: str | int) -> Ship | ShipSentinel | None:
+    """Get a Ship object from a list of the bots ships"""
+    if identifier is None:
+        return None
+
+    try:
+        return next(i for i in self.ships if getattr(i, 'ship_id_str', None) == identifier)
+    except StopIteration:  # Fallback
+        try:
+            return next(i for i in self.ships if getattr(i, 'ship_id', None) == identifier)
+        except StopIteration:
+            try:
+                return next(i for i in ShipSentinel if i.id == identifier)
+            except StopIteration:
+                return logger.error(f'Unrecognised ShipID {identifier}')
+
+
+def get_clan(self, clan_id: int) -> Clan:
+    """Get a Clan object from Stored Clans"""
+    try:
+        clan = next(i for i in self.clans if i.clan_id == clan_id)
+    except StopIteration:
+        clan = Clan(self, clan_id)
+        self.clans.append(clan)
+    return clan
+
+
+def get_ship_type(self, match: str) -> ShipType:
+    """Get a ShipType object matching a string"""
+    return next(i for i in self.ship_types if i.match == match)
+
+
 # Autocomplete.
 async def map_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
@@ -161,7 +206,7 @@ async def mode_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 
 async def player_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Fetch player's account ID by searching for their name."""
-    bot: PBot = getattr(interaction, 'client')
+    bot: PBot = interaction.client
     p = {'application_id': bot.WG_ID, "search": current, 'limit': 25}
 
     region = getattr(interaction.namespace, 'region', None)
@@ -193,7 +238,7 @@ async def player_ac(interaction: Interaction, current: str) -> list[Choice[str]]
 
 async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete for a list of clan names"""
-    bot: PBot = getattr(interaction, 'client')
+    bot: PBot = interaction.client
 
     region = getattr(interaction.namespace, 'region', None)
     region = next((i for i in Region if i.db_key == region), Region.EU)
@@ -233,6 +278,12 @@ class Warships(Cog):
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
+        self.bot.get_player = get_player
+        self.bot.get_clan = get_clan
+        self.bot.get_ship_type = get_ship_type
+
+        # override our custom classes.
+        Player.bot = self.bot
 
     async def cog_load(self) -> None:
         """Fetch Generics from API and store to bot."""
@@ -704,5 +755,5 @@ class Warships(Cog):
         return await Leaderboard(interaction, clans).update()
 
 async def setup(bot: PBot):
-    """Load the cog into the bot"""
+    """Load the Warships Cog into the bot"""
     await bot.add_cog(Warships(bot))

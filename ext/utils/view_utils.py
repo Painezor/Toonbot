@@ -115,9 +115,7 @@ class JumpModal(Modal):
             _ = pages[int(self.page.value)]
             self.view.index = int(self.page.value)
             return await update()
-        except ValueError:  # User did not enter a number.
-            return await update(content="Invalid page selected.")
-        except IndexError:  # Number was out of range.
+        except (ValueError, IndexError):  # Number was out of range.
             self.view.index = len(pages) - 1
             return await update()
 
@@ -218,18 +216,17 @@ class ObjectSelectView(View):
 
         add_page_buttons(self, row=1)
 
-        _ = ItemSelect(placeholder="Select Matching Item…", options=self.pages[0])
-        _.label = f"Page {self.index + 1} of {len(self.pages)}"
-        self.add_item(_)
+        sel = ItemSelect(placeholder="Select Matching Item…", options=self.pages[0])
+        sel.label = f"Page {self.index + 1} of {len(self.pages)}"
+        self.add_item(sel)
         self.add_item(Stop(row=1))
         return await self.bot.reply(self.interaction, content=content, view=self, embed=self.embed)
 
     async def on_timeout(self) -> Message:
         """Cleanup"""
         self.clear_items()
-        err = "Timed out waiting for you to select a match."
         self.stop()
-        return await self.bot.error(self.interaction, err, followup=False)
+        return await self.bot.error(self.interaction, "Timed out waiting for you to select a match.", followup=False)
 
 
 class MultipleSelect(Select):

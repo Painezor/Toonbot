@@ -1,4 +1,6 @@
 """Notify server moderators about specific events"""
+# TODO: Split /logs command into subcommands with sub-views & Parent.
+
 from __future__ import annotations
 
 import logging
@@ -465,8 +467,11 @@ class Logs(Cog):
                     after.description += f"**User Limit**: {key['after']}\n"
 
                 if key := changes.pop("default_auto_archive_duration", False):
-                    before.description += f"**Thread Archiving**: {key['before'] + 'mins' if key['before'] else None}\n"
-                    after.description += f"**Thread Archiving**: {key['after'] + 'mins' if key['after'] else None}\n"
+                    bf_archive = str(key['before']) + 'mins' if key['before'] else None
+                    af_archive = str(key['before']) + 'mins' if key['before'] else None
+
+                    before.description += f"**Thread Archiving**: {bf_archive}\n"
+                    after.description += f"**Thread Archiving**: {af_archive}\n"
 
                 if key := changes.pop("position", False):
                     before.description += f"**Order**: {key['before']}\n"
@@ -499,6 +504,9 @@ class Logs(Cog):
                 if key := changes.pop('type', False):
                     before.description += f"**Type**: {key['before'].name.title() if key['before'] is not None else ''}"
                     after.description += f"**Type**: {key['after'].name.title() if key['after'] is not None else ''}\n"
+
+                if _ := changes.pop('available_tags', False):
+                    pass  # Discard.
 
                 # Permission Overwrites
                 if key := changes.pop("overwrites", False):
@@ -951,10 +959,13 @@ class Logs(Cog):
                     after.description += f"**Emoji**: {key['after']}\n"
 
                 if key := changes.pop("icon", False):
-                    before.description += f"**Icon**: [link]({key['before'].url})\n"
-                    after.description += f"**Icon**: [link]({key['after'].url})\n"
-                    before.set_image(url=key['before'].url)
-                    after.set_image(url=key['after'].url)
+                    bf_img = key['before'].url if key['before'] is not None else None
+                    af_img = key['before'].url if key['after'] is not None else None
+
+                    before.description += f"**Icon**: {f'[Link]({bf_img})' if bf_img else None}\n"
+                    after.description += f"**Icon**: {f'[Link]({af_img})' if af_img else None}\n"
+                    before.set_image(url=key['before'].url if bf_img is not None else None)
+                    after.set_image(url=key['after'].url if af_img is not None else None)
 
                 if key := changes.pop("permissions", False):
                     bf: discord.Permissions = key['before']
@@ -987,7 +998,10 @@ class Logs(Cog):
                 if isinstance(role := entry.target, discord.Object):
                     role = entry.guild.get_role(entry.target.id)
 
-                role_icon: str = role.display_icon.url if role.display_icon is not None else None
+                if role is None:
+                    role_icon = None
+                else:
+                    role_icon: str = role.display_icon.url if role.display_icon is not None else None
 
                 match entry.action:
                     case AuditLogAction.role_create:
@@ -1187,6 +1201,10 @@ class Logs(Cog):
                     before.description += f"**Channel**: {key['before'].mention if key['before'] else None}\n"
                     after.description += f"**Channel**: {key['after'].mention if key['after'] else None}\n"
 
+                if key := changes.pop('channel', False):
+                    before.description += f"**Type**: {key['before'].name if key['before'] else None}\n"
+                    after.description += f"**Type**: {key['after'].name if key['after'] else None}\n"
+
                 if key := changes.pop('application_id', False):
                     before.description += f"**Application ID**: {key['before']}\n"
                     after.description += f"**Application ID**: {key['after']}\n"
@@ -1209,6 +1227,15 @@ class Logs(Cog):
                 if not (channels := filter(lambda i: i['bot_management'], channels)):
                     return
 
+                # TODO: Parse
+                # Changes Remain: {'name': {'before': None, 'after': 'Spam'},
+                # 'trigger_type': {'before': None, 'after': <AutoModRuleTriggerType.spam: 3>},
+                # 'event_type': {'before': None, 'after': <AutoModRuleEventType.message_send: 1>},
+                # 'actions': {'before': None, 'after': [<AutoModRuleAction type=1 channel=None duration=None>]},
+                # 'enabled': {'before': None, 'after': True},
+                # 'exempt_roles': {'before': None, 'after': []},
+                # 'exempt_channels': {'before': None, 'after': []}}
+
                 if key := changes.pop("name", False):
                     before.description += f"**Name**: {key['before']}\n"
                     after.description += f"**Name**: {key['after']}\n"
@@ -1216,6 +1243,18 @@ class Logs(Cog):
                 if key := changes.pop("type", False):
                     before.description += f"**Type**: {key['before']}\n"
                     after.description += f"**Type**: {key['after']}\n"
+
+                if key := changes.pop("exempt_roles", False):
+                    bf_roles: list[Role] = key['before']
+                    af_roles: list[Role] = key['after']
+
+                    new = [i for i in af_roles if i not in bf_roles]
+                    removed = [i for i in bf_roles if i not in af_roles]
+
+                    if bf_roles:
+                        after.add_field(name="Role Exemptions Added", value=', '.join([i.mention for i in new]))
+                    if af_roles:
+                        after.add_field(name="Role Exemptions Removed", value=', '.join([i.mention for i in removed]))
 
                 match entry.action:
                     case AuditLogAction.automod_rule_create:

@@ -142,11 +142,9 @@ class Region(Enum):
 
 class Player:
     """A World of Warships player."""
-    bot: ClassVar[PBot] = None
+    bot: ClassVar[PBot]
 
-    def __init__(self, bot: PBot, account_id: int, **kwargs) -> None:
-        self.__class__.bot = bot
-
+    def __init__(self, account_id: int, **kwargs) -> None:
         self.account_id: int = account_id
         self.nickname: str = kwargs.pop('nickname', None)
 

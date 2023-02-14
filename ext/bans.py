@@ -73,9 +73,6 @@ class BanView(View):
 
         for ban in filter(lambda b: str(b.user.id) in bans, self.page_bans):
             await self.interaction.guild.unban(ban.user, reason=f"Requested by {self.interaction.user}")
-
-            logging.info(f'Unbanning user {ban}')
-
             e.description += f"{ban.user} {ban.user.mention} ({ban.user.id})\n"
             self.bans.remove(ban)
 
@@ -98,7 +95,6 @@ class BanSelect(Select):
     view: BanView
 
     def __init__(self, options: list[SelectOption]) -> None:
-        logging.info(f'Generating Ban Select with {len(options)} options')
         super().__init__(placeholder="Unban members", max_values=len(options), options=options, row=0)
 
     async def callback(self, interaction: Interaction) -> Message:

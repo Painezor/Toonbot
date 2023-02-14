@@ -288,6 +288,10 @@ class ShipSentinel(Enum):
     ENTERPRISE_OLD = (3762272240, 'Enterprise (pre 30-01-2019)', 8)
     GRAF_ZEPPELIN_OLD = (3762272048, 'Graf Zeppelin (pre 30-01-2019)', 8)
 
+    # Submarines ...
+    U_2501 = (4179015472, 'U-2501', 10)
+    CACHALOT = (4078352368, 'Cachalot', 6)
+
 
 class ShipButton(Button):
     """Change to a view of a different ship"""

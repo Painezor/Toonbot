@@ -57,10 +57,12 @@ class MatchThread:
         subreddit = await self.bot.reddit.subreddit(self.settings["subreddit"])
 
         if self.record["pre_match_url"] is None:
-            os = self.settings['pre_match_offset']
-            _ = datetime.timedelta(days=3) if os is None else datetime.timedelta(days=os)
+            if offset := self.settings['pre_match_offset'] is None:
+                offset = datetime.timedelta(days=3)
+            else:
+                offset = datetime.timedelta(days=offset)
 
-            target_time = self.fixture.kickoff - _
+            target_time = self.fixture.kickoff - offset
 
             await discord.utils.sleep_until(target_time)
 
@@ -75,8 +77,7 @@ class MatchThread:
             pre = await self.bot.reddit.submission(url=self.record["pre_match_url"])
             await pre.edit(markdown)
 
-        c = self.bot.get_channel(self.settings['notify_channel'])
-        if c:
+        if c := self.bot.get_channel(self.settings['notify_channel']):
             e = self.base_embed
             e.title = f"r/{self.settings['subreddit']} Pre-Match Thread: {self.fixture.score_line}"
             e.url = pre.url
@@ -315,10 +316,10 @@ class MatchThread:
 
         # Radio, TV.
         if not post_match:
-            _ = self.settings['radio_link']
-            markdown += f"[📻 Radio Commentary]({_})\n\n" if _ else ""
-            _ = self.settings['discord_link']
-            markdown += f"[](#icon-discord) [Discord]({_})\n\n" if _ else ""
+            if radio := self.settings['radio_link']:
+                markdown += f"[📻 Radio Commentary]({radio})\n\n"
+            if sv_discord := self.settings['discord_link']:
+                f"[](#icon-discord) [Discord]({sv_discord})\n\n"
 
             if not self.tv:
                 tv = await self.fetch_tv()

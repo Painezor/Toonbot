@@ -68,7 +68,13 @@ class Competition(SearchResult):
         self.country: str = kwargs.pop('country', None)
 
     def __str__(self) -> str:
-        return f"{self.flag} {self.markdown}"
+        if self:
+            return f"{self.flag} {self.markdown}"
+        else:
+            return ''
+
+    def __bool__(self):
+        return bool(self.name)
 
     def view(self, interaction: Interaction) -> CompetitionView:
         """Send a view of this Competition to the user."""

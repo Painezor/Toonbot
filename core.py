@@ -36,15 +36,14 @@ with open('credentials.json') as f:
 COGS = ['errors',  # Utility Cogs
         # Slash commands.
         'metatoonbot',
-        'admin', 'bans', 'fixtures', 'fun', 'images', 'info', 'logs', 'lookup', 'mod', 'nufc', 'poll', 'quotes',
-        'reminders', 'scores', 'sidebar', 'streams', 'ticker', 'transfers', 'tv', 'translations', 'urbandictionary'
+        'admin', 'bans', 'fixtures', 'images', 'info', 'logs', 'lookup', 'memes', 'mod', 'nufc', 'poll', 'quotes',
+        'reminders', 'rng', 'scores', 'sidebar', 'streams', 'ticker', 'transfers', 'tv', 'translations',
+        'urbandictionary', 'xkcd'
         ]
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
              "&scope=bot%20applications.commands"
 
-
-# TODO: Global Speed optimisation -- Replace all += strings with a .join() method
 
 class Bot(AutoShardedBot):
     """The core functionality of the bot."""

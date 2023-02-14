@@ -93,7 +93,7 @@ class Lookup(Cog):
             return await view.value.view(interaction).push_rumours()
 
     @command()
-    @describe(team_name="name of a team")
+    @describe(team_name="enter a team name to search for")
     async def contracts(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's expiring contracts"""
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
@@ -104,7 +104,7 @@ class Lookup(Cog):
             return await view.value.view(interaction).push_contracts()
 
     @command()
-    @describe(team_name="name of a team")
+    @describe(team_name="enter a team name to search for")
     async def trophies(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's trophy case"""
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
@@ -115,10 +115,10 @@ class Lookup(Cog):
             return await view.value.view(interaction).push_trophies()
 
     @command()
-    @describe(query="league name to search for")
-    async def attendance(self, interaction: Interaction, query: str) -> Message:
+    @describe(league_name="enter a league name to search for")
+    async def attendance(self, interaction: Interaction, league_name: str) -> Message:
         """Get a list of a league's average attendances."""
-        view = tfm.CompetitionSearch(interaction, query, fetch=True)
+        view = tfm.CompetitionSearch(interaction, league_name, fetch=True)
         await view.update()
         await view.wait()
 
