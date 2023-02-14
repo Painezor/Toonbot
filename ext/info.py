@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+import discord
 from discord import Member, Embed, Colour, Forbidden, Interaction, Message, PartialEmoji, User, Emoji, Permissions, Role
 from discord.abc import GuildChannel
 from discord.app_commands import command, guild_only, describe, Group
@@ -47,8 +48,138 @@ class Info(Cog):
     async def channel(self, interaction: Interaction, channel: GuildChannel):
         """Get information about a channel"""
         await interaction.response.defer(thinking=True)
-        # TODO: Info Channel Command
-        raise NotImplementedError
+
+        base_embed = Embed(description=f"{channel.mention}\n\n", timestamp=channel.created_at)
+        base_embed.set_author(name=f"{channel.name} ({channel.id})")
+
+        e = base_embed.copy()
+
+        if channel.category:
+            sync = " (Perms Synced)" if channel.permissions_synced else " (Perms not Synced)"
+            e.description += f"**Category**: {channel.category.mention} {sync}\n"
+            e.description += f"**Type**: {channel.type}\n"
+            e.description += f"**Position**: {channel.position}\n"
+
+        e.set_footer(text="Channel Created")
+
+        match channel:
+            case discord.TextChannel:
+                e.title = "Text Channel"
+                channel: discord.TextChannel
+                if channel.topic:
+                    e.add_field(name="Topic", value=channel.topic)
+
+                if channel.slowmode_delay:
+                    e.description += f"**Slowmode**: {channel.slowmode_delay} seconds\n"
+
+                if channel.nsfw:
+                    e.description += f"**NSFW**: True\n"
+                if channel.is_news():
+                    e.description += f"**News**: True\n"
+
+                e.description += f"**Thread Archive Time**: {channel.default_auto_archive_duration}mins\n"
+                e.description += f"**Visible To**: {len(channel.members)} Users\n"
+                if channel.threads:
+                    e.description += f"**Current Threads**: {len(channel.threads)}\n"
+
+            case discord.VoiceChannel:
+                channel: discord.VoiceChannel
+                e.title = "Voice Channel"
+                e.description += f"**Bitrate**: {channel.bitrate / 1000}kbps\n"
+                e.description += f"**Max Users**: {channel.user_limit}\n"
+                e.description += f"**Video Quality**: {channel.video_quality_mode}\n"
+                if channel.rtc_region:
+                    e.description += f"**Region**: {channel.rtc_region}\n"
+
+                e.description += f"**Visible To**: {len(channel.members)} Users\n"
+
+                if channel.nsfw:
+                    e.description += f"**NSFW**: True\n"
+                if channel.slowmode_delay:
+                    e.description += f"**Text Slowmode**: {channel.slowmode_delay} seconds\n"
+
+            case discord.CategoryChannel:
+                e.title = "Category Channel"
+                channel: discord.CategoryChannel
+                e.description += f"**Channels In Category**: {len(channel.channels)} " \
+                                 f"({len(channel.text_channels)} Text, {len(channel.voice_channels)} Voice" \
+                                 f"{len(channel.stage_channels)} Stage)\n"
+            case discord.StageChannel:
+                e.title = "Stage Channel"
+
+                channel: discord.StageChannel
+                e.description += f"**Bitrate**: {channel.bitrate / 1000}kbps\n"
+                e.description += f"**Max Users**: {channel.user_limit}\n"
+                e.description += f"**Video Quality**: {channel.video_quality_mode}\n"
+                if channel.rtc_region:
+                    e.description += f"**Region**: {channel.rtc_region}\n"
+
+                if channel.slowmode_delay:
+                    e.description += f"**Text Slowmode**: {channel.slowmode_delay} seconds\n"
+
+                if channel.topic:
+                    e.add_field(name="Topic", value=channel.topic)
+
+                e.description += f"**Requests to Speak**: {len(channel.requesting_to_speak)}\n"
+                e.description += f"**Speakers**: {len(channel.speakers)}\n"
+                e.description += f"**Listeners**: {len(channel.listeners)}\n"
+                e.description += f"**Moderators**: {len(channel.moderators)}\n"
+
+                # INSTANCE
+                if ins := channel.instance:
+                    ins: discord.StageInstance
+                    val = f"**Topic**: {ins.topic}\n\n" \
+                          f"**Privacy Level**: {ins.privacy_level}\n" \
+                          f"**Public Event?**: {not ins.discoverable_disabled}\n"
+
+                    if ins.scheduled_event:
+                        event: discord.ScheduledEvent = ins.scheduled_event
+
+                        val += f"**Event**: {event.name} {Timestamp(event.start_time)} - {Timestamp(event.end_time)})"
+                        if event.cover_image:
+                            e.set_image(url=event.cover_image.url)
+
+                    e.add_field(name="Stage in Progress", value=val, inline=False)
+
+            case discord.ForumChannel:
+                channel: discord.ForumChannel
+                e.title = "Forum Channel"
+
+                e.description += f"**Total Threads**: {len(channel.threads)}\n"
+                e.description += f"**NSFW?**: {channel.is_nsfw()}\n"
+                e.description += f"**Thread Archive Time**: {channel.default_auto_archive_duration}mins\n"
+                e.description += f"**Default SlowMode**: {channel.default_thread_slowmode_delay} seconds\n"
+                e.description += f"**Default Emoji**: {channel.default_reaction_emoji}\n"
+                e.description += f"**Default Layout**: {channel.default_layout}\n"
+
+                # flags
+                if channel.flags.require_tag:
+                    e.description += f"**Force Tags?**: True\n"
+
+                if channel.topic:
+                    e.add_field(name="Topic", value=channel.topic)
+
+                if tags := channel.available_tags:
+                    e.add_field(name="Available Tags", value=', '.join(f"{i.emoji} {i.name}" for i in tags))
+
+        # List[Role | Member | Object]
+
+        if not channel.overwrites:
+            return await self.bot.reply(interaction, embed=e)
+
+        target: Role | Member | discord.Object
+        embeds: list[Embed] = []
+        for target, overwrite in channel.overwrites.items():
+            emb = base_embed.copy()
+            emb.title = "Permission Overwrites"
+            emb.description = target.mention
+
+            allowed, denied = overwrite.pair()
+            emb.add_field(name="Allowed", value='\n'.join(f'✅ {i}' for i in allowed))
+            emb.add_field(name="Denied", value='\n'.join(f'✅ {i}' for i in denied))
+            embeds.append(emb)
+
+        return await Paginator(interaction, e + embeds).update()
 
     @info.command()
     @describe(role="select a role")

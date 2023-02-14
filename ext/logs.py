@@ -490,11 +490,11 @@ class Logs(Cog):
                     after.add_field(name="Topic", value=key['after'], inline=False)
 
                 if key := changes.pop("slowmode_delay", False):
-                    sm_bf = f"{key['before']}  seconds" if key['before'] else 'None'
-                    sm_af = f"{key['after']}  seconds" if key['before'] else 'None'
+                    sm_bf = f"{key['before']} seconds" if key['before'] else 'None'
+                    sm_af = f"{key['after']} seconds" if key['before'] else 'None'
 
-                    before.add_field(name="**Slowmode**", value=sm_bf)
-                    after.add_field(name="**Slowmode**", value=sm_af)
+                    before.description += f"**Slowmode**: {sm_bf}\n"
+                    after.description += f"**Slowmode**: {sm_af}\n"
 
                 # Enums
                 if key := changes.pop('video_quality_mode', False):
