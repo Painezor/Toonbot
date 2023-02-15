@@ -103,8 +103,7 @@ class LogsConfig(View):
 def stringify_mfa(value: discord.MFALevel) -> str:
     """Convert discord.MFALevel to human-readable string"""
     match value:
-        case discord.MFALevel.disabled:
-            return "Disabled"
+        case discord.MFALevel.disabled:            return "Disabled"
         case discord.MFALevel.require_2fa:
             return "2-Factor Authentication Required"
         case _:
@@ -115,16 +114,11 @@ def stringify_mfa(value: discord.MFALevel) -> str:
 def stringify_trigger_type(value: discord.AutoModRuleTriggerType) -> str:
     """Convert discord.AutModRuleTriggerType to human-readable string"""
     match value:
-        case discord.AutoModRuleTriggerType.keyword:
-            return "Keyword Mentioned"
-        case discord.AutoModRuleTriggerType.keyword_preset:
-            return "Keyword Preset Mentioned"
-        case discord.AutoModRuleTriggerType.harmful_link:
-            return "Harmful Links"
-        case discord.AutoModRuleTriggerType.mention_spam:
-            return "Mention Spam"
-        case discord.AutoModRuleTriggerType.spam:
-            return "Spam"
+        case discord.AutoModRuleTriggerType.keyword: return "Keyword Mentioned"
+        case discord.AutoModRuleTriggerType.keyword_preset: return "Keyword Preset Mentioned"
+        case discord.AutoModRuleTriggerType.harmful_link: return "Harmful Links"
+        case discord.AutoModRuleTriggerType.mention_spam: return "Mention Spam"
+        case discord.AutoModRuleTriggerType.spam: return "Spam"
         case _:
             logging.info(f'Could not parse value for AutoModRuleTriggerType {value}')
             return "Unknown"
@@ -133,16 +127,11 @@ def stringify_trigger_type(value: discord.AutoModRuleTriggerType) -> str:
 def stringify_verification(value: discord.VerificationLevel) -> str:
     """Convert discord.VerificationLevel to human-readable string"""
     match value:
-        case discord.VerificationLevel.none:
-            return "None"
-        case discord.VerificationLevel.low:
-            return "Verified Email"
-        case discord.VerificationLevel.medium:
-            return "Verified Email, Registered for 5 minutes"
-        case discord.VerificationLevel.high:
-            return "Verified Email, Registered for 5 minutes, Server Member 10 Minutes"
-        case discord.VerificationLevel.highest:
-            return "Verified Phone"
+        case discord.VerificationLevel.none: return "None"
+        case discord.VerificationLevel.low: return "Verified Email"
+        case discord.VerificationLevel.medium: return "Verified Email, Registered for 5 minutes"
+        case discord.VerificationLevel.high: return "Verified Email, Registered for 5 minutes, Server Member 10 Minutes"
+        case discord.VerificationLevel.highest: return "Verified Phone"
         case _:
             logging.info(f'Could not parse value for Verification Level {value}')
             return value
