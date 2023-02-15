@@ -2519,74 +2519,40 @@ class Logs(Cog):
             changes[k]["after"] = v
 
         match entry.action:
-            case AuditLogAction.guild_update:
-                return await self.handle_guild_update(entry)
-            case AuditLogAction.channel_create:
-                return await self.handle_channel_create(entry)
-            case AuditLogAction.channel_delete:
-                await self.handle_channel_delete(entry)
-            case AuditLogAction.channel_update:
-                return await self.handle_channel_update(entry)
-            case AuditLogAction.thread_create:
-                return await self.handle_thread_create(entry)
-            case AuditLogAction.thread_delete:
-                return await self.handle_thread_delete(entry)
-            case AuditLogAction.thread_update:
-                return await self.handle_thread_update(entry)
-            case AuditLogAction.stage_instance_create:
-                return await self.handle_stage_create(entry)
-            case AuditLogAction.stage_instance_update:
-                return await self.handle_stage_update(entry)
-            case AuditLogAction.stage_instance_delete:
-                return await self.handle_stage_delete(entry)
-            case AuditLogAction.message_pin:
-                return await self.handle_message_pin(entry)
-            case AuditLogAction.message_unpin:
-                return await self.handle_message_unpin(entry)
-            case AuditLogAction.overwrite_create:
-                return await self.handle_overwrite_create(entry)
-            case AuditLogAction.overwrite_update:
-                return await self.handle_overwrite_update(entry)
-            case AuditLogAction.overwrite_delete:
-                return await self.handle_overwrite_delete(entry)
-            case AuditLogAction.scheduled_event_create:
-                return await self.handle_event_create(entry)
-            case AuditLogAction.scheduled_event_update:
-                return await self.handle_event_update(entry)
-            case AuditLogAction.scheduled_event_delete:
-                return await self.handle_event_delete(entry)
-            case AuditLogAction.kick:
-                return await self.handle_kick(entry)
-            case AuditLogAction.ban:
-                return await self.handle_ban(entry)
-            case AuditLogAction.unban:
-                return await self.handle_unban(entry)
-            case AuditLogAction.member_update:
-                return await self.handle_member_update(entry)
-            case AuditLogAction.member_move:
-                return await self.handle_member_move(entry)
-            case AuditLogAction.member_disconnect:
-                return await self.handle_member_disconnect(entry)
-            case AuditLogAction.role_create:
-                return await self.handle_role_create(entry)
-            case AuditLogAction.role_update:
-                return await self.handle_role_update(entry)
-            case AuditLogAction.role_delete:
-                return await self.handle_role_delete(entry)
-            case AuditLogAction.member_role_update:
-                return await self.handle_member_role_update(entry)
-            case AuditLogAction.emoji_create:
-                return await self.handle_emoji_create(entry)
-            case AuditLogAction.emoji_update:
-                return await self.handle_emoji_update(entry)
-            case AuditLogAction.emoji_delete:
-                return await self.handle_emoji_delete(entry)
-            case AuditLogAction.sticker_create:
-                return await self.handle_sticker_create(entry)
-            case AuditLogAction.sticker_update:
-                return await self.handle_sticker_update(entry)
-            case AuditLogAction.sticker_delete:
-                return await self.handle_sticker_delete(entry)
+            case AuditLogAction.guild_update: return await self.handle_guild_update(entry)
+            case AuditLogAction.channel_create: return await self.handle_channel_create(entry)
+            case AuditLogAction.channel_delete: return await self.handle_channel_delete(entry)
+            case AuditLogAction.channel_update: return await self.handle_channel_update(entry)
+            case AuditLogAction.thread_create: return await self.handle_thread_create(entry)
+            case AuditLogAction.thread_delete: return await self.handle_thread_delete(entry)
+            case AuditLogAction.thread_update: return await self.handle_thread_update(entry)
+            case AuditLogAction.stage_instance_create: return await self.handle_stage_create(entry)
+            case AuditLogAction.stage_instance_update: return await self.handle_stage_update(entry)
+            case AuditLogAction.stage_instance_delete: return await self.handle_stage_delete(entry)
+            case AuditLogAction.message_pin: return await self.handle_message_pin(entry)
+            case AuditLogAction.message_unpin: return await self.handle_message_unpin(entry)
+            case AuditLogAction.overwrite_create: return await self.handle_overwrite_create(entry)
+            case AuditLogAction.overwrite_update: return await self.handle_overwrite_update(entry)
+            case AuditLogAction.overwrite_delete: return await self.handle_overwrite_delete(entry)
+            case AuditLogAction.scheduled_event_create: return await self.handle_event_create(entry)
+            case AuditLogAction.scheduled_event_update: return await self.handle_event_update(entry)
+            case AuditLogAction.scheduled_event_delete: return await self.handle_event_delete(entry)
+            case AuditLogAction.kick: return await self.handle_kick(entry)
+            case AuditLogAction.ban: return await self.handle_ban(entry)
+            case AuditLogAction.unban: return await self.handle_unban(entry)
+            case AuditLogAction.member_update: return await self.handle_member_update(entry)
+            case AuditLogAction.member_move: return await self.handle_member_move(entry)
+            case AuditLogAction.member_disconnect: return await self.handle_member_disconnect(entry)
+            case AuditLogAction.role_create: return await self.handle_role_create(entry)
+            case AuditLogAction.role_update: return await self.handle_role_update(entry)
+            case AuditLogAction.role_delete: return await self.handle_role_delete(entry)
+            case AuditLogAction.member_role_update: return await self.handle_member_role_update(entry)
+            case AuditLogAction.emoji_create: return await self.handle_emoji_create(entry)
+            case AuditLogAction.emoji_update: return await self.handle_emoji_update(entry)
+            case AuditLogAction.emoji_delete: return await self.handle_emoji_delete(entry)
+            case AuditLogAction.sticker_create: return await self.handle_sticker_create(entry)
+            case AuditLogAction.sticker_update: return await self.handle_sticker_update(entry)
+            case AuditLogAction.sticker_delete: return await self.handle_sticker_delete(entry)
 
             # Invites
             # TODO: Split create/update/delete for Invites
