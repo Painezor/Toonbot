@@ -200,7 +200,7 @@ class Random(Cog):
                ]
 
         e: Embed = Embed(title=f'🎱 8 Ball', colour=0x000001, description=f"**{question}**\n{choice(res)}")
-        e.set_author(icon_url=interaction.user.display_icon.url, name=interaction.user)
+        e.set_author(icon_url=interaction.user.display_avatar.url, name=interaction.user)
         return await self.bot.reply(interaction, embed=e)
 
     @command()
