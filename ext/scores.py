@@ -34,21 +34,15 @@ NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
                  "\n\nYou can add more leagues with `/livescores add`" \
                  "\nTo find out which leagues currently have games, use `/scores`"
 
-# Number of messages that can be simultaneously updated.
-MAX_MESSAGES = 5
-
 
 class ScoreChannel:
     """A livescore channel object, containing it's properties."""
-    bot: Bot = None
+    bot: ClassVar[Bot]
 
     def __init__(self, channel: TextChannel) -> None:
         self.channel: TextChannel = channel
         self.messages: list[Message, None] = [None, None, None, None, None]
         self.leagues: list[str] = []
-
-        # Iterate to avoid ratelimiting
-        self.iteration: int = 0
 
     def generate_embeds(self) -> list[Embed]:
         """Have each Competition generate it's livescore embeds"""
@@ -65,9 +59,7 @@ class ScoreChannel:
                     # For Competitions Such as EUROPE: Champions League - Playoffs, where we want fixtures of a part
                     # of a tournament, we need to do additional checks. We are not, for example, interested in U18, or
                     # women's tournaments unless explicitly tracked
-
-                    ignored = ['women', 'u18']  # List of ignored substrings
-                    for x in ignored:
+                    for x in ['women', 'u18']:  # List of ignored substrings
                         if x in comp.title and x not in tracked.lower():
                             # Break without doing anything - this sub-tournament was not requested.
                             break
@@ -181,7 +173,7 @@ class ScoreChannel:
 # TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
 class ScoresConfig(View):
     """Generic Config View"""
-    bot: ClassVar[Bot] = None
+    bot: ClassVar[Bot]
 
     def __init__(self, interaction: Interaction, channel: ScoreChannel) -> None:
         super().__init__()
@@ -201,7 +193,6 @@ class ScoresConfig(View):
     async def update(self, content: str = None) -> Message:
         """Push the newest version of view to message"""
         self.clear_items()
-        leagues = await self.sc.get_leagues()
 
         embed: Embed = Embed(colour=Colour.dark_teal())
         embed.title = f"{self.bot.user.name} Live Scores config"
@@ -220,7 +211,7 @@ class ScoresConfig(View):
             v = "```yaml\nThis livescores channel will not work currently, I am missing the following permissions.\n"
             embed.add_field(name='Missing Permissions', value=f"{v} {missing}```")
 
-        if leagues:
+        if leagues := await self.sc.get_leagues():
             header = f'Tracked leagues for {self.sc.channel.mention}```yaml\n'
             embeds = rows_to_embeds(embed, sorted(leagues), header=header, footer="```", rows=25)
             self.pages = embeds
@@ -228,8 +219,7 @@ class ScoresConfig(View):
             embed = self.pages[self.index]
 
             if len(leagues) > 25:
-                leagues = leagues[self.index * 25:]
-                if len(leagues) > 25:
+                if len(leagues := leagues[self.index * 25:]) > 25:
                     leagues = leagues[:25]
 
             self.add_item(RemoveLeague(leagues, row=0))
@@ -274,9 +264,7 @@ class RemoveLeague(Select):
 
     def __init__(self, leagues: list[str], row: int = 4) -> None:
         super().__init__(placeholder="Remove tracked league(s)", row=row, max_values=len(leagues))
-
-        for lg in sorted(leagues):
-            self.add_option(label=lg)
+        [self.add_option(label=lg) for lg in sorted(leagues)]
 
     async def callback(self, interaction: Interaction) -> Message:
         """When a league is selected"""
@@ -290,13 +278,10 @@ class Scores(Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-        self.iteration: int = 0
-
         reload(fs)
 
-        if ScoreChannel.bot is None:
-            ScoreChannel.bot = bot
-            ScoresConfig.bot = bot
+        ScoreChannel.bot = bot
+        ScoresConfig.bot = bot
 
     async def cog_load(self) -> None:
         """Load our database into the bot"""
@@ -345,8 +330,7 @@ class Scores(Cog):
             channel_leagues[r['channel_id']].append(r['league'])
 
         for channel_id, leagues in channel_leagues.items():
-            channel = self.bot.get_channel(channel_id)
-            if channel is None or channel.is_news():
+            if (channel := self.bot.get_channel(channel_id)) is None or channel.is_news():
                 continue
 
             try:
@@ -361,8 +345,6 @@ class Scores(Cog):
     @loop(minutes=1)
     async def score_loop(self) -> None:
         """Score Checker Loop"""
-        self.iteration += 1
-
         if not self.bot.score_channels:
             await self.update_cache()
 

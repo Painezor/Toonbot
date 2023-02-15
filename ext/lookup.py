@@ -96,6 +96,8 @@ class Lookup(Cog):
     @describe(team_name="enter a team name to search for")
     async def contracts(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's expiring contracts"""
+        await interaction.response.defer(thinking=True)
+
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
         await view.update()
         await view.wait()
@@ -107,6 +109,8 @@ class Lookup(Cog):
     @describe(team_name="enter a team name to search for")
     async def trophies(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's trophy case"""
+        await interaction.response.defer(thinking=True)
+
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
         await view.update()
         await view.wait()
@@ -118,6 +122,8 @@ class Lookup(Cog):
     @describe(league_name="enter a league name to search for")
     async def attendance(self, interaction: Interaction, league_name: str) -> Message:
         """Get a list of a league's average attendances."""
+        await interaction.response.defer(thinking=True)
+
         view = tfm.CompetitionSearch(interaction, league_name, fetch=True)
         await view.update()
         await view.wait()

@@ -128,7 +128,7 @@ class UrbanDictionary(Cog):
 
     @ud.command()
     async def word_of_the_day(self, interaction: Interaction) -> UrbanView | Message:
-        """Get some random definitions from Urban Dictionary"""
+        """Get the Word of the Day from Urban Dictionary"""
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get("https://api.urbandictionary.com/v0/words_of_the_day") as resp:
             match resp.status:

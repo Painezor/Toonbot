@@ -238,8 +238,7 @@ class NewsConfig(View):
 
 async def news_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
-    bot: PBot = interaction.client
-    matches = [i for i in bot.news_cache if current.lower() in f"{i.title}: {i.description}".lower()]
+    matches = [i for i in interaction.client.news_cache if current.lower() in f"{i.title}: {i.description}".lower()]
 
     now = datetime.now()
     matches = sorted(matches, key=lambda x: now if x.date is None else x.date, reverse=True)
@@ -373,9 +372,7 @@ class NewsTracker(Cog):
             return await self.bot.error(interaction, content=f"Didn't find article matching {text}", ephemeral=True)
 
         await article.generate_embed()
-
-        v = article.view
-        await self.bot.reply(interaction, view=v, embed=article.embed)
+        await self.bot.reply(interaction, view=article.view, embed=article.embed)
 
     # Command for tracker management.
     @command()
@@ -395,13 +392,12 @@ class NewsTracker(Cog):
                 async with connection.transaction():
                     await connection.execute("""INSERT INTO news_trackers (channel_id) VALUES ($1)""", channel.id)
 
-            target = NewsChannel(self.bot, channel=channel)
-            self.bot.news_channels.append(target)
+            self.bot.news_channels.append(target := NewsChannel(self.bot, channel=channel))
         return await target.send_config(interaction)
 
     # Event Listeners for database cleanup.
     @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel) -> list[NewsChannel]:
+    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
         q = f"""DELETE FROM news_trackers WHERE channel_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -409,7 +405,6 @@ class NewsTracker(Cog):
                 await connection.execute(q, channel.id)
 
         self.bot.news_channels = [i for i in self.bot.news_channels if i.channel.id != channel.id]
-        return self.bot.news_channels
 
 
 async def setup(bot: PBot) -> None:

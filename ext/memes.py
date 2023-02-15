@@ -17,9 +17,8 @@ class Memes(Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        self.bot.tree.add_command(mock)  # Must be free floating.
 
-    memes = discord.app_commands.Group()
+    memes = discord.app_commands.Group(name="memes", description="annoy your friends with dead jokes")
 
     @memes.command()
     async def dead(self, interaction: Interaction) -> Message:

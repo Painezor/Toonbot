@@ -13,10 +13,12 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
+translations: dict = {}
+
 for x in Locale:
     try:
         with open(f'./ext/utils/translations/{x.name}.json') as f:
-            translations = {x: json.load(f)}
+            translations[x] = json.load(f)
     except Exception as e:
         logging.error(f'{e} Unable to load translation file {x}, {x.name}.json')
 

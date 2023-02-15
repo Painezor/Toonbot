@@ -11,8 +11,7 @@ from discord.ui import View, Button
 if TYPE_CHECKING:
     from painezBot import PBot
 
-INV = "https://discord.com/api/oauth2/authorize" \
-      "?client_id=964870918738419752&scope=bot%20applications.commands"
+INV = "https://discord.com/api/oauth2/authorize?client_id=964870918738419752&scope=bot%20applications.commands"
 
 
 class MetaPainezbot(Cog):
@@ -42,7 +41,7 @@ class MetaPainezbot(Cog):
         # statistics
         total_members = sum(len(s.members) for s in self.bot.guilds)
         e.description = f"I do World of Warships lookups, including dev blogs, news, ships, and players." \
-                        f"\n I serve {total_members} users across {len(self.bot.guilds)} servers."
+                        f"\nI have {total_members} users across {len(self.bot.guilds)} servers."
 
         view = View()
         view.add_item(Button(url=INV, label="Invite me to your server", emoji="<:painezBot:928654001279471697>"))

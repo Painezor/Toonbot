@@ -53,10 +53,10 @@ class XKCD(Cog):
     """XKCD Grabber"""
 
     def __init__(self, bot: Bot):
-        self.bot: Bot = Bot
+        self.bot: Bot = bot
         XKCDView.bot = bot
 
-    xkcd = Group()
+    xkcd = Group(name="xkcd", description="Get XKCD Comics")
 
     @xkcd.command()
     async def latest(self, interaction: Interaction):

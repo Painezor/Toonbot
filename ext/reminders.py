@@ -20,8 +20,6 @@ if TYPE_CHECKING:
     from painezBot import PBot
 
 
-# TODO: Slash attachments pass - Add an attachment.
-
 class Hide(Button):
     """A generic button to stop a View"""
 
@@ -134,7 +132,7 @@ class ReminderView(View):
 async def create_reminder(interaction: Interaction, message: Message):
     """Create a reminder with a link to a message."""
     await interaction.response.send_modal(
-        RemindModal(interaction.client, title="Remind me about this message", target_message=message))
+        RemindModal(interaction.client, title="Remind me", target_message=message))
 
 
 class Reminders(Cog):
@@ -162,12 +160,12 @@ class Reminders(Cog):
 
     reminder = Group(name="reminders", description="Set Reminders for yourself")
 
-    @reminder.command()
+    @reminder.command(name="create")
     async def create_reminder(self, interaction: Interaction) -> Message:
         """Remind you of something at a specified time."""
         return await interaction.response.send_modal(RemindModal(self.bot, title="Create a reminder"))
 
-    @reminder.command()
+    @reminder.command(name="list")
     async def list_reminders(self, interaction: Interaction) -> Message:
         """Check your active reminders"""
         async with self.bot.db.acquire(timeout=60) as connection:

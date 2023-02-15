@@ -229,12 +229,10 @@ class NUFCSidebar(Cog):
         # Check if message has an attachment, for the new sidebar image.
         e: Embed = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")
         e.set_author(icon_url=REDDIT_THUMBNAIL, name="r/NUFC Sidebar updated")
-        file = None
 
         if caption:
             page = await (await self.bot.reddit.subreddit('NUFC')).wiki.get_page('sidebar')
-            markdown = sub(r'---.*?---', f"---\n\n> {caption}\n\n---", page.content_md, flags=DOTALL)
-            await page.edit(content=markdown)
+            await page.edit(content=sub(r'---.*?---', f"---\n\n> {caption}\n\n---", page.content_md, flags=DOTALL))
             e.description = f"Set caption to: {caption}"
 
         if image:
@@ -249,10 +247,11 @@ class NUFCSidebar(Cog):
 
             e.set_image(url=image.url)
             file = await image.to_file()
+        else:
+            file = None
 
         # Build
-        subreddit = await self.bot.reddit.subreddit('NUFC')
-        wiki = await subreddit.wiki.get_page("config/sidebar")
+        wiki = await (await self.bot.reddit.subreddit('NUFC')).wiki.get_page("config/sidebar")
         await wiki.edit(content=await self.make_sidebar())
         await self.bot.reply(interaction, embed=e, file=file)
 

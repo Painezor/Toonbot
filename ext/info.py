@@ -41,7 +41,7 @@ class Info(Cog):
         e.set_image(url=user.display_avatar.url)
         return await self.bot.reply(interaction, embed=e)
 
-    info = Group()
+    info = Group(name="info", description="Get information about things on your server")
 
     @info.command()
     @describe(channel="select a channel")
@@ -383,7 +383,7 @@ class Info(Cog):
 
         return await Paginator(interaction, [cover, channels, stickers, r_e]).update()
 
-    @info.command(name="User")
+    @info.command()
     async def user(self, interaction: Interaction, member: Member) -> Message:
         """Show info about this member."""
         # Embed 1: Generic Info

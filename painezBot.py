@@ -7,9 +7,9 @@ from datetime import datetime
 from json import load
 from typing import TYPE_CHECKING, Callable
 
+import discord
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
-from discord import Intents, Game
 from discord.ext.commands import AutoShardedBot, when_mentioned
 
 from ext.painezbot_utils.clan import ClanBuilding, Clan
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 	from asyncpg import Record, Pool
 	from asyncio import Task
 
-handler = logging.FileHandler(filename='painezbot.log', encoding='utf-8', mode='w')
+discord.utils.setup_logging()
 
 with open('credentials.json') as f:
 	credentials = load(f)
@@ -50,8 +50,8 @@ class PBot(AutoShardedBot):
 			description="World of Warships bot by Painezor#8489",
 			command_prefix=when_mentioned,
 			owner_id=210582977493598208,
-			activity=Game(name="World of Warships"),
-			intents=Intents.all(),
+			activity=discord.Game(name="World of Warships"),
+			intents=discord.Intents.all(),
 			help_command=None
 		)
 
@@ -113,8 +113,7 @@ class PBot(AutoShardedBot):
 		self.get_clan: Callable = None
 		self.get_ship_type: Callable = None
 
-		logging.info(
-			f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
+		logging.info(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n{"-" * 30}')
 
 	async def setup_hook(self):
 		"""Load Cogs asynchronously"""

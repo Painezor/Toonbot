@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 # TODO: Browse all Ships command. Filter Dropdowns. Dropdown to show specific ships.
 # TODO: Clan Base Commands # https://api.worldofwarships.eu/wows/clans/glossary/
 # TODO: Recent command. # https://api.worldofwarships.eu/wows/account/statsbydate/
+# TODO: Refactor to take player stats from website instead.
 
 logger = logging.getLogger('warships')
 

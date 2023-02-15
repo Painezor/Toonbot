@@ -249,11 +249,8 @@ class NUFC(Cog):
         remove_list: list[Role] = [i for i in interaction.user.roles if i.name.startswith('#')]
 
         e: Embed = Embed(description=f"Your colour has been updated.")
-        clr = hex_code.strip('#').replace('0x', "").upper()
-
         try:
-            d_colo = Colour(int(clr, 16))
-
+            d_colo = Colour(int(hex_code.strip('#').replace('0x', "").upper(), 16))
             if d_colo.value > 16777215:
                 return await self.bot.error(interaction, 'Invalid colour specified.')
 
@@ -264,9 +261,7 @@ class NUFC(Cog):
             return await self.bot.error(interaction, content='Invalid colour.', view=view)
 
         guild = interaction.guild
-        # Create new role or fetch if already exists.
-        role = utils.get(guild.roles, name=f"#{hex_code}")
-        if role is None:
+        if (role := utils.get(guild.roles, name=f"#{hex_code}")) is None:  # Create new role or fetch if already exists.
             role = await guild.create_role(name=f"#{hex_code}", reason=f"Colour for {interaction.user}", color=d_colo)
 
         await interaction.user.add_roles(role, reason="Apply colour role")
@@ -281,63 +276,60 @@ class NUFC(Cog):
 
     @command()
     @guilds(332159889587699712)
-    async def shake(self, interaction):
+    async def shake(self, interaction: Interaction) -> Message:
         """Well to start off with…"""
         await self.bot.reply(interaction, content=SHAKE)
 
     @command()
     @guilds(332159889587699712)
-    async def gherkin(self, interaction):
+    async def gherkin(self, interaction: Interaction) -> Message:
         """DON'T LET ME GOOOOOO AGAIN"""
         await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=L4f9Y-KSKJ8")
 
     @command()
     @guilds(332159889587699712)
-    async def radio(self, interaction):
+    async def radio(self, interaction: Interaction) -> Message:
         """Sends a link to the NUFC radio channel"""
         await self.bot.reply(interaction, content="NUFC Radio Coverage: https://www.nufc.co.uk/liveaudio.html")
 
     @command()
     @guilds(332159889587699712)
-    async def downrafa(self, interaction):
+    async def downhowe(self, interaction: Interaction) -> Message:
         """Adds a downvote reaction to the last 10 messages"""
         async for message in interaction.channel.history(limit=10):
             await message.add_reaction(":downvote:332196251959427073")
 
     @command()
     @guilds(332159889587699712)
-    async def uprafa(self, interaction):
+    async def uphowe(self, interaction: Interaction) -> Message:
         """Adds an upvote reaction to the last 10 messages"""
         async for message in interaction.channel.history(limit=10):
             await message.add_reaction(":upvote:332196220460072970")
 
     @command()
     @guilds(332159889587699712)
-    async def toon_toon(self, interaction):
+    async def toon_toon(self, interaction: Interaction) -> Message:
         """Toon. Toon, black & white army"""
         await self.bot.reply(interaction, content="**BLACK AND WHITE ARMY**")
 
     @command()
     @guilds(332159889587699712)
-    async def goala(self, interaction):
+    async def goala(self, interaction: Interaction) -> Message:
         """Party on Garth"""
         await self.bot.reply(interaction, file=File(fp='Images/goala.gif'))
 
     @command()
     @guilds(332159889587699712)
-    async def ructions(self, interaction: Interaction):
+    async def ructions(self, interaction: Interaction) -> Message:
         """WEW. RUCTIONS."""
         await self.bot.reply(interaction, file=File(fp="Images/ructions.png"))
 
     @command()
     @guilds(332159889587699712)
-    async def roulette(self, interaction: Interaction):
+    async def roulette(self, interaction: Interaction) -> Message:
         """Russian Roulette"""
-        e = Embed()
         if choice([False * 5, True]):
-            e.colour = Colour.red()
-            e.title = "Bang"
-            e.description = "Timed out for 1 minute."
+            e = Embed(colour=Colour.red(), title="Bang", description="Timed out for 1 minute.")
             try:
                 await interaction.user.timeout(timedelta(minutes=1), reason="Roulette")
                 await self.bot.reply(interaction, embed=e)
@@ -345,8 +337,7 @@ class NUFC(Cog):
                 e.description = "The bullet bounced off your thick fucking skull."
                 await self.bot.reply(interaction, embed=e)
         else:
-            e.colour = Colour.green()
-            await self.bot.reply(interaction, embed=e)
+            await self.bot.reply(interaction, embed=Embed(colour=Colour.green(), title="Click"))
 
 
 async def setup(bot: Bot) -> None:

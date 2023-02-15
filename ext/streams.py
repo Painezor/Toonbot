@@ -25,8 +25,7 @@ class Stream:
 
 async def st_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Return List of Guild Streams"""
-    bot: Bot = interaction.client
-    guild_streams = bot.streams.get(interaction.guild.id, {})
+    guild_streams = interaction.client.streams.get(interaction.guild.id, {})
     m = [i.name[:100] for i in guild_streams if current.lower() in i.name.lower() + i.link.lower()]
     return [Choice(name=item, value=item) for item in m if current.lower() in item.lower()][:25]
 
@@ -49,7 +48,7 @@ class GuildStreams(Cog):
         e = Embed(title="Streams", description="\n".join([str(i) for i in guild_streams]))
         return await self.bot.reply(interaction, embed=e)
 
-    @streams.command()
+    @streams.command(name="add")
     @describe(name="Enter a name for the stream", link="Enter the link oF the stream")
     async def add_stream(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
@@ -65,13 +64,13 @@ class GuildStreams(Cog):
         e: Embed = Embed(title="Streams", description="\n".join([str(i) for i in guild_streams]))
         await self.bot.reply(interaction, content=f"Added <{stream.link}> to stream list.", embed=e)
 
-    @streams.command()
+    @streams.command(name="clear")
     async def clear_streams(self, interaction: Interaction):
         """Remove all streams from guild stream list"""
         self.bot.streams[interaction.guild.id] = []
         await self.bot.reply(interaction, content=f"{interaction.guild.name} stream list cleared.")
 
-    @streams.command()
+    @streams.command(name="delete")
     @autocomplete(stream=st_ac)
     async def delete_stream(self, interaction: Interaction, stream: str):
         """Delete a stream from the stream list"""

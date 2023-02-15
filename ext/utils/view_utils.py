@@ -79,11 +79,16 @@ class Jump(Button):
 
     def __init__(self, label: str = None, row: int = 0):
         super().__init__(style=ButtonStyle.blurple, emoji='🔎', row=row)
-        if not label:
+        if label:
+            self.label = label
+        else:
             try:
-                self.label = f"{self.view.index - 1}/{len(self.view.pages)}"
+                self.label = f"{self.view.index + 1}/{len(self.view.pages)}"
             except AttributeError:
-                self.label = "Jump"
+                try:
+                    self.label = f"{self.view.index + 1}/{self.view.pages}"
+                except AttributeError:
+                    self.label = f"Page {self.view.index + 1}"
 
         try:
             self.disabled = len(self.view.pages) > 3
@@ -270,16 +275,16 @@ class FuncButton(Button):
                  style: ButtonStyle = ButtonStyle.secondary, row: int = 2, disabled: bool = False) -> None:
         super().__init__(label=label, emoji=emoji, style=style, row=row, disabled=disabled)
         self.func: Callable = func
-        if kwargs is None:
-            kwargs = dict()
-        self.kwargs: dict = kwargs
+        self.kwargs: dict = kwargs if kwargs is not None else dict()
 
     async def callback(self, interaction: Interaction) -> None:
         """A Generic Callback"""
+        await interaction.response.defer()
+
+        # Set the view's kwargs if required
         for k, v in self.kwargs.items():
             setattr(self.view, k, v)
-
-        await interaction.response.defer()
+        # Run whatever the passed function is.
         return await self.func()
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 from asyncio import to_thread
 from io import BytesIO
 from json import dumps
+from random import choice
 from typing import Optional, TYPE_CHECKING
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
@@ -14,7 +15,6 @@ from discord.ui import View
 
 from ext.utils.embed_utils import embed_image
 from ext.utils.view_utils import FuncButton
-from rng import choice
 
 if TYPE_CHECKING:
     from core import Bot
@@ -267,7 +267,7 @@ class Images(Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-    images = Group()
+    images = Group(name="images", description="image manipulation commands")
 
     @images.command()
     @describe(user="Select a user", link="Provide a link to an image", file="Upload a file")

@@ -511,8 +511,7 @@ class Transfers(Cog):
                 except HTTPException:
                     continue
 
-    tf = Group(name="transfer_ticker",
-               description="Create or manage a Transfer Ticker",
+    tf = Group(name="transfer_ticker", description="Create or manage a Transfer Ticker",
                default_permissions=Permissions(manage_channels=True))
 
     @tf.command(name="manage")

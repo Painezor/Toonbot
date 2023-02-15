@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from core import Bot
 
 
+# TODO: Delete MatchThread Bot or Rewrite it Entirely.
+
 class MatchThread:
     """Tool for updating a reddit post with the latest information about a match."""
 
@@ -285,12 +287,16 @@ class MatchThread:
         title = f"Post-Match Thread: {home} {score}{pens}{away}" if post_match else f"Match Thread: {home} vs {away}"
 
         # Referee and Venue
-        r = f"**🙈 Referee**: {self.fixture.referee}" if self.fixture.referee is not None else ""
-        s = f"**🥅 Venue**: {self.fixture.stadium}" if self.fixture.stadium is not None else ""
-        a = f"**👥 Attendance**: {self.fixture.attendance})" if self.fixture.attendance is not None else ""
+        ven = []
+        if self.fixture.referee:
+            ven.append(f"**🙈 Referee**: {self.fixture.referee}")
+        if self.fixture.stadium:
+            ven.append(f"**🥅 Venue**: {self.fixture.stadium}")
+        if self.fixture.attendance:
+            ven.append(f"**👥 Attendance**: {self.fixture.attendance})")
 
-        if any([r, s, a]):
-            markdown += "####" + " | ".join([i for i in [r, s, a] if i]) + "\n\n"
+        if ven:
+            markdown += "####" + " | ".join(ven) + "\n\n"
 
         # Match Threads Bar.
         archive = f"[Archive]({self.archive_link}" if hasattr(self, "archive_link") else ""
@@ -309,9 +315,7 @@ class MatchThread:
         except (AttributeError, TypeError):
             post = "*Post*"
 
-        threads = [i for i in [pre, match, post, archive] if i]
-        if threads:
-            threads = " - ".join(threads)
+        if threads := " - ".join([i for i in [pre, match, post, archive] if i]):
             markdown += f"---\n\n##{threads}\n\n---\n\n"
 
         # Radio, TV.

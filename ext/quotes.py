@@ -1,7 +1,6 @@
 """Commands related to the Quote Database Functionality"""
 from __future__ import annotations
 
-import logging
 import random
 from typing import TYPE_CHECKING, ClassVar
 
@@ -362,6 +361,7 @@ class QuoteDB(commands.Cog):
         """Search for a quote by quote text"""
         if interaction.user.id in self.bot.quote_blacklist:
             raise OptedOutError
+
         if user is not None:
             if user.id in self.bot.quote_blacklist:
                 raise TargetOptedOutError(user)
@@ -376,9 +376,6 @@ class QuoteDB(commands.Cog):
         """Get a quote by its ID Number"""
         if interaction.user.id in self.bot.quote_blacklist:
             raise OptedOutError
-
-        logging.info(quote_id)
-        logging.info(type(quote_id))
 
         try:
             v = QuotesView(interaction)

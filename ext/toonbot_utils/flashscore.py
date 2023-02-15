@@ -218,9 +218,11 @@ class FlashScoreItem:
 
             # State Corrections
             override = "".join([i for i in parsed if i.isalpha()])
-            logging.info(f'Detected Override {override}')
-            parsed.replace(override, '')
-            logging.info(f'Parsed = {parsed}')
+            if override:
+                logging.info(f'Old Parsed = "{parsed}"')
+                logging.info(f'Detected Override "{override}"')
+                parsed.replace(override, '')
+                logging.info(f'New Parsed = "{parsed}"')
 
             match override:
                 case override if override == '':
