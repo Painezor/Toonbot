@@ -103,9 +103,8 @@ class LogsConfig(View):
 def stringify_mfa(value: discord.MFALevel) -> str:
     """Convert discord.MFALevel to human-readable string"""
     match value:
-        case discord.MFALevel.disabled:            return "Disabled"
-        case discord.MFALevel.require_2fa:
-            return "2-Factor Authentication Required"
+        case discord.MFALevel.disabled: return "Disabled"
+        case discord.MFALevel.require_2fa: return "2-Factor Authentication Required"
         case _:
             logging.info(f'Could not parse value for MFALevel {value}')
             return value
