@@ -327,9 +327,9 @@ class TransfersConfig(View):
             self.add_item(RemoveLeague(leagues, row=0))
 
         if len(self.pages) > 1:
-            self.add_item(Previous(row=2, disabled=self.index == 0))
-            self.add_item(Jump(row=2, disabled=self.pages < 3))
-            self.add_item(Next(row=2, disabled=self.index + 1 >= len(self.pages)))
+            self.add_item(Previous(self, row=2))
+            self.add_item(Jump(self, row=2))
+            self.add_item(Next(self, row=2))
             self.add_item(Stop(row=2))
         else:
             self.add_item(Stop(row=1))

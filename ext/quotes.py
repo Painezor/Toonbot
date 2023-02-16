@@ -115,7 +115,7 @@ class QuotesView(View):
         self.all_quotes: list[Record] = self.bot.quotes
         self.guild_quotes: list[Record] = list(filter(lambda x: x['guild_id'] == interaction.guild.id, self.all_quotes))
         self.pages: list[Record] = []
-        self.index = None
+        self.index: int = 0
 
         self.interaction = interaction
         self.all_guilds = all_guilds
@@ -192,10 +192,10 @@ class QuotesView(View):
 
         if len(self.pages) > 1:
             self.add_item(RandomQuote(row=0))
-            self.add_item(view_utils.Previous(disabled=self.index == 0))
+            self.add_item(view_utils.Previous(self))
             if len(self.pages) > 3:
-                self.add_item(view_utils.Jump())
-            self.add_item(view_utils.Next(disabled=self.index + 1 >= len(self.pages)))
+                self.add_item(view_utils.Jump(view=self))
+            self.add_item(view_utils.Next(self))
             self.add_item(view_utils.Stop(row=0))
         else:
             self.add_item(view_utils.Stop())
@@ -243,7 +243,6 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
 
         v = QuotesView(interaction)
         v.index = -1
-        v.all_guilds = False
         return await v.update()
 
 

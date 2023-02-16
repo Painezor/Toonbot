@@ -1,7 +1,7 @@
 """Generic Objects for discord Views"""
 from __future__ import annotations
 
-from typing import Callable, TYPE_CHECKING, ClassVar
+from typing import Callable, TYPE_CHECKING, ClassVar, Any
 
 from discord import ButtonStyle, NotFound, Embed, SelectOption
 from discord.ui import Button, Select, Modal, View, TextInput
@@ -13,25 +13,17 @@ if TYPE_CHECKING:
 
 
 def add_page_buttons(view: View, row: int = 0) -> View:
-    """Helper function to bulk add page buttons"""
+    """Helper function to bulk add page buttons (Prev, Jump, Next, Stop)"""
     if hasattr(view, "parent"):
         if view.parent:
             view.add_item(Parent())
 
-    index = getattr(view, "index", 1)
-    pages = len(getattr(view, "pages", []))
-
+    pages = len(getattr(view, 'pages', []))
     if pages > 1:
-        p = Previous(row=row)
-        p.disabled = index == 0
-        view.add_item(p)
+        view.add_item(Previous(view, row=row))
+        view.add_item(Jump(view, row=row))
 
-        j = Jump(row=row, label=f"{index + 1}/{pages}")
-        j.disabled = pages < 3
-        view.add_item(j)
-
-        n = Next(row=row)
-        n.disabled = index + 1 >= pages  # index 0 plus 1, len pages = 1
+        n = Next(view, row=row)
         view.add_item(n)
     view.add_item(Stop(row=row))
     return view
@@ -64,34 +56,40 @@ class First(Button):
 class Previous(Button):
     """Get the previous item in a Pagination View"""
 
-    def __init__(self, row: int = 0, disabled: bool = False) -> None:
-        super().__init__(emoji="◀", row=row, disabled=disabled)
+    def __init__(self, view: View, row: int = 0) -> None:
+        super().__init__(emoji="◀", row=row, disabled=getattr(view, 'index', 0) == 0)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
         await interaction.response.defer()
-        self.view.index = max(self.view.index - 1, 0)
+        try:
+            self.view.index = max(self.view.index - 1, 0)
+        except AttributeError:
+            self.view.index = 0
         return await self.view.update()
 
 
 class Jump(Button):
     """Jump to a specific page in a Pagination view"""
 
-    def __init__(self, label: str = None, row: int = 0):
+    def __init__(self, view: View, row: int = 0):
+        # Super Init first so we can access the view's properties.
         super().__init__(style=ButtonStyle.blurple, emoji='🔎', row=row)
-        if label:
-            self.label = label
-        else:
-            try:
-                self.label = f"{self.view.index + 1}/{len(self.view.pages)}"
-            except AttributeError:
-                try:
-                    self.label = f"{self.view.index + 1}/{self.view.pages}"
-                except AttributeError:
-                    self.label = f"Page {self.view.index + 1}"
+
+        index = getattr(view, 'index', 0)
+        pages = getattr(view, 'pages', [])
 
         try:
-            self.disabled = len(self.view.pages) > 3
+            iter(pages)
+            self.label = f"{index + 1}/{len(pages)}"
+        except TypeError:
+            # View.pages is not Iterable
+            self.label = f"{index + 1}/{pages}"
+        except AttributeError:
+            pass
+
+        try:
+            self.disabled = len(pages) > 3
         except AttributeError:
             self.disabled = True
 
@@ -118,7 +116,7 @@ class JumpModal(Modal):
         update: Callable = getattr(self.view, "update")
         try:
             _ = pages[int(self.page.value)]
-            self.view.index = int(self.page.value)
+            self.view.index = int(self.page.value) - 1  # Humans index from 1
             return await update()
         except (ValueError, IndexError):  # Number was out of range.
             self.view.index = len(pages) - 1
@@ -128,31 +126,31 @@ class JumpModal(Modal):
 class Next(Button):
     """Get the next item in a Pagination View"""
 
-    def __init__(self, row: int = 0, disabled: bool = False) -> None:
-        super().__init__(emoji="▶", row=row, disabled=disabled)
+    def __init__(self, view: View, row: int = 0) -> None:
+        super().__init__(emoji="▶", row=row, disabled=getattr(view, 'index', 0) + 1 >= len(getattr(view, 'pages', [])))
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
         await interaction.response.defer()
-        if self.view.index + 1 < len(self.view.pages):
-            self.view.index += 1
+        try:
+            if self.view.index + 1 < len(self.view.pages):
+                self.view.index += 1
+        except AttributeError:
+            self.view.index = 0
         return await self.view.update()
 
 
 class Last(Button):
     """Get the last item in a Pagination View"""
 
-    def __init__(self, row: int = 0) -> None:
+    def __init__(self, view: View, row: int = 0) -> None:
         super().__init__(label="Last", emoji="⏭", row=row)
-        pages = getattr(self.view, "pages", [])
-        index = getattr(self.view, "index", 0)
-        if len(pages) == index:
-            self.disabled = True
+        self.disabled = len(getattr(view, "pages", [])) == getattr(view, "index", 0)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
         await interaction.response.defer()
-        self.view.index = len(getattr(self.view, "pages", [None])) - 1  # -1 because List index from 0 vs human index 1
+        self.view.index = len(getattr(self.view, "pages", []))
         return await self.view.update()
 
 
@@ -190,17 +188,12 @@ class PageSelect(Select):
 
 class ObjectSelectView(View):
     """Generic Object Select and return"""
-    bot: ClassVar[Bot] = None
-
-    def __init__(self, interaction: Interaction, objects: list, timeout: int = 180) -> None:
+    def __init__(self, interaction: Interaction, objects: list[Any], timeout: int = 180) -> None:
         self.interaction: Interaction = interaction
-        self.value = None  # As Yet Unset
+        self.value: Any = None  # As Yet Unset
         self.index: int = 0
         self.objects: list = objects
-        self.pages = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
-
-        self.__class__.bot = interaction.client
-
+        self.pages: list[list[Any]] = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(timeout=timeout)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
@@ -218,20 +211,18 @@ class ObjectSelectView(View):
     async def update(self, content: str = None) -> Message:
         """Send new version of view to user"""
         self.clear_items()
-
         add_page_buttons(self, row=1)
-
-        sel = ItemSelect(placeholder="Select Matching Item…", options=self.pages[0])
-        sel.label = f"Page {self.index + 1} of {len(self.pages)}"
-        self.add_item(sel)
+        self.add_item(ItemSelect(placeholder="Select Matching Item…", options=self.pages[0]))
         self.add_item(Stop(row=1))
-        return await self.bot.reply(self.interaction, content=content, view=self, embed=self.embed)
+        bot: Bot = self.interaction.client
+        return await bot.reply(self.interaction, content=content, view=self, embed=self.embed)
 
     async def on_timeout(self) -> Message:
         """Cleanup"""
         self.clear_items()
         self.stop()
-        return await self.bot.error(self.interaction, "Timed out waiting for you to select a match.", followup=False)
+        bot: Bot = self.interaction.client
+        return await bot.error(self.interaction, "Timed out waiting for you to select a match.", followup=False)
 
 
 class MultipleSelect(Select):

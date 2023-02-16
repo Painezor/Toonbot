@@ -53,10 +53,10 @@ class UrbanView(View):
         """Push the latest version of the view to the user"""
         self.clear_items()
 
-        self.add_item(view_utils.Previous(disabled=self.index == 0))
+        self.add_item(view_utils.Previous(self))
         if len(self.pages) > 3:
-            self.add_item(view_utils.Jump())
-        self.add_item(view_utils.Next(disabled=self.index + 1 >= len(self.pages)))
+            self.add_item(view_utils.Jump(view=self))
+        self.add_item(view_utils.Next(self))
         self.add_item(view_utils.Stop(row=0))
         return await self.interaction.edit_original_response(embed=self.pages[self.index], view=self)
 
