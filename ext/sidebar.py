@@ -153,25 +153,37 @@ class NUFCSidebar(Cog):
 
         # Top bar
         match_threads = f"\n\n### {pre} - {match} - {post}"
-        target_game = next(i for i in results + fixtures)
-        home = next((i for i in self.bot.reddit_teams if i['name'] == target_game.home.name), None)
-        away = next((i for i in self.bot.reddit_teams if i['name'] == target_game.away.name), None)
+        fixture = next(i for i in results + fixtures)
+        home = next((i for i in self.bot.reddit_teams if i['name'] == fixture.home.name), None)
+        away = next((i for i in self.bot.reddit_teams if i['name'] == fixture.away.name), None)
 
         home_sub = home['subreddit'] if home is not None else ''
         away_sub = away['subreddit'] if away is not None else ''
 
-        h = f"[{target_game.home.name}]({home_sub})"
-        a = f"[{target_game.away.name}]({away_sub})"
-        top_bar = f"> {h} [{target_game.score}]({target_game.url}) {a}"
+        h = f"[{fixture.home.name}]({home_sub})"
+        a = f"[{fixture.away.name}]({away_sub})"
+        top_bar = f"> {h} [{fixture.score}]({fixture.url}) {a}"
 
         home_icon = "#temp" if home is None else home['icon']
         away_icon = "#temp/" if away is None else away['icon']  # / Denotes post.
 
         # Upload badge.
         if not home_icon or not away_icon:
-            badge: str = await target_game.get_badge('home') if not home_icon else await target_game.get_badge('away')
-            if badge:
-                im = Image.open(badge)
+            attr = "home" if not home_icon else "away"
+            if (team_ := getattr(fixture, attr)).logo_url is not None:
+                return team_.logo_url
+
+            # Else pull up the page and grab it manually.
+            page = await self.bot.browser.new_page()
+            try:
+                await page.goto(fixture.link, timeout=5000)
+                await page.wait_for_selector(f'.//div[contains(@class, "tlogo-{attr}")]//img', timeout=5000)
+                tree = html.fromstring(await page.content())
+            finally:
+                await page.close()
+
+            if badges := tree.xpath(f'.//div[contains(@class, "tlogo-{attr}")]//img/@src'):
+                im = Image.open(badges[0])
                 im.save("TEMP_BADGE.png", "PNG")
                 s = await self.bot.reddit.subreddit("NUFC")
                 await s.stylesheet.upload("TEMP_BADGE.png", "temp")

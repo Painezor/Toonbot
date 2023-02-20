@@ -7,13 +7,13 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional, ClassVar
 
 from discord import Interaction, Embed, Colour, Message, SelectOption
-from discord.ui import View, Select
+from discord.ui import Select
 from lxml import html
 
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import FuncButton, add_page_buttons, Parent
+from ext.utils.view_utils import FuncButton, add_page_buttons, Parent, BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -254,7 +254,7 @@ class Transfer:
         return self.embed
 
 
-class TeamView(View):
+class TeamView(BaseView):
     """A View representing a Team on TransferMarkt"""
     bot: ClassVar[Bot] = None
 
@@ -264,7 +264,7 @@ class TeamView(View):
         self.interaction: Interaction = interaction
         self.index: int = 0
         self.pages: list[Embed] = []
-        self.parent: View = None
+        self.parent: BaseView = None
 
         self.__class__.bot = interaction.client
 
@@ -551,7 +551,7 @@ class StadiumAttendance:
         return f"[{self.name}]({self.link}) {self.total} ({self.team.markdown})"
 
 
-class CompetitionView(View):
+class CompetitionView(BaseView):
     """A View representing a competition on TransferMarkt"""
     bot: ClassVar[Bot] = None
 
@@ -561,7 +561,7 @@ class CompetitionView(View):
         self.interaction: Interaction = interaction
         self.index: int = 0
         self.pages: list[Embed] = []
-        self.parent: View = None
+        self.parent: BaseView = None
 
         self.__class__.bot = interaction.client
 
@@ -665,7 +665,7 @@ class SearchSelect(Select):
         return self.view.value
 
 
-class SearchView(View):
+class SearchView(BaseView):
     """A TransferMarkt Search in View Form"""
     bot: ClassVar[Bot] = None
     query_string: str = None  # Should be Polymorphed
@@ -840,9 +840,9 @@ class PlayerSearch(SearchView):
 
 class RefereeSearch(SearchView):
     """View when searching for a Referee"""
-    category = "Agents"
+    category = "Referees"
     query_string = "page"
-    match_string = 'for agents'
+    match_string = 'for referees'
 
     def __init__(self, interaction: Interaction, query: str) -> None:
         super().__init__(interaction, query)
@@ -897,7 +897,7 @@ class StaffSearch(SearchView):
 
 class TeamSearch(SearchView):
     """A Search View for a team"""
-    category = "Players"
+    category = "Team"
     query_string = "Verein_page"
     match_string = 'results: Clubs'
 
@@ -920,8 +920,7 @@ class TeamSearch(SearchView):
 
             r.append(Team(name=name, link=link,
                           league=Competition(name=''.join(i.xpath('.//tr[2]/td/a/text()')).strip(), link=lg_lnk),
-                          country=list(filter(None, [_.strip() for _ in
-                                                     i.xpath('.//td/img[@class="flaggenrahmen" ]/@title')])),
+                          country=[c.strip() for c in i.xpath('.//td/img[@class="flaggenrahmen" ]/@title') if c],
                           logo=''.join(i.xpath('.//td[@class="suche-vereinswappen"]/img/@src'))))
         self._results = r
 

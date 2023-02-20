@@ -13,7 +13,7 @@ from discord.ui import View
 from ext.painezbot_utils.player import Region, Player
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Parent, FuncButton, FuncDropdown, add_page_buttons
+from ext.utils.view_utils import Parent, FuncButton, FuncDropdown, add_page_buttons, BaseView
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -317,7 +317,6 @@ class Clan:
 
             # Recent Activity
             lbt = member['last_battle_time']
-            print('We have errors with lbt: ', lbt)
             player.last_battle_time = Timestamp(datetime.utcfromtimestamp(lbt))
 
             # Averages
@@ -460,7 +459,7 @@ class Clan:
         return ClanView(interaction, self, parent)
 
 
-class ClanView(View):
+class ClanView(BaseView):
     """A View representing a World of Warships Clan"""
     bot: PBot = None
 
@@ -560,7 +559,7 @@ class ClanView(View):
 
         e.description = ', '.join(members).replace('_', '\\_')  # Discord formatting.
 
-        if banned := filter(lambda x: x.is_banned, self.clan.members):
+        if banned := [i for i in self.clan.members if i.is_banned]:
             e.add_field(name="Banned Members", value=', '.join(banned))
 
         # Clan Records:
@@ -633,7 +632,7 @@ class ClanView(View):
         return await self.bot.reply(self.interaction, embed=embed, view=self)
 
 
-class Leaderboard(View):
+class Leaderboard(BaseView):
     """Leaderboard View with dropdowns."""
     bot: ClassVar[PBot] = None
 

@@ -69,6 +69,12 @@ class GameTime:
     def __repr__(self) -> str:
         return f"GameTime({self.__dict__})"
 
+    def __str__(self):
+        if isinstance(self.value, str):
+            return self.value
+        else:
+            return self.value.name.replace('_', ' ').title()
+
     def __eq__(self, other: GameTime) -> bool:
         return False if other is None else self.value == other.value
 

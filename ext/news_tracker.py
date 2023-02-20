@@ -9,13 +9,13 @@ from discord import Embed, Interaction, Message, Colour, TextChannel, ButtonStyl
 from discord.app_commands import command, describe, guild_only, default_permissions, autocomplete, Choice
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
-from discord.ui import View, Button
+from discord.ui import Button
 from discord.utils import utcnow
 from lxml import html
 from playwright.async_api import TimeoutError
 
 from ext.painezbot_utils.player import Region
-from ext.utils.view_utils import Stop
+from ext.utils.view_utils import Stop, BaseView
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -54,7 +54,7 @@ class Article:
     """An Object representing a World of Warships News Article"""
     bot: PBot
     embed: Embed
-    view: View
+    view: BaseView
 
     def __init__(self, bot: PBot, partial: str) -> None:
         self.bot = bot
@@ -133,7 +133,7 @@ class Article:
                 e.colour = region.colour
                 break
 
-        v = View()
+        v = BaseView()
         for region in Region:
             if getattr(self, region.db_key):
                 url = f"https://worldofwarships.{region.domain}/en/{self.partial}"
@@ -189,7 +189,7 @@ class NewsChannel:
         return await view.update()
 
 
-class NewsConfig(View):
+class NewsConfig(BaseView):
     """News Tracker Config View"""
 
     def __init__(self, bot: PBot, interaction: Interaction, channel: TextChannel) -> None:
@@ -352,8 +352,7 @@ class NewsTracker(Cog):
         cached_ids = [x.channel.id for x in self.bot.news_channels]
         for r in channels:
             if r['channel_id'] not in cached_ids:
-                channel = self.bot.get_channel(r['channel_id'])
-                if channel is None:
+                if (channel := self.bot.get_channel(r['channel_id'])) is None:
                     continue
 
                 c = NewsChannel(self.bot, channel=channel, eu=r['eu'], na=r['na'], sea=r['sea'], cis=r['cis'])

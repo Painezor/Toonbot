@@ -1,6 +1,7 @@
 """Commands for creating time triggered message reminders."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from asyncpg import Record
@@ -8,27 +9,20 @@ from dateutil.relativedelta import relativedelta
 from discord import Embed, Interaction, HTTPException, TextStyle, Message
 from discord.app_commands import Group, context_menu
 from discord.ext.commands import Cog
-from discord.ui import View, Button, Modal, TextInput
+from discord.ui import Button, Modal, TextInput
 from discord.utils import sleep_until, utcnow
 
+from ext.utils import view_utils
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Paginator
+from ext.utils.view_utils import Paginator, BaseView
 
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
 
-class Hide(Button):
-    """A generic button to stop a View"""
-
-    def __init__(self, row=3):
-        super().__init__(label="Hide", emoji="🚫", row=row)
-
-    async def callback(self, interaction: Interaction):
-        """Do this when button is pressed"""
-        await self.view.message.delete()
+logger = logging.getLogger('reminders')
 
 
 async def spool_reminder(bot: Bot | PBot, r: Record):
@@ -86,7 +80,7 @@ class RemindModal(Modal):
         await self.bot.reply(interaction, embed=e, ephemeral=True)
 
 
-class ReminderView(View):
+class ReminderView(BaseView):
     """View for user requested reminders"""
 
     def __init__(self, bot: Bot, r: Record):
@@ -109,19 +103,19 @@ class ReminderView(View):
         e.set_author(name="⏰ Reminder")
         e.description = Timestamp(r['created_time']).date_relative
         e.description += f"\n\n> {r['reminder_content']}" if r['reminder_content'] is not None else ""
-        self.add_item(Hide(row=0))
+        self.add_item(view_utils.Stop(row=0))
 
         try:
-            self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
+            self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
         except HTTPException:
             try:
-                self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
+                self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
             except HTTPException:
                 pass
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute('''DELETE FROM reminders WHERE message_id = $1''', r['message_id'])
+                await connection.execute('''DELETE FROM reminders WHERE created_time = $1''', r['created_time'])
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Only reminder owner can interact to hide or snooze"""
@@ -160,13 +154,13 @@ class Reminders(Cog):
 
     reminder = Group(name="reminders", description="Set Reminders for yourself")
 
-    @reminder.command(name="create")
-    async def create_reminder(self, interaction: Interaction) -> Message:
+    @reminder.command()
+    async def create(self, interaction: Interaction) -> Message:
         """Remind you of something at a specified time."""
         return await interaction.response.send_modal(RemindModal(self.bot, title="Create a reminder"))
 
-    @reminder.command(name="list")
-    async def list_reminders(self, interaction: Interaction) -> Message:
+    @reminder.command()
+    async def list(self, interaction: Interaction) -> Message:
         """Check your active reminders"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():

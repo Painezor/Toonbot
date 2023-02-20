@@ -8,14 +8,15 @@ from typing import TYPE_CHECKING, ClassVar
 from discord import Embed
 from discord.app_commands import Group
 from discord.ext.commands import Cog
-from discord.ui import View
+
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from core import Bot
     from discord import Interaction
 
 
-class XKCDView(View):
+class XKCDView(BaseView):
     """A View to browse XKCD Comics"""
     bot: ClassVar[Bot]
 

@@ -112,8 +112,8 @@ class Bot(AutoShardedBot):
 
         # TV
         self.tv: dict = {}
-
-        print(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n-----------------------------------')
+        x = f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}'
+        logging.info(f'{x}\n' + '-' * len(x))
 
     async def setup_hook(self) -> None:
         """Load Cogs asynchronously"""
@@ -142,12 +142,11 @@ class Bot(AutoShardedBot):
 
     async def dump_image(self, data: BytesIO) -> str:
         """Save a stitched image"""
-        ch = self.get_channel(874655045633843240)
-        if ch is None:
+        try:
+            img_msg = await self.get_channel(874655045633843240).send(file=File(fp=data, filename="dumped_image.png"))
+            return img_msg.attachments[0].url
+        except AttributeError:
             return None
-
-        img_msg = await ch.send(file=File(fp=data, filename="dumped_image.png"))
-        return img_msg.attachments[0].url
 
     async def cache_quotes(self) -> None:
         """Cache the QuoteDB"""

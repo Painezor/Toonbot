@@ -11,9 +11,9 @@ from dateutil.parser import parser
 from discord import Embed
 from discord.app_commands import describe, autocomplete, Group, Choice
 from discord.ext.commands import Cog
-from discord.ui import View
 
 from ext.utils import view_utils
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -24,10 +24,8 @@ THUMBNAIL = "http://d2gatte9o95jao.cloudfront.net/assets/apple-touch-icon-2f29e9
 
 async def ud_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete from list of cogs"""
-    bot: Bot = interaction.client
     url = f"https://api.urbandictionary.com/v0/autocomplete-extra?term={current}"
-
-    async with bot.session.get(url) as resp:
+    async with interaction.client.session.get(url) as resp:
         match resp.status:
             case 200:
                 results = await resp.json()
@@ -36,7 +34,7 @@ async def ud_ac(interaction: Interaction, current: str) -> list[Choice]:
                 raise ConnectionError(f"{resp.status} Error accessing {url}")
 
 
-class UrbanView(View):
+class UrbanView(BaseView):
     """Generic View to paginate through multiple definitions"""
 
     def __init__(self, interaction: Interaction, embeds: list[Embed]) -> None:

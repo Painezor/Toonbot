@@ -11,16 +11,15 @@ from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord import Embed, Member, Attachment, Interaction, User, Message, File
 from discord.app_commands import describe, guild_only, Group
 from discord.ext.commands import Cog
-from discord.ui import View
 
 from ext.utils.embed_utils import embed_image
-from ext.utils.view_utils import FuncButton
+from ext.utils.view_utils import FuncButton, BaseView
 
 if TYPE_CHECKING:
     from core import Bot
 
 
-class ImageView(View):
+class ImageView(BaseView):
     """Holder View for Image Manipulation functions."""
 
     def __init__(self, bot: Bot, interaction: Interaction, user: User = None, link: str = None,
@@ -85,12 +84,12 @@ class ImageView(View):
             if isinstance(await self.get_faces(), Message):
                 return
 
-        def draw(img: bytes):
+        def draw():
             """Generates the Image"""
             if self._with_ruins is not None:
                 return self._with_ruins
 
-            img = ImageOps.fit(Image.open(BytesIO(img)), (256, 256))
+            img = ImageOps.fit(Image.open(BytesIO(self.image)), (256, 256))
             base = Image.open("Images/local man.png")
             base.paste(img, box=(175, 284, 431, 540))
 

@@ -40,7 +40,7 @@ class GuildStreams(Cog):
     streams = Group(name="streams", description="Stream list for your server", guild_only=True, default_permissions=prm)
 
     @streams.command()
-    async def list_streams(self, interaction: Interaction) -> Message:
+    async def list(self, interaction: Interaction) -> Message:
         """List all streams for the match added by users."""
         if not (guild_streams := self.bot.streams.get(interaction.guild.id, {})):
             return await self.bot.reply(interaction, content="Nobody has added any streams yet.")
@@ -76,12 +76,12 @@ class GuildStreams(Cog):
         """Delete a stream from the stream list"""
         guild_streams = self.bot.streams.get(interaction.guild.id, {})
 
-        if not (matches := filter(lambda i: i.name.lower() + i.link.lower() in stream.lower(), guild_streams)):
+        if not (matches := [i for i in guild_streams if stream.lower() in f"{i.name.lower()} {i.link.lower()}"]):
             err = f"Couldn't find that stream in {interaction.guild.name} stream list."
             return await self.bot.error(interaction, err)
 
         if not interaction.channel.permissions_for(interaction.guild.me).manage_messages:
-            if not (matches := filter(lambda i: i.added_by == interaction.user, matches)):
+            if not (matches := [i for i in matches if i.added_by == interaction.user]):
                 err = "You cannot remove a stream you did not add unless you have manage_messages permissions"
                 return await self.bot.error(interaction, err)
 

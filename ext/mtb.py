@@ -59,7 +59,7 @@ class MatchThread:
         subreddit = await self.bot.reddit.subreddit(self.settings["subreddit"])
 
         if self.record["pre_match_url"] is None:
-            if offset := self.settings['pre_match_offset'] is None:
+            if (offset := self.settings['pre_match_offset']) is None:
                 offset = datetime.timedelta(days=3)
             else:
                 offset = datetime.timedelta(days=offset)
@@ -385,15 +385,11 @@ class MatchThreadCommands(commands.Cog):
 
         for r in records:
             # Get upcoming games from flashscore.
-            team = self.bot.get_team(r["team_flashscore_id"])
-            if team is None:
-                team = await flashscore.Team.by_id(self.bot, r["team_flashscore_id"])
-                if team is None:
+            if (team := self.bot.get_team(r["team_flashscore_id"])) is None:
+                if (team := await flashscore.Team.by_id(self.bot, r["team_flashscore_id"])) is None:
                     continue
 
-            fx = await team.fixtures()
-
-            for fixture in fx:
+            for fixture in await team.fixtures():
                 await self.spool_thread(fixture, r)
 
     async def spool_thread(self, f: flashscore.Fixture, settings: asyncpg.Record) -> None:

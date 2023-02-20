@@ -8,10 +8,11 @@ from typing import TYPE_CHECKING
 from discord import ButtonStyle, Embed, Colour, TextStyle, Interaction, Message, HTTPException, SelectOption
 from discord.app_commands import command
 from discord.ext.commands import Cog
-from discord.ui import Button, View, Modal, TextInput, Select
+from discord.ui import Button, Modal, TextInput, Select
 from discord.utils import utcnow
 
 from ext.utils.timed_events import Timestamp
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -29,15 +30,10 @@ class PollButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Reply to user to let them know their vote has changed."""
-        bot: Bot = interaction.client
         ej = f"{self.emoji} " if self.emoji is not None else ""
-        if interaction.user.id in self.view.votes:
-            await bot.reply(interaction, f'Your vote has been changed to {ej}{self.label}', ephemeral=True)
-        else:
-            await bot.reply(interaction, f'You have voted for {ej}{self.label}', ephemeral=True)
+        await interaction.response.send_message(f'Vote set to {ej}{self.label}', ephemeral=True)
 
         votes: dict[str, list] = self.view.votes
-
         for key, vote_list in votes.items():
             try:
                 vote_list.remove(interaction.user.id)
@@ -77,7 +73,7 @@ class PollSelect(Select):
         return await self.view.update()
 
 
-class PollView(View):
+class PollView(BaseView):
     """View for a poll commands"""
 
     def __init__(self, interaction: Interaction, question: str, answers: list[str], minutes: int, votes: int) -> None:
@@ -108,16 +104,14 @@ class PollView(View):
         e = Embed(colour=Colour.green(), title=self.question)
         e.set_author(name=f"{self.interaction.user.name} asked…", icon_url=self.interaction.user.display_avatar.url)
 
-        srt = sorted(self.votes, key=lambda key: len(self.votes[key]), reverse=True)
-
-        if srt:
-            winning = srt.pop(0)
-            voters = ', '.join([self.bot.get_user(i).mention for i in winning])
-            e.description = f"🥇 **{winning}: {len(self.votes[winning])} votes**\n{' '.join(voters)}\n"
+        if srt := sorted(self.votes, key=lambda x: len(self.votes[x]), reverse=True):
+            winning = self.votes[key := srt.pop(0)]
+            voters = ', '.join([f"<@{i}>" for i in winning])
+            e.description = f"🥇 **{key}**: {len(winning)} votes\n{voters}\n\n"
 
             for k in srt:
-                voters = ', '.join([self.bot.get_user(i).mention for i in self.votes[k]])
-                e.description += f"**{k}: {len(self.votes[k])} votes**\n{voters}\n"
+                voters = ', '.join([f"<@{i}>" for i in self.votes[k]])
+                e.description += f"**{k}**: {len(self.votes[k])} votes\n{voters}\n\n"
         else:
             e.description = "No Votes were cast"
 
@@ -140,19 +134,18 @@ class PollView(View):
         e: Embed = Embed(colour=Colour.og_blurple(), title=self.question + "?", description="")
         e.set_author(name=f"{self.interaction.user.name} asks…", icon_url=self.interaction.user.display_avatar.url)
 
-        srt = sorted(self.votes, key=lambda key: len(self.votes[key]), reverse=True)
+        srt = sorted(self.votes, key=lambda x: len(self.votes[x]), reverse=True)
         if srt:
-            winning = srt.pop(0)
-            voters = ', '.join([self.bot.get_user(i).mention for i in winning])
+            winning = self.votes[key := srt.pop(0)]
+            voters = ', '.join([f"<@{i}>" for i in winning])
             e.description = f"Poll Ends at {self.ends_at.time_relative}\n" \
-                            f"🥇 **{winning}: {len(self.votes[winning])} votes**\n" \
-                            f"{' '.join(voters)}\n"
+                            f"🥇 **{key}: {len(winning)} votes**\n{voters}\n"
 
             for k in srt:
-                voters = ', '.join([self.bot.get_user(i).mention for i in self.votes[k]])
+                voters = ', '.join([f"<@{i}>" for i in self.votes[k]])
                 e.description += f"**{k}: {len(self.votes[k])} votes**\n{voters}\n"
         else:
-            e.description = "No votes yet."
+            e.description = "No votes have been cast"
 
         e.set_footer(text=f"Voting in Progress | {sum([len(self.votes[i]) for i in self.votes])} votes")
         return await self.bot.reply(self.interaction, content=content, view=self, embed=e)

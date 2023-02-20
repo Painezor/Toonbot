@@ -2,10 +2,7 @@
 from __future__ import annotations
 
 from io import BytesIO
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from PIL import Image
+from PIL import Image
 
 
 def stitch(images: list[Image.Image]) -> BytesIO:
@@ -18,8 +15,7 @@ def stitch(images: list[Image.Image]) -> BytesIO:
     for i in images:
         canvas.paste(i, (x, 0))
         x += int(i.width / 3)
-    output = BytesIO()
-    canvas.save(output, 'PNG')
+    canvas.save(output := BytesIO(), 'PNG')
 
     output.seek(0)
     return output
@@ -33,14 +29,12 @@ def stitch_vertical(images: list[BytesIO]) -> BytesIO:
     images = [Image.open(i) for i in images]
 
     w = images[0].width
-    h = sum(i.height for i in images)
-    canvas = Image.new('RGB', (w, h))
+    canvas = Image.new('RGB', (w, sum(i.height for i in images)))
     y = 0
     for i in images:
         canvas.paste(i, (0, y))
         y += i.height
-    output = BytesIO()
-    canvas.save(output, 'PNG')
+    canvas.save(output := BytesIO(), 'PNG')
     output.seek(0)
     canvas.close()
 

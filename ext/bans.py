@@ -9,9 +9,9 @@ from discord import Embed, BanEntry, SelectOption, Colour, TextStyle, NotFound, 
 from discord.app_commands import command, default_permissions, describe
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
-from discord.ui import Select, View, Modal, TextInput
+from discord.ui import Select, Modal, TextInput
 
-from ext.utils.view_utils import add_page_buttons
+from ext.utils.view_utils import add_page_buttons, BaseView
 
 if TYPE_CHECKING:
     from discord import Interaction, Message
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger('bans')
 
 
-class BanView(View):
+class BanView(BaseView):
     """View to hold the BanList"""
 
     def __init__(self, interaction: Interaction, bans: list[BanEntry]) -> None:
@@ -71,7 +71,7 @@ class BanView(View):
         e.set_footer(text=f"Action performed by {self.interaction.user}\n{self.interaction.user.id}",
                      icon_url=self.interaction.user.display_avatar.url)
 
-        for ban in filter(lambda b: str(b.user.id) in bans, self.page_bans):
+        for ban in [b for b in self.page_bans if str(b.user.id) in bans]:
             await self.interaction.guild.unban(ban.user, reason=f"Requested by {self.interaction.user}")
             e.description += f"{ban.user} {ban.user.mention} ({ban.user.id})\n"
             self.bans.remove(ban)
@@ -165,9 +165,8 @@ class BanCog(Cog):
         if not (bans := [i async for i in interaction.guild.bans()]):
             return await self.bot.error(interaction, f"{interaction.guild.name} has no bans!")
 
-        if name:
-            bans = list(filter(lambda i: name in i.user.name, bans))
-            if not bans:
+        if name is not None:
+            if not (bans := [i for i in bans if name in i.user.name]):
                 return await self.bot.error(interaction, f"No bans found matching {name}")
         return await BanView(interaction, bans).update()
 

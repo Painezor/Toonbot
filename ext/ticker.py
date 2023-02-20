@@ -8,13 +8,13 @@ from asyncpg import ForeignKeyViolationError
 from discord import Colour, ButtonStyle, Embed, HTTPException, Permissions, Interaction, TextChannel, Message
 from discord.app_commands import Group, describe, autocomplete
 from discord.ext.commands import Cog
-from discord.ui import Select, View, Button
+from discord.ui import Select, Button
 
 from ext.toonbot_utils.flashscore import Fixture, Competition, search, Team, DEFAULT_LEAGUES, lg_ac
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import MatchEvent, Penalty, Substitution, EventType
 from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.view_utils import add_page_buttons, Confirmation
+from ext.utils.view_utils import add_page_buttons, Confirmation, BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -430,7 +430,7 @@ class RemoveLeague(Select):
         return await self.view.remove_leagues(self.values)
 
 
-class TickerConfig(View):
+class TickerConfig(BaseView):
     """Match Event Ticker View"""
     bot: ClassVar[Bot] = None
 

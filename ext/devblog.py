@@ -9,13 +9,12 @@ from discord import Interaction, Message, Colour, Embed, HTTPException, TextChan
 from discord.app_commands import Choice, command, autocomplete, describe, default_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
-from discord.ui import View
 from discord.utils import utcnow
 from lxml import html
 from lxml.html import HtmlElement
 
 from ext.utils.flags import get_flag
-from ext.utils.view_utils import add_page_buttons
+from ext.utils.view_utils import add_page_buttons, BaseView
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -141,7 +140,7 @@ class Blog:
                     if node.attrib.get("class", None) == "superShipStar":
                         out.append(f'\⭐')
                     else:
-                        print("unhandled 'i' tag", node.attrib['class'], txt)
+                        logging.error(f"unhandled 'i' tag {node.attrib['class']} containing text {txt}")
                 case "p":
                     if node.text_content():
                         if node.getprevious() is not None and node.text:
@@ -216,7 +215,7 @@ class Blog:
                     out.append('\n')
                 case _:
                     if node.text:
-                        print(f"Unhandled node found: {node.tag} | {txt} | {node.tail}")
+                        logging.error(f"Unhandled node found: {node.tag} | {txt} | {node.tail}")
                         out.append(txt)
 
             for sub_node in node.iterchildren():
@@ -251,7 +250,7 @@ class Blog:
         return e
 
 
-class DevBlogView(View):
+class DevBlogView(BaseView):
     """Browse Dev Blogs"""
 
     def __init__(self, bot: PBot, interaction: Interaction, pages: list[Record]) -> None:
@@ -271,7 +270,7 @@ class DevBlogView(View):
 
 async def db_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete dev blog by text"""
-    blogs = filter(lambda i: current.lower() in i.ac_row, interaction.client.dev_blog_cache)
+    blogs = [i for i in interaction.client.dev_blog_cache if current.lower() in i.ac_row]
     return [Choice(name=f"{i.id}: {i.title}"[:100], value=str(i.id)) for i in blogs][:-25:-1]  # Last 25 items reversed
 
 
@@ -309,14 +308,14 @@ class DevBlog(Cog):
         articles = tree.xpath('.//item')
         for i in articles:
             try:
-                link = next(filter(lambda l: '.ru' not in l, i.xpath('.//guid/text() | .//link/text()')))
-            except StopIteration:
+                link = [l for l in i.xpath('.//guid/text() | .//link/text()') if '.ru' not in l][0]
+            except IndexError:
                 continue
 
             try:
                 blog_id = int(link.split('/')[-1])
             except ValueError:
-                print('Could not parse blog_id from link ', link)
+                logging.error(f'Could not parse blog_id from link {link}')
                 continue
 
             if blog_id in [r.id for r in self.bot.dev_blog_cache]:

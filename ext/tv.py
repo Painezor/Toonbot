@@ -24,6 +24,8 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
 
 
 # TODO: Team / League Split
+# TODO: Initial Passover of fixture upon view creation to get all available buttons.
+# TODO: Make functions for all buttons.
 
 
 async def tv_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
@@ -60,7 +62,7 @@ class Tv(commands.Cog):
                     return await self.bot.error(interaction, f"Could not find a matching team for {team}.")
 
                 if len(objects := [('📺', i, self.bot.tv[i]) for i in matches]) > 1:
-                    view = ObjectSelectView(interaction, objects=objects, timeout=30)
+                    view = ObjectSelectView(interaction, objects=objects)
                     e.description = '⏬ Multiple results found, choose from the dropdown.'
                     await self.bot.reply(interaction, embed=e, view=view)
                     await view.update()

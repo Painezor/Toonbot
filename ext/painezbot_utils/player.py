@@ -13,7 +13,7 @@ from flatten_dict import flatten, unflatten
 
 from ext.painezbot_utils.ship import Ship, Artillery
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import FuncButton, FuncDropdown
+from ext.utils.view_utils import FuncButton, FuncDropdown, BaseView
 
 if TYPE_CHECKING:
     from ext.painezbot_utils.clan import PlayerCBStats, Clan
@@ -327,7 +327,7 @@ class ClanButton(Button):
         return await self.clan.view(self.interaction, parent=self.parent).overview()
 
 
-class PlayerView(View):
+class PlayerView(BaseView):
     """A View representing a World of Warships player"""
     bot: PBot = None
 
@@ -469,8 +469,7 @@ class PlayerView(View):
 
         stats = self.player.clan_battle_stats[self.cb_season]
 
-        print('Found clan battle stats')
-        print(stats)
+        logging.info(f'Found clan battle stats {stats}')
 
         e = await self.base_embed
         e.title = f"Clan Battles (Season {self.cb_season})"
@@ -597,13 +596,13 @@ class PlayerView(View):
         self._disabled = self.overview
         return await self.update(embed=e)
 
-    async def mode_stats(self):
+    async def mode_stats(self, mode: GameMode, div_size: int = 0):
         """Get the player's stats for the specific game mode"""
         # Don't remove data from original player object.
         e = await self.base_embed
         desc = []
 
-        match self.mode.tag:
+        match mode.tag:
             case "CLAN":
                 return await self.clan_battles()
             case _:
@@ -646,7 +645,7 @@ class PlayerView(View):
         planes = p_stats.pop('planes_killed', 0)
 
         # Averages - Kills, Damage, Spotting, Potential
-        if self.mode.tag == "PVE":
+        if mode.tag == "PVE":
             x_avg = format(round(tot_xp / played), ',')
             x_tot = format(tot_xp, ',')
             desc.append(f"**Average XP**: {x_avg}\n"
@@ -699,7 +698,7 @@ class PlayerView(View):
                                                  f"{format(tot_xp, ',')}\n{format(planes, ',')}")
             except ZeroDivisionError:
                 desc.append('```diff\n- Could not find player stats for this game mode and division size```')
-                logging.error(f'Could not find stats for size [{self.div_size}] mode [{self.mode}]')
+                logging.error(f'Could not find stats for size [{div_size}] mode [{mode}]')
 
         # Operations specific stats.
         try:
@@ -749,7 +748,7 @@ class PlayerView(View):
             # Event and Brawl aren't in API.
             case "BRAWL" | "EVENT":
                 pass
-            # Pre-made & Cawaalan don't have div sizes.
+            # Pre-made & Clan don't have div sizes.
             case "CLAN":
                 opts = []
 

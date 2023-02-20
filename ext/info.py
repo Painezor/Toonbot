@@ -62,7 +62,7 @@ class Info(Cog):
 
         e.set_footer(text="Channel Created")
 
-        match channel:
+        match type(channel):
             case discord.TextChannel:
                 e.title = "Text Channel"
                 channel: discord.TextChannel
@@ -172,14 +172,16 @@ class Info(Cog):
         for target, overwrite in channel.overwrites.items():
             emb = base_embed.copy()
             emb.title = "Permission Overwrites"
-            emb.description = target.mention
+            emb.description = f"{target.mention} ({target.id})"
 
-            allowed, denied = overwrite.pair()
-            emb.add_field(name="Allowed", value='\n'.join(f'✅ {i}' for i in allowed))
-            emb.add_field(name="Denied", value='\n'.join(f'✅ {i}' for i in denied))
+            if allow := '\n'.join(f'✅ {k}' for k, v in overwrite if v):
+                emb.add_field(name="Allowed", value=allow)
+
+            if deny := '\n'.join(f'❌ {k}' for k, v in overwrite if v is False):
+                emb.add_field(name="Denied", value=deny)
             embeds.append(emb)
 
-        return await Paginator(interaction, e + embeds).update()
+        return await Paginator(interaction, [e] + embeds).update()
 
     @info.command()
     @describe(role="select a role")
@@ -232,22 +234,23 @@ class Info(Cog):
         except AttributeError:
             perm_embed = None
 
-        return await Paginator(interaction, [i for i in [e, perm_embed] if i is not None]).update()
+        return await Paginator(interaction, [i for i in [e, perm_embed] if i]).update()
 
-    @info.command()
+    @info.command(name="emote")
     @describe(emoji="enter a list of emotes")
-    async def emote(self, interaction: Interaction, emoji: str) -> Message:
+    async def info_emote(self, interaction: Interaction, emoji: str) -> Message:
         """View a bigger version of an Emoji"""
         await interaction.response.defer(thinking=True)
 
         embeds = []
         for anim, name, e_id in re.findall(r'<(?P<animated>a?):(?P<name>\w{2,32}):(?P<id>\d{18,22})>', emoji):
             e: Embed = Embed(title=name)
-            if emoji := self.bot.get_emoji(e_id) is None:
+            if (emoji := self.bot.get_emoji(e_id)) is None:
                 emoji = PartialEmoji(name=name, animated=bool(anim), id=e_id)
 
             e.colour = await get_colour(emoji.url)
-            e.description = f"**Animated?**: {emoji.animated}\n"
+            if emoji.animated:
+                e.description = f"**Animated?**: {emoji.animated}\n"
             e.set_image(url=emoji.url)
             e.set_footer(text=emoji.url)
 
@@ -258,7 +261,8 @@ class Info(Cog):
             embeds.append(e)
 
         if not embeds:
-            return await self.bot.error(interaction, f"No emotes found in {emoji}")
+            return await self.bot.error(interaction, f"No emotes found in {emoji}\n\nPlease note this only works for"
+                                                     f"custom server emotes, not default emotes.")
 
         return await Paginator(interaction, embeds).update()
 
@@ -276,28 +280,28 @@ class Info(Cog):
 
             base_embed.colour = clr
             base_embed.set_thumbnail(url=ico.url)
-            base_embed.set_author(name=g.name, icon_url=ico.url)
+            base_embed.set_author(name=f"{g.name} ({g.id})", icon_url=ico.url)
         else:
             base_embed.set_author(name=g.name)
 
         cover = base_embed.copy()
-        cover.title = "General"
+        cover.description = ""
         cover.set_footer(text="Server Created")
         cover.timestamp = g.created_at
-
-        if desc := g.description:
-            cover.add_field(name="Description", value=desc)
 
         try:
             cover.description += f"**Owner**: {g.owner.mention}\n"
         except AttributeError:
             pass
-        cover.description += f"**Server ID**: {g.id}\n"
+
         cover.description += f"**Members**: {len(g.members)}\n"
-        cover.description += f"**Notification Level**: {g.default_notifications}\n"
-        cover.description += f"**MFA-Level**: {g.mfa_level}\n"
-        cover.description += f"**Content Filter**: {g.explicit_content_filter}\n"
+        cover.description += f"**Notification Settings**: {g.default_notifications.name.replace('_', ' ').title()}\n"
+        cover.description += f"**MFA-Level**: {g.mfa_level.name.replace('_', ' ').title()}\n"
+        cover.description += f"**Explicit Content Check**: {g.explicit_content_filter.name.replace('_', ' ').title()}\n"
         cover.description += f"**Locale**: {g.preferred_locale}\n"
+
+        if desc := g.description:
+            cover.description += f"\n{desc}"
 
         if g.banner is not None:
             cover.set_image(url=g.banner.url)
@@ -316,7 +320,7 @@ class Info(Cog):
 
         channels = base_embed.copy()
         channels.title = "Channels"
-        channels.description += f"**Text Channels**: {len(g.text_channels)}\n"
+        channels.description = f"**Text Channels**: {len(g.text_channels)}\n"
         if vc := g.voice_channels:
             channels.description += f"**Voice Channels**: {len(vc)}\n"
         if threads := g.threads:
@@ -369,15 +373,18 @@ class Info(Cog):
         if emojis:
             stickers.add_field(name="Emotes", value=emojis, inline=False)
 
-        stickers.description += f"**Emotes Used**: {len(g.emojis)} / {g.emoji_limit}\n"
+        stickers.description = f"**Emotes Used**: {len(g.emojis)} / {g.emoji_limit}\n"
         stickers.description += f"**Stickers Used**: {len(g.stickers)} / {g.sticker_limit}\n"
 
         r_e = base_embed.copy()
         r_e.title = "Roles"
         r_e.description = f"**Number of Roles**: {len(g.roles)}\n"
         r_e.description += f"**Default Role**: {g.default_role.mention}\n"
-        r_e.description += f"**Booster Role**: {g.premium_subscriber_role.mention}\n"
-        r_e.description += f"**Unused Roles**: {len(i for i in g.roles if not i.members)}\n"
+        try:
+            r_e.description += f"**Booster Role**: {g.premium_subscriber_role.mention}\n"
+        except AttributeError:
+            pass
+        r_e.description += f"**Unused Roles**: {len([i for i in g.roles if not i.members])}\n"
         if g.self_role:
             r_e.description += f"**My Role**: {g.self_role.mention}\n"
 
@@ -414,7 +421,7 @@ class Info(Cog):
             voice = f'In voice channel {voice.mention} {f"with {voice_other} others" if voice_other else "alone"}'
             generic.add_field(name="Voice Status", value=voice)
 
-        if roles := [r.mention for r in filter(lambda r: r.position != 0, reversed(member.roles))]:
+        if roles := [r.mention for r in reversed(member.roles) if r.position != 0]:
             generic.add_field(name='Roles', value=' '.join(roles))
 
         if member.banner:

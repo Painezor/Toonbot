@@ -44,9 +44,8 @@ class TL(Translator):
         """
 
         try:
-            return translations[locale][string.message]
+            return translations.get(locale)[string.message]
         except KeyError:
-            logging.info(f'No translation in locale british_english found for string {string}')
             return None
 
 

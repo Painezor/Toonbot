@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 from discord import Embed, Colour, TextStyle
 from discord.app_commands import command, describe
 from discord.ext.commands import Cog
-from discord.ui import View, Button, Modal, TextInput
+from discord.ui import Button, Modal, TextInput
 
-from ext.utils.view_utils import Stop
+from ext.utils.view_utils import Stop, BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -26,7 +26,7 @@ COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thu
 # Send modal for custom roll
 
 
-class DiceBox(View):
+class DiceBox(BaseView):
     """A View with buttons for various dice"""
 
     def __init__(self, interaction: Interaction) -> None:
@@ -70,7 +70,7 @@ class DiceButton(Button):
         super().__init__(label=f"Roll D{sides}", row=row, style=ButtonStyle.blurple)
         self.sides: int = sides
 
-    async def callback(self, interaction: Interaction) -> View:
+    async def callback(self, interaction: Interaction) -> BaseView:
         """When clicked roll"""
         await interaction.response.defer()
         roll = randrange(1, self.sides + 1)
@@ -83,7 +83,7 @@ class DiceButton(Button):
         return await self.view.update()
 
 
-class CoinView(View):
+class CoinView(BaseView):
     """A View with a counter for 2 results"""
 
     def __init__(self, interaction: Interaction, count: int = 1) -> None:
@@ -123,7 +123,7 @@ class FlipButton(Button):
         super().__init__(label=label, emoji="🪙", style=ButtonStyle.primary)
         self.count: int = count
 
-    async def callback(self, interaction: Interaction) -> View:
+    async def callback(self, interaction: Interaction) -> BaseView:
         """When clicked roll"""
         await interaction.response.defer()
         for x in range(self.count):

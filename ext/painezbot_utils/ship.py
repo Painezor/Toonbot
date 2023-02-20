@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Type, Callable, Optional
 
 import unidecode as unidecode
 from discord import Interaction, Message, Embed, SelectOption
-from discord.ui import View, Button, Select
+from discord.ui import Button, Select
 
-from ext.utils.view_utils import FuncButton
+from ext.utils.view_utils import FuncButton, BaseView
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -170,13 +170,12 @@ class Ship:
     async def fetch_modules(self) -> list[Module]:
         """Grab all data related to the ship from the API"""
         # Get needed module IDs
-        existing = filter(lambda x: x in [s.module_id for s in self.bot.modules], self._modules.values())
+        existing = [x for x in self._modules.values() if x.module_id in [s.module_id for s in self.bot.modules]]
 
         # We use a deepcopy, because we're editing values with data from modules tree, but each module can be used on
         # a number of different ships, and we do not want to contaminate *their* data.
         self.modules.update({k.module_id: deepcopy(k) for k in existing})
-
-        if targets := [str(i) for i in filter(lambda x: x not in self.bot.modules, self._modules.values())]:
+        if targets := [str(i) for i in self._modules.values() if i not in self.bot.modules]:
             # We want the module IDs as str for the purposes of params
             p = {'application_id': self.bot.WG_ID, 'module_id': ','.join(targets)}
             url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
@@ -308,7 +307,7 @@ class ShipButton(Button):
         return await self.ship.view(self.interaction).overview()
 
 
-class ShipView(View):
+class ShipView(BaseView):
     """A view representing a ship, with buttons to change between different menus."""
 
     def __init__(self, bot: PBot, interaction: Interaction, ship: Ship) -> None:

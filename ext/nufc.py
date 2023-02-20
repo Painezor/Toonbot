@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, Role, Message, File
 from discord.app_commands import command, guilds, describe, default_permissions
 from discord.ext.commands import Cog
-from discord.ui import Button, View
+from discord.ui import Button
+
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -193,7 +195,7 @@ MBEMBA = [
 ]
 
 
-class MbembaView(View):
+class MbembaView(BaseView):
     """Generic View for the Mbemba Generator."""
 
     def __init__(self, bot: Bot, interaction: Interaction) -> None:
@@ -255,7 +257,7 @@ class NUFC(Cog):
                 return await self.bot.error(interaction, 'Invalid colour specified.')
 
         except ValueError:
-            view = View()
+            view = BaseView()
             btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
             view.add_item(btn)
             return await self.bot.error(interaction, content='Invalid colour.', view=view)

@@ -9,7 +9,7 @@ async def error(i: Interaction, content: str,
                 message: Message = None,
                 followup: bool = True, **kwargs) -> Message:
     """Send a Generic Error Embed"""
-    e: Embed = Embed(title="An Error occurred.", colour=Colour.red(), description=content)
+    e: Embed = Embed(colour=Colour.red(), description=content)
 
     kwargs.pop('view', None)
 

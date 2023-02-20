@@ -1,10 +1,7 @@
 """Notify server moderators about specific events"""
 # TODO: Fallback parser using regular events -- Check if bot has view_audit_log perms
 # TODO: Validate all auditlog actions on test server.
-# TODO: Fix Timestamping & Move Changes Block for all auditlog actions
-# TODO: Nuke Down Changes.before and changes.after on delete/create events.
-# TODO: Just log entry.changes on everything else
-# TODO: CTRL F for AUTHOR is, TITLE is & delete
+# TODO: Fix Timestamping for all auditlog actions
 
 from __future__ import annotations
 
@@ -16,10 +13,11 @@ import discord
 from discord import Embed, Colour, AuditLogAction, File, Message, Emoji, Interaction, Member, User, Role, TextChannel
 from discord.app_commands import command, default_permissions
 from discord.ext.commands import Cog
-from discord.ui import Button, View
+from discord.ui import Button
 
 from ext.utils import timed_events, view_utils
 from ext.utils.timed_events import Timestamp
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -56,7 +54,7 @@ class ToggleButton(Button):
         return await self.view.update()
 
 
-class LogsConfig(View):
+class LogsConfig(BaseView):
     """Generic Config View"""
     bot: ClassVar[Bot]
 
@@ -98,6 +96,53 @@ class LogsConfig(View):
             self.add_item(ToggleButton(self.bot, db_key=k, value=v, row=row))
         self.add_item(view_utils.Stop(row=4))
         await self.bot.reply(self.interaction, content=content, embed=e, view=self)
+
+
+def do_footer(entry, embed):
+    """Unified Footers."""
+    if isinstance(user := entry.user, discord.Object):
+        if (_ := entry.guild.get_member(entry.user)) is not None:
+            user = _
+
+    if user is None:
+        return
+
+    text = f"{user}\nID: {user.id}"
+    if entry.reason:
+        text += f'\nReason: {entry.reason}'
+    embed.set_footer(text=text, icon_url=user.display_avatar.url)
+
+
+def stringify_minutes(value: int) -> str:
+    """Convert Minutes to less painful to read value"""
+    match value:
+        case 60:
+            return "1 Hour"
+        case 1440:
+            return "1 Day"
+        case 4320:
+            return "3 Days"
+        case 10080:
+            return "7 Days"
+        case _:
+            logging.info(f"Unhandled archive duration, {value}")
+            return value
+
+
+def stringify_seconds(value: int) -> str:
+    """Convert seconds to less painful to read value"""
+    match value:
+        case value if value < 60:
+            return f"{value} Seconds"
+        case 60:
+            return "1 Minute"
+        case 86400:
+            return "1 Day"
+        case 604800:
+            return "7 Days"
+        case _:
+            logging.info(f'Unhandled Seconds: {value}')
+            return f"{value} Seconds"
 
 
 def stringify_mfa(value: discord.MFALevel) -> str:
@@ -181,18 +226,32 @@ class Logs(Cog):
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 self.bot.notifications_cache = await connection.fetch(q)
+                
+    async def dispatch(self, channels: list, e: list[Embed]):
+        """Bulk dispatch messages to their destinations"""
+        for ch in channels:
+            try:
+                await self.bot.get_channel(ch['channel_id']).send(embeds=e)
+            except discord.HTTPException:
+                continue
+
+    async def get_channels(self, guild, filters: list[str]):
+        """Filter down to the required channels"""
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id]
+        for setting in filters:
+            channels = [i for i in channels if i[setting]]
+        return list(channels)
 
     # Join messages
     @Cog.listener()
     async def on_member_join(self, member: Member) -> None:
         """Event handler to Dispatch new member information for servers that request it"""
-
-        channels = filter(lambda i: i['guild_id'] == member.guild.id and i['joins'], self.bot.notifications_cache)
-        channels = filter(None, [self.bot.get_channel(i['channel_id']) for i in channels])
-
+        if not (channels := await self.get_channels(member.guild, ['joins'])):
+            return
+        
         # Extended member join information.
-        e: Embed = Embed(colour=0x7289DA)
-        e.set_author(name=f"{member.name} joined {member.guild.name}", icon_url=member.display_avatar.url)
+        e: Embed = Embed(colour=0x7289DA, title="Member Joined")
+        e.set_author(name=f"{member.name} {member.id}", icon_url=member.display_avatar.url)
 
         def onboard() -> str:
             """Get the member's onboarding status"""
@@ -204,7 +263,6 @@ class Logs(Cog):
                 return "Not Started"
 
         e.description = f"{member.mention}\n" \
-                        f"**User ID**: {member.id}\n" \
                         f"**Shared Servers**: {len(member.mutual_guilds)}\n" \
                         f"**Account Created**: {timed_events.Timestamp(member.created_at).date_relative}\n" \
                         f"**Onboarding Status**?: {onboard()}"
@@ -248,19 +306,13 @@ class Logs(Cog):
 
         if flags:
             e.add_field(name="Flags", value=', '.join(flags))
-
-        for ch in channels:
-            try:
-                await ch.send(embed=e)
-            except (AttributeError, discord.HTTPException):
-                continue
+        await self.dispatch(channels, [e])
 
     @Cog.listener()
     async def on_user_update(self, bf: User, af: User):
         """Triggered when a user updates their profile"""
         guilds = [i.id for i in self.bot.guilds if i.get_member(af.id)]
-        channels = filter(lambda i: i['guild_id'] in guilds and i['member_updates'], self.bot.notifications_cache)
-
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] in guilds and i['member_updates']]
         if not channels:
             return
 
@@ -280,10 +332,11 @@ class Logs(Cog):
             before.description += f"**Discriminator**: {bf.display_avatar.url}\n"
             after.description += f"**Discriminator**: {af.display_avatar.url}\n"
 
-    def parse_channel_overwrites(self, entry, ow_pairs, embed: Embed):
+    def parse_channel_overwrites(self, entry, ow_pairs, e: Embed):
         """Parse a list of Channel Overwrites & append data to embed"""
         ow_pairs: list[tuple[discord.Object, discord.PermissionOverwrite]]
 
+        output = ""
         for user_or_role, perms in ow_pairs:
             if isinstance(user_or_role, discord.Object):
                 if (target := self.bot.get_user(user_or_role.id)) is None:
@@ -292,227 +345,93 @@ class Logs(Cog):
                 target = user_or_role
 
             if target is not None:
-                embed.description += f"{target.mention}: "
+                output += f"{target.mention}: "
             else:
-                embed.description += f"ID# {user_or_role.id}: "
+                output += f"ID# {user_or_role.id}: "
 
-            allow, deny = perms.pair()
-            embed.description += ', '.join(f"✅ {i}" for i in allow)
-            embed.description += ', '.join(f"❌ {i}" for i in deny)
+            output += ', '.join(f"✅ {k}" for (k, v) in perms if v)
+            output += ', '.join(f"❌ {k}" for (k, v) in perms if v is False)  # False but not None.
+            output += "\n\n"
+        e.add_field(name="Permission Overwrites", value=output)
 
     async def handle_channel_create(self, entry: discord.AuditLogEntry):
         """Handler for when a channel is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        embed = Embed(colour=Colour.light_gray(), title="Channel Created", timestamp=entry.created_at)
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        changes = {k: v for k, v in entry.changes.after if k != 'type'}
+        c_type = str(entry.target.type).replace('_', ' ').title()
+        e = Embed(colour=Colour.orange(), title=f"{c_type} Channel Created", timestamp=entry.created_at)
+        do_footer(entry, e)
+        e.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n{f'Reason: {entry.reason}' if entry.reason else ''}"
-        embed.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        if _ := changes.pop("name", False):
+            pass  # Name is found in entry.target anyway.
 
-        changes = {}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        if bitrate := changes.pop("bitrate", False):
+            e.description += f"**Bitrate**: {math.floor(bitrate/ 1000)}kbps"
 
-        if isinstance(channel := entry.target, discord.Object):
-            channel = entry.guild.get_channel(entry.target.id)
+        if max_users := changes.pop("user_limit", False):
+            e.description += f"**User Limit**: {max_users}\n"
 
-        if channel is not None:
-            embed.set_author(name=channel.name)
-            embed.description = f"{channel.mention} ({channel.id})\n\n"
-        else:
-            embed.description = f"**ID**: {entry.target.id}"
+        if archive := changes.pop("default_auto_archive_duration", False):
+            e.description += f"**Thread Archiving**: {stringify_minutes(archive)}\n"
 
-        if key := changes.pop("name", False):
-            embed.description += f"**Name**: {key['after']}\n"
+        if order := changes.pop("position", False):
+            e.description += f"**Position**: {order}\n"
 
-        if key := changes.pop('type', False):
-            embed.description += f"**Type**: {key['after'].name.title() if key['after'] is not None else ''}\n"
+        if _ := changes.pop("nsfw", False):
+            e.description += f"**NSFW**: `True`\n"
 
-        if key := changes.pop("bitrate", False):
-            af = f"{math.floor(key['after'] / 1000)}kbps" if key['after'] else None
-            embed.description += f"**Bitrate**: {af}\n"
+        if region := changes.pop("rtc_region", False):
+            e.description += f"**Region**: {region}\n"
 
-        if key := changes.pop("user_limit", False):
-            embed.description += f"**User Limit**: {key['after']}\n" if key['after'] != 0 else ''
+        if topic := changes.pop("topic", False):
+            e.add_field(name="Topic", value=topic, inline=False)
 
-        if key := changes.pop("default_auto_archive_duration", False):
-            af_archive = str(key['after']) + ' mins' if key['after'] else None
-            embed.description += f"**Thread Archiving**: {af_archive}\n"
-
-        if key := changes.pop("position", False):
-            embed.description += f"**Order**: {key['after']}\n"
-
-        if key := changes.pop("nsfw", False):
-            embed.description += f"**NSFW**: {key['after']}\n"
-
-        if key := changes.pop("rtc_region", False):
-            embed.description += f"**Region**: {key['after']}\n"
-
-        if key := changes.pop("topic", False):
-            embed.add_field(name="Topic", value=key['after'], inline=False)
-
-        if key := changes.pop("slowmode_delay", False):
-            sm_af = f"{key['after']} seconds" if key['after'] else 'None'
-            embed.description += f"**Slowmode**: {sm_af}\n"
+        if slowmode := changes.pop("slowmode_delay", False):
+            e.description += f"**Slowmode**: {stringify_seconds(slowmode)}\n"
 
         # Enums
-        if key := changes.pop('video_quality_mode', False):
-            embed.description += f"**Video Quality**: {key['after'].name.title()}\n"
+        if vq := changes.pop('video_quality_mode', False):
+            e.description += f"**Video Quality**: {vq.name.title()}\n"
 
         # Flags
-        if key := changes.pop('flags', False):
-            flags: discord.ChannelFlags = key['after']
-            if flags.pinned:
-                embed.description += f"**Thread Pinned**: `True`\n"
-            if flags.require_tag:
-                embed.description += f"**Force Tags?**: `True`\n"
-
-        # Permission Overwrites
-        if key := changes.pop("overwrites", False):
-            self.parse_channel_overwrites(entry, key['after'], embed)
-
-        if changes:
-            logging.info(f"Channel Create Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=embed)
-            except discord.HTTPException:
-                continue
-
-    async def handle_channel_delete(self, entry: discord.AuditLogEntry):
-        """Handler for when a channel is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
-            return
-
-        e: Embed = Embed(colour=Colour.light_gray(), title="Channel Deleted", timestamp=entry.created_at)
-
-        # Target
-        if isinstance(entry.target, discord.Object):
-            channel = entry.guild.get_channel(entry.target.id)
-        else:
-            channel = entry.target
-
-        if channel is not None:
-            e.description = f"{channel.mention} ({channel.id})\n\n"
-        else:
-            e.description = f"**ID**: {entry.target.id}"
-
-        # User
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        if key := changes.pop("name", False):
-            e.description += f"**Name**: {key['before']}\n"
-
-        if key := changes.pop('type', False):
-            e.description += f"**Type**: {key['before'].name.title()}"
-
-        if key := changes.pop("bitrate", False):
-            e.description += f"**Bitrate**: {math.floor(key['before'] / 1000)}kbps\n"
-
-        if key := changes.pop("user_limit", False):
-            e.description += f"**User Limit**: {key['before']}\n" if key['before'] != 0 else ''
-
-        if key := changes.pop("default_auto_archive_duration", False):
-            bf_archive = str(key['before']) + 'mins' if key['before'] else None
-            e.description += f"**Thread Archiving**: {bf_archive}\n"
-
-        if key := changes.pop("position", False):
-            e.description += f"**Order**: {key['before']}\n"
-
-        if key := changes.pop("nsfw", False):
-            e.description += f"**NSFW**: {key['before']}\n"
-
-        if key := changes.pop("rtc_region", False):
-            e.description += f"**Region**: {key['before']}\n"
-
-        if key := changes.pop("topic", False):
-            e.add_field(name="Topic", value=key['before'], inline=False)
-
-        if key := changes.pop("slowmode_delay", False):
-            sm_bf = f"{key['before']} seconds" if key['before'] else 'None'
-            e.description += f"**Slowmode**: {sm_bf}\n"
-
-        # Enums
-        if key := changes.pop('video_quality_mode', False):
-            e.description += f"**Video Quality**: {key['before'].name.title()}"
-
-        if _ := changes.pop('available_tags', False):
-            pass  # Discard.
-
-        # Flags
-        if key := changes.pop('flags', False):
-            flags: discord.ChannelFlags = key['before']
+        if flags := changes.pop('flags', False):
             if flags.pinned:
                 e.description += f"**Thread Pinned**: `True`\n"
             if flags.require_tag:
                 e.description += f"**Force Tags?**: `True`\n"
 
         # Permission Overwrites
-        if key := changes.pop("overwrites", False):
-            self.parse_channel_overwrites(entry, key['before'], e)
+        if overwrites := changes.pop("overwrites", False):
+            self.parse_channel_overwrites(entry, overwrites, e)
 
         if changes:
-            logging.info(f"{entry.action} | Changes Remain: {changes}")
+            logging.info(f"Channel Create Changes Remain: {changes}")
+        return await self.dispatch(channels, [e])
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
-
+    # TODO: Move up
     async def handle_channel_update(self, entry: discord.AuditLogEntry):
         """Handler for when a channel is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-        before.title = "Channel Updated"
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        if isinstance(entry.target, discord.Object):
-            channel = entry.guild.get_channel(entry.target.id)
-        else:
-            channel = entry.target
+        if _ := changes.pop('type', False):
+            pass  # Get from target object.
 
-        if channel is not None:
-            before.description = f"{channel.mention} ({channel.id})\n\n"
-        else:
-            before.description = f"**ID**: {entry.target.id}"
+        c_type = str(entry.target.type).replace('_', ' ').title()
+        before: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Channel Updated", description="")
+        before.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
+
+        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
         if key := changes.pop("name", False):
             before.description += f"**Name**: {key['before']}\n"
@@ -533,11 +452,8 @@ class Logs(Cog):
             after.description += f"**User Limit**: {key['after']}\n" if key['after'] != 0 else ''
 
         if key := changes.pop("default_auto_archive_duration", False):
-            bf_archive = str(key['before']) + 'mins' if key['before'] else None
-            af_archive = str(key['after']) + 'mins' if key['after'] else None
-
-            before.description += f"**Thread Archiving**: {bf_archive}\n"
-            after.description += f"**Thread Archiving**: {af_archive}\n"
+            before.description += f"**Thread Archiving**: {stringify_minutes(key['before'])}\n"
+            after.description += f"**Thread Archiving**: {stringify_minutes(key['after'])}\n"
 
         if key := changes.pop("position", False):
             before.description += f"**Order**: {key['before']}\n"
@@ -556,16 +472,25 @@ class Logs(Cog):
             after.add_field(name="Topic", value=key['after'], inline=False)
 
         if key := changes.pop("slowmode_delay", False):
-            sm_bf = f"{key['before']} seconds" if key['before'] else 'None'
-            sm_af = f"{key['after']} seconds" if key['after'] else 'None'
+            sm_bf = stringify_seconds(key['before'])
+            sm_af = stringify_seconds(key['after'])
+            before.description += f"**Create New Threads Slowmode**: {sm_bf}\n"
+            after.description += f"**Create New Threads Slowmode**: {sm_af}\n"
 
-            before.description += f"**Slowmode**: {sm_bf}\n"
-            after.description += f"**Slowmode**: {sm_af}\n"
+        if key := changes.pop("default_reaction_emoji", False):
+            before.description += f"**Default Reaction Emoji**: {key['before']}\n"
+            after.description += f"**Default Reaction Emoji**: {key['after']}\n"
+
+        if key := changes.pop("default_thread_slowmode_delay", False):
+            sm_bf = stringify_seconds(key['before'])
+            sm_af = stringify_seconds(key['after'])
+            before.description += f"**Thread Reply Slowmode**: {sm_bf}\n"
+            after.description += f"**Thread Reply Slowmode**: {sm_af}\n"
 
         # Enums
         if key := changes.pop('video_quality_mode', False):
-            before.description += f"**Video Quality**: {key['before'].name.title()}"
-            after.description += f"**Video Quality**: {key['after'].name.title()}\n"
+            before.description += f"**Video Quality**: {key['before'].name.title() if key['before'] else 'Auto'}"
+            after.description += f"**Video Quality**: {key['after'].name.title() if key['before'] else 'Auto'}\n"
 
         # Flags
         if key := changes.pop('flags', False):
@@ -581,8 +506,14 @@ class Logs(Cog):
                         after.description += f"**Thread Pinned**: {af_flags.pinned}\n"
                         after.description += f"**Force Tags?**: {af_flags.require_tag}\n"
 
-        if _ := changes.pop('available_tags', False):
-            pass  # Discard.
+        if key := changes.pop('available_tags', False):
+            if new := [i for i in key['after'] if i not in key['before']]:
+                after.add_field(name="Tags Added", value=', '.join(
+                    f'{i.emoji} {i.name}{" (Mod Only)" if i.moderated else ""}' for i in new))
+
+            if removed := [i for i in key['before'] if i not in key['after']]:
+                before.add_field(name="Tags Removed", value=', '.join(
+                    f'{i.emoji} {i.name}{" (Mod Only)" if i.moderated else ""}' for i in removed))
 
         # Permission Overwrites
         if key := changes.pop("overwrites", False):
@@ -590,37 +521,90 @@ class Logs(Cog):
             self.parse_channel_overwrites(entry, key['after'], after)
 
         if changes:
-            logging.info(f"Channel Create Changes Remain: {changes}")
+            logging.info(f"Channel Update Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[before, after])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
+
+    async def handle_channel_delete(self, entry: discord.AuditLogEntry):
+        """Handler for when a channel is deleted"""
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
+            return
+
+        changes = {k: v for k, v in entry.changes.before}
+
+        if _ := changes.pop('type', False):
+            pass  # Get from target object.
+
+        c_type = str(entry.target.type).replace('_', ' ').title()
+        e: Embed = Embed(colour=Colour.dark_orange(), title=f"{c_type}Channel Deleted", timestamp=entry.created_at)
+        do_footer(entry, e)
+
+        if name := changes.pop("name", False):
+            e.description = f"<#{entry.target.id}> {name} ({entry.target.id})\n\n"
+        else:
+            e.description = f"<#{entry.target.id}> ({entry.target.id})\n\n"
+
+        if bitrate := changes.pop("bitrate", False):
+            e.description += f"**Bitrate**: {math.floor(bitrate / 1000)}kbps\n"
+
+        if max_users := changes.pop("user_limit", False):
+            e.description += f"**User Limit**: {max_users}"
+
+        if archive := changes.pop("default_auto_archive_duration", False):
+            e.description += f"**Thread Archiving**: {stringify_minutes(archive)}\n"
+
+        if position := changes.pop("position", False):
+            e.description += f"**Position**: {position}\n"
+
+        if _ := changes.pop("nsfw", False):
+            e.description += f"**NSFW**: `True`\n"
+
+        if region := changes.pop("rtc_region", False):
+            e.description += f"**Region**: {region}\n"
+
+        if topic := changes.pop("topic", False):
+            e.add_field(name="Topic", value=topic, inline=False)
+
+        if slowmode := changes.pop("slowmode_delay", False):
+            e.description += f"**Slowmode**: {stringify_seconds(slowmode)}\n"
+
+        # Enums
+        if vq := changes.pop('video_quality_mode', False):
+            e.description += f"**Video Quality**: {vq.name.title()}"
+
+        if tags := changes.pop('available_tags', False):
+            logging.info(f"Add tags: {tags} for deleted forum channel.")
+
+        # Flags
+        if flags := changes.pop('flags', False):
+            if flags.pinned:
+                e.description += f"**Thread Pinned**: `True`\n"
+            if flags.require_tag:
+                e.description += f"**Force Tags?**: `True`\n"
+
+        # Permission Overwrites
+        if overwrites := changes.pop("overwrites", False):
+            self.parse_channel_overwrites(entry, overwrites, e)
+
+        if changes:
+            logging.info(f"{entry.action} | Changes Remain: {changes}")
+
+        return await self.dispatch(channels, [e])
 
     async def handle_guild_update(self, entry: discord.AuditLogEntry):
         """Handler for When a guild is updated."""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['server'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['server'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n{f'Reason: {entry.reason}' if entry.reason else ''}"
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
+
+        before: Embed = Embed(colour=Colour.dark_gray(), description="")
+        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
         # Author Icon
         if icon := changes.pop('icon', False):
@@ -736,22 +720,37 @@ class Logs(Cog):
             after.description += f"**Language**: {key['after']}\n"
 
         if key := changes.pop("splash", None):
-            before.description += f"**Invite Image**: [link]({key['before'].url})\n"
-            before.set_image(url=key['before'].url if key['before'].url else None)
-            after.description += f"**Invite Image**: [link]({key['after'].url})\n"
-            after.set_image(url=key['before'].url if key['after'].url else None)
+            if key['before']:
+                before.description += f"**Invite Image**: [link]({key['before'].url})\n"
+                before.set_image(url=key['before'].url if key['before'].url else None)
+            if key['after']:
+                after.description += f"**Invite Image**: [link]({key['after'].url})\n"
+                after.set_image(url=key['before'].url if key['after'].url else None)
 
         if key := changes.pop("discovery_splash", None):
-            before.description += f"**Discovery Image**: [link]({key['before'].url})\n"
-            before.set_image(url=key['before'].url if key['before'].url else None)
-            after.description += f"**Discovery Image**: [link]({key['after'].url})\n"
-            after.set_image(url=key['before'].url if key['after'].url else None)
+            if key['before']:
+                before.description += f"**Discovery Image**: [link]({key['before'].url})\n"
+                before.set_image(url=key['before'].url)
+            else:
+                before.description += f"**Discovery Image**: None"
+
+            if key['after']:
+                after.description += f"**Discovery Image**: [link]({key['after'].url})\n"
+                after.set_image(url=key['after'].url)
+            else:
+                after.description += f"**Discovery Image**: None"
 
         if key := changes.pop("banner", None):
-            before.description += f"**Banner**: [link]({key['before'].url})\n"
-            before.set_image(url=key['before'].url if key['before'].url else None)
-            after.description += f"**Banner**: [link]({key['after'].url})\n"
-            after.set_image(url=key['before'].url if key['after'].url else None)
+            if key['before']:
+                before.description += f"**Banner**: [link]({key['before'].url})\n"
+                before.set_image(url=key['before'].url)
+            else:
+                before.description += f"**Banner**: None\n"
+            if key['after']:
+                after.description += f"**Banner**: [link]({key['after'].url})\n"
+                after.set_image(url=key['after'].url)
+            else:
+                after.description += f"**Banner**: None\n"
 
         if key := changes.pop("system_channel_flags", None):
             bf: discord.SystemChannelFlags = key['before']
@@ -786,53 +785,33 @@ class Logs(Cog):
         if changes:
             logging.info(f"Guild Update Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[before, after])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_thread_create(self, entry: discord.AuditLogEntry):
         """Handler for when a thread is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['threads'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['threads'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.after:
             changes[k] = {"after": v}
 
-        if key := changes.pop('type', False):
-            c_type = key['after']
-        else:
-            c_type = "Thread"
+        for _ in ['name', 'type']:
+            if changes.pop(_, None):
+                pass  # Get from target object.
 
-        e.title = f"{c_type} Created"
+        c_type = str(entry.target.type).replace('_', ' ').title()
+        e: Embed = Embed(colour=Colour.light_gray(), title=f"{c_type} Created", timestamp=entry.created_at)
+        e.description = f"<#{entry.target.id}> ({entry.target.id})\n\n"
+        do_footer(entry, e)
 
-        if isinstance(thread := entry.target, discord.Object):
-            thread: discord.Thread = entry.guild.get_thread(thread.id)
-
-        e.description = f"Thread ID# {entry.target.id}\n\n" if thread is None else f"{thread.mention}\n\n"
-
-        for k in ['name', 'invitable', 'locked', 'archived']:
+        for k in ['invitable', 'locked', 'archived']:
             if key := changes.pop(k, False):
-                e.description += f"**{k.title()}**: {key['after']}\n"
+                if key['after']:
+                    e.description += f"**{k.title()}**: `True`\n"
 
         if key := changes.pop('auto_archive_duration', False):
-            e.description += f"**Inactivity Archive**: {key['after']} minutes\n"
+            e.description += f"**Inactivity Archive**: {stringify_minutes(key['after'])}\n"
 
         if key := changes.pop('applied_tags', False):
             e.add_field(name="Tags", value=', '.join([f"{i.emoji} {i.name}" for i in key['after']]))
@@ -845,60 +824,37 @@ class Logs(Cog):
                 e.description += f"**Force Tags?**: `True`\n"
 
         if key := changes.pop('slowmode_delay', False):
-            e.description += f"**Slow Mode**: {key['after'] + 'seconds' if key['after'] else None}\n"
+            if key['after']:
+                e.description += f"**Slow Mode**: {stringify_seconds(key['after'])}"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_thread_update(self, entry: discord.AuditLogEntry):
         """Handler for when threads are updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['threads'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['threads'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        if not (channels := filter(lambda i: i['threads'], channels)):
-            return
+        if _ := changes.pop('type', False):
+            pass  # Get from target object.
+
+        c_type = str(entry.target.type).replace('_', ' ').title()
+        before: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Updated", description="")
+        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
         if isinstance(thread := entry.target, discord.Object):
             thread: discord.Thread = entry.guild.get_thread(thread.id)
 
         before.description = f"Thread ID# {entry.target.id}\n\n" if thread is None else f"{thread.mention}\n\n"
-        after.description = ""
-
-        if key := changes.pop('type', False):
-            c_type = key['before']
-        else:
-            c_type = "Thread"
-
-        before.title = f"{c_type} Thread Updated"
 
         for k in ['name', 'invitable', 'locked', 'archived']:
             if key := changes.pop(k, False):
@@ -906,8 +862,8 @@ class Logs(Cog):
                 after.description += f"**{k.title()}**: {key['after']}\n"
 
         if key := changes.pop('auto_archive_duration', False):
-            before.description += f"**Inactivity Archive**: {key['before']} minutes\n"
-            after.description += f"**Inactivity Archive**: {key['after']} minutes\n"
+            before.description += f"**Inactivity Archive**: {stringify_minutes(key['before'])}\n"
+            after.description += f"**Inactivity Archive**: {stringify_minutes(key['after'])}\n"
 
         if key := changes.pop('applied_tags', False):
             bf: list[discord.ForumTag] = [f"{i.emoji} {i.name}" for i in key['before']]
@@ -930,109 +886,60 @@ class Logs(Cog):
                 after.description += f"**Force Tags?**: {af.require_tag}\n"
 
         if key := changes.pop('slowmode_delay', False):
-            before.description += f"**Slow Mode**: {key['before'] + 'seconds' if key['before'] else None}\n"
-            after.description += f"**Slow Mode**: {key['after'] + 'seconds' if key['before'] else None}\n"
+            before.description += f"**Slow Mode**: {stringify_seconds(key['before'])}\n"
+            after.description += f"**Slow Mode**: {stringify_seconds(key['after'])}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_thread_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a thread is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['threads'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['threads'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
+        changes = {k: v for k, v in entry.changes.before}
+        if _ := changes.pop('type', False):
+            pass  # Get from target object.
 
-        e: Embed = Embed(colour=Colour.dark_gray(), description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        if isinstance(thread := entry.target, discord.Object):
-            thread: discord.Thread = entry.guild.get_thread(thread.id)
-
-        if key := changes.pop('type', False):
-            c_type = key['before']
-        else:
-            c_type = "Thread"
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-
-        if not (channels := filter(lambda i: i['threads'], channels)):
-            return
-
-        e.title = f"{c_type} Deleted"
-        e.description = f"Thread ID# {entry.target.id}" if thread is None else f"{thread.mention}\n\n"
+        c_type = str(entry.target.type).replace('_', ' ').title()
+        e: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Deleted", description="")
+        e.description = f"<#{entry.target.id}> ({entry.target.id})"
+        do_footer(entry, e)
 
         for k in ['name', 'invitable', 'locked', 'archived']:
             if key := changes.pop(k, False):
-                e.description += f"**{k.title()}**: {key['before']}\n"
+                e.description += f"**{k.title()}**: {key}\n"
 
-        if key := changes.pop('auto_archive_duration', False):
-            e.description += f"**Inactivity Archive**: {key['before']} minutes\n"
+        if archive := changes.pop('auto_archive_duration', False):
+            e.description += f"**Inactivity Archive**: {stringify_minutes(archive)}\n"
 
-        if key := changes.pop('applied_tags', False):
-            e.add_field(name="Tags", value=', '.join([f"{i.emoji} {i.name}" for i in key['before']]))
+        if tags := changes.pop('applied_tags', False):
+            e.add_field(name="Tags", value=', '.join([f"{i.emoji} {i.name}" for i in tags]))
 
-        if key := changes.pop('flags', False):
-            tags: discord.ChannelFlags = key['before']
-            if tags.pinned:
+        if flags := changes.pop('flags', False):
+            if flags.pinned:
                 e.description += f"**Thread Pinned**: `True`\n"
-            if tags.require_tag:
+            if flags.require_tag:
                 e.description += f"**Force Tags?**: `True`\n"
 
-        if key := changes.pop('slowmode_delay', False):
-            e.description += f"**Slow Mode**: {key['before'] + 'seconds' if key['before'] else None}\n"
+        if slowmode := changes.pop('slowmode_delay', False):
+            e.description += f"**Slow Mode**: {stringify_seconds(slowmode)}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_stage_create(self, entry: discord.AuditLogEntry):
         """Handler for when a stage instance is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
+
+        changes = {k: v for k, v in entry.changes.after}
 
         e: Embed = Embed(colour=Colour.light_gray(), title="Stage Instance Started", timestamp=entry.created_at)
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
-        if not (channels := filter(lambda i: i['channels'], channels)):
-            return
+        do_footer(entry, e)
 
         # A Stage *INSTANCE* happens on a stage *CHANNEL*
         if isinstance(entry.target, discord.Object):
@@ -1043,53 +950,32 @@ class Logs(Cog):
 
         e.description = f"{stage.mention}\n\n" if stage is not None else f"Channel #{entry.target.id}\n\n"
 
-        if key := changes.pop('topic', False):
-            e.add_field(name="Topic", value=key['after'], inline=False)
+        if topic := changes.pop('topic', False):
+            e.add_field(name="Topic", value=topic, inline=False)
 
-        if key := changes.pop('privacy_level', False):
-            e.description += f"**Privacy**: {key['after']}\n"
+        if privacy_level := changes.pop('privacy_level', False):
+            e.description += f"**Privacy**: {privacy_level}\n"
+
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_stage_update(self, entry: discord.AuditLogEntry):
         """Handler for when a stage instance is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        if not (channels := filter(lambda i: i['channels'], channels)):
-            return
+        before: Embed = Embed(colour=Colour.dark_gray(), title="Stage Instance Updated", description="")
+        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
 
-        before.title = "Stage Instance Updated"
-        before.set_footer()  # Clear Footer
+        do_footer(entry, after)
 
         # A Stage *INSTANCE* happens on a stage *CHANNEL*
         if isinstance(entry.target, discord.Object):
@@ -1109,40 +995,16 @@ class Logs(Cog):
             after.description += f"**Privacy**: {key['after']}\n"
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_stage_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a stage instance is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
+        changes = {k: v for k, v in entry.changes.before}
         e: Embed = Embed(colour=Colour.dark_gray(), title="Stage Instance Ended")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        if not (channels := filter(lambda i: i['channels'], channels)):
-            return
-
-        e.title = "Stage Instance Ended"
+        do_footer(entry, e)
 
         # A Stage *INSTANCE* happens on a stage *CHANNEL*
         if isinstance(entry.target, discord.Object):
@@ -1153,379 +1015,205 @@ class Logs(Cog):
 
         e.description = f"{stage.mention}\n\n" if stage is not None else f"Channel #{entry.target.id}\n\n"
 
-        if key := changes.pop('topic', False):
-            e.add_field(name="Topic", value=key['before'], inline=False)
+        if topic := changes.pop('topic', False):
+            e.add_field(name="Topic", value=topic, inline=False)
 
-        if key := changes.pop('privacy_level', False):
-            e.description += f"**Privacy**: {key['before']}\n"
+        if privacy := changes.pop('privacy_level', False):
+            e.description += f"**Privacy**: {privacy}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_message_pin(self, entry: discord.AuditLogEntry):
         """Handler for when messages are pinned"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
         e: Embed = Embed(colour=Colour.light_gray(), title="Message Pinned", timestamp=entry.created_at, description="")
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        do_footer(entry, e)
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         msg = entry.extra.channel.get_partial_message(entry.extra.message_id)
-        e.description = f"{entry.extra.channel.mention} {entry.target.mention}" \
-                        f"\n\n[Jump to Message]({msg.jump_url})"
+        e.description = f"{entry.extra.channel.mention} {entry.target.mention}\n\n[Jump to Message]({msg.jump_url})"
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_message_unpin(self, entry: discord.AuditLogEntry):
         """Handler for when messages are unpinned"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
         e: Embed = Embed(colour=Colour.dark_gray(), title="Message Unpinned", timestamp=entry.created_at)
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
         msg = entry.extra.channel.get_partial_message(entry.extra.message_id)
         e.description = f"{entry.extra.channel.mention} {entry.target.mention}" \
                         f"\n\n[Jump to Message]({msg.jump_url})"
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_overwrite_create(self, entry: discord.AuditLogEntry):
         """Handler for when a channel has new permission overwrites created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-        e.title = "Channel Permission Overwrites Created"
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        changes = {k: v for k, v in entry.changes.after if k not in ['id', 'type']}
+        e: Embed = Embed(colour=Colour.light_gray(), title="Channel Permissions Created", timestamp=entry.created_at)
+        do_footer(entry, e)
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
-        if not (channels := filter(lambda i: i['channels'], channels)):
-            return
-
-        channel: discord.TextChannel = entry.target
-        if isinstance(entry.extra, Role | Member):
-            ow_target = entry.extra.mention
+        e.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
+        if isinstance(entry.extra, discord.Role):
+            e.description += f"<@&{entry.extra.id}> {entry.extra.name} (Role #{entry.extra.id})"
+        elif isinstance(entry.extra, discord.User | discord.Member):
+            e.description += f"<@{entry.extra.id}> {entry.extra.name} (User #{entry.extra.id})"
         else:
-            # id & type of channel
-            ow_target = f"{entry.extra.name} ({entry.extra.type}: {entry.extra.id})"
+            logging.info(f'entry.extra for handle_overwrite_create is {entry.extra} ({type(entry.extra)})')
 
-        e.description = f"{channel.mention}: {ow_target}\n\n"
+        if deny := changes.pop('deny', False):
+            if fmt := [f"❌ {k}" for k, v in iter(deny) if v]:
+                e.add_field(name='Denied Perms', value=', '.join(fmt))
 
-        if _ids := changes.pop('id', False):
-            if c_type := changes.pop('type', False):
-                e.set_author(name=f"#{c_type['after']}: {channel.name} ({channel.id})")
-            else:
-                e.set_author(name=f"{channel.name} ({channel.id})")
-
-        if key := changes.pop('deny', False):
-            if fmt := [f"❌ {k}" for k, v in iter(key['after']) if v]:
-                e.add_field(name='Denied Perms', value='\n'.join(fmt))
-
-        if key := changes.pop('allow', False):
-            if fmt := [f"✅ {k}" for k, v in iter(key['after']) if v]:
-                e.add_field(name='Allowed Perms', value='\n'.join(fmt))
+        if allow := changes.pop('allow', False):
+            if fmt := [f"✅ {k}" for k, v in iter(allow) if v]:
+                e.add_field(name='Allowed Perms', value=', '.join(fmt))
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_overwrite_update(self, entry: discord.AuditLogEntry):
         """Handler for when a channels' permission overwrites are updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        before.title = "Channel Permission Overwrites Updated"
-        before.set_footer()  # Clear Footer
-        after.description = None
+        c_type = str(entry.target.type).title()
+        before: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Channel Permissions Updated")
+        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
-        channel: discord.TextChannel = entry.target
-        if isinstance(entry.extra, Role | Member):
-            ow_target = entry.extra.mention
-        else:
-            ow_target = f"{entry.extra.name} ({entry.extra.type}: {entry.extra.id})"
-
-        # id & type of channel
-        before.description = f"{channel.mention}: {ow_target}\n\n"
-        after.description = f"{channel.mention}: {ow_target}\n\n"
-
-        if _ids := changes.pop('id', False):
-            if c_type := changes.pop('type', False):
-                before.set_author(name=f"{c_type['before']}: {channel.name} ({channel.id})")
-                after.set_author(name=f"#{c_type['after']}: {channel.name} ({channel.id})")
-            else:
-                before.set_author(name=f"{channel.name} ({channel.id})")
-                after.set_author(name=f"{channel.name} ({channel.id})")
+        before.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})"
+        match type(entry.extra):
+            case discord.Role:
+                before.description += f"<@&{entry.extra.id}> {entry.extra.name} (Role #{entry.extra.id})"
+            case discord.Member:
+                before.description += f"<@{entry.extra.id}> {entry.extra.name} (User #{entry.extra.id})"
+            case _:
+                logging.info(f'entry.extra for handle_overwrite_update is {entry.extra} ({type(entry.extra)})')
 
         if key := changes.pop('deny', False):
-            bf: discord.Permissions = key['before']
-            af: discord.Permissions = key['after']
-
-            bf_list = []
-            af_list = []
-
-            if None not in [bf, af]:
-                for k, v in iter(bf):
-                    if getattr(bf, k) == getattr(af, k):
-                        continue
-
-                    if v:
-                        bf_list.append(f"❌ {k}")
-                    else:
-                        af_list.append(f"❌ {k}")
-            elif bf is None:
-                af_list = [f"❌ {k}" for k, v in iter(af) if v]
-            elif af is None:
-                bf_list = [f"❌ {k}" for k, v in iter(bf) if v]
-
-            if bf_list:
-                before.add_field(name='Denied Perms', value='\n'.join(bf_list))
-            if af_list:
-                after.add_field(name='Denied Perms', value='\n'.join(af_list))
+            if new_deny := [f"❌ {i[0]}" for i in key['after'] if i not in key['before'] and i[1]]:
+                after.add_field(name='Denied Permissions Added', value=', '.join(new_deny))
+            if reset_deny := [f"🔄 {i[0]}" for i in key['before'] if i not in key['after'] and i[1]]:
+                before.add_field(name='Denied Permissions Reset', value='\n'.join(reset_deny))
 
         if key := changes.pop('allow', False):
-            bf: discord.Permissions = key['before']
-            af: discord.Permissions = key['after']
-            bf_list = []
-            af_list = []
+            if new_allow := [f"✅ {i[0]}" for i in key['after'] if i not in key['before'] and i[1]]:
+                after.add_field(name='Allowed Permissions Added', value=', '.join(new_allow))
 
-            if None not in [bf, af]:
-                for k, v in iter(bf):
-                    if getattr(bf, k) == getattr(af, k):
-                        continue
-
-                    if v:
-                        bf_list.append(f"✅ {k}")
-                    else:
-                        af_list.append(f"✅ {k}")
-            elif bf is None:
-                af_list = [f"✅ {k}" for k, v in iter(af) if v]
-            elif af is None:
-                bf_list = [f"✅ {k}" for k, v in iter(bf) if v]
-
-            if bf_list:
-                before.add_field(name='Allowed Perms', value="\n".join(bf_list))
-            if af_list:
-                after.add_field(name='Allowed Perms', value="\n".join(af_list))
+            if reset_allow := [f"🔄 {i[0]}" for i in key['before'] if i not in key['after'] and i[1]]:
+                before.add_field(name='Allowed Permissions Reset', value='\n'.join(reset_allow))
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_overwrite_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a permission overwrite for a channel is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['channels'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        e: Embed = Embed(colour=Colour.dark_gray(), title="Channel Permission Overwrites Removed",
+        changes = {k: v for k, v in entry.changes.before if k not in ['id', 'type']}
+        c_type = str(entry.target.type).title()
+        e: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Channel Permissions Removed",
                          timestamp=discord.utils.utcnow())
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        do_footer(entry, e)
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
+        e.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
+        match type(entry.extra):
+            case discord.Role:
+                e.description += f"<@&{entry.extra.id}> {entry.extra.name} (Role #{entry.extra.id})"
+            case discord.Member:
+                e.description += f"<@{entry.extra.id}> {entry.extra.name} (User #{entry.extra.id})"
+            case _:
+                logging.info(f'entry.extra for handle_overwrite_delete is {entry.extra} ({type(entry.extra)})')
 
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        if deny := changes.pop('deny', False):
+            if fmt := [f"🔄 {k}" for k, v in iter(deny) if v]:
+                e.add_field(name='Denied Permissions Reset', value='\n'.join(fmt))
 
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        channel: discord.TextChannel = entry.target
-        if isinstance(entry.extra, Role | Member):
-            ow_target = entry.extra.mention
-        else:
-            ow_target = f"{entry.extra.name} ({entry.extra.type}: {entry.extra.id})"
-
-        # id & type of channel
-        e.description = f"{channel.mention}: {ow_target}\n\n"
-
-        if _ids := changes.pop('id', False):
-            if c_type := changes.pop('type', False):
-                e.set_author(name=f"{c_type['before']}: {channel.name} ({channel.id})")
-            else:
-                e.set_author(name=f"{channel.name} ({channel.id})")
-
-        if key := changes.pop('deny', False):
-            if fmt := [f"❌ {k}" for k, v in iter(key['before']) if v]:
-                e.add_field(name='Denied Permissions Removed', value='\n'.join(fmt))
-
-        if key := changes.pop('allow', False):
-            if fmt := [f"✅ {k}" for k, v in iter(key['before']) if v]:
-                e.add_field(name='Allowed Permissions Removed', value='\n'.join(fmt))
+        if allow := changes.pop('allow', False):
+            if fmt := [f"🔄 {k}" for k, v in iter(allow) if v]:
+                e.add_field(name='Allowed Permissions Reset', value='\n'.join(fmt))
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_event_create(self, entry: discord.AuditLogEntry):
         """Handler for when a scheduled event is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['events'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['events'])):
             return
 
+        changes = {k: v for k, v in entry.changes.after}
         e: Embed = Embed(colour=Colour.light_gray(), title="Scheduled Event Created", timestamp=entry.created_at)
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        e.description = ""
+        do_footer(entry, e)
 
         for attr in ['name', 'status']:
             if key := changes.pop(attr, False):
-                e.description += f"**{attr.title()}**: {key['before']}\n"
+                e.description += f"**{attr.title()}**: {key}\n"
 
         if image := changes.pop('cover_image', False):
-            if image['before'] is not None:
-                e.set_image(url=image['before'].url)
+            e.set_image(url=image.url)
 
-        if key := changes.pop('description', False):
-            e.add_field(name="Event Description", value=key['before'], inline=False)
+        if description := changes.pop('description', False):
+            e.add_field(name="Event Description", value=description, inline=False)
 
-        if key := changes.pop('privacy_level', False):
-            e.description += f"**Privacy**: {key['before']}\n"
+        if privacy := changes.pop('privacy_level', False):
+            e.description += f"**Privacy**: {privacy}\n"
 
-        location: dict[str, str] = changes.pop('location', {})
-        channel: dict[str, discord.StageChannel | discord.VoiceChannel] = changes.pop('channel', {})
+        location: str = changes.pop('location', {})
+        channel: discord.channel.VocalGuildChannel = changes.pop('channel', {})
 
-        if key := changes.pop('entity_type', False):
-            match key['before']:
+        if entity := changes.pop('entity_type', False):
+            match entity:
                 case discord.EntityType.voice | discord.EntityType.stage_instance:
-                    e.description += f"**Location**: {channel['before'].mention}"
+                    e.description += f"**Location**: {channel.mention}"
                 case discord.EntityType.external:
-                    e.description += f"**Location**: {location['before']}"
+                    try:
+                        e.description += f"**Location**: {location}"
+                    except AttributeError:
+                        e.description += f"**Location**: Unknown"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_event_update(self, entry: discord.AuditLogEntry):
         """Handler for when a scheduled event is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['events'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['events'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), title="Scheduled Event Updated", description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
+
+        before: Embed = Embed(colour=Colour.dark_gray(), title="Scheduled Event Updated", description="")
+        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
         for attr in ['name', 'status']:
             if key := changes.pop(attr, False):
@@ -1565,89 +1253,54 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_event_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a scheduled event is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['events'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['events'])):
             return
+
+        changes = {k: v for k, v in entry.changes.before}
 
         e: Embed = Embed(colour=Colour.dark_gray(), title="Scheduled Event Deleted", description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        if not (channels := filter(lambda i: i['events'], channels)):
-            return
+        do_footer(entry, e)
+        e.description = ""
 
         for attr in ['name', 'status']:
             if key := changes.pop(attr, False):
-                e.description += f"**{attr.title()}**: {key['before']}\n"
+                e.description += f"**{attr.title()}**: {key}\n"
 
         if image := changes.pop('cover_image', False):
-            if image['before'] is not None:
-                e.set_image(url=image['before'].url)
+            e.set_image(url=image.url)
 
-        if key := changes.pop('description', False):
-            e.add_field(name="Event Description", value=key['before'])
+        if description := changes.pop('description', False):
+            e.add_field(name="Event Description", value=description)
 
-        if key := changes.pop('privacy_level', False):
-            e.description += f"**Privacy**: {key['before']}\n"
+        if privacy := changes.pop('privacy_level', False):
+            e.description += f"**Privacy**: {privacy}\n"
 
-        location: dict[str, str] = changes.pop('location', {})
-        channel: dict[str, discord.StageChannel | discord.VoiceChannel] = changes.pop('channel', {})
+        location: str = changes.pop('location', {})
+        channel: discord.channel.VocalGuildChannel = changes.pop('channel', {})
 
-        if key := changes.pop('entity_type', False):
-            match key['before']:
+        if entity := changes.pop('entity_type', False):
+            match entity:
                 case discord.EntityType.voice | discord.EntityType.stage_instance:
-                    e.description += f"**Location**: {channel['before'].mention}"
+                    e.description += f"**Location**: {channel.mention}"
                 case discord.EntityType.external:
-                    e.description += f"**Location**: {location['before']}"
+                    e.description += f"**Location**: {location}"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_kick(self, entry: discord.AuditLogEntry):
         """Handler for when a member is kicked"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['kicks'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['kicks'])):
             return
 
         e: Embed = Embed(colour=Colour.light_gray(), title="User Kicked", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
+        do_footer(entry, e)
 
         if isinstance(target := entry.target, discord.Object):
             target: User = self.bot.get_user(target.id)
@@ -1659,30 +1312,16 @@ class Logs(Cog):
             e.set_author(name=f"User #{entry.target.id}")
             e.description = f"User with ID `{entry.target.id}` was kicked."
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_ban(self, entry: discord.AuditLogEntry):
         """Handler for when a user is banned"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bans'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bans'])):
             return
 
         e: Embed = Embed(colour=Colour.light_gray(), title="User Banned", timestamp=entry.created_at, description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         if isinstance(target := entry.target, discord.Object):
             target = self.bot.get_user(entry.target.id)
 
@@ -1693,31 +1332,16 @@ class Logs(Cog):
             e.set_author(name=f"User #{entry.target.id}")
             e.description = f"User with ID `{entry.target.id}` was banned."
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_unban(self, entry: discord.AuditLogEntry):
         """Handler for when a user is unbanned"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bans'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bans'])):
             return
 
         e: Embed = Embed(colour=Colour.light_gray(), title="User Unbanned", timestamp=entry.created_at, description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         if isinstance(user := entry.target, discord.Object):
             user = self.bot.get_user(entry.target.id)
 
@@ -1728,38 +1352,22 @@ class Logs(Cog):
             e.set_author(name=f"User #{entry.target.id}")
             e.description = f"User with ID `{entry.target.id}` was unbanned."
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_member_update(self, entry: discord.AuditLogEntry):
         """Handler for when various things when a member is updated
         e.g. Name Change, Muted, Deafened, Timed Out."""
-
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['moderation'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['moderation'])):
             return
 
-        e: Embed = Embed(colour=Colour.og_blurple(), description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
+
+        e: Embed = Embed(colour=Colour.og_blurple(), description="")
+        do_footer(entry, e)
 
         if isinstance(user := entry.target, discord.Object):
             user = entry.guild.get_member(user.id)
@@ -1769,10 +1377,8 @@ class Logs(Cog):
 
         if key := changes.pop("nick", False):
             e.title = "User Renamed"
-
             bf = user.name if key['before'] is None else key['before']
             af = user.name if key['after'] is None else key['after']
-
             e.description += f"**Old**: {bf}\n**New**: {af}"
 
         if key := changes.pop("mute", False):
@@ -1790,99 +1396,46 @@ class Logs(Cog):
         if key := changes.pop("timed_out_until", False):
             if key['before'] is None:
                 e.title = "Timed Out"
-                e.description += f"**Timeout Expires*: {Timestamp(key['after']).relative}\n"
+                e.description += f"**Timeout Expires**: {Timestamp(key['after']).relative}\n"
             else:
                 e.title = "Timeout Ended"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_member_move(self, entry: discord.AuditLogEntry):
         """Handler for when a member's voice channel is moved"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['moderation'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['moderation'])):
             return
 
-        e: Embed = Embed(colour=Colour.brand_red(), description="")
+        e: Embed = Embed(colour=Colour.brand_red(), title="Moved to Voice Channel", description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        e.description = f"{entry.extra.count} users\n\nNew Channel: <#{entry.extra.channel.id}>"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        e.title = "Moved to Voice Channel"
-        e.description = f"{entry.extra.count} users\n\nNew Channel: {entry.extra.channel.mention}"
-
-        if entry.changes:
-            logging.info(f"{entry.action} | Changes Remain: {entry.changes}")
-        else:
-            logging.info(f"{entry.action} does not have changes.")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_member_disconnect(self, entry: discord.AuditLogEntry):
         """Handler for when user(s) are kicked from a voice channel"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['moderation'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['moderation'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="Kicked From Voice Channel",
-                         timestamp=entry.created_at, description="")
+        e: Embed = Embed(colour=Colour.light_gray(), title="Kicked From Voice Channel", timestamp=entry.created_at)
+        do_footer(entry, e)
+        e.description = f"{entry.extra.count} members"
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        e.description = f"{entry.extra.count} users"
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_role_create(self, entry: discord.AuditLogEntry):
         """Handler for when a role is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['role_edits'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['role_edits'])):
             return
 
+        changes = {k: v for k, v in entry.changes.after}
         e: Embed = Embed(colour=Colour.light_gray(), title="Role Created", description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        do_footer(entry, e)
 
         if isinstance(role := entry.target, discord.Object):
             role = entry.guild.get_role(entry.target.id)
@@ -1895,63 +1448,45 @@ class Logs(Cog):
         e.set_author(name=f"{role} ({entry.target.id})", icon_url=role_icon)
         e.description = f"<@&{entry.target.id}>\n\n"
 
-        for k in ['name', 'mentionable']:
-            if key := changes.pop(k, False):
-                e.description += f"**{k.title()}**: {key['after']}\n"
+        for key in ['name', 'mentionable']:
+            if value := changes.pop(key, False):
+                e.description += f"**{key.title()}**: {value}\n"
 
-        if key := changes.pop("colour", False):
+        if colour := changes.pop("colour", False):
             changes.pop("color")
-            e.description += f"**Colour**: {key['after']}\n"
-            e.colour = key['before']
+            e.description += f"**Colour**: {colour}\n"
+            e.colour = colour
 
-        if key := changes.pop("hoist", False):
-            e.description += f"**Show Separately**: {key['after']}\n"
+        if (hoist := changes.pop("hoist", None)) is not None:
+            e.description += f"**Show Separately**: `{hoist}`\n"
 
-        if key := changes.pop("unicode_emoji", False):
-            e.description += f"**Emoji**: {key['after']}\n"
+        if emoji := changes.pop("unicode_emoji", False):
+            e.description += f"**Emoji**: {emoji}\n"
 
-        if key := changes.pop("icon", False):
-            img = key['after'].url
-            if img:
-                e.description += f"**Icon**: f'[Link]({img})\n"
-                e.set_image(url=key['after'].url if img is not None else None)
+        if icon := changes.pop("icon", False):
+            e.description += f"**Icon**: f'[Link]({icon.url})\n"
+            e.set_image(url=icon.url)
 
-        if key := changes.pop("permissions", False):
-            if perms := [f"✅ {k}" for (k, v) in iter(key['after']) if v]:
+        if permissions := changes.pop("permissions", False):
+            if perms := [f"✅ {k}" for (k, v) in iter(permissions) if v]:
                 e.add_field(name='Permissions', value=', '.join(perms))
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_role_update(self, entry: discord.AuditLogEntry):
         """Handler for when a role is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['role_edits'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['role_edits'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), title="Role Updated")
-        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
+
+        before: Embed = Embed(colour=Colour.dark_gray(), title="Role Updated")
+        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
         if isinstance(role := entry.target, discord.Object):
             role = entry.guild.get_role(entry.target.id)
@@ -2024,106 +1559,62 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_role_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a role is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['role_edits'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['role_edits'])):
             return
 
+        changes = {k: v for k, v in entry.changes.before}
         e: Embed = Embed(colour=Colour.dark_gray(), title="Role Deleted", description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        if icon := changes.pop("icon", None):
+            e.description += f"**Icon**: [Link]({icon.url})\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        if name := changes.pop("name", "Deleted Role"):
+            e.description += f"**Name**: {name}\n"
 
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
-        if isinstance(role := entry.target, discord.Object):
-            role = entry.guild.get_role(entry.target.id)
-
-        if role is None:
-            role_icon = None
-        else:
-            role_icon: str = role.display_icon.url if role.display_icon is not None else None
-
-        e.set_author(name=f"{role} ({entry.target.id})", icon_url=role_icon)
-
+        e.set_author(name=f"{name} ({entry.target.id})", icon_url=icon)
         e.description = f"<@&{entry.target.id}>\n\n"
 
-        for k in ['name', 'mentionable']:
-            if key := changes.pop(k, False):
-                e.description += f"**{k.title()}**: {key['before']}\n"
+        if mentionable := changes.pop('mentionable', False):
+            e.description += f"**Mentionable**: {mentionable}\n"
 
-        if key := changes.pop("colour", False):
+        if colour := changes.pop("colour", False):
             changes.pop("color")
-            e.description += f"**Colour**: {key['after']}\n"
-            e.colour = key['before']
+            e.description += f"**Colour**: {colour}\n"
+            e.colour = colour
 
-        if key := changes.pop("hoist", False):
-            e.description += f"**Show Separately**: {key['before']}\n"
+        if hoist := changes.pop("hoist", False):
+            e.description += f"**Show Separately**: {hoist}\n"
 
-        if key := changes.pop("unicode_emoji", False):
-            e.description += f"**Emoji**: {key['before']}\n"
+        if emote := changes.pop("unicode_emoji", False):
+            e.description += f"**Emoji**: {emote}\n"
 
-        if key := changes.pop("icon", False):
-            if bf_img := (key['before'].url if key['before'] is not None else None):
-                e.description += f"**Icon**: [Link]({bf_img})\n"
-                e.set_image(url=key['before'].url)
-
-        if key := changes.pop("permissions", False):
-            if perms := [f"✅ {k}" for (k, v) in iter(key['before']) if v]:
+        if permissions := changes.pop("permissions", False):
+            if perms := [f"✅ {k}" for (k, v) in iter(permissions) if v]:
                 e.add_field(name='Permissions', value='\n'.join(perms))
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_member_role_update(self, entry: discord.AuditLogEntry):
         """Handler for when a member gains or loses roles"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['user_roles'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['user_roles'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
+
+        e: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
+        do_footer(entry, e)
 
         member = entry.target
         if isinstance(member, discord.Object):
@@ -2132,7 +1623,7 @@ class Logs(Cog):
         if member is not None:
             e.set_author(name=f"{member} ({member.id})", icon_url=member.display_avatar.url)
         else:
-            e.set_author(name=f"User with ID #{entry.target.id}")
+            e.set_author(name=f"User with ID <@{entry.target.id}>")
 
         if key := changes.pop("roles", False):
             if key['after']:
@@ -2147,37 +1638,16 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_emoji_create(self, entry: discord.AuditLogEntry):
         """Handler for when an emoji is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['emote_and_sticker'])):
             return
 
+        changes = {k: v for k, v in entry.changes.after}
         e: Embed = Embed(colour=Colour.dark_gray(), title="Emoji Created", description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        do_footer(entry, e)
 
         if isinstance(emoji := entry.target, discord.Object):
             try:
@@ -2191,46 +1661,28 @@ class Logs(Cog):
             if emoji is not None:
                 e.set_image(url=emoji.url)
 
-        for k in ['name']:
-            if key := changes.pop(k, False):
-                e.description += f"**{k.title()}((: {key['before']}\n"
+        if name := changes.pop("name", False):
+            e.description += f"**Name**: {name}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_emoji_update(self, entry: discord.AuditLogEntry):
         """Handler for when an emoji is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['emote_and_sticker'])):
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), title="Emoji Updated", description="")
-        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
+
+        before: Embed = Embed(colour=Colour.dark_gray(), title="Emoji Updated", description="")
+        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
         if isinstance(emoji := entry.target, discord.Object):
             try:
@@ -2253,34 +1705,17 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_emoji_delete(self, entry: discord.AuditLogEntry):
         """Handler for when an emoji is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['emote_and_sticker'])):
             return
 
+        changes = {k: v for k, v in entry.changes.before}
+
         e: Embed = Embed(colour=Colour.light_gray(), title="Emoji Deleted", timestamp=entry.created_at, description="")
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
+        do_footer(entry, e)
 
         if isinstance(emoji := entry.target, discord.Object):
             try:
@@ -2294,238 +1729,140 @@ class Logs(Cog):
             if emoji is not None:
                 e.set_image(url=emoji.url)
 
-        for k in ['name']:
-            if key := changes.pop(k, False):
-                e.description += f"**{k.title()}((: {key['before']}\n"
+        if name := changes.pop("name", False):
+            e.description += f"**Name**: {name}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_sticker_create(self, entry: discord.AuditLogEntry):
         """Handler for when a sticker is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['emote_and_sticker'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="Sticker Created", timestamp=entry.created_at,
-                         description="")
+        changes = {k: v for k, v in entry.changes.after if k not in ["name", "description"]}
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        e: Embed = Embed(colour=Colour.light_gray(), title="Sticker Uploaded", timestamp=entry.created_at)
+        do_footer(entry, e)
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
+        if isinstance(sticker := entry.target, discord.Object):
+            sticker: discord.GuildSticker = self.bot.get_sticker(sticker.id)
 
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-            return
-
-        if key := changes.pop('name', False):
-            e.description = f"name: {key['after']}\n"
-
-        if key := changes.pop('description', False):
-            e.add_field(name="Description", value=f"{key['after']}")
+        e.description = f":{sticker.emoji}: **{sticker.name}**\n{sticker.url}" \
+                        f"\n\n{sticker.description}"
+        e.set_image(url=sticker.url)
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_sticker_update(self, entry: discord.AuditLogEntry):
         """Handler for when a sticker is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['emote_and_sticker'])):
             return
+
+        changes = {}
+        for k, v in entry.changes.before:
+            changes[k] = {"before": v}
+        for k, v in entry.changes.after:
+            changes[k]["after"] = v
 
         before: Embed = Embed(colour=Colour.dark_gray(), title="Sticker Updated", description="")
         after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        do_footer(entry, after)
 
         if isinstance(target := entry.target, discord.Object):
             target: discord.GuildSticker = self.bot.get_sticker(target.id)
+        before.set_thumbnail(url=target.url)
 
-        if key := changes.pop('name', False):
-            before.description = f"name: {key['before']}\n"
-            after.description = f"name: {key['after']}\n"
-
-        if key := changes.pop('description', False):
-            before.add_field(name="Description", value=f"{key['before']}")
-            after.add_field(name="Description", value=f"{key['after']}")
-
-        before.set_image(url=target.url)
+        for attr in ['name', 'emoji', 'description']:
+            if key := changes.pop(attr, False):
+                before.description += f"**{attr.title()}**: {key['before']}"
+                after.description += f"**{attr.title()}**: {key['after']}"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_sticker_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a sticker is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['emote_and_sticker'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        changes = {k: v for k, v in entry.changes.before}
 
         e: Embed = Embed(colour=Colour.light_gray(), title="Sticker Deleted", timestamp=entry.created_at,
                          description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        if name := changes.pop('name', False):
+            e.description = f"**Name**: {name}\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        if isinstance(target := entry.target, discord.Object):
-            target: discord.GuildSticker = self.bot.get_sticker(target.id)
-            e.set_image(url=target.url)
-
-        if key := changes.pop('name', False):
-            e.description = f"name: {key['before']}\n"
-
-        if key := changes.pop('description', False):
-            e.add_field(name="Description", value=f"{key['before']}")
+        if description := changes.pop('description', False):
+            e.description += f"**Description**: {description}"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_invite_create(self, entry: discord.AuditLogEntry):
         """Handler for when an invitation is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['invites'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['invites'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
+        changes = {k: v for k, v in entry.changes.after}
 
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        if (temp := changes.pop('temporary', False)) and temp:
+            temp = "Temporary "
+        else:
+            temp = ""
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="Invite Created", timestamp=entry.created_at, description="")
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        e: Embed = Embed(colour=Colour.light_gray(), title=f"{temp}Invite Created", timestamp=entry.created_at)
+        do_footer(entry, e)
+        e.description = f"<@{entry.user.id}>"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        if channel := changes.pop('channel', False):
+            e.description += f"{channel.mention} "
 
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        if key := changes.pop('code', False):
-            e.description += f"**Link**: http://www.discord.gg/{key['after']}\n\n"
+        if code := changes.pop('code', False):
+            e.description += f"[{code}](http://www.discord.gg/{code})\n\n"
 
-        if key := changes.pop('channel', False):
-            e.description += f"**Channel**: {key['after'].mention}\n" if key['after'] is not None else ''
+        if _ := changes.pop('inviter', False):
+            pass  # We just use the user field.
 
-        if key := changes.pop('inviter', False):
-            user = key['after']
-            if user is not None:
-                e.set_author(name=f"{user.mention} ({user.id})", icon_url=user.display_avatar.url)
+        if _ := changes.pop('uses', False):
+            pass  # This should not have been used at creation point.
 
-        if key := changes.pop('uses', False):
-            e.description += f"**Uses**: {key['after']}\n"
+        if max_use := changes.pop('max_uses', False):
+            e.description += f"**Max Uses**: {max_use}\n"
 
-        if key := changes.pop('max_uses', False):
-            e.description += f"**Max Uses**: {key['after']}\n"
-
-        if key := changes.pop('max_age', False):
-            af = f"{key['after']}" + ' seconds' if key['after'] else 'Permanent'
-            e.description += f"**Expiry**: {af}\n"
+        if max_age := changes.pop('max_age', False):
+            e.description += f"**Expiry**: {stringify_seconds(max_age)}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_invite_update(self, entry: discord.AuditLogEntry):
         """Handler for when an invitation is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['invites'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['invites'])):
             return
 
         changes = {}
         for k, v in entry.changes.before:
             changes[k] = {"before": v}
-
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
         before: Embed = Embed(colour=Colour.dark_gray(), title="Invite Updated", description="")
         after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
+        do_footer(entry, after)
 
         if key := changes.pop('code', False):
             before.description += f"**Link**: http://www.discord.gg/{key['before']}\n\n"
@@ -2560,112 +1897,75 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_invite_delete(self, entry: discord.AuditLogEntry):
         """Handler for when an invitation is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['invites'], self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['invites'])):
             return
 
-        e: Embed = Embed(colour=Colour.dark_gray(), title="Invite Deleted", description="")
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        changes = {k: v for k, v in entry.changes.before}
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        try:
+            temp = "Temporary " if changes.pop('temporary')['before'] else ''
+        except AttributeError:
+            temp = ''
 
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
+        e: Embed = Embed(colour=Colour.dark_gray(), title=f"{temp}Invite Deleted", description="")
+        do_footer(entry, e)
 
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        if inviter := changes.pop('inviter', False):
+            e.set_author(name=f"{inviter} ({inviter.id})", icon_url=inviter.display_avatar.url)
+            e.description = f"{inviter.mention}\n"
 
-        if not (channels := filter(lambda i: i['invites'], channels)):
-            return
+        if code := changes.pop('code', False):
+            e.description += f"**Code**: [{code}](http://www.discord.gg/{code})\n"
 
-        if key := changes.pop('code', False):
-            e.description += f"**Link**: http://www.discord.gg/{key['before']}\n\n"
+        if channel := changes.pop('channel', False):
+            e.description += f"**Channel**: {channel.mention}\n"
 
-        if key := changes.pop('channel', False):
-            e.description += f"**Channel**: {key['before'].mention}\n" if key['before'] is not None else ''
+        if uses := changes.pop('uses', False):
+            e.description += f"**Uses**: {uses}\n"
 
-        if key := changes.pop('inviter', False):
-            if (user := key['before']) is not None:
-                e.set_author(name=f"{user.mention} ({user.id})", icon_url=user.display_avatar.url)
+        if max_uses := changes.pop('max_uses', False):
+            e.description += f"**Max Uses**: {max_uses}\n"
 
-        if key := changes.pop('uses', False):
-            e.description += f"**Uses**: {key['before']}\n"
-
-        if key := changes.pop('max_uses', False):
-            e.description += f"**Max Uses**: {key['before']}\n"
-
-        if key := changes.pop('max_age', False):
-            bf = f"{key['before']}" + ' seconds' if key['before'] else 'Permanent'
-            e.description += f"**Expiry**: {bf}\n"
+        if max_age := changes.pop('max_age', False):
+            e.description += f"**Expiry**: {stringify_seconds(max_age)}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_bot_add(self, entry: discord.AuditLogEntry):
         """Handler for when a bot is added"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
         e: Embed = Embed(colour=Colour.light_gray(), title="Bot Added", timestamp=entry.created_at)
         e.set_author(name=f"{entry.target} ({entry.target.id})", icon_url=entry.target.display_avatar.url)
         e.description = f"{entry.target.mention} (ID: {entry.target.id})"
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        changes = {k: v for k, v in entry.changes.after}
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_message_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a message is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['deleted_messages'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['deleted_messages'])):
             return
 
+        changes = {k: v for k, v in entry.changes.before}
+
         e: Embed = Embed(colour=Colour.light_gray(), title="Message(s) Deleted", timestamp=entry.created_at)
+        e.description = f"{entry.extra.count} message(s) deleted in <#{entry.extra.channel.id}>"
+        do_footer(entry, e)
+
         if isinstance(target := entry.target, discord.Object):
             try:
                 target = entry.guild.get_member(entry.target.id)
@@ -2677,130 +1977,60 @@ class Logs(Cog):
         else:
             e.set_author(name=f"User with ID# {entry.target.id}")
 
-        e.description = f"{entry.extra.count} message(s) deleted in {entry.extra.channel.mention}"
-
-        if isinstance(user := entry.user, discord.Object):
-            try:
-                user = entry.guild.get_member(entry.target.id)
-            except AttributeError:
-                user = self.bot.get_user(entry.target.id)
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
-        if not (channels := filter(lambda i: i['deleted_messages'], channels)):
-            return
-
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_message_bulk_delete(self, entry: discord.AuditLogEntry):
         """Handler for when messages are bulk deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['deleted_messages'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['deleted_messages'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
+        changes = {k: v for k, v in entry.changes.before}
         e: Embed = Embed(colour=Colour.light_gray(), title="Messages Bulk Deleted", timestamp=entry.created_at)
         e.description = f"{entry.target.mention}: {entry.extra.count} messages deleted."
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        do_footer(entry, e)
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_webhook_create(self, entry: discord.AuditLogEntry):
         """Handler for when a webhook is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        changes = {k: v for k, v in entry.changes.after}
 
         e: Embed = Embed(colour=Colour.light_gray(), title="Webhook Created", timestamp=entry.created_at,
                          description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        if name := changes.pop('name', False):
+            e.description += f"**Name**: {name}\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
+        if channel := changes.pop('channel', False):
+            e.description += f"**Channel**: {channel.mention}\n"
 
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        if c_type := changes.pop('type', False):  # Channel Type.
+            e.description += f"**Type**: {c_type.name}\n"
 
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
+        if application_id := changes.pop('application_id', False):
+            e.description += f"**Application ID**: {application_id}\n"
 
-        if key := changes.pop('name', False):
-            e.description += f"**Name**: {key['after']}\n"
-
-        if key := changes.pop('channel', False):
-            e.description += f"**Channel**: {key['after'].mention if key['after'] else None}\n"
-
-        if key := changes.pop('type', False):  # Channel Type.
-            e.description += f"**Type**: {key['after'].name if key['after'] else None}\n"
-
-        if key := changes.pop('application_id', False):
-            e.description += f"**Application ID**: {key['after']}\n"
-
-        if key := changes.pop('avatar', False):
-            if (ico := key['after']) is not None:
-                e.set_image(url=ico.url)
+        if avatar := changes.pop('avatar', False):
+            e.set_image(url=avatar.url)
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_webhook_update(self, entry: discord.AuditLogEntry):
         """Handler for when a webhook is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
         changes = {}
@@ -2811,15 +2041,7 @@ class Logs(Cog):
 
         before: Embed = Embed(colour=Colour.dark_gray(), title="Webhook Updated", description="")
         after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        do_footer(entry, after)
 
         if key := changes.pop('name', False):
             before.description += f"**Name**: {key['before']}\n"
@@ -2846,107 +2068,62 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_webhook_delete(self, entry: discord.AuditLogEntry):
         """Handler for when a webhook is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
+        changes = {k: v for k, v in entry.changes.before}
 
         e: Embed = Embed(colour=Colour.dark_gray(), title="Webhook Deleted", description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        if name := changes.pop('name', False):
+            e.description += f"**Name**: {name}\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
+        if channel := changes.pop('channel', False):
+            e.description += f"**Channel**: {channel.mention}\n"
 
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        if c_type := changes.pop('type', False):  # Channel Type.
+            e.description += f"**Type**: {c_type.name}\n"
 
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
+        if application_id := changes.pop('application_id', False):
+            e.description += f"**Application ID**: {application_id}\n"
 
-        if key := changes.pop('name', False):
-            e.description += f"**Name**: {key['before']}\n"
-
-        if key := changes.pop('channel', False):
-            e.description += f"**Channel**: {key['before'].mention if key['before'] else None}\n"
-
-        if key := changes.pop('type', False):  # Channel Type.
-            e.description += f"**Type**: {key['before'].name if key['before'] else None}\n"
-
-        if key := changes.pop('application_id', False):
-            e.description += f"**Application ID**: {key['before']}\n"
-
-        if key := changes.pop('avatar', False):
-            if (ico := key['before']) is not None:
-                e.set_image(url=ico.url)
+        if avatar := changes.pop('avatar', False):
+            e.set_image(url=avatar.url)
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_integration_create(self, entry: discord.AuditLogEntry):
         """Handler for when an integration is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
+        changes = {k: v for k, v in entry.changes.after}
         e: Embed = Embed(colour=Colour.light_gray(), title="Integration Created", timestamp=entry.created_at,
                          description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        if name := changes.pop("name", False):
+            e.description += f"**Name**: {name}\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        if key := changes.pop("name", False):
-            e.description += f"**Name**: {key['after']}\n"
-
-        if key := changes.pop("type", False):
-            e.description += f"**Type**: {key['after']}\n"
+        if c_type := changes.pop("type", False):
+            e.description += f"**Type**: {c_type}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_integration_update(self, entry: discord.AuditLogEntry):
         """Handler for when an integration is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
         changes = {}
@@ -2957,14 +2134,7 @@ class Logs(Cog):
 
         before: Embed = Embed(colour=Colour.dark_gray(), title="Integration Updated", description="")
         after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        do_footer(entry, after)
 
         if key := changes.pop("name", False):
             before.description += f"**Name**: {key['before']}\n"
@@ -2977,55 +2147,31 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_integration_delete(self, entry: discord.AuditLogEntry):
         """Handler for when an integration is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
-
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        changes = {k: v for k, v in entry.changes.before}
 
         e: Embed = Embed(colour=Colour.dark_gray(), title="Integration Deleted", description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        if name := changes.pop("name", False):
+            e.description += f"**Name**: {name}\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        if key := changes.pop("name", False):
-            e.description += f"**Name**: {key['before']}\n"
-
-        if key := changes.pop("type", False):
-            e.description += f"**Type**: {key['before']}\n"
+        if c_type := changes.pop("type", False):
+            e.description += f"**Type**: {c_type}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_app_command_perms_update(self, entry: discord.AuditLogEntry):
         """Handler for when an application's permissions are updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
         changes = {}
@@ -3036,41 +2182,37 @@ class Logs(Cog):
 
         before: Embed = Embed(colour=Colour.dark_gray(), description="")
         after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        do_footer(entry, after)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        # When this is the action, the type of target is a PartialIntegration for an integrations general permissions,
+        # AppCommand for a specific commands permissions,
+        # or Object with the ID of the command or integration which was updated.
+        target: discord.PartialIntegration | discord.app_commands.AppCommand | discord.Object = entry.target
+        if isinstance(target, discord.PartialIntegration):
+            target: discord.Integration = next(i for i in await entry.guild.integrations() if i.id == target.id)
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
+            if target.account is not None:
+                before.set_author(name=f"{target.account.name} ({target.account.id})")
+            else:
+                before.set_author(name=f"{target.name} ({target.id})")
+            before.description = f"{target.type} Integration Permissions Updated."
+            before.title = f"{target.type} Integration Permissions Updated"
 
-        integration: discord.PartialIntegration | discord.app_commands.AppCommand = entry.target
-        # The Integration that this Command Belongs to.
+        elif isinstance(target, discord.app_commands.AppCommand):
+            before.title = "Command Permissions Updated"
+            before.description = target.mention
+
+        else:
+            before.title = "Integration Updated"
+            before.description = f"Integration ID #{target.id}"
+
+        # When this is the action, the type of extra is set to an PartialIntegration or
+        # Object with the ID of application that command or integration belongs to.
         extra: discord.PartialIntegration | discord.Object = entry.extra
-
-        if isinstance(integration, discord.Object):
-            match integration.type:
-                case discord.PartialIntegration:
-                    before.title = f"Application Permissions Updated"
-                    before.set_author(name=str(integration))
-                case discord.app_commands.models.AppCommand:
-                    before.title = "Command Permissions Updated"
-                    before.set_author(name=f"{extra.name}: ({extra.id})")
-                    before.description = f"{extra.name}: {integration.__dict__}"
-
-        # If it is a partial Integration, this affects the Application server-wide.
-        elif isinstance(integration, discord.PartialIntegration):
-            before.title = f"Application Permissions Updated"
-            before.set_author(name=integration.name)
-            before.description = f"<{integration.name}:{integration.id}>"
-
-        # If it is an app_command, this affects the specific command.
-        elif isinstance(integration, discord.app_commands.models.AppCommand):
-            app_cmd: discord.app_commands.models.AppCommand = integration
-            before.set_author(name=f"Application ID: {app_cmd.application_id}")
-            before.description = f"{app_cmd.mention}\n\n"
-            before.title = f"App Command Permissions Updated"
+        if isinstance(extra, discord.Object):
+            before.description = f"\nApplication ID: {entry.extra.id}"
+        else:  # PartialIntegration
+            before.description += f"\nIntegration: {extra.name} {extra.account.name} ({extra.account.id})"
 
         if key := changes.pop("app_command_permissions", False):
             do_perms(entry, key['before'], before)
@@ -3078,89 +2220,59 @@ class Logs(Cog):
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_automod_rule_create(self, entry: discord.AuditLogEntry):
         """Handler for when an automod rule is created"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
+        changes = {k: v for k, v in entry.changes.after}
 
         e: Embed = Embed(colour=Colour.light_gray(), title="Automod Rule Created", timestamp=entry.created_at,
                          description="")
+        do_footer(entry, e)
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
+        if name := changes.pop('name', False):
+            e.description += f"**Name**: {name}\n"
 
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
+        if enabled := changes.pop('enabled', None) is not None:
+            e.description += f"**Enabled**: `{enabled}`\n"
 
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        if trigger := changes.pop('trigger', False):
+            e.add_field(name="New Blocked Terms", value=', '.join(trigger), inline=False)
 
-        if not (channels := filter(lambda i: i['bot_management'], channels)):
-            return
+        if exempt_roles := changes.pop("exempt_roles", False):
+            e.add_field(name="Exempt Roles", value=', '.join([i.mention for i in exempt_roles]))
 
-        if key := changes.pop('name', False):
-            e.description += f"**Rule name**: {key['after']}\n"
+        if exempt_channels := changes.pop("exempt_channels", False):
+            e.add_field(name="Exempt Channels", value=', '.join([i.mention for i in exempt_channels]))
 
-        if key := changes.pop('enabled', False):
-            e.description += f"**Rule enabled**: `{key['after']}`\n"
+        acts = []
+        for i in changes.pop("actions", []):
+            match i.type:
+                case discord.AutoModRuleActionType.timeout:
+                    acts.append(f'Timeout for {i.duration}')
+                case discord.AutoModRuleActionType.block_message:
+                    acts.append(f'Block Message')
+                case discord.AutoModRuleActionType.send_alert_message:
+                    channel = self.bot.get_channel(i.channel_id)
+                    acts.append(f'Send Alert Message to {channel.mention}')
+                case _:
+                    logging.info(f'Unhandled AutoModRuleActionType, {i}')
+        if acts:
+            e.add_field(name="Actions", value="\n".join(acts))
 
-        if key := changes.pop('trigger', False):
-            e.add_field(name="New Blocked Terms", value=', '.join(key['after']), inline=False)
-
-        if key := changes.pop("exempt_roles", False):
-            e.add_field(name="Exempt Roles", value=', '.join([i.mention for i in key['after']]))
-
-        if key := changes.pop("exempt_channels", False):
-            e.add_field(name="Exempt Channels", value=', '.join([i.mention for i in key['after']]))
-
-        if key := changes.pop("actions", False):
-            acts = []
-            for i in key['after']:
-                match i.type:
-                    case discord.AutoModRuleActionType.timeout:
-                        acts.append(f'Timeout for {i.duration}')
-                    case discord.AutoModRuleActionType.block_message:
-                        acts.append(f'Block Message')
-                    case discord.AutoModRuleActionType.send_alert_message:
-                        channel = self.bot.get_channel(i.channel_id)
-                        acts.append(f'Send Alert Message to {channel.mention}')
-                    case _:
-                        logging.info(f'Unhandled AutoModRuleActionType, {i}')
-            if acts:
-                e.add_field(name="Actions", value="\n".join(acts))
-
-        if key := changes.pop('trigger_type', False):
-            e.description += f"**Trigger Type**: {stringify_trigger_type(key['after'])}\n"
+        if trigger_type := changes.pop('trigger_type', False):
+            e.description += f"**Trigger Type**: {stringify_trigger_type(trigger_type)}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     async def handle_automod_rule_update(self, entry: discord.AuditLogEntry):
         """Handler for when an automod rule is updated"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['bot_management'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
             return
 
         changes = {}
@@ -3171,15 +2283,7 @@ class Logs(Cog):
 
         before: Embed = Embed(colour=Colour.dark_gray(), title="Automod Rule Updated", description="")
         after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
+        do_footer(entry, after)
 
         if key := changes.pop('name', False):
             before.description += f"**Rule name**: {key['before']}\n"
@@ -3264,17 +2368,81 @@ class Logs(Cog):
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [before, after])
 
     async def handle_automod_rule_delete(self, entry: discord.AuditLogEntry):
         """Handler for when an automod rule is deleted"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
+        if not (channels := self.get_channels(entry.guild, ['bot_management'])):
+            return
+
+        changes = {k: v for k, v in entry.changes.before}
+
+        e: Embed = Embed(colour=Colour.light_gray(), title="Automod Rule Deleted", timestamp=entry.created_at,
+                         description="")
+        do_footer(entry, e)
+
+        if name := changes.pop('name', False):
+            e.description += f"**Name**: {name}\n"
+
+        if enabled := changes.pop('enabled', False):
+            e.description += f"**Enabled**: `{enabled}`\n"
+
+        if trigger := changes.pop('trigger', False):
+            e.add_field(name="Blocked Terms Removed", value=', '.join(trigger), inline=False)
+
+        if exempt_roles := changes.pop("exempt_roles", False):
+            e.add_field(name="Exempt Roles", value=', '.join([i.mention for i in exempt_roles]))
+
+        if exempt_channels := changes.pop("exempt_channels", False):
+            e.add_field(name="Exempt Channels", value=', '.join([i.mention for i in exempt_channels]))
+
+        acts = []
+        for i in changes.pop("actions", False):
+            match i.type:
+                case discord.AutoModRuleActionType.timeout:
+                    acts.append(f'Timeout for {i.duration}')
+                case discord.AutoModRuleActionType.block_message:
+                    acts.append(f'Block Message')
+                case discord.AutoModRuleActionType.send_alert_message:
+                    channel = self.bot.get_channel(i.channel_id)
+                    acts.append(f'Send Alert Message to {channel.mention}')
+        if acts:
+            e.add_field(name="Actions", value="\n".join(acts))
+
+        if trigger_type := changes.pop('trigger_type', False):
+            e.description += f"**Trigger Type**: {stringify_trigger_type(trigger_type)}\n"
+
+        if changes:
+            logging.info(f"{entry.action} | Changes Remain: {changes}")
+
+        return await self.dispatch(channels, [e])
+
+    async def handle_automod_flag_message(self, entry: discord.AuditLogEntry):
+        """Handler for when a message is flagged by auto moderator"""
+        if not (channels := self.get_channels(entry.guild, ['moderation'])):
+            return
+
+        e: Embed = Embed(colour=Colour.light_gray(), title="Automod: Message Flagged", timestamp=entry.created_at)
+        e.description = f"{entry.target.mention}: {entry.extra.channel.mention}\n\n" \
+                        f"**Rule**: {entry.extra.automod_rule_name}\n" \
+                        f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}"
+
+        return await self.dispatch(channels, [e])
+
+    async def handle_automod_block_message(self, entry: discord.AuditLogEntry):
+        """Handler for when a message is blocked by auto moderator"""
+        if not (channels := self.get_channels(entry.guild, ['moderation'])):
+            return
+
+        e: Embed = Embed(colour=Colour.dark_gray(), title="Automod: Message Blocked", timestamp=entry.created_at)
+        e.description = f"{entry.target.mention}: {entry.extra.channel.mention}\n\n" \
+                        f"**Rule**: {entry.extra.automod_rule_name}\n" \
+                        f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}"
+        return await self.dispatch(channels, [e])
+
+    async def handle_automod_timeout_member(self, entry: discord.AuditLogEntry):
+        """Handler for when a member is timed out by auto moderator"""
+        if not (channels := self.get_channels(entry.guild, ['moderation'])):
             return
 
         changes = {}
@@ -3283,323 +2451,80 @@ class Logs(Cog):
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="Automod Rule Deleted", imestamp=entry.created_at,
+        e: Embed = Embed(colour=Colour.light_gray(), title="Automod Timeout", timestamp=entry.created_at,
                          description="")
 
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-        e.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        if key := changes.pop('name', False):
-            e.description += f"**Rule name**: {key['before']}\n"
-
-        if key := changes.pop('enabled', False):
-            e.description += f"**Rule enabled**: `{key['before']}`\n"
-
-        if key := changes.pop('trigger', False):
-            e.add_field(name="Blocked Terms Removed", value=', '.join(key['before']), inline=False)
-
-        if key := changes.pop("exempt_roles", False):
-            e.add_field(name="Exempt Roles Removed", value=', '.join([i.mention for i in key['before']]))
-
-        if key := changes.pop("exempt_channels", False):
-            e.add_field(name="Exempt Channels Removed", value=', '.join([i.mention for i in key['before']]))
-
-        if key := changes.pop("actions", False):
-            acts = []
-            for i in key['before']:
-                match i.type:
-                    case discord.AutoModRuleActionType.timeout:
-                        acts.append(f'Timeout for {i.duration}')
-                    case discord.AutoModRuleActionType.block_message:
-                        acts.append(f'Block Message')
-                    case discord.AutoModRuleActionType.send_alert_message:
-                        channel = self.bot.get_channel(i.channel_id)
-                        acts.append(f'Send Alert Message to {channel.mention}')
-            if acts:
-                e.add_field(name="Actions", value="\n".join(acts))
-
-        if key := changes.pop('trigger_type', False):
-            e.description += f"**Trigger Type**: {stringify_trigger_type(key['before'])}\n"
+        member = entry.target
+        e.description = f"{member.mention} in {entry.extra.channel.mention}\n" \
+                        f"**Rule**: {entry.extra.automod_rule_name}\n" \
+                        f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
+        else:
+            logging.info(f"{entry.action} has no changes.")
 
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embed=e)
-            except discord.HTTPException:
-                continue
-
-    async def copy_paste_this(self, entry: discord.AuditLogEntry):
-        """Handler for when you suck at copy pasting"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
-            return
-
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # CODE GO HERE
-
-        if changes:
-            logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
-
-    async def copy_paste_this(self, entry: discord.AuditLogEntry):
-        """Handler for when you suck at copy pasting"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
-            return
-
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # CODE GO HERE
-
-        if changes:
-            logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
-
-    async def copy_paste_this(self, entry: discord.AuditLogEntry):
-        """Handler for when you suck at copy pasting"""
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id and i['emote_and_sticker'],
-                          self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
-            return
-
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # CODE GO HERE
-
-        if changes:
-            logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(channels, [e])
 
     @Cog.listener()
     async def on_audit_log_entry_create(self, entry: discord.AuditLogEntry) -> None:
         """Send to own handlers"""
-        # Audit log entries received through the gateway are subject to data retrieval from cache rather than REST.
-        # This means that some data might not be present when you expect it to be.
-        # For example, the AuditLogEntry.target attribute will usually be a discord.Object and the AuditLogEntry.user
-        # attribute will depend on user and member cache.
-        #
-        # To get the user ID of entry, AuditLogEntry.user_id can be used instead.
-
-        # Copy/Paste to all new ones.
-        channels = filter(lambda i: i['guild_id'] == entry.guild.id, self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
-            return
-
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
-
-        if isinstance((user := entry.user), discord.Object):
-            user = entry.guild.get_member(entry.user)
-
-        ftr = f"Action Performed by:\n{user}\n{user.id}\n"
-        if entry.reason:
-            ftr += f"\nReason: {entry.reason}"
-
-        before.set_footer(text=ftr, icon_url=user.display_avatar.url)
-        after.set_footer(text=ftr, icon_url=user.display_avatar.url)
-
-        # AUTHOR is the TARGET of the event
-        # TITLE is the TYPE of event
-        changes = {}
-        for k, v in entry.changes.before:
-            changes[k] = {"before": v}
-
-        for k, v in entry.changes.after:
-            changes[k]["after"] = v
-
         match entry.action:
-            case AuditLogAction.guild_update: return await self.handle_guild_update(entry)
+            case AuditLogAction.app_command_permission_update: return await self.handle_app_command_perms_update(entry)
+            case AuditLogAction.ban: return await self.handle_ban(entry)
+            case AuditLogAction.bot_add: return await self.handle_bot_add(entry)
             case AuditLogAction.channel_create: return await self.handle_channel_create(entry)
             case AuditLogAction.channel_delete: return await self.handle_channel_delete(entry)
             case AuditLogAction.channel_update: return await self.handle_channel_update(entry)
-            case AuditLogAction.thread_create: return await self.handle_thread_create(entry)
-            case AuditLogAction.thread_delete: return await self.handle_thread_delete(entry)
-            case AuditLogAction.thread_update: return await self.handle_thread_update(entry)
-            case AuditLogAction.stage_instance_create: return await self.handle_stage_create(entry)
-            case AuditLogAction.stage_instance_update: return await self.handle_stage_update(entry)
-            case AuditLogAction.stage_instance_delete: return await self.handle_stage_delete(entry)
+            case AuditLogAction.emoji_create: return await self.handle_emoji_create(entry)
+            case AuditLogAction.emoji_delete: return await self.handle_emoji_delete(entry)
+            case AuditLogAction.emoji_update: return await self.handle_emoji_update(entry)
+            case AuditLogAction.guild_update: return await self.handle_guild_update(entry)
+            case AuditLogAction.integration_create: return await self.handle_integration_create(entry)
+            case AuditLogAction.integration_update: return await self.handle_integration_update(entry)
+            case AuditLogAction.integration_delete: return await self.handle_integration_delete(entry)
+            case AuditLogAction.invite_create: return await self.handle_invite_create(entry)
+            case AuditLogAction.invite_update: return await self.handle_invite_update(entry)
+            case AuditLogAction.invite_delete: return await self.handle_invite_delete(entry)
+            case AuditLogAction.kick: return await self.handle_kick(entry)
+            case AuditLogAction.member_disconnect: return await self.handle_member_disconnect(entry)
+            case AuditLogAction.member_move: return await self.handle_member_move(entry)
+            case AuditLogAction.member_role_update: return await self.handle_member_role_update(entry)
+            case AuditLogAction.member_update: return await self.handle_member_update(entry)
+            case AuditLogAction.message_bulk_delete: return await self.handle_message_bulk_delete(entry)
+            case AuditLogAction.message_delete: return await self.handle_message_delete(entry)
             case AuditLogAction.message_pin: return await self.handle_message_pin(entry)
             case AuditLogAction.message_unpin: return await self.handle_message_unpin(entry)
             case AuditLogAction.overwrite_create: return await self.handle_overwrite_create(entry)
             case AuditLogAction.overwrite_update: return await self.handle_overwrite_update(entry)
             case AuditLogAction.overwrite_delete: return await self.handle_overwrite_delete(entry)
+            case AuditLogAction.role_create: return await self.handle_role_create(entry)
+            case AuditLogAction.role_delete: return await self.handle_role_delete(entry)
+            case AuditLogAction.role_update: return await self.handle_role_update(entry)
             case AuditLogAction.scheduled_event_create: return await self.handle_event_create(entry)
             case AuditLogAction.scheduled_event_update: return await self.handle_event_update(entry)
             case AuditLogAction.scheduled_event_delete: return await self.handle_event_delete(entry)
-            case AuditLogAction.kick: return await self.handle_kick(entry)
-            case AuditLogAction.ban: return await self.handle_ban(entry)
-            case AuditLogAction.unban: return await self.handle_unban(entry)
-            case AuditLogAction.member_update: return await self.handle_member_update(entry)
-            case AuditLogAction.member_move: return await self.handle_member_move(entry)
-            case AuditLogAction.member_disconnect: return await self.handle_member_disconnect(entry)
-            case AuditLogAction.role_create: return await self.handle_role_create(entry)
-            case AuditLogAction.role_update: return await self.handle_role_update(entry)
-            case AuditLogAction.role_delete: return await self.handle_role_delete(entry)
-            case AuditLogAction.member_role_update: return await self.handle_member_role_update(entry)
-            case AuditLogAction.emoji_create: return await self.handle_emoji_create(entry)
-            case AuditLogAction.emoji_update: return await self.handle_emoji_update(entry)
-            case AuditLogAction.emoji_delete: return await self.handle_emoji_delete(entry)
+            case AuditLogAction.stage_instance_create: return await self.handle_stage_create(entry)
+            case AuditLogAction.stage_instance_update: return await self.handle_stage_update(entry)
+            case AuditLogAction.stage_instance_delete: return await self.handle_stage_delete(entry)
             case AuditLogAction.sticker_create: return await self.handle_sticker_create(entry)
             case AuditLogAction.sticker_update: return await self.handle_sticker_update(entry)
             case AuditLogAction.sticker_delete: return await self.handle_sticker_delete(entry)
-            case AuditLogAction.invite_create: return await self.handle_invite_create(entry)
-            case AuditLogAction.invite_update: return await self.handle_invite_update(entry)
-            case AuditLogAction.invite_delete: return await self.handle_invite_delete(entry)
-            case AuditLogAction.bot_add: return await self.handle_bot_add(entry)
-            case AuditLogAction.message_delete: return await self.handle_message_delete(entry)
-            case AuditLogAction.message_bulk_delete: return await self.handle_message_bulk_delete(entry)
+            case AuditLogAction.thread_create: return await self.handle_thread_create(entry)
+            case AuditLogAction.thread_delete: return await self.handle_thread_delete(entry)
+            case AuditLogAction.thread_update: return await self.handle_thread_update(entry)
+            case AuditLogAction.unban: return await self.handle_unban(entry)
             case AuditLogAction.webhook_create: return await self.handle_webhook_create(entry)
             case AuditLogAction.webhook_update: return await self.handle_webhook_update(entry)
             case AuditLogAction.webhook_delete: return await self.handle_webhook_delete(entry)
-            case AuditLogAction.integration_create: return await self.handle_integration_create(entry)
-            case AuditLogAction.integration_update: return await self.handle_integration_update(entry)
-            case AuditLogAction.integration_delete: return await self.handle_integration_delete(entry)
-            case AuditLogAction.app_command_permission_update: return await self.handle_app_command_perms_update(entry)
             case AuditLogAction.automod_rule_create: return await self.handle_automod_rule_create(entry)
             case AuditLogAction.automod_rule_update: return await self.handle_automod_rule_update(entry)
             case AuditLogAction.automod_rule_delete: return await self.handle_automod_rule_delete(entry)
-            # TODO: Split Automod Flag & Block
-            case AuditLogAction.automod_flag_message | AuditLogAction.automod_block_message:
-                if not (channels := filter(lambda i: i['moderation'], channels)):
-                    return
-
-                match entry.action:
-                    case AuditLogAction.automod_flag_message:
-                        after.title = "Automod: Message Flagged"
-                    case AuditLogAction.automod_block_message:
-                        after.title = "Automod: Message Blocked"
-
-                match entry.extra.automod_rule_trigger_type:
-                    case discord.AutoModRuleTriggerType.keyword:
-                        trigger = "Keyword Mentioned"
-                    case discord.AutoModRuleTriggerType.keyword_preset:
-                        trigger = "Keyword Preset Mentioned"
-                    case discord.AutoModRuleTriggerType.harmful_link:
-                        trigger = "Harmful Links"
-                    case discord.AutoModRuleTriggerType.mention_spam:
-                        trigger = "Mention Spam"
-                    case discord.AutoModRuleTriggerType.spam:
-                        trigger = "Spam"
-                    case _:
-                        trigger = "Unknown"
-
-                after.description = f"{entry.target.mention}: {entry.extra.channel.mention}\n\n" \
-                                    f"**Rule**: {entry.extra.automod_rule_name}\n" \
-                                    f"**Trigger**: {trigger}"
-
-            case AuditLogAction.automod_timeout_member:
-                if not (channels := filter(lambda i: i['moderation'], channels)):
-                    return
-
-                member = entry.target
-
-                match entry.extra.automod_rule_trigger_type:
-                    case discord.AutoModRuleTriggerType.keyword:
-                        trigger = "Keyword Mentioned"
-                    case discord.AutoModRuleTriggerType.keyword_preset:
-                        trigger = "Keyword Preset Mentioned"
-                    case discord.AutoModRuleTriggerType.harmful_link:
-                        trigger = "Harmful Links"
-                    case discord.AutoModRuleTriggerType.mention_spam:
-                        trigger = "Mention Spam"
-                    case discord.AutoModRuleTriggerType.spam:
-                        trigger = "Spam"
-                    case _:
-                        trigger = "Unknown"
-
-                after.title = "Automod Timeout"
-                after.description = f"{member.mention} in {entry.extra.channel.mention}\n" \
-                                    f"**Rule**: {entry.extra.automod_rule_name}\n" \
-                                    f"**Trigger**: {trigger}"
-                before = None
+            case AuditLogAction.automod_flag_message: return await self.handle_automod_flag_message(entry)
+            case AuditLogAction.automod_block_message: return await self.handle_automod_block_message(entry)
+            case AuditLogAction.automod_timeout_member: return await self.handle_automod_timeout_member(entry)
             case _:
                 logging.info(f'Unhandled Audit Log Action Type {entry.action}')
-
-        # Copy/Paste to all new ones.
-        if changes:
-            logging.info(f"{entry.action} | Changes Remain: {changes}")
-
-        for ch in channels:
-            try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=[i for i in [before, after] if i])
-            except discord.HTTPException:
-                continue
 
     # Deleted message notif
     @Cog.listener()
@@ -3633,17 +2558,13 @@ class Logs(Cog):
             except discord.HTTPException:
                 continue
 
-    # Kick notif
     # Leave notif
     @Cog.listener()
     async def on_raw_member_remove(self, payload: discord.RawMemberRemoveEvent) -> None:
         """Event handler for outputting information about member kick, ban, or other departures"""
         # Check if in mod action log and override to specific channels.
-        channels = filter(lambda i: i['guild_id'] == payload.guild_id and i['leaves'],
-                          self.bot.notifications_cache)
-        channels = filter(None, [self.bot.get_channel(i['channel_id']) for i in channels])
-
-        if not channels:
+        guild = self.bot.get_guild(payload.guild_id)
+        if not (channels := self.get_channels(guild, ['leaves'])):
             return
 
         ts = discord.utils.utcnow()
@@ -3653,7 +2574,6 @@ class Logs(Cog):
         e: Embed = Embed(description=f"{timestamp} {member.mention}", colour=Colour.dark_red(), timestamp=ts)
         e.set_author(name=f"{member} ({member.id})", icon_url=member.display_avatar.url)
         e.title = "Member Left"
-
         for ch in channels:
             try:
                 await ch.send(embed=e)
@@ -3664,9 +2584,7 @@ class Logs(Cog):
     @Cog.listener()
     async def on_guild_emojis_update(self, guild: discord.Guild, before: list[Emoji], after: list[Emoji]) -> None:
         """Event listener for outputting information about updated emojis on a server"""
-        channels = filter(lambda i: i['guild_id'] == guild.id and i['emote_and_sticker'], self.bot.notifications_cache)
-
-        if not (channels := filter(None, [self.bot.get_channel(i['channel_id']) for i in channels])):
+        if not (channels := self.get_channels(guild, ['emote_and_sticker'])):
             return
 
         e: Embed = Embed()
@@ -3726,12 +2644,12 @@ class Logs(Cog):
 
         ts = Timestamp(before.created_at).relative
         e: Embed = Embed(title="Message Edited", colour=Colour.brand_red(),
-                         description=f"{ts} {before.channel.mention}\n\n{before.content}")
-        e2: Embed = Embed(title="After", colour=Colour.brand_green(), timestamp=after.edited_at,
-                          description=f"{after.content}")
-        e.set_author(name=str(before.author), icon_url=before.author.display_avatar.url)
+                         description=f"{before.channel.mention} {ts}\n> {before.content}")
+        e2: Embed = Embed(colour=Colour.brand_green(), timestamp=after.edited_at,
+                          description=f"> {after.content}")
+        e2.set_footer(text=f"{before.author} {before.author.id}", icon_url=before.author.display_avatar.url)
 
-        v = View()
+        v = BaseView()
         v.add_item(Button(label="Jump to message", url=before.jump_url, style=discord.ButtonStyle.url))
 
         for c in ch:
@@ -3749,11 +2667,8 @@ class Logs(Cog):
     @Cog.listener()
     async def on_raw_reaction_clear(self, payload: discord.RawReactionClearEvent):
         """Triggered when all reactions are removed from a message"""
-        channels = filter(lambda i: i['guild_id'] == payload.guild_id, self.bot.notifications_cache)
-        if not (channels := filter(lambda i: self.bot.get_channel(i['channel_id']), channels)):
-            return
-
-        if not (channels := filter(lambda i: i['moderation'], channels)):
+        guild = self.bot.get_guild(payload.guild_id)
+        if not (channels := self.get_channels(guild, ['bot_management'])):
             return
 
         channel = self.bot.get_channel(payload.channel_id)

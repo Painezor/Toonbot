@@ -4,29 +4,25 @@ from __future__ import annotations  # Cyclic Type Hinting
 import builtins
 import logging
 from asyncio import Semaphore
-from asyncio import to_thread
 from copy import deepcopy
 from datetime import datetime, timezone
 from io import BytesIO
-from itertools import zip_longest
 from json import loads
 from typing import TYPE_CHECKING, Literal, Optional, ClassVar
 from urllib.parse import quote
 
-from discord import Embed, Interaction, Message, Colour, SelectOption
+from discord import Embed, Interaction, Message, Colour
 from discord.app_commands import Choice
-from discord.ui import View, Select
 from lxml import html
 from playwright.async_api import Page, TimeoutError
 
 from ext.toonbot_utils.gamestate import GameState, GameTime
 from ext.toonbot_utils.matchevents import EventType
 from ext.toonbot_utils.matchevents import parse_events
-from ext.utils.embed_utils import rows_to_embeds, get_colour
+from ext.utils.embed_utils import get_colour
 from ext.utils.flags import get_flag
-from ext.utils.image_utils import stitch_vertical
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import ObjectSelectView, MultipleSelect, Stop, add_page_buttons, FuncDropdown, FuncButton
+from ext.utils.view_utils import ObjectSelectView
 
 if TYPE_CHECKING:
     from ext.toonbot_utils.matchevents import MatchEvent
@@ -35,9 +31,22 @@ if TYPE_CHECKING:
 # TODO: Figure out caching system for high intensity lookups
 # TODO: Team dropdown on Competitions
 
-ADS = '.seoAdWrapper, .banner--sticky, .ot-sdk-container, .extraContent, .selfPromo, .ads-envelope, ' \
-      '.onetrust-consent-sdk, .isSticky, .rollbar, .otPlaceholder, #lsid-window-mask, #box-over-content, ' \
-      '#box-over-content-a'
+ADS = ('.ads-envelope, '
+       '.bannerEnvelope, '
+       '.banner--sticky, '
+       '.extraContent, '
+       '.seoAdWrapper, '
+       '.isSticky, '
+       '.ot-sdk-container, '
+       '.otPlaceholder, '
+       '.onetrust-consent-sdk, '
+       '.rollbar, '
+       '.selfPromo, '
+       '#box-over-content, '
+       '#box-over-content-detail, '
+       '#box-over-content-a,'
+       '#lsid-window-mask'
+       )
 
 FLASHSCORE = 'https://www.flashscore.com'
 INJURY_EMOJI = "<:injury:682714608972464187>"
@@ -77,7 +86,7 @@ semaphore = Semaphore(5)
 async def lg_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete from list of stored leagues"""
     bot: Bot = interaction.client
-    matches = filter(lambda x: current.lower() in x.title.lower(), filter(lambda c: c.id is not None, bot.competitions))
+    matches = [i for i in bot.competitions if current.lower() in i.title.lower() and i.id is not None]
     return [Choice(name=i.title[:100], value=i.id) for i in list(matches)[:25]]
 
 
@@ -218,30 +227,26 @@ class FlashScoreItem:
 
             # State Corrections
             override = "".join([i for i in parsed if i.isalpha()])
-            if override:
-                logging.info(f'Old Parsed = "{parsed}"')
-                logging.info(f'Detected Override "{override}"')
-                parsed.replace(override, '')
-                logging.info(f'New Parsed = "{parsed}"')
+            parsed = parsed.replace(override, '')
 
             match override:
-                case override if override == '':
+                case '':
                     pass
-                case override if override == 'AET':
+                case 'AET':
                     state = GameState.AFTER_EXTRA_TIME
-                case override if override == 'Pen':
+                case 'Pen':
                     state = GameState.AFTER_PENS
-                case override if override == 'Postp':
+                case 'Postp':
                     state = GameState.POSTPONED
-                case override if override == 'FRO':
+                case 'FRO':
                     state = GameState.FINAL_RESULT_ONLY
-                case override if override == 'WO':
+                case 'WO':
                     state = GameState.WALKOVER
-                case override if override == 'Awrd':
+                case 'Awrd':
                     state = GameState.AWARDED
-                case override if override == 'Postp':
+                case 'Postp':
                     state = GameState.POSTPONED
-                case override if override == 'Abn':
+                case 'Abn':
                     state = GameState.ABANDONED
 
             dtn = datetime.now(tz=timezone.utc)
@@ -307,17 +312,12 @@ class Team(FlashScoreItem):
 
     @property
     def tag(self) -> str:
-        """Get a 3 letter tag for the team"""
-        match len(self.name.split()):
+        """Generate a 3 letter tag for the team"""
+        match len(self.name.split(' ')):
             case 1:
-                return self.name[0:3].upper()
-            case 2:
-                char = self.name[0]
-                mid = next(i for i in self.name[0:] if i.lower() not in ['a', 'e', 'i', 'o', 'u'])
-                end = self.name.split()[-1][0]
-                return f"{char}{mid}{end}".upper()
+                return "".join(self.name[:3]).upper()
             case _:
-                return ''.join([i[0] for i in self.name.split()[:3]]).upper()
+                return "".join([i for i in self.name if i.isupper()])
 
     @property
     def link(self) -> str:
@@ -457,10 +457,6 @@ class Team(FlashScoreItem):
             player.injury = ''.join(i.xpath('.//span[contains(@title,"Injury")]/@title'))
             players.append(player)
         return players
-
-    def view(self, interaction: Interaction) -> TeamView:
-        """Return a view representing this Team"""
-        return TeamView(interaction, self)
 
 
 class Competition(FlashScoreItem):
@@ -651,10 +647,6 @@ class Competition(FlashScoreItem):
             scorers.append(player)
         return scorers
 
-    def view(self, interaction: Interaction) -> CompetitionView:
-        """Return a view representing this Competition"""
-        return CompetitionView(interaction, self)
-
     @property
     def table_link(self) -> str:
         """Return [Click To View Table](url) or empty string if not found"""
@@ -744,12 +736,8 @@ class Fixture(FlashScoreItem):
         """Update the time of the event"""
         if self._time is not None:
             if (old_state := self._time.state) != (new_state := game_time.state):
-                try:
-                    self.dispatch_events(old_state, new_state)
-                except ValueError:
-                    return
+                self.dispatch_events(old_state, new_state)
         self._time = game_time
-        return
 
     @property
     def ko_relative(self) -> str:
@@ -768,7 +756,7 @@ class Fixture(FlashScoreItem):
 
     @property
     def score(self) -> str:
-        """Concatenate scores into home - away format"""
+        """Return "X - Y", or 'vs' if scores are None"""
         return "vs" if self.score_home is None else f"{self.score_home} - {self.score_away}"
 
     @property
@@ -783,8 +771,8 @@ class Fixture(FlashScoreItem):
         if None in [self.score_home, self.time] or self.time.state == GameState.SCHEDULED:
             return f"{self.home.name} vs {self.away.name}"
 
-        hb, ab = ('**', '') if self.score_home > self.score_away else ('', '**')
-        hb, ab = ("", "") if self.score_home == self.score_away else (hb, ab)
+        hb = '**' if self.score_home > self.score_away else ''
+        ab = '**' if self.score_home < self.score_away else ''
         return f"{hb}{self.home.name} {self.score_home}{hb} - {ab}{self.score_away} {self.away.name}{ab}"
 
     @property
@@ -793,28 +781,21 @@ class Fixture(FlashScoreItem):
         if None in [self.score_home, self.time] or self.time.state == GameState.SCHEDULED:
             return f"[{self.home.name} vs {self.away.name}]({self.link})"
 
-        hb, ab = ('**', '') if self.score_home > self.score_away else ('', '**')
-        hb, ab = ("", "") if self.score_home == self.score_away else (hb, ab)
+        home = f"**{self.home.name}**" if self.score_home > self.score_away else self.home.name
+        away = f"**{self.away.name}**" if self.score_away > self.score_home else self.away.name
 
-        match self.cards_home:
-            case 0 | None:
-                ch = ""
-            case 1:
-                ch = '`🟥` '
-            case _:
-                ch = f'`🟥 x{self.cards_home}` '
+        def parse_cards(cards: int) -> str:
+            """Get a number of icons matching number of cards"""
+            match cards:
+                case 0 | None:
+                    return ""
+                case 1:
+                    return '`🟥` '
+                case _:
+                    return f'`🟥 x{cards}` '
 
-        match self.cards_away:
-            case 0 | None:
-                ca = ""
-            case 1:
-                ca = ' `🟥`'
-            case _:
-                ca = f' `🟥 x{self.cards_away}`'
-
-        sh = self.score_home
-        sa = self.score_away
-        return f"{hb}{self.home.name}{hb} {ch}[{sh} - {sa}]({self.link}){ca} {ab}{self.away.name}{ab}"
+        sh, sa = self.score_home, self.score_away
+        return f"{home} {parse_cards(self.cards_home)}[{sh} - {sa}]({self.link}){parse_cards(self.cards_away)} {away}"
 
     @property
     def live_score_text(self) -> str:
@@ -833,11 +814,11 @@ class Fixture(FlashScoreItem):
         if self.penalties_home is not None:
             ph, pa = self.penalties_home, self.penalties_away
             s = min(self.score_home, self.score_away)
-            output.append(f"{self.home.name} [{s} - {s}]({self.link}) ( p: {ph} - {pa}) {self.away.name}")
+            output.append(f"{self.home.name} [{s} - {s}]({self.link}) (p: {ph} - {pa}) {self.away.name}")
             return ' '.join(output)
 
         if self._score_home is None:
-            output.append(f"{Timestamp(self.kickoff).relative} {self.home.name} [vs]({self.link}) {self.away.name}")
+            output.append(f"{Timestamp(self.kickoff).time_hour} [{self.home.name} v {self.away.name}]({self.link})")
         else:
             output.append(self.bold_markdown)
         return ' '.join(output)
@@ -852,13 +833,10 @@ class Fixture(FlashScoreItem):
         if value is None:
             return
 
-        old_value: int = getattr(self, variable, None)
         setattr(self, variable, value)
-
-        if value == old_value or old_value is None:
+        if (old_value := getattr(self, variable, None)) in [value, None]:
             return
 
-        # Update competition's table.
         event = EventType.GOAL if value > old_value else EventType.VAR_GOAL
         self.bot.dispatch("fixture_event", event, self, home=bool(variable == '_score_home'))
 
@@ -886,11 +864,8 @@ class Fixture(FlashScoreItem):
         """Set a team's cards."""
         if value is None:
             return
-
-        old_value: int = getattr(self, variable, None)
         setattr(self, variable, value)
-
-        if old_value in [value, None]:
+        if (old_value := getattr(self, variable, None)) in [value, None]:
             return
 
         event = EventType.RED_CARD if value > old_value else EventType.VAR_RED_CARD
@@ -921,10 +896,10 @@ class Fixture(FlashScoreItem):
     async def base_embed(self) -> Embed:
         """Return a preformatted discord embed for a generic Fixture"""
         e: Embed = await self.competition.base_embed
-        e.title = self.score_line
         e.url = self.link
         e.colour = self.time.state.colour
-        e.timestamp = datetime.now(timezone.utc)
+        e.set_author(name=self.score_line)
+        e.timestamp = self.kickoff
 
         if self.infobox is not None:
             e.add_field(name="Match Info", value=self.infobox)
@@ -938,39 +913,8 @@ class Fixture(FlashScoreItem):
             case GameState.POSTPONED:
                 e.description = "This match has been postponed."
             case _:
-                e.set_footer(text=str(self.time.state))
+                e.set_footer(text=self.time.state.shorthand)
         return e
-
-    async def get_badge(self, team: Literal['home', 'away']) -> Optional[str]:
-        """Fetch an image of a Team's Logo or Badge as a BytesIO object"""
-        # First check if the specific Team object has a logo.
-        if (team_ := getattr(self, team)).logo_url is not None:
-            return team_.logo_url
-
-        # Else pull up the page and grab it manually.
-        async with semaphore:
-            page = await self.bot.browser.new_page()
-            try:
-                for x in range(3):
-                    try:
-                        await page.goto(self.link, timeout=5000)
-                        break
-                    except TimeoutError:
-                        continue
-                else:
-                    return None
-
-                await page.wait_for_selector(f'.//div[contains(@class, "tlogo-{team}")]//img', timeout=5000)
-                tree = html.fromstring(await page.content())
-            finally:
-                await page.close()
-
-        potential_badges = tree.xpath(f'.//div[contains(@class, "tlogo-{team}")]//img/@src')
-
-        try:
-            return potential_badges[0]
-        except IndexError:
-            return None
 
     # Dispatcher
     def dispatch_events(self, old: GameState, new: GameState) -> None:
@@ -1104,290 +1048,6 @@ class Fixture(FlashScoreItem):
         self.events = parse_events(self, tree)
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
 
-    async def fixtures(self) -> list[Fixture]:
-        """Fixture objects do not have fixtures, so we Raise."""
-        return await self.competition.fixtures()
-
-    async def table(self) -> Optional[str]:
-        """Fetch an image of the league table appropriate to the fixture as a bytesIO object"""
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-
-            try:
-                for x in range(3):
-                    try:
-                        await page.goto(f"{self.link}/#standings/table/overall", timeout=5000)
-                        break
-                    except TimeoutError:
-                        continue
-                else:
-                    return None
-
-                try:
-                    await page.wait_for_selector('.tableWrapper', timeout=5000)
-                except TimeoutError:
-                    return None
-
-                await page.eval_on_selector_all(ADS, "ads => ads.forEach(x => x.remove());")
-                return await page.locator('div', has=page.locator(".tableWrapper")).screenshot()
-            finally:
-                await page.close()
-
-    async def stats(self) -> Optional[str]:
-        """Get an image of a list of statistics pertaining to the fixture as a link to an image"""
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                for x in range(3):
-
-                    try:
-                        await page.goto(f"{self.link}/#match-summary/match-statistics/0", timeout=5000)
-                        break
-                    except TimeoutError:
-                        continue
-                else:
-                    return None
-
-                try:
-                    await page.wait_for_selector(".section", timeout=5000)
-                except TimeoutError:
-                    pass
-
-                await page.eval_on_selector_all(ADS, "ads => ads.forEach(x => x.remove());")
-                return await page.locator("div", has=page.locator(".statRow")).screenshot()
-            finally:
-                await page.close()
-
-    async def formation(self) -> Optional[str]:
-        """Get the formations used by both teams in the fixture as a link to an image"""
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                for x in range(3):
-                    try:
-                        await page.goto(f"{self.link}/#match-summary/lineups", timeout=5000)
-                        break
-                    except TimeoutError:
-                        continue
-                else:
-                    return None
-
-                await page.eval_on_selector_all(ADS, "ads => ads.forEach(x => x.remove());")
-
-                screenshots = []
-                formation = page.locator('.fieldWrap')
-                lineup = page.locator('.lineUp')
-
-                if await formation.count() > 0:
-                    screenshots.append(await formation.screenshot())
-                if await lineup.count() > 0:
-                    screenshots.append(await lineup.screenshot())
-            finally:
-                await page.close()
-
-        if screenshots:
-            data = await to_thread(stitch_vertical, screenshots)
-            return await self.bot.dump_image(data)
-        return None
-
-    async def summary(self) -> Optional[str]:
-        """Fetch the summary of a Fixture as a link to an image"""
-        async with semaphore:
-            page = await self.bot.browser.new_page()
-            try:
-                for x in range(3):
-                    try:
-                        await page.goto(f"{self.link}/#standings/table/overall", timeout=5000)
-                        break
-                    except TimeoutError:
-                        continue
-                else:
-                    return None
-
-                stats = page.locator(".verticalSections")
-                await page.eval_on_selector_all(ADS, "ads => ads.forEach(x => x.remove());")
-
-                if await stats.count():
-                    return await stats.screenshot()
-                return None
-            finally:
-                await page.close()
-
-    async def head_to_head(self) -> dict[str, Fixture]:
-        """Get results of recent games related to the two teams in the fixture"""
-        async with semaphore:
-            page = await self.bot.browser.new_page()
-
-            try:
-                for x in range(3):
-                    try:
-                        await page.goto(f"{self.link}/#/h2h/overall", timeout=5000)
-                        break
-                    except TimeoutError:
-                        continue
-                else:
-                    return {}
-
-                try:
-                    await page.wait_for_selector(".h2h", timeout=5000)
-                except TimeoutError:
-                    return {}
-                tree = html.fromstring(await page.content())
-            finally:
-                await page.close()
-
-        games: dict[str, list[Fixture]] = {}
-
-        for i in tree.xpath('.//div[contains(@class, "section")]'):
-            if not (header := ''.join(i.xpath('.//div[contains(@class, "title")]//text()')).strip().title()):
-                continue
-
-            fx_list = []
-            for game in i.xpath('.//div[contains(@class, "_row")]')[:5]:  # Last 5 only.
-                fx = Fixture(self.bot)
-                # TODO: Click Each H2H fixture and get new window url.
-
-                home = ''.join(game.xpath('.//span[contains(@class, "homeParticipant")]//text()')).strip().title()
-                away = ''.join(game.xpath('.//span[contains(@class, "awayParticipant")]//text()')).strip().title()
-
-                # Compare HOME team of H2H fixture to base fixture.
-                match home:
-                    case home if home in self.home.name:
-                        fx.home = self.home
-                    case home if home in self.away.name:
-                        fx.home = self.away
-                    case _:
-                        try:
-                            fx.home = next(i for i in self.bot.teams if home in i.name)
-                        except StopIteration:
-                            fx.home = Team(self.bot)
-                            fx.home.name = home
-
-                match away:
-                    case away if away in self.home.name:
-                        fx.away = self.home
-                    case away if away in self.away.name:
-                        fx.away = self.away
-                    case _:
-                        try:
-                            fx.away = next(i for i in self.bot.teams if away in i.name)
-                        except StopIteration:
-                            fx.away = Team(self.bot)
-                            fx.away.name = away
-
-                kickoff = game.xpath('.//span[contains(@class, "date")]/text()')[0].strip()
-
-                kickoff = datetime.strptime(kickoff, "%d.%m.%y")
-                fx.kickoff = kickoff
-                try:
-                    h, a = game.xpath('.//span[contains(@class, "regularTime")]//text()')[0].split(':')
-                    fx._score_home, fx._score_away = int(h.strip()), int(a.strip())
-                except IndexError:
-                    pass
-                except ValueError:
-                    string = game.xpath('.//span[contains(@class, "regularTime")]//text()')[0]
-                    logging.error(f'ValueError trying to split string, {string}')
-
-                fx_list.append(fx)
-            games.update({header: fx_list})
-        return games
-
-    async def preview(self) -> str:
-        """Fetch information about upcoming match from Flashscore"""
-        page: Page = await self.bot.browser.new_page()
-
-        try:
-            for x in range(3):
-                try:
-                    await page.goto(self.link, timeout=5000)
-                    break
-                except TimeoutError:
-                    continue
-            else:
-                return None
-
-            await page.wait_for_selector('.previewOpenBlock > div')
-            loc = page.locator('.showMore')
-            for x in range(10):
-                if await loc.count():
-                    await loc.click()
-                    continue
-                break
-
-            tree = html.fromstring(await page.content())
-        finally:
-            await page.close()
-
-        preview_lines = tree.xpath('.//div[@class="previewLine"]')
-
-        output = []
-        if any([self.referee, self.stadium]):
-            output.append("####")
-            r = f"**🙈 Referee**: {self.referee}" if self.referee else ""
-            s = f"**🥅 Venue**: {self.stadium}" if self.stadium else ""
-            output.append(" | ".join([i for i in [r, s] if i]))
-            output.append("\n\n")
-
-        if preview_lines:
-            output.append("# Match Preview\n\n")
-            for block in preview_lines:
-                output.append(f"* {''.join(block.xpath('.//text()'))}\n")
-
-        no_play = tree.xpath('.//div[contains(text(), "Will not play")]/following-sibling::div//div[@class="lf__side"]')
-        if no_play:
-            nph, npa = no_play
-            output.append("\n\n\n## Absent Players\n")
-
-            home, away = [], []
-            for _ in nph:
-                p = ''.join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
-                player = f"[{''.join(_.xpath('.//a//text()'))}]({FLASHSCORE + ''.join(_.xpath('.//a/@href'))}) {p}"
-                home.append(player)
-
-            for _ in npa:
-                ij = ''.join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
-                player = f"[{''.join(_.xpath('.//a//text()'))}]({FLASHSCORE + ''.join(_.xpath('.//a/@href'))}) {ij}"
-                away.append(player)
-
-            output.append(f"{self.home.name}|{self.away.name}\n--:|:--\n")
-            output.append('\n'.join(f"{home} | {away}" for home, away in list(zip_longest(home, away, '*-*'))))
-
-        maybe = tree.xpath('.//div[contains(text(), "Questionable")]/following-sibling::div//div[@class="lf__side"]')
-        if maybe:
-            nph, npa = maybe
-            output.append("\n\n\n## Potentially Absent Players\n")
-
-            home, away = [], []
-            for _ in nph:
-                ij = ''.join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
-                player = f"[{''.join(_.xpath('.//a//text()'))}]({FLASHSCORE + ''.join(_.xpath('.//a/@href'))}) {ij}"
-                home.append(player)
-
-            for _ in npa:
-                ij = ''.join(_.xpath('.//div[contains(@class, "scratchLabel")]/text()'))
-                player = f"[{''.join(_.xpath('.//a//text()'))}]({FLASHSCORE + ''.join(_.xpath('.//a/@href'))}) {ij}"
-                away.append(player)
-
-            output.append(f"{self.home.name}|{self.away.name}\n--:|:--\n")
-            output.append('\n'.join(f"{home} | {away}" for home, away in list(zip_longest(home, away, '*-*'))))
-
-        if h2h := await self.head_to_head():
-            output.append("\n## Head to Head")
-            for cat, games in h2h.items():
-                output.append(f"\n#### {cat}\n")
-                output.append('\n'.join(f"* {game.bold_score}" for game in games))
-
-        if tv := tree.xpath('.//div[contains(@class, "broadcast")]/div/a'):
-            output.append("\n## Television Coverage\n\n")
-            games, links = tv.xpath('.//text()'), tv.xpath('.//@href')
-            output.append(' ,'.join(f"[{game}]({link})" for game, link in zip(games, links)))
-        return ''.join(output)
-
-    # Ger a view representing the Fixture
-    def view(self, interaction: Interaction) -> FixtureView:
-        """Return a view representing this Fixture"""
-        return FixtureView(interaction, self)
-
 
 class Player(FlashScoreItem):
     """An object representing a player from flashscore."""
@@ -1507,492 +1167,6 @@ class Player(FlashScoreItem):
         return await self.team.fixtures()
 
 
-class FixtureView(View):
-    """The View sent to users about a fixture."""
-    bot: ClassVar[Bot] = None
-
-    def __init__(self, interaction: Interaction, fixture: Fixture) -> None:
-        self.fixture: Fixture = fixture
-        self.interaction: Interaction = interaction
-
-        super().__init__()
-        self.__class__.bot = interaction.client
-
-        # Pagination
-        self.pages: list[Embed] = []
-        self.index: int = 0
-
-        # Button Disabling
-        self._disabled = None
-
-    async def on_timeout(self) -> Message:
-        """Cleanup"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.bot.user.id
-
-    async def update(self, content: str = None, mode: str = None) -> Message:
-        """Update the view for the user"""
-        embed = self.pages[self.index]
-        self.clear_items()
-        for _ in [FuncButton(label="Stats", func=self.push_stats),
-                  FuncButton(label="Table", func=self.push_table),
-                  FuncButton(label="Lineups", func=self.push_lineups),
-                  FuncButton(label="Summary", func=self.push_summary),
-                  FuncButton(label="H2H", func=self.push_head_to_head, emoji="⚔"),
-                  Stop()
-                  ]:
-            _.disabled = mode == _.label
-            self.add_item(_)
-        return await self.bot.reply(self.interaction, content=content, view=self, embed=embed)
-
-    async def push_stats(self) -> Message:
-        """Push Stats to View"""
-        self.index = 0
-
-        embed = await self.fixture.base_embed
-        embed.description = f"{Timestamp().time_relative}\n"
-
-        if image := await self.fixture.stats():
-            embed.set_image(url=image)
-        embed.description += "No Stats Found" if image is None else ""
-        self.pages = [embed]
-        self._disabled = "Stats"
-        return await self.update()
-
-    async def push_lineups(self) -> Message:
-        """Push Lineups to View"""
-        self.index = 0
-
-        embed = await self.fixture.base_embed
-        embed.description = f"{Timestamp().time_relative}\n"
-        if image := await self.fixture.formation():
-            embed.set_image(url=image)
-        embed.description += "No Lineups Found" if image is None else ""
-        self.pages = [embed]
-        self._disabled = "Lineups"
-        return await self.update()
-
-    async def push_table(self) -> Message:
-        """Push Fixture's Table to View"""
-        self.index = 0
-
-        embed = await self.fixture.base_embed
-        embed.description = f"{Timestamp().time_relative}\n"
-        if image := await self.fixture.table():
-            embed.set_image(url=image)
-        embed.description += "No Table Found" if image is None else ""
-        self.pages = [embed]
-        self._disabled = "Table"
-        return await self.update()
-
-    async def push_summary(self) -> Message:
-        """Push Summary to View"""
-        self.index = 0
-
-        embed = await self.fixture.base_embed
-        embed.description = f"{Timestamp().time_relative}\n"
-
-        if image := await self.fixture.summary():
-            embed.set_image(url=image)
-        embed.description += "No Summary Found" if image is None else ""
-        embed.title = f"{self.fixture.home.name} {self.fixture.score} {self.fixture.away.name}"
-        self.pages = [embed]
-        self._disabled = "Summary"
-        return await self.update()
-
-    async def push_head_to_head(self) -> Message:
-        """Push Head-to-Head to View"""
-        self.index = 0
-        embed = await self.fixture.base_embed
-
-        if not (fixtures := await self.fixture.head_to_head()):
-            embed.description = "Could not find any head to head data"
-        else:
-            for k, v in fixtures.items():
-                x = "\n".join([f"{i.time.relative_time} [{i.bold_score}]({i.url})" for i in v])
-                embed.add_field(name=k, value=x, inline=False)
-        self.pages = [embed]
-        self._disabled = "Head To Head"
-        return await self.update()
-
-
-class CompetitionView(View):
-    """The view sent to a user about a Competition"""
-    bot: ClassVar[Bot] = None
-
-    def __init__(self, interaction: Interaction, competition: Competition, parent: View = None) -> None:
-        super().__init__()
-        self.__class__.bot = interaction.client
-
-        self.competition: Competition = competition
-        self.interaction: Interaction = interaction
-
-        # Embed and internal index.
-        self.pages: list[Embed] = []
-        self.index: int = 0
-        self.parent: View = parent
-
-        # Button Disabling
-        self._disabled: str = None
-
-        # Player Filtering
-        self._nationality_filter: list[str] = []
-        self._team_filter: list[str] = []
-        self._filter_mode: str = "goals"
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.bot.user.id
-
-    async def on_timeout(self) -> Message:
-        """Cleanup"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def update(self, content: str = None) -> Message:
-        """Send the latest version of the CompetitionView to the user"""
-        self.clear_items()
-
-        if self._filter_mode:
-            # Generate New Dropdowns.
-            players = await self.filter_players()
-
-            # List of Unique team names as Option()s
-            teams = filter(None, set(i.team for i in players))
-            teams = sorted(teams, key=lambda t: t.name)
-
-            if opt := [('👕', i.name, i.link) for i in teams]:
-                sel = MultipleSelect(placeholder="Filter by Team…", options=opt, attribute='team_filter', row=2)
-                if self._team_filter:
-                    sel.placeholder = f"Teams: {', '.join(self._team_filter)}"
-                self.add_item(sel)
-
-            # List of Unique nationalities as Option()s
-            if flags := [(get_flag(i), i, '') for i in sorted(filter(None, set(i.country for i in players)))]:
-                ph = "Filter by Nationality…"
-                sel = MultipleSelect(placeholder=ph, options=flags, attribute='nationality_filter', row=3)
-                if self._nationality_filter:
-                    sel.placeholder = f"Countries:{', '.join(self._nationality_filter)}"
-                self.add_item(sel)
-
-        for button in [FuncButton(label="Table", func=self.push_table, emoji="🥇", row=4),
-                       FuncButton(label="Scorers", func=self.push_scorers, emoji='⚽', row=4),
-                       FuncButton(label="Fixtures", func=self.push_fixtures, emoji='📆', row=4),
-                       FuncButton(label="Results", func=self.push_results, emoji='⚽', row=4)]:
-            button.disabled = True if self._disabled == button.label else False
-            self.add_item(button)
-
-        try:
-            embed = self.pages[self.index]
-        except IndexError:
-            embed = next(iter(self.pages), None)
-
-        return await self.bot.reply(self.interaction, content=content, view=self, embed=embed)
-
-    async def filter_players(self) -> list[Player]:
-        """Filter player list according to dropdowns."""
-        embed = await self.competition.base_embed
-        players = await self.competition.scorers()
-        all_players = players.copy()
-
-        if self._nationality_filter:
-            players = [i for i in players if i.country in self._nationality_filter]
-
-        if self._team_filter:
-            players = [x for x in players if x.team.name in self._team_filter]
-
-        match self._filter_mode:
-            case "goals":
-                srt = sorted([i for i in players if i.goals > 0], key=lambda p: p.goals, reverse=True)
-                embed.title = f"≡ Top Scorers for {embed.title}"
-                rows = [i.scorer_row for i in srt]
-            case "assists":
-                s = sorted([i for i in players if i.assists > 0], key=lambda p: p.assists, reverse=True)
-                embed.title = f"≡ Top Assists for {embed.title}"
-                rows = [i.assist_row for i in s]
-            case _:
-                logging.error(f"INVALID _filter_mode {self._filter_mode} in CompetitionView")
-                rows = [str(i) for i in players]
-
-        if not rows:
-            rows = [f'```yaml\nNo Top Scorer Data Available matching your filters```']
-
-        embeds = rows_to_embeds(embed, rows)
-        self.pages = embeds
-        return all_players
-
-    async def push_table(self) -> Message:
-        """Push Team's Table for a Competition to View"""
-        embed = await self.competition.base_embed
-        embed.clear_fields()
-        embed.title = f"≡ Table for {self.competition}"
-        if img := await self.competition.table():
-            embed.set_image(url=img)
-            embed.description = Timestamp().long
-        else:
-            embed.description = "No Table Found"
-
-        self.index = 0
-        self.pages = [embed]
-        self._filter_mode = None
-        self._disabled = "Table"
-        return await self.update()
-
-    async def push_scorers(self) -> Message:
-        """PUsh the Scorers Embed to Competition View"""
-        self.index = 0
-        self._filter_mode = "goals"
-        self._disabled = "Scorers"
-        self._nationality_filter = None
-        self._team_filter = None
-        return await self.update()
-
-    async def push_assists(self) -> Message:
-        """PUsh the Scorers Embed to View"""
-        self.index = 0
-        self._filter_mode = "assists"
-        self._disabled = "Assists"
-        self._nationality_filter = []
-        self._team_filter = []
-        return await self.update()
-
-    async def push_fixtures(self) -> Message:
-        """Push upcoming competition fixtures to View"""
-        rows = await self.competition.fixtures()
-        rows = [i.upcoming for i in rows] if rows else ["No Fixtures Found :("]
-        embed = await self.competition.base_embed
-        embed.title = f"≡ Fixtures for {self.competition}"
-
-        self.index = 0
-        self.pages = rows_to_embeds(embed, rows)
-        self._disabled = "Fixtures"
-        self._filter_mode = None
-        return await self.update()
-
-    async def push_results(self) -> Message:
-        """Push results fixtures to View"""
-        rows = await self.competition.results()
-
-        rows = [i.upcoming for i in rows] if rows else ["No Results Found"]
-
-        embed = await self.competition.base_embed
-        embed.title = f"≡ Results for {self.competition.title}"
-
-        self.index = 0
-        self.pages = rows_to_embeds(embed, rows)
-        self._disabled = "Results"
-        self._filter_mode = None
-        return await self.update()
-
-
-class TeamView(View):
-    """The View sent to a user about a Team"""
-    bot: ClassVar[Bot] = None
-
-    def __init__(self, interaction: Interaction, team: Team, parent: View = None):
-        super().__init__()
-        self.team: Team = team
-        self.interaction: interaction = interaction
-        self.parent: View = parent
-
-        # Pagination
-        self.pages = []
-        self.index = 0
-        self.value = None
-
-        # Specific Selection
-        self.league_select: list[Competition] = []
-
-        # Disable buttons when changing pages.
-        # Page buttons have their own callbacks so cannot be directly passed to update
-        self._disabled: str = None
-        self.__class__.bot = interaction.client
-
-    async def on_timeout(self) -> Message:
-        """Cleanup"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.interaction.user.id
-
-    async def update(self, content: str = None) -> Message:
-        """Push the latest version of the TeamView to the user"""
-        self.clear_items()
-        if self.league_select:
-            self.add_item(LeagueTableSelect(leagues=self.league_select))
-            self.league_select.clear()
-        else:
-            add_page_buttons(self, row=4)
-
-            opts = [(SelectOption(label="Squad", emoji='🏃'), {}, self.push_squad),
-                    (SelectOption(label="Injuries", emoji=INJURY_EMOJI), {}, self.push_injuries),
-                    (SelectOption(label="Top Scorers", emoji='⚽'), {}, self.push_scorers),
-                    (SelectOption(label="Table", emoji='🗓️'), {}, self.select_table),
-                    (SelectOption(label="Fixtures", emoji='📆'), {}, self.push_fixtures),
-                    (SelectOption(label="Results", emoji='🇼'), {}, self.push_results),
-                    (SelectOption(label="News", emoji='📰'), {}, self.push_news)]
-
-            for count, item in enumerate(opts):
-                item[0].value = count
-
-            self.add_item(FuncDropdown(opts, placeholder="Additional info...", row=0))
-
-        embed = self.pages[self.index] if self.pages else None
-        return await self.bot.reply(self.interaction, content=content, view=self, embed=embed)
-
-    async def push_news(self) -> Message:
-        """Push News to View"""
-        self.pages = await self.team.news()
-        self.index = 0
-        self._disabled = "News"
-        return await self.update()
-
-    async def push_squad(self) -> Message:
-        """Push the Squad Embed to the team View"""
-        players = await self.team.players()
-        p = [i.squad_row for i in sorted(players, key=lambda x: x.number)]
-
-        # Data must be fetched before embed url is updated.
-        embed = await self.team.base_embed
-        self.index = 0
-        self.pages = rows_to_embeds(embed, p)
-        self._disabled = "Squad"
-        return await self.update()
-
-    async def push_injuries(self) -> Message:
-        """Push the Injuries Embed to the team View"""
-        embed = await self.team.base_embed
-        players = await self.team.players()
-        players = [i.injury_row for i in players if i.injury is not None] if players else ['No injuries found']
-        embed.description = "\n".join(players)
-        self.index = 0
-        self.pages = [embed]
-        self._disabled = "Injuries"
-        return await self.update()
-
-    async def push_scorers(self) -> Message:
-        """Push the Scorers Embed to the team View"""
-        embed = await self.team.base_embed
-        players = await self.team.players()
-
-        p = sorted([i for i in players if i.goals > 0], key=lambda x: x.goals, reverse=True)
-        rows = [i.scorer_row for i in p]
-
-        self.index = 0
-        self.pages = rows_to_embeds(embed, rows)
-        self._disabled = "Scorers"
-        return await self.update()
-
-    async def select_table(self) -> Message:
-        """Select Which Table to push from"""
-        self.index = 0
-        all_fixtures = await self.team.fixtures()
-
-        if len(comps := filter(lambda x: x.name != "Club Friendly", set(x.competition for x in all_fixtures))) == 1:
-            return await self.push_table(next(comps))
-
-        self.league_select = comps
-
-        leagues = [f"• {x.flag} {x.markdown}" for x in comps]
-
-        e = await self.team.base_embed
-        e.description = "**Use the dropdown to select a table**:\n\n " + "\n".join(leagues)
-        self.pages = [e]
-        return await self.update()
-
-    async def push_table(self, res: Competition) -> Message:
-        """Fetch All Comps, Confirm Result, Get Table Image, Send"""
-        embed = await self.team.base_embed
-        embed.title = f"≡ Table for {res.title}"
-        if img := await res.table():
-            embed.set_image(url=img)
-            embed.description = Timestamp().long
-        else:
-            embed.description = f"No Table found."
-
-        self.pages = [embed]
-        self.index = 0
-        self._disabled = "Table"
-        return await self.update()
-
-    async def push_fixtures(self) -> Message:
-        """Push upcoming fixtures to Team View"""
-        rows = await self.team.fixtures()
-        rows = [i.upcoming for i in rows] if rows else ["No Fixtures Found :("]
-        embed = await self.team.base_embed
-        embed.title = f"≡ Fixtures for {self.team.name}"
-
-        self.index = 0
-        self.pages = rows_to_embeds(embed, rows)
-        self._disabled = "Fixtures"
-        return await self.update()
-
-    async def push_results(self) -> Message:  # Team
-        """Push results fixtures to View"""
-        output = []
-        for i in await self.team.results():
-
-            if i.home.url == self.team.url:
-                home = True
-            elif i.away.url == self.team.url:
-                home = False
-            else:
-                home = None
-                logging.info(f"team push_results: [HOME: {i.home.url}] [AWAY: {i.away.url}] [TARGET: {self.team.url}]")
-
-            if home is None:
-                emoji = ""
-            else:
-                if i.score_home > i.score_away:
-                    emoji = '🇼' if home else '🇱'
-                elif i.score_home < i.score_away:
-                    emoji = '🇱' if home else '🇼'
-                else:
-                    if i.penalties_home is None:
-                        emoji = '🇩'
-                    else:
-                        if i.penalties_home > i.penalties_away:
-                            emoji = '🇼' if home else '🇱'
-                        elif i.penalties_home < i.penalties_away:
-                            emoji = '🇱' if home else '🇼'
-                        else:
-                            emoji = ''
-
-            output.append(f'{emoji} {i.ko_relative}: {i.bold_markdown} ')
-
-        if not output:
-            output = ["No Results Found"]
-
-        embed = await self.team.base_embed
-        embed.title = f"≡ Results for {self.team.name}" if embed.title else "≡ Results "
-
-        self.index = 0
-        self.pages = rows_to_embeds(embed, output)
-        self._disabled = "Results"
-        return await self.update()
-
-
-class LeagueTableSelect(Select):
-    """Push a Specific League Table"""
-
-    def __init__(self, leagues: list[Competition]) -> None:
-        self.objects = leagues
-        super().__init__(placeholder="Select which league to get table from…")
-        for num, league in enumerate(leagues):
-            self.add_option(label=league.title, emoji='🏆', description=league.link, value=str(num))
-
-    async def callback(self, interaction: Interaction) -> Message:
-        """Upon Item Selection do this"""
-        await interaction.response.defer()
-        try:
-            return await self.view.push_table(self.objects[int(next(self.values))])
-        except StopIteration:
-            return await self.view.update()
-
-
 async def search(interaction: Interaction, query: str, mode: Literal['comp', 'team'], get_recent: bool = False) \
         -> Competition | Team | Message:
     """Fetch a list of items from flashscore matching the user's query"""
@@ -2051,7 +1225,7 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
                 continue
 
     if not results:
-        raise LookupError(f"Flashscore Search: No results found for {query}")
+        return await interaction.client.error(interaction, f"Flashscore Search: No results found for {query}")
 
     if len(results) == 1:
         fsr = next(results)
@@ -2067,10 +1241,10 @@ async def search(interaction: Interaction, query: str, mode: Literal['comp', 'te
         return fsr
 
     if not (items := await fsr.results()):
-        raise LookupError(f"No recent games found for {fsr.title}")
+        return await interaction.client.error(interaction, f"No recent games found for {fsr.title}")
 
-    view = ObjectSelectView(interaction, objects=[("⚽", i.score_line, f"{i.competition}") for i in items], timeout=30)
-    await view.update(content=f'⏬ Please choose a recent game.')
+    view = ObjectSelectView(interaction, objects=[("⚽", i.score_line, f"{i.competition}") for i in items])
+    await view.update()
     await view.wait()
 
     if view.value is None:

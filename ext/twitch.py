@@ -10,7 +10,7 @@ from asyncpg import ForeignKeyViolationError
 from discord import ActivityType, Embed, Message, Interaction, Colour, Permissions, ButtonStyle, Role, TextChannel
 from discord.app_commands import guilds, command, autocomplete, Choice, describe, Group
 from discord.ext.commands import Cog
-from discord.ui import View, Select
+from discord.ui import Select
 from iso639 import languages
 from twitchio import PartialUser, Tag, ChannelInfo, User, ChatSettings
 from twitchio.ext.commands import Bot as TBot
@@ -19,7 +19,7 @@ from ext.painezbot_utils.player import Region
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Paginator, Confirmation, Stop
+from ext.utils.view_utils import Paginator, Confirmation, Stop, BaseView
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -240,13 +240,13 @@ async def cc_ac(interaction: Interaction, current: str) -> list[Choice]:
         case None:
             pass
         case 'eu':
-            ccs = filter(lambda i: i.region == Region.EU, ccs)
+            ccs = [i for i in ccs if i.region == Region.EU]
         case 'na':
-            ccs = filter(lambda i: i.region == Region.NA, ccs)
+            ccs = [i for i in ccs if i.region == Region.NA]
         case 'cis':
-            ccs = filter(lambda i: i.region == Region.CIS, ccs)
+            ccs = [i for i in ccs if i.region == Region.CIS]
         case 'sea':
-            ccs = filter(lambda i: i.region == Region.SEA, ccs)
+            ccs = [i for i in ccs if i.region == Region.SEA]
 
     ccs = sorted(ccs, key=lambda x: x.name)
     return [Choice(name=f"{i.name} ({i.region.name})"[:100], value=i.name)
@@ -264,7 +264,7 @@ async def language_ac(interaction: Interaction, current: str) -> list[Choice]:
     return [Choice(name=x, value=x) for x in langs if current.lower() in x.lower()]
 
 
-class TrackerConfig(View):
+class TrackerConfig(BaseView):
     """Config View for a Twitch Tracker channel"""
     bot: ClassVar[PBot]
 
@@ -385,7 +385,6 @@ class TwitchTracker(Cog):
     """Track when users go live to twitch."""
 
     def __init__(self, bot: PBot) -> None:
-        logging.info('Entering __init__')
         self.bot: PBot = bot
 
         self._cached: dict[int, Embed] = {}  # user_id: Embed
@@ -393,18 +392,13 @@ class TwitchTracker(Cog):
 
         TrackerConfig.bot = bot
         TrackerChannel.bot = bot
-        logging.info('Exiting __init__')
 
     async def cog_load(self) -> None:
         """On cog load, generate list of Tracker Channels"""
-        logging.info('Entering Cog Load...')
         await self.fetch_ccs()
         await self.update_cache()
-        logging.info('Creating TBot...')
         self.bot.twitch = TBot.from_client_credentials(**credentials['Twitch API'])
-        logging.info('Success!')
         self.bot.loop.create_task(self.bot.twitch.connect())
-        logging.info('Exiting Cog Load...')
 
     async def update_cache(self) -> list[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""
@@ -534,10 +528,11 @@ class TwitchTracker(Cog):
         if before.activity is not None and before.activity.type == ActivityType.streaming:
             return
 
-        this_guild_channels = [i for i in self.bot.tracker_channels if i.channel.guild.id == after.guild.id]
+        tcs = [i for i in self.bot.tracker_channels if i.channel.guild.id == after.guild.id]
+
         valid_channels = []
         valid_role_ids = [r.id for r in after.roles]
-        for i in this_guild_channels:
+        for i in tcs:
             for role in i.tracked:
                 if role.id in valid_role_ids:
                     valid_channels.append(i)
@@ -643,7 +638,6 @@ class TwitchTracker(Cog):
     async def manage(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View or remove tracked twitch go live roles"""
         await interaction.response.defer(thinking=True)
-
         if channel is None:
             channel = interaction.channel
 

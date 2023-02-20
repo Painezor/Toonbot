@@ -1,8 +1,9 @@
 """Generic Objects for discord Views"""
 from __future__ import annotations
 
+import logging
+from dataclasses import dataclass
 from typing import Callable, TYPE_CHECKING, ClassVar, Any
-
 from discord import ButtonStyle, NotFound, Embed, SelectOption
 from discord.ui import Button, Select, Modal, View, TextInput
 
@@ -10,6 +11,23 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
     from discord import Message, Interaction
+
+
+logger = logging.getLogger("view_utils")
+
+
+class BaseView(View):
+    """Error Handler."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    async def on_error(self, interaction: Interaction, error: Exception, item):
+        """Log the stupid fucking error"""
+        print("FUCK SHIT CUNT ARSE DICK")
+        logger.error("Hi this is barry scott and we're inside BaseView Error!")
+        logger.error(f"{error}")
+        logger.error(f"This error brought to you by item {item}")
 
 
 def add_page_buttons(view: View, row: int = 0) -> View:
@@ -89,7 +107,7 @@ class Jump(Button):
             pass
 
         try:
-            self.disabled = len(pages) > 3
+            self.disabled = len(pages) < 3
         except AttributeError:
             self.disabled = True
 
@@ -166,6 +184,9 @@ class Stop(Button):
             await self.view.interaction.delete_original_response()
         except NotFound:
             pass
+        except AttributeError:
+            # For anything with a message instead.
+            await self.view.message.delete()
 
         if (page := getattr(self.view, "page", None)) is not None and not page.isClosed():
             await page.close()
@@ -186,7 +207,7 @@ class PageSelect(Select):
         return await self.view.update()
 
 
-class ObjectSelectView(View):
+class ObjectSelectView(BaseView):
     """Generic Object Select and return"""
     def __init__(self, interaction: Interaction, objects: list[Any], timeout: int = 180) -> None:
         self.interaction: Interaction = interaction
@@ -203,7 +224,7 @@ class ObjectSelectView(View):
     @property
     def embed(self) -> Embed:
         """Embeds look prettier, ok?"""
-        e: Embed = Embed(title="Use the dropdown below to select from the following list.")
+        e: Embed = Embed(title="Use the dropdown below to select from the list.")
         e.set_author(name="Multiple results found")
         e.description = "\n".join([i[1] for i in self.pages[self.index]])
         return e
@@ -213,7 +234,6 @@ class ObjectSelectView(View):
         self.clear_items()
         add_page_buttons(self, row=1)
         self.add_item(ItemSelect(placeholder="Select Matching Item…", options=self.pages[0]))
-        self.add_item(Stop(row=1))
         bot: Bot = self.interaction.client
         return await bot.reply(self.interaction, content=content, view=self, embed=self.embed)
 
@@ -259,26 +279,72 @@ class ItemSelect(Select):
         self.view.stop()
 
 
+@dataclass
+class Funcable:
+    """A 'Selectable Function' to be used with generate_function_row to create either a FuncDropdown
+    or row of FuncButtons"""
+    def __init__(self, label: str, function: Callable, args: list = None, kw: dict = None, emoji: str = None,
+                 description: str = None, style: ButtonStyle = None, disabled: bool = False):
+
+        self.label: str = label
+        self.emoji: str = emoji
+        self.description: str = description
+        self.style: ButtonStyle = ButtonStyle.gray if style is None else style
+        self.disabled: bool = disabled
+
+        self.function: Callable = function
+        self.args: list = [] if args is None else args
+        self.kw: dict = {} if kw is None else kw
+
+
+def generate_function_row(view: View, items: list[Funcable], row: int = 0, placeholder: str = None):
+    """A very ugly method that will create a row of up to 5 Buttons, or a dropdown up to 25 buttons"""
+    if len(items) > 25:
+        raise ValueError('Too many items')
+    if len(items) < 6:
+        for x in items:
+            view.add_item(FuncButton(x.label, x.function, x.args, x.kw, disabled=x.disabled, row=row, emoji=x.emoji,
+                                     style=x.style))
+    else:
+        view.add_item(FuncSelect([i for i in items if not i.disabled], row, placeholder))
+
+
+class FuncSelect(Select):
+    """A Select that ties to individually passed functions"""
+
+    def __init__(self, items: list[Funcable], row: int, placeholder: str = None):
+        self.items: dict[str, Funcable] = {}
+
+        for num, i in enumerate(items):
+            self.items[str(num)] = i
+
+            logging.info(f'Adding {num} {i} to FuncSelect')
+            self.add_option(label=i.label, emoji=i.emoji, description=i.description, value=str(num))
+        super().__init__(row=row, placeholder=placeholder)
+
+    async def callback(self, interaction: Interaction) -> Any:
+        """The handler for the FuncSelect Dropdown"""
+        value: Funcable = self.items[self.values[0]]
+        return await value.function(*value.args, **value.kw)
+
+
 class FuncButton(Button):
     """A Generic Button with a passed through function."""
 
-    def __init__(self, label: str, func: Callable, kwargs: dict = None, emoji: str = None,
-                 style: ButtonStyle = ButtonStyle.secondary, row: int = 2, disabled: bool = False) -> None:
-        super().__init__(label=label, emoji=emoji, style=style, row=row, disabled=disabled)
+    def __init__(self, label: str, func: Callable, args: list = None, kw: dict = None, **kwargs) -> None:
+        super().__init__(label=label, **kwargs)
+
         self.func: Callable = func
-        self.kwargs: dict = kwargs if kwargs is not None else dict()
+        self.args: list = [] if args is None else args
+        self.kwargs: dict = {} if kw is None else kw
 
     async def callback(self, interaction: Interaction) -> None:
-        """A Generic Callback"""
+        """The Callback performs the passed function with any passed args/kwargs"""
         await interaction.response.defer()
-
-        # Set the view's kwargs if required
-        for k, v in self.kwargs.items():
-            setattr(self.view, k, v)
-        # Run whatever the passed function is.
-        return await self.func()
+        return await self.func(*self.args, **self.kwargs)
 
 
+# TODO: Deprecate FuncDropdown in favour of Funcable and generate_function_row
 class FuncDropdown(Select):
     """Perform function based on user's dropdown choice"""
 
@@ -298,7 +364,7 @@ class FuncDropdown(Select):
         return await self.raw[index][2]()
 
 
-class Paginator(View):
+class Paginator(BaseView):
     """Generic Paginator that returns nothing."""
     bot: ClassVar[Bot | PBot] = None
 
@@ -324,7 +390,7 @@ class Paginator(View):
         return await self.bot.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
 
 
-class Confirmation(View):
+class Confirmation(BaseView):
     """Ask the user if they wish to confirm an option."""
 
     def __init__(self, interaction: Interaction, label_a: str = "Yes", label_b: str = "No",

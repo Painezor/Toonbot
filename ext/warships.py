@@ -254,12 +254,8 @@ async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
             case _:
                 return []
 
-    data = clans.pop('data', None)
-    if data is None:
-        return []
-
     choices = []
-    for i in data:
+    for i in clans.pop('data', []):
         clan = bot.get_clan(i['clan_id'])
         clan.tag = i['tag']
         clan.name = i['name']
@@ -270,8 +266,9 @@ async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 async def ship_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
     bot: PBot = interaction.client
-    filtered = sorted([i for i in bot.ships if current.lower() in i.ac_row.lower()], key=lambda x: unidecode(x.name))
-    return [Choice(name=i.ac_row[:100], value=i.ship_id_str) for i in filtered if hasattr(i, 'ship_id_str')][:25]
+    matches = [i for i in bot.ships if current.lower() in i.ac_row.lower() and hasattr(i, 'ship_id_str')]
+    filtered = sorted(matches, key=lambda x: unidecode(x.name))
+    return [Choice(name=i.ac_row[:100], value=i.ship_id_str) for i in filtered][:25]
 
 
 class Warships(Cog):
@@ -584,8 +581,7 @@ class Warships(Cog):
         if not self.bot.ships:
             raise ConnectionError('Unable to fetch ships from API')
 
-        ship = self.bot.get_ship(name)
-        if ship is None:
+        if (ship := self.bot.get_ship(name)) is None:
             return LookupError(f"Did not find map matching {name}, sorry.")
 
         return await ship.view(interaction).overview()

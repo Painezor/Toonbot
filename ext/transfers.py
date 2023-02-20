@@ -11,13 +11,13 @@ from discord import ButtonStyle, Embed, Colour, TextChannel, Permissions, HTTPEx
 from discord.app_commands import Group, describe
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
-from discord.ui import View, Button, Select
+from discord.ui import Button, Select
 from lxml import html
 
 import ext.toonbot_utils.transfermarkt as tfm
 from ext.ticker import IsLiveScoreError
 from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.view_utils import Confirmation, Previous, Jump, Stop, Next
+from ext.utils.view_utils import Confirmation, Previous, Jump, Stop, Next, BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -173,9 +173,9 @@ class RemoveLeague(Select):
         return await self.view.remove_leagues([i for i in self.leagues if i.link in self.values])
 
 
-class TransfersConfig(View):
+class TransfersConfig(BaseView):
     """View for configuring Transfer Tickers"""
-    bot: ClassVar[Bot] = None
+    bot: ClassVar[Bot]
 
     def __init__(self, interaction: Interaction, tc: TransferChannel):
         super().__init__()

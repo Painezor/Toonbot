@@ -16,14 +16,14 @@ from discord import TextChannel, ButtonStyle, Colour, Embed, PermissionOverwrite
 from discord.app_commands import Group, describe, autocomplete
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
-from discord.ui import Button, Select, View
+from discord.ui import Button, Select
 from lxml.etree import ParserError, tostring
 from lxml.html import fromstring
 
 import ext.toonbot_utils.flashscore as fs
 import ext.toonbot_utils.gamestate
 from ext.utils.embed_utils import rows_to_embeds, stack_embeds
-from ext.utils.view_utils import add_page_buttons, Confirmation
+from ext.utils.view_utils import add_page_buttons, Confirmation, BaseView
 
 if TYPE_CHECKING:
     from discord import Interaction
@@ -171,7 +171,7 @@ class ScoreChannel:
 
 # TODO: Allow re-ordering of leagues, set an "index" value in db and do a .sort?
 # TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
-class ScoresConfig(View):
+class ScoresConfig(BaseView):
     """Generic Config View"""
     bot: ClassVar[Bot]
 
@@ -280,6 +280,7 @@ class Scores(Cog):
 
         reload(fs)
 
+        fs.Fixture.bot = bot
         ScoreChannel.bot = bot
         ScoresConfig.bot = bot
 
@@ -450,8 +451,7 @@ class Scores(Cog):
                 continue
 
             # Set & forget: Competition, Teams
-            fixture = self.bot.get_fixture(match_id)
-            if fixture is None:
+            if (fixture := self.bot.get_fixture(match_id)) is None:
                 # These values never need to be updated.
                 teams = [i.strip() for i in tree.xpath('./text()') if i.strip()]
 
@@ -640,7 +640,11 @@ class Scores(Cog):
         if not row:
             return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
 
-        sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
+        try:
+            sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
+        except StopIteration:
+            sc = ScoreChannel(channel)
+            self.bot.score_channels.append(sc)
         return await sc.view(interaction).update(content=f"Fetching config for {sc.channel.mention}…")
 
     @livescores.command()
