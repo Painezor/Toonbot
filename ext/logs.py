@@ -235,7 +235,7 @@ class Logs(Cog):
             except discord.HTTPException:
                 continue
 
-    async def get_channels(self, guild, filters: list[str]):
+    def get_channels(self, guild, filters: list[str]):
         """Filter down to the required channels"""
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id]
         for setting in filters:
