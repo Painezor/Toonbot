@@ -368,7 +368,7 @@ class NewsTracker(Cog):
         try:
             article = next(i for i in self.bot.news_cache if i.link == text)
         except StopIteration:
-            return await self.bot.error(interaction, content=f"Didn't find article matching {text}", ephemeral=True)
+            return await self.bot.error(interaction, f"Didn't find article matching {text}")
 
         await article.generate_embed()
         await self.bot.reply(interaction, view=article.view, embed=article.embed)

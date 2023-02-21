@@ -10,7 +10,8 @@ from discord.app_commands import Group, describe, autocomplete
 from discord.ext.commands import Cog
 from discord.ui import Select, Button
 
-from ext.toonbot_utils.flashscore import Fixture, Competition, search, Team, DEFAULT_LEAGUES, lg_ac
+from ext.toonbot_utils.flashscore import Fixture, Competition, Team, DEFAULT_LEAGUES, lg_ac
+from ext.toonbot_utils.flashscore_search import fs_search
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import MatchEvent, Penalty, Substitution, EventType
 from ext.utils.embed_utils import rows_to_embeds
@@ -69,12 +70,9 @@ class TickerEvent:
         m = self.event_type.value.replace('#PERIOD#', f"{self.fixture.breaks + 1}")
 
         match self.home:
-            case True:
-                e.set_author(name=f"{m} ({self.fixture.home.name})")
-            case False:
-                e.set_author(name=f"{m} ({self.fixture.away.name})")
-            case None:
-                e.set_author(name=m)
+            case None: e.set_author(name=m)
+            case True: e.set_author(name=f"{m} ({self.fixture.home.name})")
+            case False: e.set_author(name=f"{m} ({self.fixture.away.name})")
 
         match self.event_type:
             case EventType.PENALTY_RESULTS:
@@ -106,7 +104,7 @@ class TickerEvent:
 
         match self.fixture.time.value:
             case GameState():
-                e.set_footer(text=f"{self.fixture.time.state.shorthand} | {self.fixture.competition.name}")
+                e.set_footer(text=f"{self.fixture.state.shorthand} | {self.fixture.competition.name}")
             case _:
                 e.set_footer(text=f"{self.fixture.time.value} | {self.fixture.competition.name}")
         self.embed = e
@@ -472,7 +470,7 @@ class TickerConfig(BaseView):
         """Send a dialogue to check if the user wishes to create a new ticker."""
         # Ticker Verify -- NOT A SCORES CHANNEL
         if self.tc.channel in [i.channel.id for i in self.bot.score_channels]:
-            await self.bot.error(self.interaction, content='You cannot create a ticker in a livescores channel.')
+            await self.bot.error(self.interaction, 'You cannot create a ticker in a livescores channel.')
             return False
 
         ch = self.bot.get_channel(self.tc.channel)
@@ -486,7 +484,7 @@ class TickerConfig(BaseView):
             txt = f"Cancelled ticker creation for {ch.mention}"
             self.stop()
             view.clear_items()
-            await self.bot.error(self.interaction, txt, view=view)
+            await self.bot.error(self.interaction, txt)
             return False
 
         try:
@@ -496,7 +494,7 @@ class TickerConfig(BaseView):
             except ForeignKeyViolationError:
                 await self.tc.create_ticker()
         except IsLiveScoreError:
-            await self.bot.error(self.interaction, content='You cannot add tickers to a livescores channel.', view=None)
+            await self.bot.error(self.interaction, 'You cannot add tickers to a livescores channel.')
             return False
 
         self.bot.ticker_channels.append(self.tc)
@@ -690,19 +688,19 @@ class Ticker(Cog):
         fsr = self.bot.get_competition(query)
         if fsr is None:
             if "http" not in query:
-                fsr = await search(interaction, query, mode="comp")
+                fsr = await fs_search(interaction, query, mode="comp")
 
                 if isinstance(fsr, Message):
                     return fsr
 
             else:
                 if "flashscore" not in query:
-                    return await self.bot.error(interaction, content='🚫 Invalid link provided')
+                    return await self.bot.error(interaction, f'Invalid link provided ({query})')
 
                 fsr = await Competition.by_link(self.bot, query)
 
                 if fsr is None:
-                    return await self.bot.error(interaction, f"🚫 Failed to get league data from <{query}>.")
+                    return await self.bot.error(interaction, f"Failed to get league data from <{query}>.")
 
         await tc.add_leagues([fsr.title])
         await tc.view(interaction).update(f"Added {fsr.title} to {channel.mention} tracked leagues")

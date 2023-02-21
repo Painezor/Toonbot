@@ -87,9 +87,9 @@ class EmbedModal(Modal, title="Send an Embed"):
 
         try:
             await self.destination.send(embed=e)
-            await self.bot.reply(interaction, content="Message sent.", ephemeral=True)
+            await self.bot.reply(interaction, "Message sent.", ephemeral=True)
         except HTTPException:
-            await self.bot.error(interaction, content="I can't send messages to that channel.")
+            await self.bot.error(interaction, "I can't send messages to that channel.")
 
 
 class Mod(Cog):
@@ -115,15 +115,14 @@ class Mod(Cog):
         colour: Colour = getattr(Colour, next((i for i in DiscordColours if i.value == colour), "random"))()
 
         if destination.guild.id != interaction.guild.id:
-            return await self.bot.error(interaction, content="You cannot send messages to other servers.")
+            return await self.bot.error(interaction, "You cannot send messages to other servers.")
 
         perms = destination.permissions_for(interaction.guild.me)
         if not perms.send_messages:
             err = f"Bot missing permission: {destination.mention} ❌ send_messages"
-            return await self.bot.error(interaction, content=err)
+            return await self.bot.error(interaction, err)
         if not perms.embed_links:
-            err = f"Bot missing permission: {destination.mention} ❌ embed_links"
-            return await self.bot.error(interaction, content=err)
+            return await self.bot.error(interaction, f"Bot missing permission: {destination.mention} ❌ embed_links")
 
         modal = EmbedModal(self.bot, interaction, destination, colour)
         await interaction.response.send_modal(modal)
@@ -140,10 +139,10 @@ class Mod(Cog):
             destination = interaction.channel
 
         if len(message) > 2000:
-            return await self.bot.error(interaction, content="Message too long. Keep it under 2000.")
+            return await self.bot.error(interaction, "Message too long. Keep it under 2000.")
 
         if destination.guild.id != interaction.guild.id:
-            return await self.bot.error(interaction, content="You cannot send messages to other servers.")
+            return await self.bot.error(interaction, "You cannot send messages to other servers.")
 
         try:
             await destination.send(message)
@@ -176,7 +175,7 @@ class Mod(Cog):
     async def untimeout(self, interaction: Interaction, member: Member, reason: str = "Not provided"):
         """End the timeout for a user."""
         if not member.is_timed_out():
-            return await self.bot.error(interaction, content="That user is not timed out.")
+            return await self.bot.error(interaction, "That user is not timed out.")
 
         try:
             await member.timeout(None, reason=f"{interaction.user}: {reason}")
@@ -184,7 +183,7 @@ class Mod(Cog):
             e.description = f"{member.mention} is no longer timed out."
             await self.bot.reply(interaction, embed=e)
         except HTTPException:
-            await self.bot.error(interaction, content="I can't un-timeout that user.")
+            await self.bot.error(interaction, "I can't un-timeout that user.")
 
     # Listeners
     @Cog.listener()

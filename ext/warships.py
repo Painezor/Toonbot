@@ -278,10 +278,11 @@ class Warships(Cog):
         self.bot: PBot = bot
         self.bot.get_player = get_player
         self.bot.get_clan = get_clan
+        self.bot.get_ship = get_ship
         self.bot.get_ship_type = get_ship_type
 
         # override our custom classes.
-        Player.bot = self.bot
+        Player.bot = bot
 
     async def cog_load(self) -> None:
         """Fetch Generics from API and store to bot."""

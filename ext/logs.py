@@ -227,11 +227,11 @@ class Logs(Cog):
             async with connection.transaction():
                 self.bot.notifications_cache = await connection.fetch(q)
                 
-    async def dispatch(self, channels: list, e: list[Embed]):
+    async def dispatch(self, channels: list[TextChannel], e: list[Embed]):
         """Bulk dispatch messages to their destinations"""
         for ch in channels:
             try:
-                await self.bot.get_channel(ch['channel_id']).send(embeds=e)
+                await ch.send(embeds=e)
             except discord.HTTPException:
                 continue
 
@@ -240,13 +240,13 @@ class Logs(Cog):
         channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id]
         for setting in filters:
             channels = [i for i in channels if i[setting]]
-        return list(channels)
+        return list(filter(None, [self.bot.get_channel(i['channel_id']) for i in channels]))
 
     # Join messages
     @Cog.listener()
     async def on_member_join(self, member: Member) -> None:
         """Event handler to Dispatch new member information for servers that request it"""
-        if not (channels := await self.get_channels(member.guild, ['joins'])):
+        if not (channels := self.get_channels(member.guild, ['joins'])):
             return
         
         # Extended member join information.
@@ -312,8 +312,8 @@ class Logs(Cog):
     async def on_user_update(self, bf: User, af: User):
         """Triggered when a user updates their profile"""
         guilds = [i.id for i in self.bot.guilds if i.get_member(af.id)]
-        channels = [i for i in self.bot.notifications_cache if i['guild_id'] in guilds and i['member_updates']]
-        if not channels:
+        channels = [i for i in self.bot.notifications_cache if i['guild_id'] in guilds and i['users']]
+        if not (channels := list(filter(None, [self.bot.get_channel(i) for i in channels]))):
             return
 
         before: Embed = Embed(colour=Colour.dark_gray(), description="")
@@ -331,6 +331,8 @@ class Logs(Cog):
         if bf.display_avatar.url != af.display_avatar.url:
             before.description += f"**Discriminator**: {bf.display_avatar.url}\n"
             after.description += f"**Discriminator**: {af.display_avatar.url}\n"
+
+        return await self.dispatch(channels, [before, after])
 
     def parse_channel_overwrites(self, entry, ow_pairs, e: Embed):
         """Parse a list of Channel Overwrites & append data to embed"""
@@ -532,10 +534,9 @@ class Logs(Cog):
 
         changes = {k: v for k, v in entry.changes.before}
 
-        if _ := changes.pop('type', False):
-            pass  # Get from target object.
+        if not (c_type := changes.pop('type', False)):
+            c_type = str(entry.target.type).replace('_', ' ').title()
 
-        c_type = str(entry.target.type).replace('_', ' ').title()
         e: Embed = Embed(colour=Colour.dark_orange(), title=f"{c_type}Channel Deleted", timestamp=entry.created_at)
         do_footer(entry, e)
 
@@ -1595,7 +1596,7 @@ class Logs(Cog):
 
         if permissions := changes.pop("permissions", False):
             if perms := [f"✅ {k}" for (k, v) in iter(permissions) if v]:
-                e.add_field(name='Permissions', value='\n'.join(perms))
+                e.add_field(name='Permissions', value=', '.join(perms))
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")

@@ -21,13 +21,16 @@ from lxml.etree import ParserError, tostring
 from lxml.html import fromstring
 
 import ext.toonbot_utils.flashscore as fs
-import ext.toonbot_utils.gamestate
+from ext.toonbot_utils.flashscore_search import fs_search
+from ext.toonbot_utils.gamestate import GameState
 from ext.utils.embed_utils import rows_to_embeds, stack_embeds
 from ext.utils.view_utils import add_page_buttons, Confirmation, BaseView
 
 if TYPE_CHECKING:
     from discord import Interaction
     from core import Bot
+
+logger = logging.getLogger("scores")
 
 # Constants.
 NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
@@ -135,31 +138,30 @@ class ScoreChannel:
 
         # Zip longest will give (, None) in slot [0] // self.messages if we do not have enough messages for the embeds.
         count = 0
-        for message, new_embeds in tuples:
+        for message, embeds in tuples:
             try:
                 # Suppress Message's embeds until they're needed again.
-                if message is None and new_embeds is None:
+                if message is None and embeds is None:
                     continue
 
                 if message is None:  # No message exists in cache, or we need an additional message.
-                    self.messages[count] = await self.channel.send(embeds=new_embeds)
+                    self.messages[count] = await self.channel.send(embeds=embeds)
                     continue
+            except Forbidden:
+                # If we don't have permissions to send Messages in the channel, remove it and stop iterating.
+                return self.bot.score_channels.remove(self)
+            except discord.HTTPException:
+                continue
 
-                if new_embeds is None:
+            try:
+                if embeds is None:
                     if not message.flags.suppress_embeds:
                         self.messages[count] = await message.edit(suppress=True)
                     continue
-
-                if message.embeds is None:
-                    message.embeds = [Embed()]
-
-                if not set([i.description for i in new_embeds]) == set([i.description for i in message.embeds]):
-                    self.messages[count] = await message.edit(embeds=new_embeds, suppress=False)
-            except Forbidden:
-                self.bot.score_channels.remove(self)
-                return
-            except discord.HTTPException:
-                continue
+                if not set([i.description for i in embeds]) == set([i.description for i in message.embeds]):
+                    self.messages[count] = await message.edit(embeds=embeds, suppress=False)
+            except discord.HTTPException as err:
+                logger.info(err)
             finally:
                 count += 1
         return self.messages
@@ -352,7 +354,7 @@ class Scores(Cog):
         try:
             self.bot.games = await self.fetch_games()
         except ConnectionError:
-            logging.log(logging.WARNING, "Connection Error while fetching games from Flashscore")
+            logger.warning("Connection Error while fetching games from Flashscore")
             return
 
         # Used for ordinal checking, and then as a dummy value for getattr later.
@@ -371,7 +373,6 @@ class Scores(Cog):
 
             comp.score_embeds = rows_to_embeds(e, [i.live_score_text for i in fix], rows=50, footer=comp.table_link)
 
-        # Bulk Create Tasks.
         for sc in self.bot.score_channels.copy():
             await sc.update()
 
@@ -396,17 +397,11 @@ class Scores(Cog):
         """Grab current scores from flashscore using aiohttp"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             match resp.status:
-                case 200:
-                    tree = fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
-                case _:
-                    raise ConnectionError(f'[ERR] Scores error {resp.status} ({resp.reason}) during score loop')
+                case 200: tree = fromstring(bytes(bytearray(await resp.text(), encoding='utf-8')))
+                case _: return logger.error(f'{resp.status} ({resp.reason}) during score loop')
 
-        inner_html = tree.xpath('.//div[@id="score-data"]')[0]
-        byt: bytes = tostring(inner_html)
-        string: str = byt.decode('utf8')
-        chunks = str(string).split('<br/>')
-        competition: fs.Competition = fs.Competition(self.bot)  # Generic
-        competition.name = "Unrecognised competition"
+        chunks = tostring(tree.xpath('.//div[@id="score-data"]')[0]).decode('utf8').split('<br/>')
+        competition: fs.Competition = fs.Competition(self.bot, name="Unrecognised competition")  # Generic
 
         for game in chunks:
             try:
@@ -416,13 +411,12 @@ class Scores(Cog):
 
             # Check if the chunk to be parsed has is a header.
             # If it is, we need to create a new competition object.
-            competition_name = ''.join(tree.xpath('.//h4/text()')).strip()
-            if competition_name:
+            # TODO: Handle Competition Fetching & Team Fetching from Flashscore
+            if competition_name := ''.join(tree.xpath('.//h4/text()')).strip():
                 # Loop over bot.competitions to see if we can find the right Competition object for base_embed.
                 exact = [i for i in self.bot.competitions if i.title == competition_name]
 
                 country, name = competition_name.split(':', 1)
-
                 if exact:
                     competition = exact[0]
                 else:
@@ -442,10 +436,8 @@ class Scores(Cog):
                             competition.name = name.strip()
                         self.bot.competitions.append(competition)
 
-            lnk = ''.join(tree.xpath('.//a/@href'))
-
             try:
-                match_id = lnk.split('/')[-2]
+                match_id = (lnk := ''.join(tree.xpath('.//a/@href'))).split('/')[-2]
                 url = "http://www.flashscore.com" + lnk
             except IndexError:
                 continue
@@ -458,6 +450,7 @@ class Scores(Cog):
                 if teams[0].startswith('updates'):  # ???
                     teams[0] = teams[0].replace('updates', '')
 
+                # TODO: Flesh this out to actually try and find the team's IDs.
                 home = fs.Team(self.bot)
                 away = fs.Team(self.bot)
 
@@ -465,26 +458,23 @@ class Scores(Cog):
                     teams = teams[0].split(' - ')
 
                 match len(teams):
-                    case 2:
-                        home.name = teams[0]
-                        away.name = teams[1]
+                    case 2: home.name, away.name = teams
                     case 3:
                         match teams:
-                            case _, "La Duchere", _:
-                                home.name, away.name = f"{teams[0]} {teams[1]}", teams[2]
-                            case _, _, "La Duchere":
-                                home.name, away.name = teams[0], f"{teams[1]} {teams[2]}"
-                            case "Banik Most", _, _:
-                                home.name, away.name = f"{teams[0]} {teams[1]}", teams[2]
-                            case _, "Banik Most", _:
-                                home.name, away.name = teams[0], f"{teams[1]} {teams[2]}"
-                            case _:
-                                logging.error(f"Fetch games team problem {len(teams)} teams found: {teams}")
-                    case _:
-                        logging.error(f"Fetch games team problem {len(teams)} teams found: {teams}")
+                            case _, "La Duchere", _: home.name, away.name = f"{teams[0]} {teams[1]}", teams[2]
+                            case _, _, "La Duchere": home.name, away.name = teams[0], f"{teams[1]} {teams[2]}"
+                            case "Banik Most", _, _: home.name, away.name = f"{teams[0]} {teams[1]}", teams[2]
+                            case _, "Banik Most", _: home.name, away.name = teams[0], f"{teams[1]} {teams[2]}"
+                            case _: logger.error(f"Fetch games team problem {len(teams)} teams found: {teams}")
+                    case _: logger.error(f"Fetch games team problem {len(teams)} teams found: {teams}")
 
                 fixture = fs.Fixture(self.bot)
                 fixture.url = url
+
+                # TODO: Spawn Browser Page Here and do all of the set and forget shit.
+                # Fetch Team Link + ID
+                # Fetch Competition Link + ID
+
                 fixture.id = match_id
                 fixture.home = home
                 fixture.away = away
@@ -495,8 +485,7 @@ class Scores(Cog):
                 fixture.competition = competition
 
             # Handling red cards is done relatively simply, so we do this first.
-            cards = [i.replace('rcard-', '') for i in tree.xpath('./img/@class')]
-            if cards:
+            if cards := [i.replace('rcard-', '') for i in tree.xpath('./img/@class')]:
                 try:
                     home_cards, away_cards = [int(card) for card in cards]
                 except ValueError:
@@ -511,15 +500,12 @@ class Scores(Cog):
                 if away_cards:
                     fixture.cards_away = away_cards
 
-            # From the link of the score, we can gather info about the time valid states are:
-            # sched, live, fin
-            state = ''.join(tree.xpath('./a/@class')).strip()
-
             # The time block can be 1 element or 2 elements long.
             # Element 1 is either a time of day HH:MM (e.g. 20:45) or a time of the match (e.g. 41')
             # If Element 2 exists, it is a declaration of Cancelled, Postponed, Delayed, or similar.
             time_block = tree.xpath('./span/text()')
 
+            state = ''.join(tree.xpath('./a/@class')).strip()
             # First, we check to see if we need to, and can update the fixture's kickoff
             if time_block and fixture.kickoff is None:
                 if ":" in time_block[0]:
@@ -556,71 +542,39 @@ class Scores(Cog):
 
                 if state_override:
                     match state_override:
-                        case 'aet':
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.AFTER_EXTRA_TIME)
-                        case 'pen':
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.AFTER_PENS)
-                        case 'WO':
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.WALKOVER)
-                        case _:
-                            logging.error(f"Unhandled state override {state_override}")
+                        case 'aet': fixture.time = GameState.AFTER_EXTRA_TIME
+                        case 'pen': fixture.time = GameState.AFTER_PENS
+                        case 'WO': fixture.time = GameState.WALKOVER
+                        case _: logger.error(f"Unhandled state override {state_override}")
                     continue
 
-            # Following the updating of the kickoff data, we can then
+            # From the link of the score, we can gather info about the time valid states are:
+            # sched, live, fin
             match len(time_block), state:
                 case 1, "live":
                     match time_block[0]:
-                        case 'Half Time':
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.HALF_TIME)
-                        case 'Break Time':
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.BREAK_TIME)
-                        case 'Penalties':
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.PENALTIES)
-                        case 'Extra Time':
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.EXTRA_TIME)
-                        case "Live":
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.FINAL_RESULT_ONLY)
+                        case 'Half Time': fixture.time = GameState.HALF_TIME
+                        case 'Break Time': fixture.time = GameState.BREAK_TIME
+                        case 'Penalties': fixture.time = GameState.PENALTIES
+                        case 'Extra Time': fixture.time = GameState.EXTRA_TIME
+                        case "Live": fixture.time = GameState.FINAL_RESULT_ONLY
                         case _:
                             if "'" not in time_block[0]:
-                                logging.error(f"Unhandled 1 part state block {time_block[0]}")
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(time_block[0])
-                case 1, "sched":
-                    fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                        ext.toonbot_utils.gamestate.GameState.SCHEDULED)
-                case 1, "fin":
-                    fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                        ext.toonbot_utils.gamestate.GameState.FULL_TIME)
-                # If we have a 2 part item, the second part will give us additional information
-                case 2, _:
+                                logger.error(f"Unhandled 1 part state block {time_block[0]}")
+                            fixture.time = time_block[0]
+                case 1, "sched": fixture.time = GameState.SCHEDULED
+                case 1, "fin": fixture.time = GameState.FULL_TIME
+                case 2, _:  # If we have a 2 part item, the second part will give us additional information
                     match time_block[-1]:
-                        case "Cancelled":
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.CANCELLED)
-                        case "Postponed":
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.POSTPONED)
-                        case "Delayed":
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.DELAYED)
-                        case "Interrupted":
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.INTERRUPTED)
-                        case "Abandoned":
-                            fixture.time = ext.toonbot_utils.gamestate.GameTime(
-                                ext.toonbot_utils.gamestate.GameState.ABANDONED)
+                        case "Cancelled": fixture.time = GameState.CANCELLED
+                        case "Postponed": fixture.time = GameState.POSTPONED
+                        case "Delayed": fixture.time = GameState.DELAYED
+                        case "Interrupted": fixture.time = GameState.INTERRUPTED
+                        case "Abandoned": fixture.time = GameState.ABANDONED
                         case 'Extra Time':
-                            logging.error(f'VARIANT B Extra time 2 part time_block needs fixed. {time_block}')
-                            # fixture.time = flashscore.GameTime(flashscore.GameState.EXTRA_TIME)
-                        case _:
-                            logging.error(f"Unhandled 2 part time block found {time_block}", time_block)
+                            logger.error(f'VARIANT B Extra time 2 part time_block needs fixed. {time_block}')
+                            fixture.time = GameState.EXTRA_TIME
+                        case _: logger.error(f"Unhandled 2 part time block found {time_block}", time_block)
         return self.bot.games
 
     livescores = Group(guild_only=True, name="livescores", description="Create/manage livescores channels",
@@ -657,7 +611,7 @@ class Scores(Cog):
         try:
             channel = await interaction.guild.create_text_channel(name=name, reason=reason, topic=topic)
         except Forbidden:
-            return await self.bot.error(interaction, content='I need manage_channels permissions to make a channel.')
+            return await self.bot.error(interaction, 'I need manage_channels permissions to make a channel.')
 
         if interaction.app_permissions.manage_roles:
             ow = {interaction.guild.me: PermissionOverwrite(send_messages=True),
@@ -677,12 +631,13 @@ class Scores(Cog):
         sc = ScoreChannel(channel)
         self.bot.score_channels.append(sc)
         await sc.reset_leagues()
-        await self.bot.reply(interaction, content=f"The {channel.mention} channel was created")
         try:
-            await sc.channel.send(f'{interaction.user.mention} Welcome to your new livescores channel.'
-                                  f'Use `/livescores add` to add new leagues.')
+            await sc.channel.send(f'{interaction.user.mention} Welcome to your new livescores channel.\n'
+                                  f'Use `/livescores add_league` to add new leagues, and `/livescores manage` to '
+                                  f'remove them')
+            await self.bot.reply(interaction, content=f"{channel.mention} created successfully.")
         except Forbidden:
-            await self.bot.reply(interaction, content=f"Created {channel.mention}, but I need send_messages perms.")
+            await self.bot.reply(interaction, content=f"{channel.mention} created, but I need send_messages perms.")
 
     @livescores.command()
     @autocomplete(league_name=fs.lg_ac)
@@ -704,12 +659,12 @@ class Scores(Cog):
         if comp:
             res = comp
         elif "http" not in league_name:
-            res = await fs.search(interaction, league_name, mode=comp)
+            res = await fs_search(interaction, league_name, mode=comp)
             if isinstance(res, Message):
                 return res
         else:
             if "flashscore" not in league_name:
-                return await self.bot.error(interaction, content="Invalid link provided.")
+                return await self.bot.error(interaction, "Invalid link provided.")
 
             qry = str(league_name).strip('[]<>')  # idiots
             res = await fs.Competition.by_link(self.bot, qry)

@@ -62,10 +62,8 @@ class ImageView(BaseView):
         # Get Project Oxford reply
         async with self.bot.session.post(url, params=p, headers=h, data=d) as resp:
             match resp.status:
-                case 200:
-                    self.coordinates = await resp.json()
-                case 400:
-                    return await self.bot.error(self.interaction, await resp.json())
+                case 200: self.coordinates = await resp.json()
+                case 400: return await self.bot.error(self.interaction, await resp.json())
                 case _:
                     err = f"HTTP Error {resp.status} accessing facial recognition API."
                     return await self.interaction.followup.send(err, ephemeral=True)
@@ -307,7 +305,7 @@ class Images(Cog):
             except AttributeError:
                 continue
         else:
-            return await self.bot.error(interaction, content="Nobody swiped right on you.")
+            return await self.bot.error(interaction, "Nobody swiped right on you.")
 
         def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
             """Draw Images for the tinder command"""

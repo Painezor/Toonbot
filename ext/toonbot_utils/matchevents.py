@@ -8,8 +8,6 @@ from typing import Optional, TYPE_CHECKING, Type
 from discord import Colour, Embed
 from lxml import etree
 
-from ext.toonbot_utils.gamestate import GameTime
-
 if TYPE_CHECKING:
     from ext.toonbot_utils.flashscore import Team, Fixture, Player
 
@@ -23,25 +21,25 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
 
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
         # Detection of Teams
-        match (team_detection := i.attrib['class']):
-            case team_detection if "Header" in team_detection:
-                parts = [x.strip() for x in i.xpath('.//text()')]
-                if "Penalties" in parts:
-                    try:
-                        _, fixture.penalties_home, _, fixture.penalties_away = parts
-                    except ValueError:
-                        _, pen_string = parts
-                        fixture.penalties_home, fixture.penalties_away = pen_string.split(' - ')
-                continue
-            case team_detection if "home" in team_detection:
-                team = fixture.home
-            case team_detection if "away" in team_detection:
-                team = fixture.away
-            case team_detection if "empty" in team_detection:
-                continue  # No events in half signifier.
-            case _:
-                logging.error(f"No team found for team_detection {team_detection}")
-                continue
+        team_detection = i.attrib['class']
+        if "Header" in team_detection:
+            parts = [x.strip() for x in i.xpath('.//text()')]
+            if "Penalties" in parts:
+                try:
+                    _, fixture.penalties_home, _, fixture.penalties_away = parts
+                except ValueError:
+                    _, pen_string = parts
+                    fixture.penalties_home, fixture.penalties_away = pen_string.split(' - ')
+            continue
+        elif "home" in team_detection:
+            team = fixture.home
+        elif "away" in team_detection:
+            team = fixture.away
+        elif "empty" in team_detection:
+            continue  # No events in half signifier.
+        else:
+            logging.error(f"No team found for team_detection {team_detection}")
+            continue
 
         node = i.xpath('./div[contains(@class, "incident")]')[0]  # event_node
         title = ''.join(node.xpath('.//div[contains(@class, "incidentIcon")]//@title')).strip()
@@ -144,12 +142,11 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
         if description:
             event.description = description
 
-        event.time = GameTime(''.join(node.xpath('.//div[contains(@class, "timeBox")]//text()')).strip())
+        event.time = ''.join(node.xpath('.//div[contains(@class, "timeBox")]//text()')).strip()
         events.append(event)
     return events
 
 
-# TODO: Create .embed attribute for events.
 class MatchEvent:
     """An object representing an event happening in a football fixture from Flashscore"""
     __slots__ = ("note", "description", "player", "team", "time", "fixture")
@@ -163,7 +160,7 @@ class MatchEvent:
         self.fixture: Optional[Fixture] = None
         self.player: Optional[Player] = None
         self.team: Optional[Team] = None
-        self.time: Optional[GameTime] = None
+        self.time: Optional[str] = None
 
     def is_done(self) -> bool:
         """Check to see if more information is required"""
@@ -205,13 +202,13 @@ class Substitution(MatchEvent):
         self.player_off: Optional[Player] = None
 
     def __str__(self) -> str:
-        o = ['`🔄`:'] if self.time is None else [f"`🔄 {self.time.value}`:"]
+        o = ['`🔄`'] if self.time is None else [f"`🔄 {self.time}`"]
+        if self.team is not None:
+            o.append(self.team.tag)
         if self.player is not None:
             o.append(f"🔺 {self.player.markdown}")
         if self.player_off is not None:
             o.append(f"🔻 {self.player_off.markdown}")
-        if self.team is not None:
-            o.append(f"({self.team.tag})")
         return ' '.join(o)
 
 
@@ -227,14 +224,14 @@ class Goal(MatchEvent):
 
     def __str__(self) -> str:
         o = [self.timestamp]
+        if self.team is not None:
+            o.append(self.team.tag)
         if self.player is not None:
             o.append(self.player.markdown)
         if self.assist is not None:
             o.append(f"(ass: {self.assist.markdown})")
         if self.note is not None:
             o.append(f"({self.note})")
-        if self.team is not None:
-            o.append(f"- {self.team.tag}")
         return ' '.join(o)
 
     @property
@@ -245,7 +242,7 @@ class Goal(MatchEvent):
     @property
     def timestamp(self) -> str:
         """String representing the emoji of the goal type and the in game time"""
-        return f"`{self.emote}`:" if self.time is None else f"`{self.emote} {self.time.value}`:"
+        return f"`{self.emote}`" if self.time is None else f"`{self.emote} {self.time}`"
 
 
 class OwnGoal(Goal):
@@ -282,7 +279,7 @@ class Penalty(Goal):
         """If it ends with a ', it was during regular time"""
         if self.time is None:
             return True
-        return not self.time.value.endswith("'")
+        return not self.time.endswith("'")
 
 
 class RedCard(MatchEvent):
@@ -294,13 +291,13 @@ class RedCard(MatchEvent):
         super().__init__()
 
     def __str__(self) -> str:
-        o = [f"`{self.emote}`:"] if self.time is None else [f"`{self.emote} {self.time.value}`:"]
+        o = [f"`{self.emote}`"] if self.time is None else [f"`{self.emote} {self.time}`"]
+        if self.team is not None:
+            o.append(self.team.tag)
         if self.player is not None:
             o.append(self.player.markdown)
         if self.note is not None and 'Red card' not in self.note:
             o.append(f"({self.note})")
-        if self.team is not None:
-            o.append(f"- {self.team.tag}")
         return ' '.join(o)
 
     @property
@@ -318,13 +315,13 @@ class SecondYellow(RedCard):
         super().__init__()
 
     def __str__(self) -> str:
-        o = [f"{self.emote}`:"] if self.time is None else [f"`{self.emote} {self.time.value}`:"]
+        o = [f"{self.emote}`"] if self.time is None else [f"`{self.emote} {self.time}`"]
+        if self.team is not None:
+            o.append(self.team.tag)
         if self.player is not None:
             o.append(self.player.markdown)
         if self.note is not None and 'Yellow card / Red card' not in self.note:
             o.append(f"({self.note})")
-        if self.team is not None:
-            o.append(f"- {self.team.tag}")
         return ' '.join(o)
 
     @property
@@ -342,13 +339,13 @@ class Booking(MatchEvent):
         super().__init__()
 
     def __str__(self) -> str:
-        o = [f"`{self.emote}`:"] if self.time is None else [f"`{self.emote} {self.time.value}`:"]
+        o = [f"`{self.emote}`"] if self.time is None else [f"`{self.emote} {self.time}`"]
+        if self.team is not None:
+            o.append(self.team.tag)
         if self.player is not None:
             o.append(self.player.markdown)
         if self.note and self.note.lower().strip() != 'yellow card':
             o.append(f"({self.note})")
-        if self.team is not None:
-            o.append(f"- {self.team.tag}")
         return ' '.join(o)
 
     @property
@@ -369,13 +366,13 @@ class VAR(MatchEvent):
         self.in_progress: bool = in_progress
 
     def __str__(self) -> str:
-        o = ["`📹 VAR`:"] if self.time is None else [f"`📹 VAR {self.time.value}`:"]
+        o = ["`📹 VAR`"] if self.time is None else [f"`📹 VAR {self.time}`"]
+        if self.team is not None:
+            o.append(self.team.tag)
         if self.player is not None:
             o.append(self.player.markdown)
         if self.note is not None:
             o.append(f"({self.note})")
-        if self.team is not None:
-            o.append(f"- {self.team.tag}")
         if self.in_progress:
             o.append("\n**DECISION IN PROGRESS**")
         return ' '.join(o)

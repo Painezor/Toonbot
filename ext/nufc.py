@@ -260,7 +260,7 @@ class NUFC(Cog):
             view = BaseView()
             btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
             view.add_item(btn)
-            return await self.bot.error(interaction, content='Invalid colour.', view=view)
+            return await self.bot.error(interaction, 'Invalid colour.', view=view)
 
         guild = interaction.guild
         if (role := utils.get(guild.roles, name=f"#{hex_code}")) is None:  # Create new role or fetch if already exists.

@@ -182,14 +182,10 @@ class Player:
     def region(self) -> Region:
         """Get a Region object based on the player's ID number."""
         match self.account_id:
-            case self.account_id if 0 < self.account_id < 500000000:
-                return Region.CIS
-            case self.account_id if 500000000 < self.account_id < 999999999:
-                return Region.EU
-            case self.account_id if 1000000000 < self.account_id < 1999999999:
-                return Region.NA
-            case _:
-                return Region.SEA
+            case self.account_id if 0 < self.account_id < 500000000: return Region.CIS
+            case self.account_id if 500000000 < self.account_id < 999999999: return Region.EU
+            case self.account_id if 1000000000 < self.account_id < 1999999999: return Region.NA
+            case _: return Region.SEA
 
     @property
     def community_link(self) -> str:
@@ -215,10 +211,8 @@ class Player:
         if not self.bot.pr_data_updated_at:
             async with self.bot.session.get('https://api.wows-numbers.com/personal/rating/expected/json/') as resp:
                 match resp.status:
-                    case 200:
-                        pass
-                    case _:
-                        raise ConnectionError(f'{resp.status} Error accessing {resp.url}')
+                    case 200: pass
+                    case _: raise ConnectionError(f'{resp.status} Error accessing {resp.url}')
         # TODO: Get PR
         raise NotImplementedError
 
@@ -229,10 +223,8 @@ class Player:
 
         async with self.bot.session.get(link, params=p) as resp:
             match resp.status:
-                case 200:
-                    json = await resp.json()
-                case _:
-                    return None
+                case 200: json = await resp.json()
+                case _: return None
 
         if (data := json['data'].pop(str(self.account_id))) is None:
             self.clan = False
@@ -421,46 +413,26 @@ class PlayerView(BaseView):
         if self.ship not in self.player.statistics:
             await self.player.get_stats(self.ship)
 
+        s = self.player.statistics[self.ship]
         match self.mode.tag, self.div_size:
-            case "PVP", 1:
-                return "Random Battles (Solo)", self.player.statistics[self.ship]['pvp_solo']
-            case "PVP", 2:
-                return "Random Battles (2-person Division)", self.player.statistics[self.ship]['pvp_div2']
-            case "PVP", 3:
-                return "Random Battles (3-person Division)", self.player.statistics[self.ship]['pvp_div3']
-            case "PVP", _:
-                return "Random Battles (Overall)", self.player.statistics[self.ship]['pvp']
-            case "COOPERATIVE", 1:
-                return "Co-op Battles (Solo)", self.player.statistics[self.ship]['pve_solo']
-            case "COOPERATIVE", 2:
-                return "Co-op Battles (2-person Division)", self.player.statistics[self.ship]['pve_div2']
-            case "COOPERATIVE", 3:
-                return "Co-op Battles (3-person Division)", self.player.statistics[self.ship]['pve_div3']
-            case "COOPERATIVE", _:  # All Stats.
-                return "Co-op Battles (Overall)", self.player.statistics[self.ship]['pve']
-            case "RANKED", 1:
-                return "Ranked Battles (Solo)", self.player.statistics[self.ship]['rank_solo']
-            case "RANKED", 2:
-                return "Ranked Battles (2-Man Division)", self.player.statistics[self.ship]['rank_div2']
-            case "RANKED", 3:
-                return "Ranked Battles (3-Man Division)", self.player.statistics[self.ship]['rank_div3']
+            case "PVP", 1: return "Random Battles (Solo)", s['pvp_solo']
+            case "PVP", 2: return "Random Battles (2-person Division)", s['pvp_div2']
+            case "PVP", 3: return "Random Battles (3-person Division)", s['pvp_div3']
+            case "PVP", _: return "Random Battles (Overall)", s['pvp']
+            case "COOPERATIVE", 1: return "Co-op Battles (Solo)", s['pve_solo']
+            case "COOPERATIVE", 2: return "Co-op Battles (2-person Division)", s['pve_div2']
+            case "COOPERATIVE", 3: return "Co-op Battles (3-person Division)", s['pve_div3']
+            case "COOPERATIVE", _: return "Co-op Battles (Overall)", s['pve']  # All
+            case "RANKED", 1: return "Ranked Battles (Solo)", s['rank_solo']
+            case "RANKED", 2: return "Ranked Battles (2-Man Division)", s['rank_div2']
+            case "RANKED", 3: return "Ranked Battles (3-Man Division)", s['rank_div3']
             case "RANKED", 0:  # Sum 3 Dicts.
-                a = self.player.statistics[self.ship]['rank_solo']
-                b = self.player.statistics[self.ship]['rank_div2']
-                c = self.player.statistics[self.ship]['rank_div3']
-                return "Ranked Battles (Overall)", self.sum_stats([a, b, c])
-            case "PVE", 0:  # Sum 2 dicts
-                a = self.player.statistics[self.ship]['oper_solo']
-                b = self.player.statistics[self.ship]['oper_div']
-                return "Operations (Overall)", self.sum_stats([a, b])
-            case "PVE", 1:
-                return "Operations (Solo)", self.player.statistics[self.ship]['oper_solo']
-            case "PVE", _:
-                return "Operations (Pre-made)", self.player.statistics[self.ship]['oper_div']
-            case "PVE_PREMADE", _:
-                return "Operations (Hard Pre-Made)", self.player.statistics[self.ship]['oper_div_hard']
-            case _:
-                return f"Missing info for {self.mode.tag}, {self.div_size}", self.player.statistics[self.ship]['pvp']
+                return "Ranked Battles (Overall)", self.sum_stats([s['rank_solo'], s['rank_div2'], s['rank_div3']])
+            case "PVE", 0: return "Operations (Overall)", self.sum_stats([s['oper_solo'], s['oper_div']])
+            case "PVE", 1: return "Operations (Solo)", s['oper_solo']
+            case "PVE", _: return "Operations (Pre-made)", s['oper_div']
+            case "PVE_PREMADE", _: return "Operations (Hard Pre-Made)", s['oper_div_hard']
+            case _: return f"Missing info for {self.mode.tag}, {self.div_size}", s['pvp']
 
     async def clan_battles(self) -> Message:
         """Attempt to fetch player's Clan Battles data."""
@@ -702,15 +674,10 @@ class PlayerView(BaseView):
 
         # Operations specific stats.
         try:
-            star_rate = [(k, v) for k, v in p_stats.pop('wins_by_tasks').items()]
-            star_rate = sorted(star_rate, key=lambda st: int(st[0]))
+            star_rate = sorted([(k, v) for k, v in p_stats.pop('wins_by_tasks').items()], key=lambda st: int(st[0]))
 
-            star_desc = []
-            for x in range(0, 5):
-                s1 = '\⭐'
-                s2 = '\★'
-                star_desc.append(f"{x * s1}{(5 - x) * s2}: {star_rate[x][1]}")
-
+            s1, s2 = '\⭐', '\★'
+            star_desc = [f"{x * s1}{(5 - x) * s2}: {star_rate[x][1]}" for x in range(0, 5)]
             e.add_field(name="Star Breakdown", value="\n".join(star_desc))
         except KeyError:
             pass

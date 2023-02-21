@@ -393,50 +393,51 @@ class QuoteDB(commands.Cog):
                 async with self.bot.db.acquire(timeout=60) as connection:
                     await connection.execute("""DELETE FROM quotes_optout WHERE userid = $1""", i.user.id)
 
-                await self.bot.reply(i, content="You have opted back into the Quotes Database.", view=None)
+                return await self.bot.reply(i, "You have opted back into the Quotes Database.", view=None)
             else:
-                await self.bot.error(i, "Opt in cancelled, quotes cannot be added about you.")
-        else:
-            sql = """SELECT (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
-                            (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
-                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
-                            (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
+                return await self.bot.error(i, "Opt in cancelled, quotes cannot be added about you.")
 
+        sql = """SELECT (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1) AS author,
+                        (SELECT COUNT(*) FROM quotes WHERE author_user_id = $1 AND guild_id = $2) AS auth_g,
+                        (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1) AS sub,
+                        (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2) AS sub_g"""
+
+        async with self.bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                r = await connection.fetchrow(sql, i.user.id, i.guild.id)
+
+        # Warn about quotes that will be deleted.
+        output = []
+        if all(v == 0 for v in [r['author'], r['auth_g'], r['sub'], r['sub_g']]):
+            e = None
+        else:
+            output.append(f"You have been quoted {r['author']} times")
+            if r['auth'] and i.guild is not None:
+                output.append(f" ({r['auth_g']} times on {i.guild.name})")
+            output.append('\n')
+
+            output.append(f"You have submitted {r['sub']} quotes")
+            if r['sub'] and i.guild is not None:
+                output.append(f" ({r['sub_g']} times on {i.guild.name})")
+
+            msg = "".join(output) + "\n\n**ALL of these quotes will be deleted if you opt out.**"
+            title = "Your quotes will be deleted if you opt out."
+            e = Embed(colour=Colour.red(), title=title, description=msg)
+
+        v = view_utils.Confirmation(i, label_a="Opt out", colour_a=ButtonStyle.red, label_b="Cancel")
+        await self.bot.reply(i, content="Opt out of QuoteDB?", embed=e, view=v)
+        await v.wait()
+
+        if not v.value:
+            return await self.bot.error(i, "Opt out cancelled, you can still quote and be quoted")
+
+        if e is not None:
             async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
-                    r = await connection.fetchrow(sql, i.user.id, i.guild.id)
-
-            # Warn about quotes that will be deleted.
-            output = []
-            if all(v == 0 for v in [r['author'], r['auth_g'], r['sub'], r['sub_g']]):
-                e = None
-            else:
-                output.append(f"You have been quoted {r['author']} times")
-                if r['auth'] and i.guild is not None:
-                    output.append(f" ({r['auth_g']} times on {i.guild.name})")
-                output.append('\n')
-
-                output.append(f"You have submitted {r['sub']} quotes")
-                if r['sub'] and i.guild is not None:
-                    output.append(f" ({r['sub_g']} times on {i.guild.name})")
-
-                msg = "".join(output) + "\n\n**ALL of these quotes will be deleted if you opt out.**"
-                title = "Your quotes will be deleted if you opt out."
-                e = Embed(colour=Colour.red(), title=title, description=msg)
-
-            v = view_utils.Confirmation(i, label_a="Opt out", colour_a=ButtonStyle.red, label_b="Cancel")
-            v.message = await self.bot.reply(i, content="Opt out of QuoteDB?", embed=e, view=v)
-
-            if not v.value:
-                return await self.bot.error(i, "Opt out cancelled, you can still quote and be quoted")
-
-            if e is not None:
-                async with self.bot.db.acquire(timeout=60) as connection:
-                    async with connection.transaction():
-                        sql = """DELETE FROM quotes WHERE author_user_id = $1 OR submitter_user_id = $2"""
-                        r = await connection.execute(sql, i.user.id, i.user.id)
-                e.description = r.split(' ')[-1] + " quotes were deleted."
-            await self.bot.reply(i, content=f"You were opted out of the quote DB", embed=e)
+                    sql = """DELETE FROM quotes WHERE author_user_id = $1 OR submitter_user_id = $2"""
+                    r = await connection.execute(sql, i.user.id, i.user.id)
+            e.description = r.split(' ')[-1] + " quotes were deleted."
+        await self.bot.reply(i, content=f"You were removed from the Quote Database", embed=e)
 
 
 async def setup(bot: Bot):

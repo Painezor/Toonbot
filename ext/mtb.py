@@ -125,7 +125,7 @@ class MatchThread:
                 await match.edit(markdown)
                 self.old_markdown = markdown
 
-            if self.fixture.time.state.colour in [0xffffff, 0xFF0000]:
+            if self.fixture.state.colour in [0xffffff, 0xFF0000]:
                 break
 
             await asyncio.sleep(60)
@@ -195,34 +195,30 @@ class MatchThread:
         markdown += f"#### {self.fixture.kickoff} | {self.fixture.competition} | *Pre* | *Match* | *Post*\n\n"
 
         title = f"Pre-Match Thread: {self.fixture.score_line}"
-        markdown += await self.fixture.preview()
+        # markdown += await self.fixture.preview()
         return title, markdown
 
     async def fetch_tv(self):
         """Fetch information about where the match will be televised"""
-        tv = {}
+
         async with self.bot.session.get(f"https://www.livesoccertv.com/") as resp:
             match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    raise ConnectionError(f"{resp.status} received when trying to fetch TV url {resp.url}")
+                case 200: tree = html.fromstring(await resp.text())
+                case _: raise ConnectionError(f"{resp.status} received when trying to fetch TV url {resp.url}")
 
+        tv = {}
         for i in tree.xpath(".//tr//a"):
             if self.fixture.home.name in ''.join(i.xpath(".//text()")):
                 lnk = i.xpath(".//@href")
                 tv.update({"link": f"http://www.livesoccertv.com{lnk}"})
                 break
-
         if not tv:
             return ""
 
         async with self.bot.session.get(tv["link"]) as resp:
             match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    return tv
+                case 200: tree = html.fromstring(await resp.text())
+                case _: return tv
 
         tv_table = tree.xpath('.//table[@id="wc_channels"]//tr')
 
@@ -335,9 +331,9 @@ class MatchThread:
 
             markdown += self.tv
 
-        markdown += f"* [Formation]({await self.fixture.formation()})\n"
-        markdown += f"* [Stats]({await self.fixture.stats()})\n"
-        markdown += f"* [Table]({await self.fixture.table()})\n"
+        # markdown += f"* [Formation]({await self.fixture.formation()})\n"
+        # markdown += f"* [Stats]({await self.fixture.stats()})\n"
+        # markdown += f"* [Table]({await self.fixture.table()})\n"
 
         if self.fixture.images:
             markdown += "## Match Pictures\n"

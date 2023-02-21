@@ -56,16 +56,16 @@ class PBot(AutoShardedBot):
 		)
 
 		# Reply Handling
-		self.reply = reply
-		self.error = error
+		self.reply: Callable = reply
+		self.error: Callable = error
 
 		# Admin
-		self.COGS = COGS
+		self.COGS: list[str] = COGS
 
 		# Database & API Credentials
 		self.db: Pool = kwargs.pop("database")
 		self.credentials: dict = credentials
-		self.initialised_at = datetime.utcnow()
+		self.initialised_at: datetime = datetime.utcnow()
 
 		# Notifications
 		self.notifications_cache: list[Record] = []
@@ -92,7 +92,7 @@ class PBot(AutoShardedBot):
 		self.tracker_channels: list[TrackerChannel] = []
 
 		# Wargaming API
-		self.WG_ID = kwargs.pop("wg_id")
+		self.WG_ID: str = kwargs.pop("wg_id")
 
 		self.contributors: list[Contributor] = []
 		self.clans: list[Clan] = []
@@ -108,10 +108,7 @@ class PBot(AutoShardedBot):
 		self.ship_types: list[ShipType] = []
 
 		# Callables
-		self.get_player: Callable = None
 		self.get_ship: Callable = None
-		self.get_clan: Callable = None
-		self.get_ship_type: Callable = None
 
 		logging.info(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n{"-" * 30}')
 

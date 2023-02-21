@@ -233,7 +233,7 @@ class TransfersConfig(BaseView):
 
         # Ticker Verify -- NOT A SCORES CHANNEL
         if self.tc.channel.id in [i.channel.id for i in self.bot.score_channels]:
-            await self.bot.error(self.interaction, content='You cannot create a ticker in a livescores channel.')
+            await self.bot.error(self.interaction, 'You cannot create a ticker in a livescores channel.')
             return False
 
         view = Confirmation(self.interaction, colour_a=ButtonStyle.green, label_a=f"Create ticker", label_b="Cancel")

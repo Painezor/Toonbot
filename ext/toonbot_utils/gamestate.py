@@ -1,7 +1,6 @@
 """Flashscore GameState & GameTime Objects"""
 from __future__ import annotations
 
-import logging
 from enum import Enum
 
 from discord import Colour
@@ -44,7 +43,7 @@ class GameState(Enum):
 
     # Purple
     EXTRA_TIME = ("ET", "🟣", 0x9932CC)
-    STOPPAGE_TIME = ("+", "🟣", 0x9932CC)
+    STOPPAGE_TIME = ("Stoppage Time", "🟣", 0x9932CC)
 
     # Brown
     BREAK_TIME = ("Break", "🟤", 0xA52A2A)
@@ -57,37 +56,3 @@ class GameState(Enum):
     AFTER_PENS = ("Pen", '⚪', 0xffffff)
     AFTER_EXTRA_TIME = ("AET", '⚪', 0xffffff)
     AWARDED = ("Awrd", '⚪', 0xffffff)
-
-
-class GameTime:
-    """A class representing a time of the game, with a wrapped state"""
-
-    def __init__(self, value: str | GameState) -> None:
-        # Value can either be a GameState Enum, or a string representing the time in the match.
-        self.value: str | GameState = value
-
-    def __repr__(self) -> str:
-        return f"GameTime({self.__dict__})"
-
-    def __str__(self):
-        if isinstance(self.value, str):
-            return self.value
-        else:
-            return self.value.name.replace('_', ' ').title()
-
-    def __eq__(self, other: GameTime) -> bool:
-        return False if other is None else self.value == other.value
-
-    @property
-    def state(self) -> GameState:
-        """Return the state of the game."""
-        match self.value:
-            case GameState():
-                return self.value
-            case _:
-                if "+" in self.value:
-                    return GameState.STOPPAGE_TIME
-                elif self.value.endswith("'") or self.value.isdigit():
-                    return GameState.LIVE
-                else:
-                    logging.error(f"GameTime.state Could not get state from self.value: {self.value}")

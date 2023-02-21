@@ -206,14 +206,14 @@ class Admin(Cog):
         elif link:
             avatar = link
         else:
-            return await self.bot.error(interaction, content="You need to provide either a link or an attachment.")
+            return await self.bot.error(interaction, "You need to provide either a link or an attachment.")
 
         async with self.bot.session.get(avatar) as resp:
             match resp.status:
                 case 200:
                     new_avatar = await resp.read()  # Needs to be bytes.
                 case _:
-                    return await self.bot.reply(interaction, content=f"HTTP Error: Status Code {resp.status}")
+                    return await self.bot.reply(interaction, f"HTTP Error: Status Code {resp.status}")
 
         await self.bot.user.edit(avatar=new_avatar)
         e: Embed = Embed(title="Avatar Updated", colour=Colour.og_blurple())

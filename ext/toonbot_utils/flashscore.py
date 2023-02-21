@@ -1,35 +1,30 @@
 """A Utility tool for fetching and structuring data from the Flashscore Website"""
 from __future__ import annotations  # Cyclic Type Hinting
 
-import builtins
 import logging
 from asyncio import Semaphore
 from copy import deepcopy
 from datetime import datetime, timezone
 from io import BytesIO
-from json import loads
 from typing import TYPE_CHECKING, Literal, Optional, ClassVar
-from urllib.parse import quote
 
-from discord import Embed, Interaction, Message, Colour
+from discord import Embed, Interaction, Colour
 from discord.app_commands import Choice
 from lxml import html
 from playwright.async_api import Page, TimeoutError
 
-from ext.toonbot_utils.gamestate import GameState, GameTime
+from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import EventType
 from ext.toonbot_utils.matchevents import parse_events
 from ext.utils.embed_utils import get_colour
 from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import ObjectSelectView
 
 if TYPE_CHECKING:
     from ext.toonbot_utils.matchevents import MatchEvent
     from core import Bot
 
 # TODO: Figure out caching system for high intensity lookups
-# TODO: Team dropdown on Competitions
 
 ADS = ('.ads-envelope, '
        '.bannerEnvelope, '
@@ -270,12 +265,12 @@ class FlashScoreItem:
 
             match state:
                 case GameState():
-                    fixture.time = GameTime(state)
+                    fixture.time = state
                 case datetime():
-                    fixture.time = GameTime(GameState.FULL_TIME if fixture.kickoff < dtn else GameState.SCHEDULED)
+                    fixture.time = GameState.FULL_TIME if fixture.kickoff < dtn else GameState.SCHEDULED
                 case _:
                     if "'" in parsed or "+" in parsed or parsed.isdigit():
-                        fixture.time = GameTime(parsed)
+                        fixture.time = parsed
                     else:
                         logging.error(f'state "{state}" not handled in parse_games {parsed}')
             fixtures.append(fixture)
@@ -673,7 +668,7 @@ class Fixture(FlashScoreItem):
         self._cards_home: Optional[int] = None
         self._score_home: Optional[int] = None
         self.penalties_home: Optional[int] = None
-        self._time: Optional[GameTime] = None
+        self._time: str | GameState = None
 
         self.attendance: Optional[int] = None
         self.breaks: int = 0
@@ -689,42 +684,37 @@ class Fixture(FlashScoreItem):
         self.stadium: Optional[str] = None
 
     def __str__(self) -> str:
-        match self.time.state:
+        match self.time:
             case GameState.LIVE | GameState.STOPPAGE_TIME | GameState.EXTRA_TIME:
-                time = self.time.value
+                time = self.state.name
             case GameState():
                 time = self.ko_relative
             case _:
-                time = self.time.state
+                time = self.time
 
         return f"{time}: {self.bold_markdown}"
 
     def active(self, ordinal: int) -> bool:
         """Is this game still valid"""
-        if ordinal == self.ordinal:
-            return True
-
         if self.ordinal is None:
-            if self.kickoff is None:
-                self.ordinal = ordinal
-            else:
-                self.ordinal = self.kickoff.toordinal()
-            return True
-
-        if self.ordinal + 1 > ordinal:
-            return False
-
-        match self.time.state:
-            case GameState.POSTPONED | GameState.CANCELLED:
-                return False
-            case GameState.AFTER_PENS | GameState.FINAL_RESULT_ONLY | GameState.FULL_TIME | GameState.AFTER_EXTRA_TIME:
-                return False
-        return True
+            self.ordinal = ordinal if self.kickoff is None else self.kickoff.toordinal()
+        return bool(ordinal <= self.ordinal)
 
     @property
-    def time(self) -> GameTime:
+    def time(self) -> str | GameState:
         """Get the current GameTime of a fixture"""
         return self._time
+
+    @property
+    def state(self) -> GameState:
+        """Get a GameState value from stored _time"""
+        if isinstance(self._time, str):
+            if '+' in self._time:
+                return GameState.STOPPAGE_TIME
+            else:
+                return GameState.LIVE
+        else:
+            return self._time
 
     @property
     def upcoming(self) -> str:
@@ -732,12 +722,15 @@ class Fixture(FlashScoreItem):
         return f"{Timestamp(self.kickoff).relative}: {self.bold_markdown}"
 
     @time.setter
-    def time(self, game_time: GameTime) -> None:
+    def time(self, new_time: str | GameState) -> None:
         """Update the time of the event"""
-        if self._time is not None:
-            if (old_state := self._time.state) != (new_state := game_time.state):
-                self.dispatch_events(old_state, new_state)
-        self._time = game_time
+        if isinstance(new_time, str):
+            if isinstance(self._time, GameState):
+                self.dispatch_events(self._time, new_time)
+        else:
+            if new_time != self._time:
+                self.dispatch_events(self._time, new_time)
+        self._time = new_time
 
     @property
     def ko_relative(self) -> str:
@@ -768,7 +761,7 @@ class Fixture(FlashScoreItem):
     @property
     def bold_score(self) -> str:
         """Embolden the winning team of a fixture"""
-        if None in [self.score_home, self.time] or self.time.state == GameState.SCHEDULED:
+        if None in [self.score_home, self.time] or self.time == GameState.SCHEDULED:
             return f"{self.home.name} vs {self.away.name}"
 
         hb = '**' if self.score_home > self.score_away else ''
@@ -778,7 +771,7 @@ class Fixture(FlashScoreItem):
     @property
     def bold_markdown(self) -> str:
         """Markdown Formatting bold **winning** team, with [score](as markdown link)."""
-        if None in [self.score_home, self.time] or self.time.state == GameState.SCHEDULED:
+        if None in [self.score_home, self.time] or self.time == GameState.SCHEDULED:
             return f"[{self.home.name} vs {self.away.name}]({self.link})"
 
         home = f"**{self.home.name}**" if self.score_home > self.score_away else self.home.name
@@ -802,13 +795,13 @@ class Fixture(FlashScoreItem):
         """Return a string representing the score and any red cards of the fixture"""
         output = []
         if self._time is not None:
-            output.append(f"`{self.time.state.emote}")
+            output.append(f"`{self.state.emote}")
 
-            match self.time.state:
+            match self.time:
                 case GameState.STOPPAGE_TIME | GameState.EXTRA_TIME | GameState.LIVE:
-                    output.append(f"{self.time.value}`")
+                    output.append(f"{self.state.value}`")
                 case _:
-                    output.append(f"{self.time.state.shorthand}`")
+                    output.append(f"{self.state.shorthand}`")
 
         # Penalty Shootout
         if self.penalties_home is not None:
@@ -897,9 +890,10 @@ class Fixture(FlashScoreItem):
         """Return a preformatted discord embed for a generic Fixture"""
         e: Embed = await self.competition.base_embed
         e.url = self.link
-        e.colour = self.time.state.colour
+        e.colour = self.state.colour
         e.set_author(name=self.score_line)
         e.timestamp = self.kickoff
+        e.description = ""
 
         if self.infobox is not None:
             e.add_field(name="Match Info", value=self.infobox)
@@ -907,13 +901,12 @@ class Fixture(FlashScoreItem):
         if self.time is None:
             return e
 
-        match self.time.state:
+        match self.time:
             case GameState.SCHEDULED:
                 e.description = f"Kickoff: {Timestamp(self.kickoff).time_relative}"
             case GameState.POSTPONED:
                 e.description = "This match has been postponed."
-            case _:
-                e.set_footer(text=self.time.state.shorthand)
+        e.set_footer(text=f"{self.time} - {self.competition.title}")
         return e
 
     # Dispatcher
@@ -1165,92 +1158,6 @@ class Player(FlashScoreItem):
         if self.team is None:
             return []
         return await self.team.fixtures()
-
-
-async def search(interaction: Interaction, query: str, mode: Literal['comp', 'team'], get_recent: bool = False) \
-        -> Competition | Team | Message:
-    """Fetch a list of items from flashscore matching the user's query"""
-    query = query.translate(dict.fromkeys(map(ord, "'[]#<>"), None))
-
-    bot: Bot = interaction.client
-
-    query = quote(query)
-    # One day we could probably expand upon this if we ever figure out what the other variables are.
-    async with bot.session.get(f"https://s.flashscore.com/search/?q={query}&l=1&s=1&f=1%3B1&pid=2&sid=1") as resp:
-        match resp.status:
-            case 200:
-                res = await resp.text(encoding="utf-8")
-            case _:
-                raise ConnectionError(f"HTTP {resp.status} error in fs_search")
-
-    # Un-fuck FS JSON reply.
-    res = loads(res.lstrip('cjs.search.jsonpCallback(').rstrip(");"))
-
-    results: list[Competition | Team] = []
-
-    for i in res['results']:
-        match i['participant_type_id']:
-            case 0:
-                if mode == "team":
-                    continue
-
-                if not (comp := bot.get_competition(i['id'])):
-                    comp = Competition(bot)
-                    comp.country = i['country_name']
-                    comp.id = i['id']
-                    comp.url = i['url']
-                    comp.logo_url = i['logo_url']
-                    name = i['title'].split(': ')
-                    try:
-                        name.pop(0)  # Discard COUNTRY
-                    except IndexError:
-                        pass
-                    comp.name = name[0]
-                    await comp.save_to_db()
-                results.append(comp)
-
-            case 1:
-                if mode == "comp":
-                    continue
-
-                if not (team := bot.get_team(i['id'])):
-                    team = Team(bot)
-                    team.name = i['title']
-                    team.url = i['url']
-                    team.id = i['id']
-                    team.logo_url = i['logo_url']
-                    await team.save_to_db()
-                results.append(team)
-            case _:
-                continue
-
-    if not results:
-        return await interaction.client.error(interaction, f"Flashscore Search: No results found for {query}")
-
-    if len(results) == 1:
-        fsr = next(results)
-    else:
-        view = ObjectSelectView(interaction, [('🏆', str(i), i.link) for i in results], timeout=30)
-        await view.update()
-        await view.wait()
-        if view.value is None:
-            return None
-        fsr = results[view.value]
-
-    if not get_recent:
-        return fsr
-
-    if not (items := await fsr.results()):
-        return await interaction.client.error(interaction, f"No recent games found for {fsr.title}")
-
-    view = ObjectSelectView(interaction, objects=[("⚽", i.score_line, f"{i.competition}") for i in items])
-    await view.update()
-    await view.wait()
-
-    if view.value is None:
-        raise builtins.TimeoutError('Timed out waiting for you to select a recent game.')
-
-    return items[view.value]
 
 
 class NewsItem:

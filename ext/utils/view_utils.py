@@ -24,8 +24,6 @@ class BaseView(View):
 
     async def on_error(self, interaction: Interaction, error: Exception, item):
         """Log the stupid fucking error"""
-        print("FUCK SHIT CUNT ARSE DICK")
-        logger.error("Hi this is barry scott and we're inside BaseView Error!")
         logger.error(f"{error}")
         logger.error(f"This error brought to you by item {item}")
 
@@ -221,11 +219,10 @@ class ObjectSelectView(BaseView):
         """Assure only the command's invoker can select a result"""
         return interaction.user.id == self.interaction.user.id
 
-    @property
     def embed(self) -> Embed:
         """Embeds look prettier, ok?"""
-        e: Embed = Embed(title="Use the dropdown below to select from the list.")
-        e.set_author(name="Multiple results found")
+        e = Embed()
+        e.set_author(name="Use the dropdown below")
         e.description = "\n".join([i[1] for i in self.pages[self.index]])
         return e
 
@@ -306,7 +303,7 @@ def generate_function_row(view: View, items: list[Funcable], row: int = 0, place
             view.add_item(FuncButton(x.label, x.function, x.args, x.kw, disabled=x.disabled, row=row, emoji=x.emoji,
                                      style=x.style))
     else:
-        view.add_item(FuncSelect([i for i in items if not i.disabled], row, placeholder))
+        view.add_item(FuncSelect(items, row, placeholder))
 
 
 class FuncSelect(Select):
@@ -315,15 +312,15 @@ class FuncSelect(Select):
     def __init__(self, items: list[Funcable], row: int, placeholder: str = None):
         self.items: dict[str, Funcable] = {}
 
+        super().__init__(row=row, placeholder=placeholder)
+
         for num, i in enumerate(items):
             self.items[str(num)] = i
-
-            logging.info(f'Adding {num} {i} to FuncSelect')
             self.add_option(label=i.label, emoji=i.emoji, description=i.description, value=str(num))
-        super().__init__(row=row, placeholder=placeholder)
 
     async def callback(self, interaction: Interaction) -> Any:
         """The handler for the FuncSelect Dropdown"""
+        await interaction.response.defer()
         value: Funcable = self.items[self.values[0]]
         return await value.function(*value.args, **value.kw)
 
