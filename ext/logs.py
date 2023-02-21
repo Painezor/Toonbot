@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Callable, ClassVar
+from typing import TYPE_CHECKING, Callable
 
 import discord
 from discord import Embed, Colour, AuditLogAction, File, Message, Emoji, Interaction, Member, User, Role, TextChannel
@@ -56,11 +56,8 @@ class ToggleButton(Button):
 
 class LogsConfig(BaseView):
     """Generic Config View"""
-    bot: ClassVar[Bot]
-
     def __init__(self, interaction: Interaction, channel: discord.TextChannel) -> None:
-        super().__init__()
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
         self.channel: discord.TextChannel = channel
 
     async def on_timeout(self) -> Message:
@@ -227,11 +224,11 @@ class Logs(Cog):
             async with connection.transaction():
                 self.bot.notifications_cache = await connection.fetch(q)
                 
-    async def dispatch(self, channels: list[TextChannel], e: list[Embed]):
+    async def dispatch(self, channels: list[TextChannel], e: list[Embed], view: discord.ui.View = None):
         """Bulk dispatch messages to their destinations"""
         for ch in channels:
             try:
-                await ch.send(embeds=e)
+                await ch.send(embeds=e, view=view)
             except discord.HTTPException:
                 continue
 
@@ -2650,14 +2647,9 @@ class Logs(Cog):
                           description=f"> {after.content}")
         e2.set_footer(text=f"{before.author} {before.author.id}", icon_url=before.author.display_avatar.url)
 
-        v = BaseView()
+        v = discord.ui.View()
         v.add_item(Button(label="Jump to message", url=before.jump_url, style=discord.ButtonStyle.url))
-
-        for c in ch:
-            try:
-                await c.send(embeds=[e, e2], view=v)
-            except discord.HTTPException:
-                continue
+        return await self.dispatch(ch, [e, e2], view=v)
 
     @Cog.listener()
     async def on_bulk_message_delete(self, messages: list[Message]):

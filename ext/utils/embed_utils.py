@@ -4,14 +4,10 @@ from __future__ import annotations
 from asyncio import to_thread
 from copy import deepcopy
 from io import BytesIO
-from typing import TYPE_CHECKING
 
 from aiohttp import ClientSession
 from colorthief import ColorThief
 from discord import Message, File, Colour, Embed, Interaction
-
-if TYPE_CHECKING:
-    from core import Bot
 
 
 async def embed_image(interaction: Interaction, e: Embed, image: BytesIO | bytes, filename: str = None) -> Message:
@@ -19,8 +15,7 @@ async def embed_image(interaction: Interaction, e: Embed, image: BytesIO | bytes
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     e.set_image(url=f"attachment://{filename}")
     file = File(fp=image, filename=filename)
-    bot: Bot = interaction.client
-    return await bot.reply(interaction, file=file, embed=e)
+    return await interaction.client.reply(interaction, file=file, embed=e)
 
 
 async def get_colour(url: str) -> Colour | int:

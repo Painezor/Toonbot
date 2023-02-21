@@ -5,6 +5,7 @@ from datetime import timedelta
 from random import choice
 from typing import TYPE_CHECKING
 
+import discord
 from discord import Embed, Colour, ButtonStyle, Interaction, utils, Forbidden, Role, Message, File
 from discord.app_commands import command, guilds, describe, default_permissions
 from discord.ext.commands import Cog
@@ -198,10 +199,8 @@ MBEMBA = [
 class MbembaView(BaseView):
     """Generic View for the Mbemba Generator."""
 
-    def __init__(self, bot: Bot, interaction: Interaction) -> None:
-        self.interaction: Interaction = interaction
-        self.bot: Bot = bot
-        super().__init__()
+    def __init__(self, interaction: Interaction) -> None:
+        super().__init__(interaction)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Assure only person invoking the command can re-roll it."""
@@ -239,7 +238,7 @@ class NUFC(Cog):
     @guilds(332159889587699712)
     async def mbemba(self, interaction: Interaction) -> Message:
         """Mbemba When…"""
-        return await MbembaView(self.bot, interaction).update()
+        return await MbembaView(interaction).update()
 
     @command()
     @guilds(332159889587699712)
@@ -257,7 +256,7 @@ class NUFC(Cog):
                 return await self.bot.error(interaction, 'Invalid colour specified.')
 
         except ValueError:
-            view = BaseView()
+            view = discord.ui.View()
             btn = Button(style=ButtonStyle.url, url="http://htmlcolorcodes.com/color-picker/", label="Colour picker.")
             view.add_item(btn)
             return await self.bot.error(interaction, 'Invalid colour.', view=view)

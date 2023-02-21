@@ -34,7 +34,7 @@ with open('credentials.json') as f:
 
 COGS = [
 	# Utility Cogs
-	'errors', 'metapainezbot',
+	'reply', 'metapainezbot',
 	# Slash commands.
 	'admin', 'bans', 'devblog', 'images', 'info', 'logs', 'mod', 'reminders', 'news_tracker', 'translations', 'twitch',
 	'warships'

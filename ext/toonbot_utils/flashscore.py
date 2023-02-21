@@ -87,7 +87,7 @@ async def lg_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 
 class FlashScoreItem:
     """A generic object representing the result of a Flashscore search"""
-    bot: ClassVar[Bot] = None
+    bot: ClassVar[Bot]
 
     __slots__ = ['id', 'url', 'name', 'embed_colour', 'logo_url']
 
@@ -129,7 +129,6 @@ class FlashScoreItem:
         """Alias to self.url, polymorph for subclasses."""
         return self.url
 
-    @property
     async def base_embed(self) -> Embed:
         """A discord Embed representing the flashscore search result"""
         e: Embed = Embed(title=self.title if hasattr(self, 'title') else self.name, url=self.link)
@@ -210,39 +209,26 @@ class FlashScoreItem:
 
             try:
                 score_home, score_away = i.xpath('.//div[contains(@class,"event__score")]//text()')
-
                 # Directly access the private var, so we don't dispatch events.
                 fixture._score_home = int(score_home.strip())
                 fixture._score_away = int(score_away.strip())
             except ValueError:
                 pass
-
-            parsed = ''.join(i.xpath('.//div[@class="event__time"]//text()'))
             state = None
 
             # State Corrections
-            override = "".join([i for i in parsed if i.isalpha()])
-            parsed = parsed.replace(override, '')
-
+            parsed = ''.join(i.xpath('.//div[@class="event__time"]//text()'))
+            parsed = parsed.replace(override := "".join([i for i in parsed if i.isalpha()]), '')
             match override:
-                case '':
-                    pass
-                case 'AET':
-                    state = GameState.AFTER_EXTRA_TIME
-                case 'Pen':
-                    state = GameState.AFTER_PENS
-                case 'Postp':
-                    state = GameState.POSTPONED
-                case 'FRO':
-                    state = GameState.FINAL_RESULT_ONLY
-                case 'WO':
-                    state = GameState.WALKOVER
-                case 'Awrd':
-                    state = GameState.AWARDED
-                case 'Postp':
-                    state = GameState.POSTPONED
-                case 'Abn':
-                    state = GameState.ABANDONED
+                case '': pass
+                case 'AET': state = GameState.AFTER_EXTRA_TIME
+                case 'Pen': state = GameState.AFTER_PENS
+                case 'Postp': state = GameState.POSTPONED
+                case 'FRO': state = GameState.FINAL_RESULT_ONLY
+                case 'WO': state = GameState.WALKOVER
+                case 'Awrd': state = GameState.AWARDED
+                case 'Postp': state = GameState.POSTPONED
+                case 'Abn': state = GameState.ABANDONED
 
             dtn = datetime.now(tz=timezone.utc)
             for string, fmt in [(parsed, '%d.%m.%Y.'),
@@ -263,14 +249,13 @@ class FlashScoreItem:
                 else:
                     state = GameState.FULL_TIME
 
+            # Bypass time setter by directly changing _private val.
             match state:
-                case GameState():
-                    fixture.time = state
-                case datetime():
-                    fixture.time = GameState.FULL_TIME if fixture.kickoff < dtn else GameState.SCHEDULED
+                case GameState(): fixture._time = state
+                case datetime(): fixture._time = GameState.FULL_TIME if fixture.kickoff < dtn else GameState.SCHEDULED
                 case _:
                     if "'" in parsed or "+" in parsed or parsed.isdigit():
-                        fixture.time = parsed
+                        fixture._time = parsed
                     else:
                         logging.error(f'state "{state}" not handled in parse_games {parsed}')
             fixtures.append(fixture)
@@ -369,7 +354,7 @@ class Team(FlashScoreItem):
             await page.close()
 
         items = []
-        base_embed = await self.base_embed
+        base_embed = await self.base_embed()
         for i in tree.xpath('.//div[@id="tab-match-newsfeed"]'):
             article = NewsItem(team_embed=deepcopy(base_embed))
             article.title = "".join(i.xpath('.//div[@class="rssNews__title"]/text()'))
@@ -885,10 +870,9 @@ class Fixture(FlashScoreItem):
         """Update red cards & dispatch event."""
         self._update_cards("_cards_away", value)
 
-    @property
     async def base_embed(self) -> Embed:
         """Return a preformatted discord embed for a generic Fixture"""
-        e: Embed = await self.competition.base_embed
+        e: Embed = await self.competition.base_embed()
         e.url = self.link
         e.colour = self.state.colour
         e.set_author(name=self.score_line)

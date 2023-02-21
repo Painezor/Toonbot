@@ -38,8 +38,7 @@ class UrbanView(BaseView):
     """Generic View to paginate through multiple definitions"""
 
     def __init__(self, interaction: Interaction, embeds: list[Embed]) -> None:
-        super().__init__()
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
         self.index = 0
         self.pages: list[Embed] = embeds
 

@@ -30,9 +30,7 @@ class DiceBox(BaseView):
     """A View with buttons for various dice"""
 
     def __init__(self, interaction: Interaction) -> None:
-        super().__init__()
-        self.interaction = interaction
-        self.bot: Bot = interaction.client
+        super().__init__(interaction)
         self.rolls: list[list[int]] = []
 
     async def on_timeout(self) -> Message:
@@ -87,10 +85,8 @@ class CoinView(BaseView):
     """A View with a counter for 2 results"""
 
     def __init__(self, interaction: Interaction, count: int = 1) -> None:
-        super().__init__()
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
         self.flip_results: list[str] = []
-        self.bot: Bot = interaction.client
         for x in range(count):
             self.flip_results.append(choice(['H', 'T']))
 

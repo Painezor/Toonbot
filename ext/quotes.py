@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import random
 from importlib import reload
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
+import discord
 from asyncpg import UniqueViolationError, Record
 from discord import Embed, ButtonStyle, Interaction, Colour, Message, Member, HTTPException
 from discord.app_commands import Group, context_menu, describe, autocomplete, Choice, AppCommandError
@@ -112,23 +113,19 @@ class RandomQuote(Button):
 
 class QuotesView(BaseView):
     """Generic Paginator that returns nothing."""
-    bot: ClassVar[Bot]
-
     def __init__(self, interaction: Interaction, all_guilds: bool = False) -> None:
-        super().__init__()
+        super().__init__(interaction)
         self.all_quotes: list[Record] = self.bot.quotes
         self.guild_quotes: list[Record] = [i for i in self.all_quotes if i['guild_id'] == interaction.guild.id]
         self.pages: list[Record] = []
         self.index: int = 0
-
-        self.interaction = interaction
         self.all_guilds = all_guilds
 
         self.jump_button = None
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
-        v = BaseView()
+        v = discord.ui.View()
         if self.jump_button is not None:
             v.add_item(self.jump_button)
 

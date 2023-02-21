@@ -77,14 +77,10 @@ class PollView(BaseView):
     """View for a poll commands"""
 
     def __init__(self, interaction: Interaction, question: str, answers: list[str], minutes: int, votes: int) -> None:
-        self.interaction: Interaction = interaction
         self.question: str = question
         self.votes: dict[str, list[int]] = {k: [] for k in answers}
-        self.bot: Bot = interaction.client
-
         self.ends_at: Timestamp = Timestamp(utcnow() + timedelta(minutes=minutes))
-
-        super().__init__()
+        super().__init__(interaction)
 
         # Validate Uniqueness.
         if votes > 1 or len(self.votes) > 5:

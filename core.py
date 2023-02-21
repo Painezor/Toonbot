@@ -33,7 +33,7 @@ discord.utils.setup_logging()
 with open('credentials.json') as f:
     credentials = load(f)
 
-COGS = ['errors',  # Utility Cogs
+COGS = ['reply',  # Utility Cogs
         # Slash commands.
         'metatoonbot',
         'admin', 'bans', 'fixtures', 'images', 'info', 'logs', 'lookup', 'memes', 'mod', 'nufc', 'poll', 'quotes',

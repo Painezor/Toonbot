@@ -12,6 +12,7 @@ from discord.ui import View, Button
 from flatten_dict import flatten, unflatten
 
 from ext.painezbot_utils.ship import Ship, Artillery
+from ext.utils import view_utils
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import FuncButton, FuncDropdown, BaseView
 
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
 # TODO: Pull Achievement Data to specifically get Jolly Rogers and Hurricane Emblems for player stats.
 # TODO: Player's Ranked Battle Season History
 # TODO: Clan Battle Season objects for Images for Leaderboard.
+# TODO: Yeet old FuncDropdown shit and replace with Funcables
 
 
 class Achievement:
@@ -299,7 +301,7 @@ class Player:
 
     def view(self, interaction: Interaction, mode: GameMode, div_size: int, ship: Ship = None) -> PlayerView:
         """Return a PlayerVIew of this Player"""
-        return PlayerView(self.bot, interaction, self, mode, div_size, ship)
+        return PlayerView(interaction, self, mode, div_size, ship)
 
 
 class ClanButton(Button):
@@ -321,13 +323,10 @@ class ClanButton(Button):
 
 class PlayerView(BaseView):
     """A View representing a World of Warships player"""
-    bot: PBot = None
 
-    def __init__(self, bot: PBot, interaction: Interaction, player: Player, mode: GameMode,
+    def __init__(self, interaction: Interaction, player: Player, mode: GameMode,
                  div_size: int, ship: Ship = None) -> None:
-        super().__init__()
-        self.bot: PBot = bot
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
 
         # Passed
         self.player: Player = player
@@ -700,7 +699,7 @@ class PlayerView(BaseView):
                                      row=0, emoji=Artillery.emoji))
 
         f = self.mode_stats
-        options = []
+        options: list[view_utils.Funcable] = []
         for num, i in enumerate([i for i in self.bot.modes if i.tag not in ["EVENT", "BRAWL", "PVE_PREMADE"]]):
             # We can't fetch CB data without a clan.
             if i.tag == "CLAN" and not self.player.clan:

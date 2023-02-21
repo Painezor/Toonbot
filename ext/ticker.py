@@ -57,10 +57,9 @@ class TickerEvent:
         _ticker_tasks.add(task)
         task.add_done_callback(_ticker_tasks.discard)
 
-    @property
     async def _embed(self) -> Embed:
         """The embed for the fixture event."""
-        e = await self.fixture.base_embed
+        e = await self.fixture.base_embed()
         e.title = self.fixture.score_line
         e.url = self.fixture.url
         e.colour = self.event_type.colour
@@ -110,10 +109,9 @@ class TickerEvent:
         self.embed = e
         return e
 
-    @property
     async def _full_embed(self) -> Embed:
         """Extended Embed with all events for Extended output event_type"""
-        e = await self._embed
+        e = await self._embed()
 
         if self.event is not None and len(self.fixture.events) > 1:
             e.description += "\n```yaml\n--- Previous Events ---```"
@@ -188,9 +186,9 @@ class TickerEvent:
             await sleep(x + 1 * 120)
 
         if self.long:
-            await self._full_embed
+            await self._full_embed()
         else:
-            await self._embed
+            await self._embed()
 
         for ch in self.channels:
             await ch.dispatch(self)
@@ -430,11 +428,8 @@ class RemoveLeague(Select):
 
 class TickerConfig(BaseView):
     """Match Event Ticker View"""
-    bot: ClassVar[Bot] = None
-
     def __init__(self, interaction: Interaction, tc: TickerChannel):
-        super().__init__()
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
         self.tc: TickerChannel = tc
         self.index: int = 0
         self.pages: list[Embed] = []

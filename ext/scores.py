@@ -175,12 +175,9 @@ class ScoreChannel:
 # TODO: Figure out how to monitor page for changes rather than repeated scraping. Then Update iteration style.
 class ScoresConfig(BaseView):
     """Generic Config View"""
-    bot: ClassVar[Bot]
-
     def __init__(self, interaction: Interaction, channel: ScoreChannel) -> None:
-        super().__init__()
+        super().__init__(interaction)
         self.sc: ScoreChannel = channel
-        self.interaction: Interaction = interaction
         self.pages: list[Embed] = []
         self.index: int = 0
 
@@ -367,7 +364,7 @@ class Scores(Cog):
         comps = set(i.competition for i in self.bot.games)
 
         for comp in comps.copy():
-            e = deepcopy(await comp.base_embed)
+            e = deepcopy(await comp.base_embed())
             fix = sorted([i for i in self.bot.games if i.competition == comp],
                          key=lambda c: now if c.kickoff is None else c.kickoff)
 

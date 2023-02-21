@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 from random import randrange
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING
 
 from discord import Embed
 from discord.app_commands import Group
@@ -18,12 +18,9 @@ if TYPE_CHECKING:
 
 class XKCDView(BaseView):
     """A View to browse XKCD Comics"""
-    bot: ClassVar[Bot]
-
     def __init__(self, interaction: Interaction, index: int = 0):
-        self.interaction: Interaction = interaction
         self.index: int = index
-        super().__init__()
+        super().__init__(interaction)
 
     async def update(self):
         """Get the latest version of the view."""

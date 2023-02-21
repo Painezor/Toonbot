@@ -18,9 +18,16 @@ logger = logging.getLogger("view_utils")
 
 class BaseView(View):
     """Error Handler."""
+    bot: ClassVar[Bot | PBot]
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, interaction: Interaction, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__class__.bot = interaction.client
+        self.interaction: Interaction = interaction
+
+    async def interaction_check(self, interaction: Interaction) -> bool:
+        """Make sure only the person running the command can select options"""
+        return self.interaction.user.id == interaction.user.id
 
     async def on_error(self, interaction: Interaction, error: Exception, item):
         """Log the stupid fucking error"""
@@ -208,12 +215,11 @@ class PageSelect(Select):
 class ObjectSelectView(BaseView):
     """Generic Object Select and return"""
     def __init__(self, interaction: Interaction, objects: list[Any], timeout: int = 180) -> None:
-        self.interaction: Interaction = interaction
         self.value: Any = None  # As Yet Unset
         self.index: int = 0
         self.objects: list = objects
         self.pages: list[list[Any]] = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
-        super().__init__(timeout=timeout)
+        super().__init__(interaction, timeout=timeout)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Assure only the command's invoker can select a result"""
@@ -363,14 +369,10 @@ class FuncDropdown(Select):
 
 class Paginator(BaseView):
     """Generic Paginator that returns nothing."""
-    bot: ClassVar[Bot | PBot] = None
-
     def __init__(self, interaction: Interaction, embeds: list[Embed]) -> None:
-        super().__init__()
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
         self.pages: list[Embed] = embeds
         self.index: int = 0
-        self.__class__.bot = interaction.client
 
     async def on_timeout(self) -> Message:
         """Remove buttons and dropdowns when listening stops."""
@@ -392,8 +394,7 @@ class Confirmation(BaseView):
 
     def __init__(self, interaction: Interaction, label_a: str = "Yes", label_b: str = "No",
                  colour_a: ButtonStyle = None, colour_b: ButtonStyle = None) -> None:
-        super().__init__()
-        self.interaction = interaction
+        super().__init__(interaction)
         self.add_item(BoolButton(label=label_a, colour=colour_a))
         self.add_item(BoolButton(label=label_b, colour=colour_b, value=False))
         self.value = None

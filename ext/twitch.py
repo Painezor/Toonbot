@@ -36,7 +36,7 @@ TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.
 
 class Contributor:
     """An Object representing a World of Warships CC"""
-    bot: ClassVar[PBot] = None
+    bot: ClassVar[PBot]
 
     def __init__(self, name: str, links: list[str], language: list[str], region: 'Region'):
         self.name: str = name
@@ -266,11 +266,8 @@ async def language_ac(interaction: Interaction, current: str) -> list[Choice]:
 
 class TrackerConfig(BaseView):
     """Config View for a Twitch Tracker channel"""
-    bot: ClassVar[PBot]
-
     def __init__(self, interaction: Interaction, tc: TrackerChannel):
-        super().__init__()
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
         self.tc: TrackerChannel = tc
         self.index: int = 0
         self.pages: list[Embed] = []

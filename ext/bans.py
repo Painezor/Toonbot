@@ -25,9 +25,7 @@ class BanView(BaseView):
     """View to hold the BanList"""
 
     def __init__(self, interaction: Interaction, bans: list[BanEntry]) -> None:
-        super().__init__()
-        self.interaction = interaction
-        self.message = None
+        super().__init__(interaction)
         self.bot: Bot | PBot = interaction.client
 
         self.pages = [bans[i:i + 25] for i in range(0, len(bans), 25)]
@@ -35,10 +33,6 @@ class BanView(BaseView):
 
         self.bans = bans
         self.page_bans: list[BanEntry] = []
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Make sure only the person running the command can select options"""
-        return self.interaction.user.id == interaction.user.id
 
     @property
     def embed(self) -> Embed:

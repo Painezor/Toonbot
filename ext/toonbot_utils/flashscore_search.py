@@ -56,8 +56,8 @@ locales = {
 }
 
 
-async def fs_search(interaction: Interaction, query: str, mode: Literal['comp', 'team'], get_recent: bool = False) \
-        -> fs.Competition | fs.Team | Message:
+async def fs_search(interaction: Interaction, query: str, mode: Literal['comp', 'team']) -> list[fs.FlashScoreItem] \
+                                                                                            | Message:
     """Fetch a list of items from flashscore matching the user's query"""
     query = quote(query.translate(dict.fromkeys(map(ord, "'[]#<>"), None)))
 
@@ -113,31 +113,7 @@ async def fs_search(interaction: Interaction, query: str, mode: Literal['comp', 
 
     if not results:
         return await interaction.client.error(f"Flashscore Search: No results found for {query}")
-
-    if len(results) == 1:
-        fsr = next(results)
-    else:
-        view = view_utils.ObjectSelectView(interaction, [('🏆', str(i), i.link) for i in results], timeout=60)
-        await view.update()
-        await view.wait()
-        if view.value is None:
-            return None
-        fsr = results[view.value]
-
-    if not get_recent:
-        return fsr
-
-    if not (items := await fsr.results()):
-        return await interaction.client.error(interaction, f"No recent games found for {fsr.title}")
-
-    view = view_utils.ObjectSelectView(interaction, objects=[("⚽", i.score_line, f"{i.competition}") for i in items],
-                                       timeout=60)
-    await view.wait()
-
-    if view.value is None:
-        return await interaction.client.error(interaction, 'Timed out waiting for you to select a recent game.')
-
-    return items[view.value]
+    return results
 
 # Old Version
 # async def search(interaction: Interaction, query: str, mode: Literal['comp', 'team'], get_recent: bool = False) \

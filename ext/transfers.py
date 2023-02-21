@@ -36,7 +36,6 @@ class TransferChannel:
     bot: ClassVar[Bot] = None
 
     def __init__(self, channel: TextChannel) -> None:
-
         self.channel: TextChannel = channel
         self.leagues: list[tfm.Competition] = []
 
@@ -175,11 +174,9 @@ class RemoveLeague(Select):
 
 class TransfersConfig(BaseView):
     """View for configuring Transfer Tickers"""
-    bot: ClassVar[Bot]
-
     def __init__(self, interaction: Interaction, tc: TransferChannel):
-        super().__init__()
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
+
         self.tc: TransferChannel = tc
         self.index: int = 0
         self.pages: list[Embed] = []

@@ -4,6 +4,7 @@ from __future__ import annotations  # Cyclic Type hinting
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
+import discord
 from asyncpg import Record
 from discord import Embed, Interaction, Message, Colour, TextChannel, ButtonStyle, HTTPException
 from discord.app_commands import command, describe, guild_only, default_permissions, autocomplete, Choice
@@ -133,7 +134,7 @@ class Article:
                 e.colour = region.colour
                 break
 
-        v = BaseView()
+        v = discord.ui.View()
         for region in Region:
             if getattr(self, region.db_key):
                 url = f"https://worldofwarships.{region.domain}/en/{self.partial}"
@@ -185,18 +186,16 @@ class NewsChannel:
 
     async def send_config(self, interaction: Interaction) -> Message:
         """Send the config view to the requesting user"""
-        view = NewsConfig(self.bot, interaction, self.channel)
+        view = NewsConfig(interaction, self.channel)
         return await view.update()
 
 
 class NewsConfig(BaseView):
     """News Tracker Config View"""
 
-    def __init__(self, bot: PBot, interaction: Interaction, channel: TextChannel) -> None:
-        super().__init__()
-        self.interaction: Interaction = interaction
+    def __init__(self, interaction: Interaction, channel: TextChannel) -> None:
+        super().__init__(interaction)
         self.channel: TextChannel = channel
-        self.bot: PBot = bot
 
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""

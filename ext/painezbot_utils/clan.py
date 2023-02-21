@@ -634,17 +634,12 @@ class ClanView(BaseView):
 
 class Leaderboard(BaseView):
     """Leaderboard View with dropdowns."""
-    bot: ClassVar[PBot] = None
-
     def __init__(self, interaction: Interaction, clans: list[Clan]) -> None:
-        super().__init__()
+        super().__init__(interaction)
 
-        self.interaction: interaction = interaction
         self.index: int = 0  # Pages.
         self.pages: list[Embed] = []  # Embeds
         self.clans: list[Clan] = clans  # Rank, Clan
-
-        self.__class__.bot = interaction.client
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Only invoker may browse data."""

@@ -50,7 +50,7 @@ class DiscordColours(Enum):
     Yellow = 'yellow'
 
 
-async def colour_ac(interaction: Interaction, current: str) -> list[Choice]:
+async def colour_ac(_: Interaction, current: str) -> list[Choice]:
     """Return from list of colours"""
     return [Choice(name=i.value, value=i.value) for i in DiscordColours if current.lower() in i.value.lower()][:25]
 

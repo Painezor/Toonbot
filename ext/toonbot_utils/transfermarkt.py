@@ -4,7 +4,7 @@ from __future__ import annotations  # Cyclic Type hinting
 import logging
 from copy import deepcopy
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional, ClassVar
+from typing import Optional
 
 from discord import Interaction, Embed, Colour, Message, SelectOption
 from discord.ui import Select
@@ -15,8 +15,6 @@ from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import FuncButton, add_page_buttons, Parent, BaseView
 
-if TYPE_CHECKING:
-    from core import Bot
 
 FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/Transfermarkt_favicon.png"
 TF = "https://www.transfermarkt.co.uk"
@@ -24,11 +22,11 @@ TF = "https://www.transfermarkt.co.uk"
 
 class SearchResult:
     """A result from a transfermarkt search"""
-    emoji: str = None
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
         self.name: str = name
         self.link: str = link
+        self.emoji: str = None
         self.country: list[str] = kwargs.pop('country', [])
 
     def __repr__(self) -> str:
@@ -256,17 +254,12 @@ class Transfer:
 
 class TeamView(BaseView):
     """A View representing a Team on TransferMarkt"""
-    bot: ClassVar[Bot] = None
-
     def __init__(self, interaction: Interaction, team: Team) -> None:
-        super().__init__()
+        super().__init__(interaction)
         self.team: Team = team
-        self.interaction: Interaction = interaction
         self.index: int = 0
         self.pages: list[Embed] = []
         self.parent: BaseView = None
-
-        self.__class__.bot = interaction.client
 
     async def on_timeout(self) -> Message:
         """Clean up"""
@@ -553,17 +546,12 @@ class StadiumAttendance:
 
 class CompetitionView(BaseView):
     """A View representing a competition on TransferMarkt"""
-    bot: ClassVar[Bot] = None
-
     def __init__(self, interaction: Interaction, comp: Competition) -> None:
-        super().__init__()
+        super().__init__(interaction)
         self.comp: Competition = comp
-        self.interaction: Interaction = interaction
         self.index: int = 0
         self.pages: list[Embed] = []
         self.parent: BaseView = None
-
-        self.__class__.bot = interaction.client
 
     async def on_timeout(self) -> Message:
         """Clean up"""
@@ -667,25 +655,19 @@ class SearchSelect(Select):
 
 class SearchView(BaseView):
     """A TransferMarkt Search in View Form"""
-    bot: ClassVar[Bot] = None
     query_string: str = None  # Should be Polymorphed
     match_string: str = None  # Should be Polymorphed
     category: str = None  # Should be Polymorphed
 
     def __init__(self, interaction: Interaction, query: str, fetch: bool = False) -> None:
-        super().__init__()
+        super().__init__(interaction)
 
         self.index: int = 0
         self.value: Optional[Team | Competition] = None
         self.pages: list[Embed] = []
-
         self.query: str = query
         self.fetch: bool = fetch
-        self.interaction: Interaction = interaction
-
         self._results: list = []
-
-        self.__class__.bot = interaction.client
 
     def parse(self, rows: list) -> None:
         """This should always be polymorphed"""

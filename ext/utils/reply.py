@@ -7,12 +7,13 @@ import discord
 from discord import Embed, Interaction, Message, Colour, InteractionResponse
 from discord.app_commands import AppCommandError, BotMissingPermissions, MissingPermissions
 from discord.ext.commands import Cog, NotOwner
-from discord.ui import View
 
 from ext.quotes import TargetOptedOutError, OptedOutError
 from ext.utils import view_utils
 
 from typing import TYPE_CHECKING
+
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from core import Bot
@@ -28,9 +29,7 @@ async def error(i: Interaction, content: str, message: Message = None, followup:
 
     kwargs.pop('view', None)
 
-
-    v = View()
-    v.interaction = i
+    v = BaseView(i)
     v.add_item(view_utils.Stop())
     return await reply(i, message=message, embed=e, ephemeral=True, followup=followup, view=v, **kwargs)
 

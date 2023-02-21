@@ -253,19 +253,17 @@ class Blog:
 class DevBlogView(BaseView):
     """Browse Dev Blogs"""
 
-    def __init__(self, bot: PBot, interaction: Interaction, pages: list[Record]) -> None:
-        super().__init__()
-        self.interaction: Interaction = interaction
+    def __init__(self, interaction: Interaction, pages: list[Record]) -> None:
+        super().__init__(interaction)
         self.pages: list[Blog] = pages
         self.index: int = 0
-        self.bot: PBot = bot
 
     async def update(self) -> Message:
         """Push the latest version of the view to discord."""
         self.clear_items()
         add_page_buttons(self)
         e = await self.pages[self.index].parse()
-        return await self.bot.reply(self.interaction, embed=e, ephemeral=True)
+        return await self.interaction.client.reply(self.interaction, embed=e, ephemeral=True)
 
 
 async def db_ac(interaction: Interaction, current: str) -> list[Choice]:
@@ -394,7 +392,7 @@ class DevBlog(Cog):
             # If a specific blog is not selected, send the browser view.
             s = search.lower()
             matches = [i for i in self.bot.dev_blog_cache if s in f"{i.title} {i.text}".lower()]
-            view = DevBlogView(self.bot, interaction, pages=matches)
+            view = DevBlogView(interaction, pages=matches)
             return await view.update()
 
     @Cog.listener()

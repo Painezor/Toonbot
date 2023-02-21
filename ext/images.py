@@ -22,11 +22,8 @@ if TYPE_CHECKING:
 class ImageView(BaseView):
     """Holder View for Image Manipulation functions."""
 
-    def __init__(self, bot: Bot, interaction: Interaction, user: User = None, link: str = None,
+    def __init__(self, interaction: Interaction, user: User = None, link: str = None,
                  file: Attachment = None) -> None:
-
-        self.bot: Bot = bot
-        self.interaction: Interaction = interaction
 
         if link is not None:
             self.target_url = link
@@ -48,7 +45,7 @@ class ImageView(BaseView):
         self._with_knob: bytes = None
         self._with_ruins: bytes = None
 
-        super().__init__()
+        super().__init__(interaction)
 
     async def get_faces(self) -> Optional[Message]:
         """Retrieve face features from Project Oxford"""
@@ -272,7 +269,7 @@ class Images(Cog):
                    file: Attachment = None) -> Message:
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
         await interaction.response.defer(thinking=True)
-        return await ImageView(self.bot, interaction, link=link, user=user, file=file).push_eyes()
+        return await ImageView(interaction, link=link, user=user, file=file).push_eyes()
 
     @images.command()
     @describe(user="Select a user", link="Provide a link to an image", file="Upload a file")
@@ -280,7 +277,7 @@ class Images(Cog):
                     file: Attachment = None) -> Message:
         """Local man ruins everything"""
         await interaction.response.defer(thinking=True)
-        return await ImageView(self.bot, interaction, link=link, user=user, file=file).push_ruins()
+        return await ImageView(interaction, link=link, user=user, file=file).push_ruins()
 
     @images.command()
     @describe(user="pick a user", link="provide a link", file="upload a file")
@@ -288,7 +285,7 @@ class Images(Cog):
                        file: Attachment = None) -> Message:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
         await interaction.response.defer()
-        return await ImageView(self.bot, interaction, link=link, user=user, file=file).push_bob()
+        return await ImageView(interaction, link=link, user=user, file=file).push_bob()
 
     @images.command()
     @guild_only()

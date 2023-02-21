@@ -9,13 +9,13 @@ from dateutil.relativedelta import relativedelta
 from discord import Embed, Interaction, HTTPException, TextStyle, Message
 from discord.app_commands import Group, context_menu
 from discord.ext.commands import Cog
-from discord.ui import Button, Modal, TextInput
+from discord.ui import Button, Modal, TextInput, View
 from discord.utils import sleep_until, utcnow
 
 from ext.utils import view_utils
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Paginator, BaseView
+from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
@@ -80,14 +80,13 @@ class RemindModal(Modal):
         await self.bot.reply(interaction, embed=e, ephemeral=True)
 
 
-class ReminderView(BaseView):
+class ReminderView(View):
     """View for user requested reminders"""
 
     def __init__(self, bot: Bot, r: Record):
         super().__init__(timeout=None)
         self.bot: Bot = bot
         self.record: Record = r
-        self.message: Optional[Message] = None
 
     async def dispatch(self):
         """Send message to appropriate destination"""
@@ -106,10 +105,10 @@ class ReminderView(BaseView):
         self.add_item(view_utils.Stop(row=0))
 
         try:
-            self.message = await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
+            await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
         except HTTPException:
             try:
-                self.message = await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
+                await self.bot.get_user(r["user_id"]).send(embed=e, view=self)
             except HTTPException:
                 pass
 
