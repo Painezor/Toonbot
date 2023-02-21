@@ -254,20 +254,13 @@ class Transfer:
 
 class TeamView(BaseView):
     """A View representing a Team on TransferMarkt"""
+
     def __init__(self, interaction: Interaction, team: Team) -> None:
         super().__init__(interaction)
         self.team: Team = team
         self.index: int = 0
         self.pages: list[Embed] = []
         self.parent: BaseView = None
-
-    async def on_timeout(self) -> Message:
-        """Clean up"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify user of view is correct user."""
-        return interaction.user.id == self.interaction.user.id
 
     async def update(self, content: str = None) -> Message:
         """Send the latest version of the view"""
@@ -552,14 +545,6 @@ class CompetitionView(BaseView):
         self.index: int = 0
         self.pages: list[Embed] = []
         self.parent: BaseView = None
-
-    async def on_timeout(self) -> Message:
-        """Clean up"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify user of view is correct user."""
-        return interaction.user.id == self.interaction.user.id
 
     async def update(self, content: str = None) -> Message:
         """Send the latest version of the view"""

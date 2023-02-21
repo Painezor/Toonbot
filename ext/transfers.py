@@ -181,10 +181,6 @@ class TransfersConfig(BaseView):
         self.index: int = 0
         self.pages: list[Embed] = []
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify interactor is person who ran command."""
-        return self.interaction.user.id == interaction.user.id
-
     async def on_timeout(self) -> Message:
         """Hide menu on timeout."""
         try:

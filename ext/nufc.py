@@ -202,10 +202,6 @@ class MbembaView(BaseView):
     def __init__(self, interaction: Interaction) -> None:
         super().__init__(interaction)
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only person invoking the command can re-roll it."""
-        return interaction.user.id == self.interaction.user.id
-
     async def update(self, content: str = None) -> Message:
         """Regenerate the embed and push to view."""
         self.clear_items()

@@ -128,12 +128,7 @@ class QuotesView(BaseView):
         v = discord.ui.View()
         if self.jump_button is not None:
             v.add_item(self.jump_button)
-
         return await self.bot.reply(self.interaction, view=v, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of interaction"""
-        return self.interaction.user.id == interaction.user.id
 
     async def update(self) -> Message:
         """Refresh the view and send to user"""

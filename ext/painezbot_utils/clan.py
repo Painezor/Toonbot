@@ -461,13 +461,8 @@ class Clan:
 
 class ClanView(BaseView):
     """A View representing a World of Warships Clan"""
-    bot: PBot = None
-
     def __init__(self, interaction: Interaction, clan: Clan, parent: tuple[View, str] = None) -> None:
-        super().__init__()
-        self.__class__.bot = interaction.client
-
-        self.interaction: Interaction = interaction
+        super().__init__(interaction)
         self.clan: Clan = clan
         self.embed: Optional[Embed] = None
         self.index: int = 0
@@ -479,14 +474,6 @@ class ClanView(BaseView):
             self.parent, self.parent_name = None, None
 
         self._disabled: Optional[str] = None
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of command."""
-        return self.interaction.user.id == interaction.user.id
-
-    async def on_timeout(self) -> Message:
-        """Hide buttons on view timeout"""
-        return await self.bot.reply(self.interaction, view=None)
 
     @property
     def base_embed(self) -> Embed:
@@ -640,10 +627,6 @@ class Leaderboard(BaseView):
         self.index: int = 0  # Pages.
         self.pages: list[Embed] = []  # Embeds
         self.clans: list[Clan] = clans  # Rank, Clan
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Only invoker may browse data."""
-        return self.interaction.user.id == interaction.user.id
 
     async def update(self) -> Message:
         """Push the latest version of the view to the user"""

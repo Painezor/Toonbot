@@ -29,6 +29,10 @@ class BaseView(View):
         """Make sure only the person running the command can select options"""
         return self.interaction.user.id == interaction.user.id
 
+    async def on_timeout(self) -> Message:
+        """Cleanup"""
+        return await self.bot.reply(self.interaction, view=None, followup=False)
+
     async def on_error(self, interaction: Interaction, error: Exception, item):
         """Log the stupid fucking error"""
         logger.error(f"{error}")
@@ -221,10 +225,6 @@ class ObjectSelectView(BaseView):
         self.pages: list[list[Any]] = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
         super().__init__(interaction, timeout=timeout)
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.interaction.user.id
-
     def embed(self) -> Embed:
         """Embeds look prettier, ok?"""
         e = Embed()
@@ -374,14 +374,6 @@ class Paginator(BaseView):
         self.pages: list[Embed] = embeds
         self.index: int = 0
 
-    async def on_timeout(self) -> Message:
-        """Remove buttons and dropdowns when listening stops."""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of interaction"""
-        return self.interaction.user.id == interaction.user.id
-
     async def update(self, content: str = None) -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
@@ -398,10 +390,6 @@ class Confirmation(BaseView):
         self.add_item(BoolButton(label=label_a, colour=colour_a))
         self.add_item(BoolButton(label=label_b, colour=colour_b, value=False))
         self.value = None
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify only invoker of command can use the buttons."""
-        return interaction.user.id == self.interaction.user.id
 
 
 class BoolButton(Button):

@@ -121,14 +121,6 @@ class CompetitionView(view_utils.BaseView):
         self._team_filter: list[str] = []
         self._filter_mode: str = "goals"
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.interaction.user.id
-
-    async def on_timeout(self) -> Message:
-        """Cleanup"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
     async def update(self, content: str = None) -> Message:
         """Send the latest version of the CompetitionView to the user"""
         self.clear_items()
@@ -281,14 +273,6 @@ class TeamView(view_utils.BaseView):
         # Disable buttons when changing pages.
         # Page buttons have their own callbacks so cannot be directly passed to update
         self._disabled: str = None
-
-    async def on_timeout(self) -> Message:
-        """Cleanup"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.interaction.user.id
 
     async def update(self, content: str = None) -> Message:
         """Push the latest version of the TeamView to the user"""
@@ -446,14 +430,6 @@ class FixtureView(view_utils.BaseView):
     def __init__(self, interaction: Interaction, fixture: fs.Fixture) -> None:
         self.fixture: fs.Fixture = fixture
         super().__init__(interaction)
-
-    async def on_timeout(self) -> Message:
-        """Cleanup"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Assure only the command's invoker can select a result"""
-        return interaction.user.id == self.interaction.user.id
 
     async def send(self, embed, file=None):
         """Handle refreshing of file more gracefully."""
@@ -870,11 +846,20 @@ class FixtureSelect(view_utils.BaseView):
         e = Embed(title='Choose a Fixture', description="")
 
         for fixture in targets:
-            d.add_option(label=fixture.score_line, description=fixture.competition)
+            d.add_option(label=fixture.score_line, description=fixture.competition, value=fixture.score_line)
             e.description += f"{fixture.bold_markdown}\n"
         self.add_item(d)
         view_utils.add_page_buttons(self, 1)
         return await self.interaction.client.reply(embed=e, view=self)
+
+
+async def choose_recent_fixture(interaction: Interaction, fsr: fs.Competition | fs.Team):
+    """Allow the user to choose from the most recent games of a fixture"""
+    await (v := FixtureSelect(interaction, (fixtures := await fsr.fixtures()))).update()
+    await v.wait()
+    if not v.value:
+        return
+    return next(i for i in fixtures if i.score_line == v.value)
 
 
 class Fixtures(Cog):
@@ -1115,8 +1100,9 @@ class Fixtures(Cog):
         """Look up the table for a fixture."""
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
-            if isinstance((fix := await fs_search(interaction, fixture, mode="team", get_recent=True)), Message | None):
-                return fix
+            if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
+                return fsr
+            fix = await choose_recent_fixture(interaction, fsr)
         return await FixtureView(interaction, fix).table()
 
     @fixture.command()
@@ -1126,8 +1112,9 @@ class Fixtures(Cog):
         """Look up the stats for a fixture."""
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
-            if isinstance((fix := await fs_search(interaction, fixture, mode="team", get_recent=True)), Message | None):
-                return fix
+            if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
+                return fsr
+            fix = await choose_recent_fixture(interaction, fsr)
         return await FixtureView(interaction, fix).stats()
 
     @fixture.command()
@@ -1137,8 +1124,9 @@ class Fixtures(Cog):
         """Look up the lineups and/or formations for a Fixture."""
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
-            if isinstance((fix := await fs_search(interaction, fixture, mode="team", get_recent=True)), Message | None):
-                return fix
+            if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
+                return fsr
+            fix = await choose_recent_fixture(interaction, fsr)
         return await FixtureView(interaction, fix).lineups()
 
     @fixture.command()
@@ -1148,8 +1136,9 @@ class Fixtures(Cog):
         """Get a summary for a fixture"""
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
-            if isinstance((fix := await fs_search(interaction, fixture, mode="team", get_recent=True)), Message | None):
-                return fix
+            if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
+                return fsr
+            fix = await choose_recent_fixture(interaction, fsr)
         return await FixtureView(interaction, fix).summary()
 
     @fixture.command(name="h2h")
@@ -1159,8 +1148,9 @@ class Fixtures(Cog):
         """Lookup the head-to-head details for a Fixture"""
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
-            if isinstance((fix := await fs_search(interaction, fixture, mode="team", get_recent=True)), Message | None):
-                return fix
+            if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
+                return fsr
+            fix = await choose_recent_fixture(interaction, fsr)
         return await FixtureView(interaction, fix).h2h()
 
     # UNIQUE commands
@@ -1188,29 +1178,3 @@ class Fixtures(Cog):
 async def setup(bot: Bot):
     """Load the fixtures Cog into the bot"""
     await bot.add_cog(Fixtures(bot))
-
-
-# if len(results) == 1:
-#     fsr = results[0]
-# else:
-#     view = view_utils.ObjectSelectView(interaction, [('🏆', str(i), i.link) for i in results], timeout=60)
-#     await view.update()
-#     await view.wait()
-#     if view.value is None:
-#         return None
-#     fsr = results[view.value]
-#
-# if not get_recent:
-#     return fsr
-#
-# if not (items := await fsr.results()):
-#     return await interaction.client.error(interaction, f"No recent games found for {fsr.title}")
-#
-# view = view_utils.ObjectSelectView(interaction, objects=[("⚽", i.score_line, f"{i.competition}") for i in items],
-#                                    timeout=60)
-# await view.wait()
-#
-# if view.value is None:
-#     return await interaction.client.error(interaction, 'Timed out waiting for you to select a recent game.')
-#
-# return items[view.value]

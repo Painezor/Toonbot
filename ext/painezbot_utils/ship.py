@@ -319,7 +319,6 @@ class ShipView(BaseView):
         self.fitting: Fitting = ship.default_fit
         self.disabled: Optional[Callable] = None
 
-    @property
     def base_embed(self) -> Embed:
         """Get a generic embed for the ship"""
         prem = any([self.ship.is_premium, self.ship.is_special])
@@ -339,13 +338,6 @@ class ShipView(BaseView):
             e.set_thumbnail(url=self.ship.images['contour'])
         return e
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of command."""
-        return self.interaction.user.id == interaction.user.id
-
-    async def on_timeout(self) -> Message:
-        """Clear the view"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def aircraft(self) -> Message:
         """Get information about the ship's Aircraft"""

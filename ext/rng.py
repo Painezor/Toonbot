@@ -33,14 +33,6 @@ class DiceBox(BaseView):
         super().__init__(interaction)
         self.rolls: list[list[int]] = []
 
-    async def on_timeout(self) -> Message:
-        """Clear view"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of interaction"""
-        return self.interaction.user.id == interaction.user.id
-
     async def update(self) -> Message:
         """Update embed and push to view"""
         e: Embed = Embed(colour=Colour.og_blurple(), description="")
@@ -89,14 +81,6 @@ class CoinView(BaseView):
         self.flip_results: list[str] = []
         for x in range(count):
             self.flip_results.append(choice(['H', 'T']))
-
-    async def on_timeout(self) -> Message:
-        """Clear view"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of interaction"""
-        return self.interaction.user.id == interaction.user.id
 
     async def update(self, content: str = None) -> Message:
         """Update embed and push to view"""

@@ -181,14 +181,6 @@ class ScoresConfig(BaseView):
         self.pages: list[Embed] = []
         self.index: int = 0
 
-    async def on_timeout(self) -> Message:
-        """Hide menu on timeout."""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify user of view is correct user."""
-        return interaction.user.id == self.interaction.user.id
-
     async def update(self, content: str = None) -> Message:
         """Push the newest version of view to message"""
         self.clear_items()

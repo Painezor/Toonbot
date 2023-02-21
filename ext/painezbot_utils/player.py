@@ -340,15 +340,6 @@ class PlayerView(BaseView):
         # Generated
         self._disabled: Optional[Callable] = None
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify clicker is owner of command."""
-        return self.interaction.user.id == interaction.user.id
-
-    async def on_timeout(self) -> Message:
-        """Hide buttons on view timeout"""
-        return await self.bot.reply(self.interaction, view=None)
-
-    @property
     async def base_embed(self) -> Embed:
         """Base Embed used for all sub embeds."""
         e = Embed()
