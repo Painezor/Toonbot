@@ -4,16 +4,17 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from json import load
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from discord import Embed, Interaction, Message
 from discord.app_commands import command, describe, autocomplete, Choice
 from discord.ext import commands
 from lxml import html
 
+from ext.utils import view_utils
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import ObjectSelectView, Paginator
+from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
@@ -26,6 +27,36 @@ HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleW
 # TODO: Team / League Split
 # TODO: Initial Passover of fixture upon view creation to get all available buttons.
 # TODO: Make functions for all buttons.
+
+# TODO: New Version of Select View
+class TVSelect(view_utils.BaseView):
+    """View for asking user to select a specific fixture"""
+
+    def __init__(self, interaction: Interaction, teams: list):
+        super().__init__(interaction)
+
+        self.interaction: Interaction = interaction
+        self.teams: list = teams
+
+        # Pagination
+        self.index: int = 0
+        self.pages: list[list] = [self.teams[i:i + 25] for i in range(0, len(self.teams), 25)]
+
+        # Final result
+        self.value: Any = None  # As Yet Unset
+
+    async def update(self):
+        """Handle Pagination"""
+        targets: list = self.pages[self.index]
+        d = view_utils.ItemSelect(placeholder="Please choose a Team")
+        e = Embed(title='Choose a Team', description="")
+
+        for team in targets:
+            d.add_option(emoji='📺', label=team, value=self.bot.tv[team])
+            e.description += f"{team}\n"
+        self.add_item(d)
+        view_utils.add_page_buttons(self, 1)
+        return await self.interaction.client.reply(embed=e, view=self)
 
 
 async def tv_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
@@ -46,6 +77,7 @@ class Tv(commands.Cog):
     @autocomplete(team=tv_ac)
     async def tv(self, interaction: Interaction, team: str = None) -> Message:
         """Lookup next televised games for a team"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         e: Embed = Embed(colour=0x034f76)
@@ -61,22 +93,10 @@ class Tv(commands.Cog):
                 if not (matches := [i for i in self.bot.tv if team.lower() in i.lower()]):
                     return await self.bot.error(interaction, f"Could not find a matching team for {team}.")
 
-                if len(objects := [('📺', i, self.bot.tv[i]) for i in matches]) > 1:
-                    view = ObjectSelectView(interaction, objects=objects)
-                    e.description = '⏬ Multiple results found, choose from the dropdown.'
-                    await self.bot.reply(interaction, embed=e, view=view)
-                    await view.update()
-                    await view.wait()
-
-                    if view.value is None:
-                        return await self.bot.error(interaction, "Timed out waiting for you to select an option")
-
-                    result = matches[view.value]
-                else:
-                    result = matches[0]
-
-                e.url = self.bot.tv[result]
-                e.title = f"Televised Fixtures for {result}"
+                await (view := TVSelect(interaction, matches)).update()
+                await view.wait()
+                e.url = self.bot.tv[view.value[0]]
+                e.title = f"Televised Fixtures for {view.value[0]}"
         else:
             e.url = "http://www.livesoccertv.com/schedules/"
             e.title = f"Today's Televised Matches"

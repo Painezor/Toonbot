@@ -93,6 +93,7 @@ class BanSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """When the select is triggered"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         return await self.view.unban(self.values)
 
@@ -145,6 +146,7 @@ class BanCog(Cog):
     @bot_has_permissions(ban_members=True)
     async def ban(self, interaction: Interaction):
         """Bans a list of user IDs"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.send_modal(BanModal(self.bot))
 
     @command()
@@ -153,6 +155,7 @@ class BanCog(Cog):
     @bot_has_permissions(ban_members=True)
     async def banlist(self, interaction: Interaction, name: str = None) -> Message:
         """Show the ban list for the server"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         # Exhaust All Bans.

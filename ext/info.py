@@ -11,6 +11,7 @@ from discord.app_commands import command, guild_only, describe, Group
 from discord.ext.commands import Cog
 from discord.utils import utcnow
 
+from ext.logs import stringify_mfa
 from ext.utils.embed_utils import get_colour, rows_to_embeds
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import Paginator
@@ -30,6 +31,7 @@ class Info(Cog):
     @describe(user="Select a user")
     async def avatar(self, interaction: Interaction, user: User | Member = None) -> Message:
         """Shows a member's avatar"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         if user is None:
@@ -47,6 +49,7 @@ class Info(Cog):
     @describe(channel="select a channel")
     async def channel(self, interaction: Interaction, channel: GuildChannel):
         """Get information about a channel"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         base_embed = Embed(description=f"{channel.mention}\n\n", timestamp=channel.created_at)
@@ -187,6 +190,7 @@ class Info(Cog):
     @describe(role="select a role")
     async def role(self, interaction: Interaction, role: Role):
         """Get information about a channel"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         e = Embed(description=f"{role.mention}\n\n", colour=role.colour)
@@ -240,6 +244,7 @@ class Info(Cog):
     @describe(emoji="enter a list of emotes")
     async def info_emote(self, interaction: Interaction, emoji: str) -> Message:
         """View a bigger version of an Emoji"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         embeds = []
@@ -270,6 +275,7 @@ class Info(Cog):
     @guild_only()
     async def server(self, interaction: Interaction) -> Message:
         """Shows information about the server"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         g = interaction.guild
@@ -295,9 +301,9 @@ class Info(Cog):
             pass
 
         cover.description += f"**Members**: {len(g.members)}\n"
-        cover.description += f"**Notification Settings**: {g.default_notifications.name.replace('_', ' ').title()}\n"
-        cover.description += f"**MFA-Level**: {g.mfa_level.name.replace('_', ' ').title()}\n"
-        cover.description += f"**Explicit Content Check**: {g.explicit_content_filter.name.replace('_', ' ').title()}\n"
+        cover.description += f"**Notification Settings**: {g.default_notifications}\n"
+        cover.description += f"**MFA-Level**: {stringify_mfa(g.mfa_level)}\n"
+        cover.description += f"**Explicit Content Check**: {g.explicit_content_filter}\n"
         cover.description += f"**Locale**: {g.preferred_locale}\n"
 
         if desc := g.description:
@@ -394,6 +400,7 @@ class Info(Cog):
     async def user(self, interaction: Interaction, member: Member) -> Message:
         """Show info about this member."""
         # Embed 1: Generic Info
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         base_embed: Embed = Embed(colour=member.accent_colour, timestamp=utcnow())

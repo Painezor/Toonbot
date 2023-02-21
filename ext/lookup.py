@@ -27,6 +27,7 @@ class Lookup(Cog):
     @describe(query="Enter a player name")
     async def lookup_player(self, interaction: Interaction, query: str):
         """Search for a player on TransferMarkt"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await tfm.PlayerSearch(interaction, query).update()
 
@@ -34,6 +35,7 @@ class Lookup(Cog):
     @describe(query="Enter a team name")
     async def lookup_team(self, interaction: Interaction, query: str):
         """Search for a team on TransferMarkt"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await tfm.TeamSearch(interaction, query).update()
 
@@ -41,6 +43,7 @@ class Lookup(Cog):
     @describe(query="Enter a club official name")
     async def lookup_staff(self, interaction: Interaction, query: str):
         """Search for a club official on TransferMarkt"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await tfm.StaffSearch(interaction, query).update()
 
@@ -48,6 +51,7 @@ class Lookup(Cog):
     @describe(query="Enter a referee name")
     async def lookup_referee(self, interaction: Interaction, query: str):
         """Search for a referee on TransferMarkt"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await tfm.RefereeSearch(interaction, query).update()
 
@@ -55,6 +59,7 @@ class Lookup(Cog):
     @describe(query="Enter a competition name")
     async def lookup_competition(self, interaction: Interaction, query: str):
         """Search for a competition on TransferMarkt"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await tfm.CompetitionSearch(interaction, query).update()
 
@@ -62,6 +67,7 @@ class Lookup(Cog):
     @describe(query="Enter an agency name")
     async def lookup_agent(self, interaction: Interaction, query: str):
         """Search for an agency on TransferMarkt"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await tfm.AgentSearch(interaction, query).update()
 
@@ -71,6 +77,7 @@ class Lookup(Cog):
     @describe(team_name="enter a team name to search for")
     async def listing(self, interaction: Interaction, team_name: str) -> Message:
         """Get this window's transfers for a team on transfermarkt"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
         await view.update()
@@ -83,6 +90,7 @@ class Lookup(Cog):
     @describe(team_name="enter a team name to search for")
     async def rumours(self, interaction: Interaction, team_name: str) -> Optional[Message]:
         """Get the latest transfer rumours for a team"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
@@ -96,6 +104,7 @@ class Lookup(Cog):
     @describe(team_name="enter a team name to search for")
     async def contracts(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's expiring contracts"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
@@ -109,6 +118,7 @@ class Lookup(Cog):
     @describe(team_name="enter a team name to search for")
     async def trophies(self, interaction: Interaction, team_name: str) -> Message:
         """Get a team's trophy case"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         view = tfm.TeamSearch(interaction, team_name, fetch=True)
@@ -122,6 +132,7 @@ class Lookup(Cog):
     @describe(league_name="enter a league name to search for")
     async def attendance(self, interaction: Interaction, league_name: str) -> Message:
         """Get a list of a league's average attendances."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         view = tfm.CompetitionSearch(interaction, league_name, fetch=True)

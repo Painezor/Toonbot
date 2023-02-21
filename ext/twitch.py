@@ -366,6 +366,7 @@ class Untrack(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """When a league is selected, delete channel / league row from DB"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         return await self.view.remove_tracked(self.values)
 
@@ -549,6 +550,7 @@ class TwitchTracker(Cog):
     @describe(cc="Get streamers who specifically are or are not members of the CC program")
     async def streams(self, interaction: Interaction, cc: bool = None) -> Message:
         """Get a list of everyone currently streaming World of Warships on Twitch"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
 
         streams = await self.bot.twitch.fetch_streams(game_ids=[WOWS_GAME_ID])
@@ -574,6 +576,7 @@ class TwitchTracker(Cog):
     async def cc(self, interaction: Interaction, search: str = None, region: REGIONS = None, language: str = None) \
             -> Message:
         """Fetch The List of all CCs"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         ccs = self.bot.contributors
@@ -605,6 +608,7 @@ class TwitchTracker(Cog):
     @describe(role='Role to track Twitch Go Lives from', channel='Add to Which channel?')
     async def add(self, interaction: Interaction, role: Role, channel: TextChannel = None) -> Message:
         """Add a role of this discord to the twitch tracker."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel
@@ -626,6 +630,7 @@ class TwitchTracker(Cog):
     @describe(channel="Manage which channel's Trackers?")
     async def manage(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View or remove tracked twitch go live roles"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel

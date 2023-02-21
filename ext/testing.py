@@ -36,6 +36,7 @@ class Test(commands.Cog):
     @guilds(250252535699341312)
     async def lootboxes(self, interaction: Interaction):
         """Get lootbox data."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()
         page.on('request', lambda request: self.bot.loop.create_task(self.get_request(request)))

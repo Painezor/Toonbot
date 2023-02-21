@@ -129,6 +129,7 @@ class ResetLeagues(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         await self.view.reset_leagues()
         self.view.interaction = interaction
@@ -142,6 +143,7 @@ class DeleteTicker(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         await self.view.delete_ticker()
         self.view.interaction = interaction
@@ -168,6 +170,7 @@ class RemoveLeague(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """When a league is selected"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         return await self.view.remove_leagues([i for i in self.leagues if i.link in self.values])
 
@@ -511,6 +514,7 @@ class Transfers(Cog):
     @describe(channel="Manage which channel?")
     async def manage_transfers(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View the config of this channel's transfer ticker"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel
@@ -528,6 +532,7 @@ class Transfers(Cog):
     @describe(league_name="Search for a league name")
     async def add_league_tf(self, interaction: Interaction, league_name: str, channel: TextChannel = None) -> Message:
         """Add a league to your transfer ticker channel(s)"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel

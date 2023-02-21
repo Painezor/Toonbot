@@ -317,6 +317,7 @@ class ClanButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Change message of interaction to a different ship"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         return await self.clan.view(self.interaction, parent=self.parent).overview()
 
@@ -433,7 +434,7 @@ class PlayerView(BaseView):
 
         logging.info(f'Found clan battle stats {stats}')
 
-        e = await self.base_embed
+        e = await self.base_embed()
         e.title = f"Clan Battles (Season {self.cb_season})"
         e.description = f"**Win Rate**: {round(stats.win_rate, 2)}% ({stats.battles} battles played)\n" \
                         f"**Average Damage**: {format(round(stats.average_damage, 0), ',')}\n" \
@@ -443,7 +444,7 @@ class PlayerView(BaseView):
 
     async def weapons(self) -> Message:
         """Get the Embed for a player's weapons breakdown"""
-        e = await self.base_embed
+        e = await self.base_embed()
         e.title, p_stats = await self.filter_stats()
 
         if mb := p_stats.pop('main_battery', {}):
@@ -523,7 +524,7 @@ class PlayerView(BaseView):
     async def overview(self) -> Message:
         """Push an Overview of the player to the View"""
         desc = []  # Build The description piecemeal then join at the very end.
-        e = await self.base_embed
+        e = await self.base_embed()
         e.title, p_stats = await self.filter_stats()
 
         if self.player.stats_updated_at is not None:
@@ -561,7 +562,7 @@ class PlayerView(BaseView):
     async def mode_stats(self, mode: GameMode, div_size: int = 0):
         """Get the player's stats for the specific game mode"""
         # Don't remove data from original player object.
-        e = await self.base_embed
+        e = await self.base_embed()
         desc = []
 
         match mode.tag:

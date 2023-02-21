@@ -112,6 +112,29 @@ class PBot(AutoShardedBot):
 
 		logging.info(f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}\n{"-" * 30}')
 
+	def get_clan(self, clan_id: int) -> Clan:
+		"""Get a Clan object from Stored Clans"""
+		try:
+			clan = next(i for i in self.clans if i.clan_id == clan_id)
+		except StopIteration:
+			clan = Clan(self, clan_id)
+			self.clans.append(clan)
+		return clan
+
+	def get_player(self, account_id: int) -> Player:
+		"""Get a Player object from those stored within the bot, or generate a new one."""
+		try:
+			return next(i for i in self.players if i.account_id == account_id)
+		except StopIteration:
+			p = Player(account_id)
+			self.players.append(p)
+			return p
+
+	def get_ship_type(self, match: str) -> ShipType:
+		"""Get a ShipType object matching a string"""
+		return next(i for i in self.ship_types if i.match == match)
+
+
 	async def setup_hook(self):
 		"""Load Cogs asynchronously"""
 		self.browser = await make_browser(self)

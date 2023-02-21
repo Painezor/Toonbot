@@ -102,6 +102,7 @@ class UrbanDictionary(Cog):
     @autocomplete(term=ud_ac)
     async def search(self, interaction: Interaction, term: str) -> UrbanView | Message:
         """Lookup a definition from Urban Dictionary"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get(f"http://api.urbandictionary.com/v0/define?term={term}") as resp:
             match resp.status:
@@ -115,6 +116,7 @@ class UrbanDictionary(Cog):
     @ud.command()
     async def random(self, interaction: Interaction) -> UrbanView | Message:
         """Get some random definitions from Urban Dictionary"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get("https://api.urbandictionary.com/v0/random") as resp:
             match resp.status:
@@ -126,6 +128,7 @@ class UrbanDictionary(Cog):
     @ud.command()
     async def word_of_the_day(self, interaction: Interaction) -> UrbanView | Message:
         """Get the Word of the Day from Urban Dictionary"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get("https://api.urbandictionary.com/v0/words_of_the_day") as resp:
             match resp.status:

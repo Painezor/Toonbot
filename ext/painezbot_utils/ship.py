@@ -225,7 +225,7 @@ class Ship:
 
     def view(self, interaction: Interaction):
         """Get a view to browse this ship's data"""
-        return ShipView(self.bot, interaction, self)
+        return ShipView(interaction, self)
 
 
 class ShipSentinel(Enum):
@@ -303,6 +303,7 @@ class ShipButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Change message of interaction to a different ship"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         return await self.ship.view(self.interaction).overview()
 
@@ -310,10 +311,8 @@ class ShipButton(Button):
 class ShipView(BaseView):
     """A view representing a ship, with buttons to change between different menus."""
 
-    def __init__(self, bot: PBot, interaction: Interaction, ship: Ship) -> None:
-        super().__init__()
-        self.bot: PBot = bot
-        self.interaction: Interaction = interaction
+    def __init__(self, interaction: Interaction, ship: Ship) -> None:
+        super().__init__(interaction)
         self.ship: Ship = ship
 
         self.fitting: Fitting = ship.default_fit
@@ -338,13 +337,12 @@ class ShipView(BaseView):
             e.set_thumbnail(url=self.ship.images['contour'])
         return e
 
-
     async def aircraft(self) -> Message:
         """Get information about the ship's Aircraft"""
         if not self.fitting.data:
             await self.fitting.get_params()
 
-        e = self.base_embed
+        e = self.base_embed()
 
         # Rocket Planes are referred to as 'Fighters'
         if (rp := self.fitting.data['fighters']) is not None:
@@ -393,7 +391,7 @@ class ShipView(BaseView):
         if not self.fitting.data:
             await self.fitting.get_params()
 
-        e = self.base_embed
+        e = self.base_embed()
 
         desc = []
 
@@ -447,7 +445,7 @@ class ShipView(BaseView):
         if not self.fitting.data:
             await self.fitting.get_params()
 
-        e = self.base_embed
+        e = self.base_embed()
 
         # Guns
         mb = self.fitting.data['artillery']
@@ -486,7 +484,7 @@ class ShipView(BaseView):
         if not self.fitting.data:
             await self.fitting.get_params()
 
-        e = self.base_embed
+        e = self.base_embed()
 
         trp = self.fitting.data['torpedoes']
         for tube in trp['slots']:
@@ -519,7 +517,7 @@ class ShipView(BaseView):
 
         params = self.fitting.data
 
-        e = self.base_embed
+        e = self.base_embed()
         tier = self.ship.tier
         slots = self.ship.mod_slots
 
@@ -627,6 +625,7 @@ class ModuleSelect(Select):
 
     async def callback(self, interaction: Interaction) -> None:
         """Mount each selected module into the fitting."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         v: ShipView = self.view
         for value in self.values:

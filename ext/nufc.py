@@ -220,6 +220,7 @@ class MbembaButton(Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """When clicked, re roll."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         await self.view.update()
 

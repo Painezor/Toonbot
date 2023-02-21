@@ -237,6 +237,7 @@ class NUFCSidebar(Cog):
     @describe(image="Upload a new sidebar image", caption="Set a new Sidebar Caption")
     async def sidebar(self, interaction: Interaction, caption: str = None, image: Attachment = None) -> Message:
         """Upload an image to the sidebar, or edit the caption."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         # Check if message has an attachment, for the new sidebar image.
         e: Embed = Embed(color=0xff4500, url="http://www.reddit.com/r/NUFC")

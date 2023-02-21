@@ -92,7 +92,6 @@ class Stadium:
     def __str__(self) -> str:
         return f"**{self.name}** ({self.country}: {self.team})"
 
-    @property
     async def to_embed(self) -> Embed:
         """Create a discord Embed object representing the information about a football stadium"""
         e: Embed = Embed(title=self.name, url=self.url)

@@ -632,6 +632,7 @@ class SearchSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Competition | Team:
         """Set view value to item."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         self.view.value = self.objects[int(self.values[0])]
         self.view.stop()

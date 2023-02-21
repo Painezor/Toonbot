@@ -12,7 +12,7 @@ from discord.ext.commands import Cog
 from discord.ui import View, Button
 from unidecode import unidecode
 
-from ext.painezbot_utils.clan import ClanBuilding, League, Leaderboard, Clan
+from ext.painezbot_utils.clan import ClanBuilding, League, Leaderboard
 from ext.painezbot_utils.player import Region, Map, GameMode, Player
 from ext.painezbot_utils.ship import Nation, ShipType, Ship, ShipSentinel
 from ext.utils.embed_utils import rows_to_embeds
@@ -114,15 +114,6 @@ OM_CA = {6: ['Tier 3 Plating'],
 # TODO: Calculation of player's PR
 # https://wows-numbers.com/personal/rating
 
-def get_player(bot: PBot, account_id: int) -> Player:
-    """Get a Player object from those stored within the bot, or generate a new one."""
-    try:
-        return next(i for i in bot.players if i.account_id == account_id)
-    except StopIteration:
-        p = Player(account_id)
-        bot.players.append(p)
-        return p
-
 
 def get_ship(self, identifier: str | int) -> Ship | ShipSentinel | None:
     """Get a Ship object from a list of the bots ships"""
@@ -139,21 +130,6 @@ def get_ship(self, identifier: str | int) -> Ship | ShipSentinel | None:
                 return next(i for i in ShipSentinel if i.id == identifier)
             except StopIteration:
                 return logger.error(f'Unrecognised ShipID {identifier}')
-
-
-def get_clan(self, clan_id: int) -> Clan:
-    """Get a Clan object from Stored Clans"""
-    try:
-        clan = next(i for i in self.clans if i.clan_id == clan_id)
-    except StopIteration:
-        clan = Clan(self, clan_id)
-        self.clans.append(clan)
-    return clan
-
-
-def get_ship_type(self, match: str) -> ShipType:
-    """Get a ShipType object matching a string"""
-    return next(i for i in self.ship_types if i.match == match)
 
 
 # Autocomplete.
@@ -256,7 +232,7 @@ async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 
     choices = []
     for i in clans.pop('data', []):
-        clan = bot.get_clan(i['clan_id'])
+        clan = interaction.client.get_clan(i['clan_id'])
         clan.tag = i['tag']
         clan.name = i['name']
         choices.append(Choice(name=f"[{clan.tag}] {clan.name}", value=str(clan.clan_id)))
@@ -276,10 +252,6 @@ class Warships(Cog):
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
-        self.bot.get_player = get_player
-        self.bot.get_clan = get_clan
-        self.bot.get_ship = get_ship
-        self.bot.get_ship_type = get_ship_type
 
         # override our custom classes.
         Player.bot = bot
@@ -473,6 +445,7 @@ class Warships(Cog):
     async def code(self, interaction: Interaction, code: str, contents: str,
                    eu: bool = True, na: bool = True, asia: bool = True) -> Message:
         """Send a message with region specific redeem buttons"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         regions = []
@@ -489,6 +462,7 @@ class Warships(Cog):
     @default_permissions(manage_messages=True)
     async def code_cis(self, interaction: Interaction, code: str, contents: str) -> Message:
         """Send a message with a region specific redeem button"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await self.send_code(interaction, code, regions=['cis'], contents=contents)
 
@@ -506,6 +480,7 @@ class Warships(Cog):
     @describe(name="Search for a map by name")
     async def map(self, interaction: Interaction, name: str) -> Message:
         """Fetch a map from the world of warships API"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         if not self.bot.maps:
@@ -577,6 +552,7 @@ class Warships(Cog):
     @describe(name="Search for a ship by it's name")
     async def ship(self, interaction: Interaction, name: str) -> Message:
         """Search for a ship in the World of Warships API"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
 
         if not self.bot.ships:
@@ -598,12 +574,13 @@ class Warships(Cog):
                     division: Range[int, 0, 3] = 0, ship: str = None) -> Message:
         """Search for a player's Stats"""
         _ = region  # Shut up linter.
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         player = self.bot.get_player(int(player_name))
         mode = next(i for i in self.bot.modes if i.tag == mode)
         ship = self.bot.get_ship(ship)
         v = player.view(interaction, mode, division, ship)
-        return await v.mode_stats()
+        return await v.mode_stats(mode)
 
     overmatch = Group(name="overmatch", description="Get information about shell/armour overmatch")
 
@@ -611,6 +588,7 @@ class Warships(Cog):
     @describe(shell_calibre='Calibre of shell to get over match value of')
     async def calibre(self, interaction: Interaction, shell_calibre: int) -> Message:
         """Get information about what a shell's overmatch parameters"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         value = round(shell_calibre / 14.3)
         e = Embed(title=f"{shell_calibre}mm Shells overmatch {value}mm of Armour", colour=0x0BCDFB)
@@ -663,6 +641,7 @@ class Warships(Cog):
     async def search(self, interaction: Interaction, region: REGION, query: Range[str, 2]) -> Message:
         """Get information about a World of Warships clan"""
         _ = region  # Just to shut the linter up.
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         clan = self.bot.get_clan(int(query))
         await clan.get_data()
@@ -672,6 +651,7 @@ class Warships(Cog):
     @describe(region="Get only winners for a specific region")
     async def winners(self, interaction: Interaction, region: REGION = None) -> Message:
         """Get a list of all past Clan Battle Season Winners"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         async with self.bot.session.get('https://clans.worldofwarships.eu/api/ladder/winners/') as resp:

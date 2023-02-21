@@ -75,6 +75,7 @@ class First(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         self.view.index = 0
         return await self.view.update()
@@ -88,6 +89,7 @@ class Previous(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         try:
             self.view.index = max(self.view.index - 1, 0)
@@ -122,6 +124,7 @@ class Jump(Button):
 
     async def callback(self, interaction: Interaction) -> Modal:
         """When button is clicked…"""
+        # noinspection PyUnresolvedReferences
         return await interaction.response.send_modal(JumpModal(self.view))
 
 
@@ -137,6 +140,7 @@ class JumpModal(Modal):
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """Validate entered data & set parent index."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
 
         pages: list = getattr(self.view, "pages", [])
@@ -158,6 +162,7 @@ class Next(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         try:
             if self.view.index + 1 < len(self.view.pages):
@@ -176,6 +181,7 @@ class Last(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         self.view.index = len(getattr(self.view, "pages", []))
         return await self.view.update()
@@ -210,75 +216,23 @@ class PageSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set View Index"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         self.view.index = int(self.values[0]) - 1
         self.view.remove_item(self)
         return await self.view.update()
 
 
-class ObjectSelectView(BaseView):
-    """Generic Object Select and return"""
-    def __init__(self, interaction: Interaction, objects: list[Any], timeout: int = 180) -> None:
-        self.value: Any = None  # As Yet Unset
-        self.index: int = 0
-        self.objects: list = objects
-        self.pages: list[list[Any]] = [self.objects[i:i + 25] for i in range(0, len(self.objects), 25)]
-        super().__init__(interaction, timeout=timeout)
-
-    def embed(self) -> Embed:
-        """Embeds look prettier, ok?"""
-        e = Embed()
-        e.set_author(name="Use the dropdown below")
-        e.description = "\n".join([i[1] for i in self.pages[self.index]])
-        return e
-
-    async def update(self, content: str = None) -> Message:
-        """Send new version of view to user"""
-        self.clear_items()
-        add_page_buttons(self, row=1)
-        self.add_item(ItemSelect(placeholder="Select Matching Item…", options=self.pages[0]))
-        bot: Bot = self.interaction.client
-        return await bot.reply(self.interaction, content=content, view=self, embed=self.embed)
-
-    async def on_timeout(self) -> Message:
-        """Cleanup"""
-        self.clear_items()
-        self.stop()
-        bot: Bot = self.interaction.client
-        return await bot.error(self.interaction, "Timed out waiting for you to select a match.", followup=False)
-
-
-class MultipleSelect(Select):
-    """Select multiple matching items."""
-
-    def __init__(self, placeholder: str, options: list[tuple[str, str, str]], attribute: str, row: int = 0) -> None:
-        self.attribute = attribute
-
-        super().__init__(placeholder=placeholder, max_values=len(list(options)), row=row)
-        for emoji, label, description in options:
-            self.add_option(label=label, emoji=emoji, description=description[:100], value=label)
-
-    async def callback(self, interaction: Interaction) -> Message:
-        """When selected assign view's requested attribute to value of selection."""
-        await interaction.response.defer()
-        setattr(self.view, self.attribute, self.values)
-        self.view.index = 0
-        return await self.view.update()
-
-
 class ItemSelect(Select):
-    """A Dropdown That Returns a Generic Selected Item"""
-
-    def __init__(self, placeholder: str, options: list[tuple[str, str, str]], row: int = 0) -> None:
-        super().__init__(placeholder=placeholder)
-        self.row = row
-        for index, (emoji, label, description) in enumerate(options):
-            self.add_option(emoji=emoji, label=label, description=description[:100], value=str(index))
+    """A Select that sets the view value to one selected item"""
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
 
     async def callback(self, interaction: Interaction) -> None:
         """Response object for view"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
-        self.view.value = self.view.index * 25 + int(self.values[0])
+        self.view.value = self.values
         self.view.stop()
 
 
@@ -326,6 +280,7 @@ class FuncSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Any:
         """The handler for the FuncSelect Dropdown"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         value: Funcable = self.items[self.values[0]]
         return await value.function(*value.args, **value.kw)
@@ -343,6 +298,7 @@ class FuncButton(Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """The Callback performs the passed function with any passed args/kwargs"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         return await self.func(*self.args, **self.kwargs)
 
@@ -360,6 +316,7 @@ class FuncDropdown(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set View Index"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
 
         for k, v in self.raw[index := int(self.values[0])][1].items():

@@ -7,7 +7,7 @@ import logging
 from copy import deepcopy
 from datetime import datetime
 from importlib import reload
-from typing import TYPE_CHECKING, Literal, Callable
+from typing import TYPE_CHECKING, Literal, Callable, Any
 
 # D.py
 import discord
@@ -21,9 +21,10 @@ from lxml import html
 from playwright.async_api import Page
 
 import ext.toonbot_utils.flashscore as fs
+from ext.toonbot_utils import stadiums
 from ext.toonbot_utils.flashscore_search import fs_search
 from ext.toonbot_utils.stadiums import get_stadiums
-from ext.utils import view_utils, embed_utils, flags, image_utils
+from ext.utils import view_utils, embed_utils, image_utils
 from ext.utils.timed_events import Timestamp
 
 if TYPE_CHECKING:
@@ -124,29 +125,6 @@ class CompetitionView(view_utils.BaseView):
     async def update(self, content: str = None) -> Message:
         """Send the latest version of the CompetitionView to the user"""
         self.clear_items()
-
-        if self._filter_mode:
-            # Generate New Dropdowns.
-            players = await self.filter_players()
-
-            # List of Unique team names as Option()s
-            teams = set(i.team for i in players if i.team)
-            teams = sorted(teams, key=lambda t: t.name)
-
-            if opt := [('👕', i.name, i.link) for i in teams]:
-                sel = view_utils.MultipleSelect(placeholder="Filter by Team…", options=opt,
-                                                attribute='team_filter', row=2)
-                if self._team_filter:
-                    sel.placeholder = f"Teams: {', '.join(self._team_filter)}"
-                self.add_item(sel)
-
-            # List of Unique nationalities as Option()s
-            if f := [(flags.get_flag(i), i, '') for i in sorted(set(i.country for i in players if i.country))]:
-                ph = "Filter by Nationality…"
-                sel = view_utils.MultipleSelect(placeholder=ph, options=f, attribute='nationality_filter', row=3)
-                if self._nationality_filter:
-                    sel.placeholder = f"Countries:{', '.join(self._nationality_filter)}"
-                self.add_item(sel)
 
         for button in [view_utils.FuncButton(label="Table", func=self.push_table, emoji="🥇", row=4),
                        view_utils.FuncButton(label="Scorers", func=self.push_scorers, emoji='⚽', row=4),
@@ -816,6 +794,7 @@ class LeagueTableSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Upon Item Selection do this"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer()
         try:
             return await self.view.push_table(self.objects[int(next(self.values))])
@@ -837,12 +816,12 @@ class FixtureSelect(view_utils.BaseView):
         self.pages: list[list[fs.Fixture]] = [self.fixtures[i:i + 25] for i in range(0, len(self.fixtures), 25)]
 
         # Final result
-        self.value: int = None  # As Yet Unset
+        self.value: Any = None  # As Yet Unset
 
     async def update(self):
         """Handle Pagination"""
         targets: list[fs.Fixture] = self.pages[self.index]
-        d = Select(placeholder="Please choose a Fixture")
+        d = view_utils.ItemSelect(placeholder="Please choose a Fixture")
         e = Embed(title='Choose a Fixture', description="")
 
         for fixture in targets:
@@ -853,12 +832,43 @@ class FixtureSelect(view_utils.BaseView):
         return await self.interaction.client.reply(embed=e, view=self)
 
 
+class StadiumSelect(view_utils.BaseView):
+    """View for asking user to select a specific fixture"""
+
+    def __init__(self, interaction: Interaction, stadium_list: list[stadiums.Stadium]):
+        super().__init__(interaction)
+
+        self.interaction: Interaction = interaction
+        self.stadiums: list[stadiums.Stadium] = stadium_list
+
+        # Pagination
+        self.index: int = 0
+        self.pages: list[list[stadiums.Stadium]] = [self.stadiums[i:i + 25] for i in range(0, len(self.stadiums), 25)]
+
+        # Final result
+        self.value: Any = None  # As Yet Unset
+
+    async def update(self):
+        """Handle Pagination"""
+        targets: list[stadiums.Stadium] = self.pages[self.index]
+
+        d = view_utils.ItemSelect(placeholder="Please choose a Stadium")
+        e = Embed(title='Choose a Stadium', description="")
+
+        for i in targets:
+            desc = f"{i.team} ({i.country.upper()}: {i.name})"
+            d.add_option(label=i.name, description=desc, value=i.url)
+            e.description += f"[{desc}]({i.url})\n"
+        self.add_item(d)
+        view_utils.add_page_buttons(self, 1)
+        return await self.interaction.client.reply(embed=e, view=self)
+
+
 async def choose_recent_fixture(interaction: Interaction, fsr: fs.Competition | fs.Team):
     """Allow the user to choose from the most recent games of a fixture"""
     await (v := FixtureSelect(interaction, (fixtures := await fsr.fixtures()))).update()
     await v.wait()
-    if not v.value:
-        return
+
     return next(i for i in fixtures if i.score_line == v.value)
 
 
@@ -870,10 +880,6 @@ class Fixtures(Cog):
         reload(fs)
         reload(view_utils)
         reload(image_utils)
-
-        CompetitionView.bot = bot
-        FixtureView.bot = bot
-        TeamView.bot = bot
 
     # Group Commands for those with multiple available subcommands.
     default = Group(name="default", description="Set the server's default team and competition for commands.",
@@ -888,6 +894,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def default_team(self, interaction: Interaction, team: str) -> Message:
         """Set the default team for your flashscore lookups"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         # Receive Autocomplete.
@@ -913,6 +920,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def default_comp(self, interaction: Interaction, competition: str) -> Message:
         """Set the default competition for your flashscore lookups"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         # Receive Autocomplete.
@@ -935,6 +943,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def fx_team(self, interaction: Interaction, team: str) -> Message:
         """Fetch upcoming fixtures for a team."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message):
@@ -946,6 +955,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def rx_team(self, interaction: Interaction, team: str) -> Message:
         """Get recent results for a Team"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message):
@@ -957,6 +967,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def scorers_team(self, interaction: Interaction, team: str) -> Message:
         """Get top scorers for a team in various competitions."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message):
@@ -968,6 +979,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def team_table(self, interaction: Interaction, team: str) -> Message:
         """Get the Table of one of a Team's competitions"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance(fsr := await fs_search(interaction, team, mode="team"), Message | None):
@@ -979,6 +991,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def fx_comp(self, interaction: Interaction, competition: str) -> Message:
         """Fetch upcoming fixtures for a competition."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance((fsr := await fs_search(interaction, competition, mode="comp")), Message):
@@ -990,6 +1003,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def rx_comp(self, interaction: Interaction, competition: str) -> Message:
         """Get recent results for a competition"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance((fsr := await fs_search(interaction, competition, mode="comp")), Message):
@@ -1001,6 +1015,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def scorers_comp(self, interaction: Interaction, competition: str) -> Message:
         """Get top scorers from a competition."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance((fsr := await fs_search(interaction, competition, mode="comp")), Message):
@@ -1013,6 +1028,7 @@ class Fixtures(Cog):
     @autocomplete(competition=competition_autocomplete_with_defaults)
     async def scores(self, interaction: Interaction, competition: str = None) -> Message:
         """Fetch current scores for a specified competition, or all live games."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         if not self.bot.games:
@@ -1052,6 +1068,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def injuries(self, interaction: Interaction, team: str) -> Message:
         """Get a team's current injuries"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if not (fsr := self.bot.get_team(team)):
             if isinstance(fsr := await fs_search(interaction, team, mode="team"), Message | None):
@@ -1064,6 +1081,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def news(self, interaction: Interaction, team: str) -> Message:
         """Get the latest news for a team"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if not (fsr := self.bot.get_team(team)):
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message | None):
@@ -1075,6 +1093,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def squad(self, interaction: Interaction, team: str) -> Message:
         """Lookup a team's squad members"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if not (fsr := self.bot.get_team(team)):
             if isinstance(fsr := await fs_search(interaction, team, mode="team"), Message | None):
@@ -1086,6 +1105,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def comp_table(self, interaction: Interaction, competition: str) -> Message:
         """Get the Table of a competition"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance(fsr := await fs_search(interaction, competition, mode="comp"), Message | None):
@@ -1098,6 +1118,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def table_fx(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the table for a fixture."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1110,6 +1131,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def stats(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the stats for a fixture."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1122,6 +1144,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def lineups(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the lineups and/or formations for a Fixture."""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1134,6 +1157,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def summary(self, interaction: Interaction, fixture: str) -> Message:
         """Get a summary for a fixture"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1146,6 +1170,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def h2h(self, interaction: Interaction, fixture: str) -> Message:
         """Lookup the head-to-head details for a Fixture"""
+        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1161,18 +1186,17 @@ class Fixtures(Cog):
         # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
-        if not (stadiums := await get_stadiums(self.bot, stadium)):
-            return await self.bot.error(interaction, f"🚫 No stadiums found matching `{stadium}`")
+        if not (std := await get_stadiums(self.bot, stadium)):
+            return await self.bot.error(interaction, f"No stadiums found matching `{stadium}`")
 
-        markers = [("🏟️", i.name, f"{i.team} ({i.country.upper()}: {i.name})") for i in stadiums]
+        view = StadiumSelect(interaction, std)
 
-        view = view_utils.ObjectSelectView(interaction, objects=markers, timeout=30)
         await view.update()
         await view.wait()
         if view.value is None:
             return await self.bot.error(interaction, "Timed out waiting for you to reply", followup=False)
-        embed = await stadiums[view.value].to_embed
-        return await self.bot.reply(interaction, embed=embed)
+        target = next(i for i in std if i.url == view.value[0])
+        return await self.bot.reply(interaction, embed=await target.to_embed())
 
 
 async def setup(bot: Bot):
