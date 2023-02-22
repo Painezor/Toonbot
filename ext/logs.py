@@ -195,7 +195,7 @@ def do_perms(entry: discord.AuditLogEntry,
                 mention = f"<@&{p.target.id}>"
             case discord.AppCommandPermissionType.channel:
                 if isinstance(p.target, discord.app_commands.AllChannels):
-                    mention = f"All Channels: <id:browse>"
+                    mention = "All Channels: <id:browse>"
                 else:
                     mention = f"<#{p.target.id}>"
             case _:
@@ -215,16 +215,18 @@ class Logs(Cog):
         """When the cog loads"""
         await self.update_cache()
 
-    # We don't need to db call every single time an event happens, just when config is updated
-    # So we cache everything and store it in memory instead for performance and sanity reasons.
+    # We don't need to db call every single time an event happens, just when
+    # config is updated So we cache everything and store it in memory
+    # instead for performance and sanity reasons.
     async def update_cache(self) -> None:
         """Get the latest database information and load it into memory"""
-        q = """SELECT * FROM notifications_channels LEFT OUTER JOIN notifications_settings
-            ON notifications_channels.channel_id = notifications_settings.channel_id"""
+        q = """SELECT * FROM notifications_channels LEFT OUTER JOIN
+            notifications_settings ON notifications_channels.channel_id
+            = notifications_settings.channel_id"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 self.bot.notifications_cache = await connection.fetch(q)
-                
+
     async def dispatch(self, channels: list[TextChannel], e: list[Embed], view: discord.ui.View = None):
         """Bulk dispatch messages to their destinations"""
         for ch in channels:
@@ -235,10 +237,14 @@ class Logs(Cog):
 
     def get_channels(self, guild, filters: list[str]):
         """Filter down to the required channels"""
-        channels = [i for i in self.bot.notifications_cache if i['guild_id'] == guild.id]
+        c = self.bot.notifications_cache
+        channels = [i for i in c if i['guild_id'] == guild.id]
         for setting in filters:
             channels = [i for i in channels if i[setting]]
-        return list(filter(None, [self.bot.get_channel(i['channel_id']) for i in channels]))
+
+        channels = [self.bot.get_channel(i['channel_id']) for i in channels]
+        channels = [i for i in channels if i is not None]
+        return channels
 
     # Join messages
     @Cog.listener()
@@ -246,7 +252,7 @@ class Logs(Cog):
         """Event handler to Dispatch new member information for servers that request it"""
         if not (channels := self.get_channels(member.guild, ['joins'])):
             return
-        
+
         # Extended member join information.
         e: Embed = Embed(colour=0x7289DA, title="Member Joined")
         e.set_author(name=f"{member.name} {member.id}", icon_url=member.display_avatar.url)
@@ -260,10 +266,11 @@ class Logs(Cog):
             else:
                 return "Not Started"
 
-        e.description = f"{member.mention}\n" \
-                        f"**Shared Servers**: {len(member.mutual_guilds)}\n" \
-                        f"**Account Created**: {timed_events.Timestamp(member.created_at).date_relative}\n" \
-                        f"**Onboarding Status**?: {onboard()}"
+        ts = timed_events.Timestamp(member.created_at).date_relative
+        e.description = (f"{member.mention}\n"
+                         f"**Shared Servers**: {len(member.mutual_guilds)}\n"
+                         f"**Account Created**: {ts}\n"
+                         f"**Onboarding Status**?: {onboard()}")
 
         flags = []
         pf = member.public_flags
@@ -636,17 +643,22 @@ class Logs(Cog):
             after.description += f"**Owner**: {key['after'].mention if key['after'] else None}\n"
 
         if key := changes.pop("public_updates_channel", False):
-            before.description += f"**Announcement Channel**: " \
-                                  f"{key['before'].mention if key['before'] else None}\n"
-            after.description += f"**Announcement Channel**: {key['after'].mention if key['after'] else None}\n"
+            bf = key['before'].mention if key['before'] else None
+            before.description += f"**Announcement Channel**: {bf}\n"
+            af = key['after'].mention if key['after'] else None
+            after.description += f"**Announcement Channel**: {af}\n"
 
         if key := changes.pop("afk_channel", False):
-            before.description += f"**AFK Channel**: {key['before'].mention if key['before'] else None}\n"
-            after.description += f"**AFK Channel**: {key['after'].mention if key['after'] else None}\n"
+            bf = key['before'].mention if key['before'] else None
+            before.description += f"**AFK Channel**: {bf}\n"
+            af = key['after'].mention if key['after'] else None
+            after.description += f"**AFK Channel**: {af}\n"
 
         if key := changes.pop("rules_channel", False):
-            before.description += f"**Rules Channel**: {key['before'].mention if key['before'] else None}\n"
-            after.description += f"**Rules Channel**: {key['after'].mention if key['after'] else None}\n"
+            bf = key['before'].mention if key['before'] else None
+            before.description += f"**Rules Channel**: {bf}\n"
+            af = key['after'].mention if key['after'] else None
+            after.description += f"**Rules Channel**: {af}\n"
 
         if key := changes.pop("system_channel", False):
             before.description += f"**System Channel**: {key['before'].mention if key['before'] else None}\n"
@@ -693,22 +705,28 @@ class Logs(Cog):
             after.description += f"**MFA Level**: {stringify_mfa(key['after'])}\n"
 
         if key := changes.pop("verification_level", False):
-            before.description += f"**Verification Level**: `{key['before'].name}` " \
-                                  f"{stringify_verification(key['before'])}\n"
-            after.description += f"**Verification Level**: `{key['after'].name}` " \
-                                 f"{stringify_verification(key['after'])}\n"
+            before.description += (f"**Verification Level**: "
+                                   f"{stringify_verification(key['before'])}\n")
+            after.description += (f"**Verification Level**: "
+                                  f"{stringify_verification(key['after'])}\n")
 
         if key := changes.pop("vanity_url_code", False):
-            before.description += f"**Invite URL**: [{key['before']}](https://discord.gg/{key['before']})"
-            after.description += f"**Invite URL**: [{key['after']}](https://discord.gg/{key['after']})"
+            before.description += (f"**Invite URL**: [{key['before']}]"
+                                   "(https://discord.gg/{key['before']})")
+            after.description += (f"**Invite URL**: [{key['after']}]"
+                                  "(https://discord.gg/{key['after']})")
 
         if key := changes.pop("description", False):
             before.add_field(name="**Description**", value=key['before'])
             after.add_field(name="**Description**", value=key['after'])
 
         if key := changes.pop("prune_delete_days", None):
-            before.description += f"**Kick Inactive**: {key['before'] + ' days' if key['before'] else 'Never'}\n"
-            after.description += f"**Kick Inactive**: {key['after'] + ' days' if key['after'] else 'Never'}\n"
+
+            bf = key['before'] + ' days' if key['before'] else 'Never'
+            af = key['after'] + ' days' if key['after'] else 'Never'
+
+            before.description += f"**Kick Inactive**: {bf}\n"
+            after.description += f"**Kick Inactive**: {af}\n"
 
         if key := changes.pop("widget_enabled", None):
             before.description += f"**Widget Enabled**: {key['before']}\n"
@@ -728,16 +746,17 @@ class Logs(Cog):
 
         if key := changes.pop("discovery_splash", None):
             if key['before']:
-                before.description += f"**Discovery Image**: [link]({key['before'].url})\n"
-                before.set_image(url=key['before'].url)
+                b = key['before'].url
+                before.description += f"**Discovery Image**: [link]({b})\n"
+                before.set_image(url=b)
             else:
-                before.description += f"**Discovery Image**: None"
+                before.description += "**Discovery Image**: None"
 
             if key['after']:
                 after.description += f"**Discovery Image**: [link]({key['after'].url})\n"
                 after.set_image(url=key['after'].url)
             else:
-                after.description += f"**Discovery Image**: None"
+                after.description += "**Discovery Image**: None"
 
         if key := changes.pop("banner", None):
             if key['before']:
@@ -749,37 +768,53 @@ class Logs(Cog):
                 after.description += f"**Banner**: [link]({key['after'].url})\n"
                 after.set_image(url=key['after'].url)
             else:
-                after.description += f"**Banner**: None\n"
+                after.description += "**Banner**: None\n"
 
         if key := changes.pop("system_channel_flags", None):
             bf: discord.SystemChannelFlags = key['before']
             af: discord.SystemChannelFlags = key['after']
 
-            if (b := bf.guild_reminder_notifications) != (a := af.guild_reminder_notifications):
-                before.description += f"**Setup Tips**: {'on' if b else 'off'}\n"
-                after.description += f"**Setup Tips**: {'on' if a else 'off'}\n"
+            b = bf.guild_reminder_notifications
+            a = af.guild_reminder_notifications
+            if a != b:
+                o = 'on' if b else 'off'
+                before.description += f"**Setup Tips**: {o}\n"
+                o = "on" if a else "off"
+                after.description += f"**Setup Tips**: {o}\n"
 
             if (b := bf.join_notifications) != (a := af.join_notifications):
-                before.description += f"**Join Notifications**: {'on' if b else 'off'}\n"
-                after.description += f"**Join Notifications**: {'on' if a else 'off'}\n"
+                o = 'on' if b else 'off'
+                before.description += f"**Join Notifications**: {o}\n"
+                o = "on" if a else "off"
+                after.description += f"**Join Notifications**: {o}\n"
 
             if (b := bf.join_notification_replies) != (a := af.join_notification_replies):
                 before.description += f"**Join Stickers**: {'on' if b else 'off'}\n"
                 after.description += f"**Join Stickers**: {'on' if a else 'off'}\n"
 
-            if (b := bf.premium_subscriptions) != (a := af.premium_subscriptions):
-                before.description += f"**Boost Notifications**: {'on' if b else 'off'}\n"
-                after.description += f"**Boost Notifications**: {'on' if a else 'off'}\n"
+            b = bf.premium_subscription
+            a = af.premium_subscriptions
+            if a != b:
+                o = 'on' if b else 'off'
+                before.description += f"**Boost Notifications**: {o}\n"
+                o = 'on' if a else 'off'
+                after.description += f"**Boost Notifications**: {o}\n"
 
-            if (b := bf.role_subscription_purchase_notifications) != \
-                    (a := af.role_subscription_purchase_notifications):
-                before.description += f"**Role Subscriptions**: {'on' if b else 'off'}\n"
-                after.description += f"**Role Subscriptions**: {'on' if a else 'off'}\n"
+            b = bf.role_subscription_purchase_notifications
+            a = af.role_subscription_purchase_notifications
+            if a != b:
+                o = 'on' if b else 'off'
+                before.description += f"**Role Subscriptions**: {o}\n"
+                o = 'on' if a else 'off'
+                after.description += f"**Role Subscriptions**: {o}\n"
 
-            if (b := bf.role_subscription_purchase_notification_replies) != \
-                    (a := af.role_subscription_purchase_notification_replies):
-                before.description += f"**Role Sub Stickers**: {'on' if b else 'off'}\n"
-                after.description += f"**Role Sub Stickers**: {'on' if a else 'off'}\n"
+            b = bf.role_subscription_purchase_notification_replies
+            a = af.role_subscription_purchase_notification_replies
+            if a != b:
+                o = 'on' if b else 'off'
+                before.description += f"**Role Sub Stickers**: {o}\n"
+                o = 'on' if a else 'off'
+                after.description += f"**Role Sub Stickers**: {o}\n"
 
         if changes:
             logging.info(f"Guild Update Changes Remain: {changes}")
@@ -1047,8 +1082,8 @@ class Logs(Cog):
         do_footer(entry, e)
 
         msg = entry.extra.channel.get_partial_message(entry.extra.message_id)
-        e.description = f"{entry.extra.channel.mention} {entry.target.mention}" \
-                        f"\n\n[Jump to Message]({msg.jump_url})"
+        e.description = (f"{entry.extra.channel.mention} {entry.target.mention}"
+                         f"\n\n[Jump to Message]({msg.jump_url})")
 
         return await self.dispatch(channels, [e])
 
@@ -1749,8 +1784,8 @@ class Logs(Cog):
         if isinstance(sticker := entry.target, discord.Object):
             sticker: discord.GuildSticker = self.bot.get_sticker(sticker.id)
 
-        e.description = f":{sticker.emoji}: **{sticker.name}**\n{sticker.url}" \
-                        f"\n\n{sticker.description}"
+        e.description = (f":{sticker.emoji}: **{sticker.name}**\n{sticker.url}"
+                         f"\n\n{sticker.description}")
         e.set_image(url=sticker.url)
 
         if changes:
@@ -2422,9 +2457,9 @@ class Logs(Cog):
             return
 
         e: Embed = Embed(colour=Colour.light_gray(), title="Automod: Message Flagged", timestamp=entry.created_at)
-        e.description = f"{entry.target.mention}: {entry.extra.channel.mention}\n\n" \
-                        f"**Rule**: {entry.extra.automod_rule_name}\n" \
-                        f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}"
+        e.description = (f"{entry.target.mention}: {entry.extra.channel.mention}\n\n"
+                        f"**Rule**: {entry.extra.automod_rule_name}\n"
+                        f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}")
 
         return await self.dispatch(channels, [e])
 
@@ -2434,9 +2469,9 @@ class Logs(Cog):
             return
 
         e: Embed = Embed(colour=Colour.dark_gray(), title="Automod: Message Blocked", timestamp=entry.created_at)
-        e.description = f"{entry.target.mention}: {entry.extra.channel.mention}\n\n" \
-                        f"**Rule**: {entry.extra.automod_rule_name}\n" \
-                        f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}"
+        e.description = (f"{entry.target.mention}: {entry.extra.channel.mention}\n\n"
+                         f"**Rule**: {entry.extra.automod_rule_name}\n"
+                         f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}")
         return await self.dispatch(channels, [e])
 
     async def handle_automod_timeout_member(self, entry: discord.AuditLogEntry):
@@ -2454,9 +2489,9 @@ class Logs(Cog):
                          description="")
 
         member = entry.target
-        e.description = f"{member.mention} in {entry.extra.channel.mention}\n" \
-                        f"**Rule**: {entry.extra.automod_rule_name}\n" \
-                        f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}"
+        e.description = (f"{member.mention} in {entry.extra.channel.mention}\n"
+                         f"**Rule**: {entry.extra.automod_rule_name}\n"
+                         f"**Trigger**: {stringify_trigger_type(entry.extra.automod_rule_trigger_type)}")
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
@@ -2543,8 +2578,8 @@ class Logs(Cog):
         attachments: list[File] = []
 
         for num, z in enumerate(message.attachments, 1):
-            v = f"📎 *Attachment info*: [{z.filename}]({z.proxy_url}) ({z.content_type} - {z.size} bytes)" \
-                f"\n*This is cached and will only be available for a limited time*"
+            v = (f"📎 *Attachment info*: [{z.filename}]({z.proxy_url}) ({z.content_type} - {z.size} bytes)"
+                 f"\n*This is cached and will only be available for a limited time*")
             e.add_field(name=f"Attachment #{num}", value=v)
             try:
                 attachments.append(await z.to_file(spoiler=True, use_cached=True))

@@ -4,8 +4,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from discord import Guild, Member, TextChannel, Interaction, Colour, Embed, HTTPException, Message, TextStyle
-from discord.app_commands import command, describe, default_permissions, guild_only, Choice, autocomplete
+from discord import (Guild, Member, TextChannel, Interaction, Colour, Embed,
+                     HTTPException, Message, TextStyle)
+from discord.app_commands import (command, describe, default_permissions,
+                                  guild_only, Choice, autocomplete)
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Modal, TextInput
@@ -41,7 +43,7 @@ class DiscordColours(Enum):
     Light_Gray = 'light_gray'
     Lighter_Gray = 'lighter_gray'
     Magenta = 'magenta'
-    OG_Blurplee = 'og_blurple'
+    Og_Blurple = 'og_blurple'
     Orange = 'orange'
     Purple = 'purple'
     Random = 'random'
@@ -52,18 +54,29 @@ class DiscordColours(Enum):
 
 async def colour_ac(_: Interaction, current: str) -> list[Choice]:
     """Return from list of colours"""
-    return [Choice(name=i.value, value=i.value) for i in DiscordColours if current.lower() in i.value.lower()][:25]
+    return [Choice(name=i.value, value=i.value) for i in DiscordColours
+            if current.lower() in i.value.lower()][:25]
 
 
 class EmbedModal(Modal, title="Send an Embed"):
     """A Modal to allow the author to send an embedded message"""
-    e_title = TextInput(label="Embed Title", placeholder="Announcement")
-    text = TextInput(label="Embed Text", placeholder="Enter your text here", style=TextStyle.paragraph, max_length=4000)
-    thumbnail = TextInput(label="Thumbnail", placeholder="Enter url for thumbnail image", required=False)
-    image = TextInput(label="Image", placeholder="Enter url for large image", required=False)
 
-    def __init__(self, bot: Bot | PBot, interaction: Interaction, destination: TextChannel, colour: Colour) -> None:
+    e_title = TextInput(label="Embed Title", placeholder="Announcement")
+
+    text = TextInput(label="Embed Text", placeholder="Enter your text here",
+                     style=TextStyle.paragraph, max_length=4000)
+
+    thumbnail = TextInput(label="Thumbnail", required=False,
+                          placeholder="Enter url for thumbnail image")
+
+    image = TextInput(label="Image", placeholder="Enter url for large image",
+                      required=False)
+
+    def __init__(self, bot: Bot | PBot, interaction: Interaction,
+                 destination: TextChannel, colour: Colour) -> None:
+
         super().__init__()
+
         self.bot: Bot | PBot = bot
         self.interaction: Interaction = interaction
         self.destination: TextChannel = destination
@@ -74,14 +87,18 @@ class EmbedModal(Modal, title="Send an Embed"):
         e = Embed(title=self.e_title, colour=self.colour)
 
         try:
-            e.set_author(name=self.interaction.guild.name, icon_url=self.interaction.guild.icon.url)
+            e.set_author(name=self.interaction.guild.name,
+                         icon_url=self.interaction.guild.icon.url)
         except AttributeError:
             e.set_author(name=self.interaction.guild.name)
 
-        if self.image.value is not None and "http:" in self.image.value:
-            e.set_image(url=self.image.value)
-        if self.thumbnail.value is not None and "http:" in self.thumbnail.value:
-            e.set_thumbnail(url=self.thumbnail.value)
+        if self.image.value is not None:
+            if "http:" in self.image.value:
+                e.set_image(url=self.image.value)
+
+        if self.thumbnail.value is not None:
+            if "http:" in self.thumbnail.value:
+                e.set_thumbnail(url=self.thumbnail.value)
 
         e.description = self.text.value
 
@@ -89,7 +106,8 @@ class EmbedModal(Modal, title="Send an Embed"):
             await self.destination.send(embed=e)
             await self.bot.reply(interaction, "Message sent.", ephemeral=True)
         except HTTPException:
-            await self.bot.error(interaction, "I can't send messages to that channel.")
+            err = "I can't send messages to that channel."
+            await self.bot.error(interaction, err)
 
 
 class Mod(Cog):
@@ -102,9 +120,11 @@ class Mod(Cog):
     @guild_only()
     @default_permissions(manage_messages=True)
     @autocomplete(colour=colour_ac)
-    @describe(destination="Choose Target Channel", colour="Choose embed colour")
-    async def embed(self, interaction: Interaction, destination: TextChannel = None, colour: str = 'random') \
-            -> Message:
+    @describe(destination="Choose Target Channel",
+              colour="Choose embed colour")
+    async def embed(self, interaction: Interaction,
+                    destination: TextChannel = None,
+                    colour: str = 'random') -> Message:
         """Send an embedded announcement as the bot in a specified channel"""
 
         await interaction.response.defer(thinking=True, ephemeral=True)
@@ -112,18 +132,24 @@ class Mod(Cog):
         if destination is None:
             destination = interaction.channel
 
-        # In theory this should get the class method from the Colour class and perform it.
-        colour: Colour = getattr(Colour, next((i for i in DiscordColours if i.value == colour), "random"))()
+        # In theory this should get the class method from the
+        # Colour class and perform it.
+        clr = next((i for i in DiscordColours if i.value == colour), "random")
+        colour = getattr(Colour, clr, "random")()
 
         if destination.guild.id != interaction.guild.id:
-            return await self.bot.error(interaction, "You cannot send messages to other servers.")
+            err = "You cannot send messages to other servers."
+            return await self.bot.error(interaction, err)
 
         perms = destination.permissions_for(interaction.guild.me)
+        loc = destination.mention
+
         if not perms.send_messages:
-            err = f"Bot missing permission: {destination.mention} ❌ send_messages"
+            err = f"Bot missing permission: {loc} ❌ send_messages"
             return await self.bot.error(interaction, err)
         if not perms.embed_links:
-            return await self.bot.error(interaction, f"Bot missing permission: {destination.mention} ❌ embed_links")
+            err = f"Bot missing permission: {loc} ❌ embed_links"
+            return await self.bot.error(interaction, err)
 
         modal = EmbedModal(self.bot, interaction, destination, colour)
 
@@ -132,8 +158,10 @@ class Mod(Cog):
     @command()
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
-    @describe(message="Enter a message to send as the bot", destination="Choose Target Channel")
-    async def say(self, interaction: Interaction, message: str, destination: TextChannel = None) -> Message:
+    @describe(message="Enter a message to send as the bot",
+              destination="Choose Target Channel")
+    async def say(self, interaction: Interaction, message: str,
+                  destination: TextChannel = None) -> Message:
         """Say something as the bot in specified channel"""
 
         await interaction.response.defer(thinking=True, ephemeral=True)
@@ -142,16 +170,20 @@ class Mod(Cog):
             destination = interaction.channel
 
         if len(message) > 2000:
-            return await self.bot.error(interaction, "Message too long. Keep it under 2000.")
+            err = "Message too long. Keep it under 2000."
+            return await self.bot.error(interaction, err)
 
         if destination.guild.id != interaction.guild.id:
-            return await self.bot.error(interaction, "You cannot send messages to other servers.")
+            err = "You cannot send messages to other servers."
+            return await self.bot.error(interaction, err)
 
         try:
             await destination.send(message)
-            await interaction.edit_original_response(content="Message sent.")
+            msg = "Message sent."
+            await interaction.edit_original_response(content=msg)
         except HTTPException:
-            return interaction.edit_original_response(content="I can't send messages to that channel.")
+            err = "I can't send messages to that channel."
+            return interaction.edit_original_response(content=err)
 
     @command()
     @default_permissions(manage_messages=True)
@@ -167,23 +199,30 @@ class Mod(Cog):
             return m.author.id == self.bot.user.id
 
         try:
-            d = await interaction.channel.purge(limit=number, check=is_me, reason=f"/clean ran by {interaction.user}")
-            await self.bot.reply(interaction, content=f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}')
+            d = await interaction.channel.purge(
+                limit=number, check=is_me,
+                reason=f"/clean ran by {interaction.user}")
+
+            msg = f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}'
+            await self.bot.reply(interaction, msg)
         except HTTPException:
             pass
 
     @command()
     @default_permissions(moderate_members=True)
     @bot_has_permissions(moderate_members=True)
-    @describe(member="Pick a user to untimeout", reason="Enter the reason for ending the timeout.")
-    async def untimeout(self, interaction: Interaction, member: Member, reason: str = "Not provided"):
+    @describe(member="Pick a user to untimeout",
+              reason="Enter the reason for ending the timeout.")
+    async def untimeout(self, interaction: Interaction, member: Member,
+                        reason: str = "Not provided"):
         """End the timeout for a user."""
         if not member.is_timed_out():
-            return await self.bot.error(interaction, "That user is not timed out.")
+            err = "That user is not timed out."
+            return await self.bot.error(interaction, err)
 
         try:
             await member.timeout(None, reason=f"{interaction.user}: {reason}")
-            e: Embed = Embed(title="User Un-Timed Out", color=Colour.dark_magenta())
+            e = Embed(title="User Un-Timed Out", color=Colour.dark_magenta())
             e.description = f"{member.mention} is no longer timed out."
             await self.bot.reply(interaction, embed=e)
         except HTTPException:
@@ -195,7 +234,8 @@ class Mod(Cog):
         """Create database entry for new guild"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
+                q = """INSERT INTO guild_settings (guild_id) VALUES ($1)
+                       ON CONFLICT DO NOTHING"""
                 await connection.execute(q, guild.id)
 
     @Cog.listener()
@@ -203,7 +243,8 @@ class Mod(Cog):
         """Delete guild's info upon leaving one."""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute("""DELETE FROM guild_settings WHERE guild_id = $1""", guild.id)
+                q = """DELETE FROM guild_settings WHERE guild_id = $1"""
+                await connection.execute(q, guild.id)
 
 
 async def setup(bot: Bot | PBot):

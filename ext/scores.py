@@ -11,8 +11,9 @@ from typing import TYPE_CHECKING, ClassVar
 
 import discord
 from asyncpg import Record
-from discord import TextChannel, ButtonStyle, Colour, Embed,\
-    PermissionOverwrite, Permissions, Message, Forbidden, NotFound
+from discord import (TextChannel, ButtonStyle, Colour, Embed,
+                     PermissionOverwrite, Permissions, Message, Forbidden,
+                     NotFound)
 from discord.app_commands import Group, describe, autocomplete
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -33,9 +34,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("scores")
 
 # Constants.
-NO_GAMES_FOUND = "No games found for your tracked leagues today!" \
-                 "\n\nYou can add more leagues with `/livescores add`" \
-                 "\nTo find out which leagues currently have games, use `/scores`"
+NO_GAMES_FOUND = ("No games found for your tracked leagues today!\n\nYou can"
+                  " add more leagues with `/livescores add`")
 
 
 class ScoreChannel:
@@ -59,15 +59,20 @@ class ScoreChannel:
                     break
 
                 elif f"{tracked} -" in comp.title:
-                    # For Competitions Such as EUROPE: Champions League - Playoffs, where we want fixtures of a part
-                    # of a tournament, we need to do additional checks. We are not, for example, interested in U18, or
+                    # For Competitions Such as
+                    # EUROPE: Champions League - Playoffs,
+                    # where we want fixtures of a part # of a tournament,
+                    # we need to do additional checks. We are not,
+                    # for example, interested in U18, or
                     # women's tournaments unless explicitly tracked
                     for x in ['women', 'u18']:  # List of ignored substrings
                         if x in comp.title and x not in tracked.lower():
-                            # Break without doing anything - this sub-tournament was not requested.
+                            # Break without doing anything
+                            # this sub-tournament was not requested.
                             break
                     else:
-                        # If we do not break, we can fetch the score embeds for that league.
+                        # If we do not break, we can fetch the score embeds
+                        #  for that league.
                         embeds += comp.score_embeds
                         break
 
@@ -77,10 +82,12 @@ class ScoreChannel:
 
     async def get_leagues(self) -> list[str]:
         """Fetch target leagues for the ScoreChannel from the database"""
+
         sql = """SELECT league FROM scores_leagues WHERE channel_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records: list[Record] = await connection.fetch(sql, self.channel.id)
+
+        async with self.bot.db.acquire(timeout=60) as c:
+            async with c.transaction():
+                records: list[Record] = await c.fetch(sql, self.channel.id)
 
         self.leagues = [r['league'] for r in records]
         return self.leagues
@@ -102,20 +109,29 @@ class ScoreChannel:
 
     async def add_leagues(self, leagues: list[str]) -> list[str]:
         """Add a league to the ScoreChannel's tracked list"""
+
+        sql = """INSERT INTO scores_leagues (channel_id, league)
+                 VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-                await connection.executemany(sql, [(self.channel.id, x) for x in leagues])
+                rows = [(self.channel.id, x) for x in leagues]
+                await connection.executemany(sql, rows)
 
         self.leagues += [i for i in leagues if i not in self.leagues]
         return self.leagues
 
     async def remove_leagues(self, leagues: list[str]) -> list[str]:
         """Remove a list of leagues for the channel from the database"""
-        sql = """DELETE from scores_leagues WHERE (channel_id, league) = ($1, $2)"""
+
+        sql = """DELETE from scores_leagues
+                 WHERE (channel_id, league) = ($1, $2)"""
+
+        rows = [(self.channel.id, x) for x in leagues]
+
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.executemany(sql, [(self.channel.id, x) for x in leagues])
+                await connection.executemany(sql, rows)
 
         self.leagues = [i for i in self.leagues if i not in leagues]
         return self.leagues
@@ -138,9 +154,9 @@ class ScoreChannel:
         tuples = list(zip_longest(self.messages, stacked))[:5]
 
         message: Message | None
-        new_embeds: list[Embed]
 
-        # Zip longest will give (, None) in slot [0] // self.messages if we do not have enough messages for the embeds.
+        # Zip longest will give (, None) in slot [0] // self.messages
+        # if we do not have enough messages for the embeds.
         count = 0
         for message, embeds in tuples:
             try:
@@ -220,18 +236,24 @@ class ScoresConfig(BaseView):
             self.add_item(RemoveLeague(leagues, row=0))
         else:
             self.add_item(ResetLeagues())
-            embed.description = f"No tracked leagues for {self.sc.channel.mention}" \
-                                f", would you like to reset it?"
+            c = self.sc.channel.mention
+            d = f"No tracked leagues for {c}, would you like to reset it?"
+            embed.description = d
 
-        return await self.bot.reply(self.interaction, content=content, embed=embed, view=self)
+        return await self.bot.reply(
+            self.interaction, content=content, embed=embed, view=self)
 
     async def remove_leagues(self, leagues: list[str]) -> Message:
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
-        view = Confirmation(self.interaction, label_a="Remove", label_b="Cancel", colour_a=ButtonStyle.red)
+        view = Confirmation(
+            self.interaction, label_a="Remove", label_b="Cancel",
+            colour_a=ButtonStyle.red)
+
         lg_txt = '\n'.join(sorted(leagues))
-        txt = f"Remove these leagues from {self.sc.channel.mention}? ```yaml\n{lg_txt}```"
-        await self.bot.reply(self.interaction, content=txt, embed=None, view=view)
+        c = self.sc.channel.mention
+        txt = f"Remove these leagues from {c}? ```yaml\n{lg_txt}```"
+        await self.bot.reply(self.interaction, txt, embed=None, view=view)
         await view.wait()
 
         if not view.value:
@@ -466,7 +488,8 @@ class Scores(Cog):
                 fixture = fs.Fixture(self.bot)
                 fixture.url = url
 
-                # TODO: Spawn Browser Page Here and do all of the set and forget shit.
+                # TODO: Spawn Browser Page Here
+                # DO all set and forget shit.
                 # Fetch Team Link + ID
                 # Fetch Competition Link + ID
 
@@ -632,10 +655,10 @@ class Scores(Cog):
         self.bot.score_channels.append(sc)
         await sc.reset_leagues()
         try:
-            await sc.channel.send(f'{interaction.user.mention} Welcome to your\
-                                  new livescores channel.\n Use `/livescores\
-                                  add_league` to add new leagues, and\
-                                  `/livescores manage` to remove them')
+            await sc.channel.send(
+                f"{interaction.user.mention} Welcome to your new livescores "
+                "channel.\n Use `/livescores add_league` to add new leagues,"
+                " and `/livescores manage` to remove them")
             msg = f"{channel.mention} created successfully."
             await self.bot.reply(interaction, msg)
         except Forbidden:
@@ -680,10 +703,14 @@ class Scores(Cog):
                 return await self.bot.error(interaction, err)
 
         if res.title == 'WORLD: Club Friendly':
-            return await self.bot.error(interaction, "You can't add club friendlies as a competition, sorry.")
+            err = "You can't add club friendlies as a competition, sorry."
+            return await self.bot.error(interaction, err)
+
         await sc.add_leagues([res.title])
         view = sc.view(interaction)
-        return await view.update(content=f"Added tracked league for {sc.channel.mention}```yaml\n{res}```")
+        s = sc.channel.mention
+        reply = f"Added tracked league for {s}```yaml\n{res}```"
+        return await view.update(content=reply)
 
     # Event listeners for channel deletion or guild removal.
     @Cog.listener()
@@ -691,7 +718,8 @@ class Scores(Cog):
         """Remove all of a channel's stored data upon deletion"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute("""DELETE FROM scores_channels WHERE channel_id = $1""", channel.id)
+                sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
+                await connection.execute(sql, channel.id)
 
         for c in self.bot.score_channels.copy():
             if channel.id == c.channel.id:

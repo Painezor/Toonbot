@@ -14,7 +14,7 @@ from ext.utils.view_utils import BaseView
 if TYPE_CHECKING:
     from core import Bot
     from discord import Interaction
- 
+
 
 class XKCDView(BaseView):
     """A View to browse XKCD Comics"""

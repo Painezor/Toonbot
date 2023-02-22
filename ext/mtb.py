@@ -101,16 +101,21 @@ class MatchThread:
             match = await subreddit.submit(selftext=markdown, title=title)
             await match.load()
             if c:
-                await c.send(f'{self.settings["subreddit"]} Match Thread Posted: {match.url} | <{self.fixture.url}>')
+                sr = self.settings["subreddit"]
+                f = self.fixture.url
+                await c.send(f'{sr} Match Thread Posted: {match.url} | <{f}>')
 
             async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
-                    sql = """UPDATE mtb_history SET match_thread_url = $1 
-                             WHERE (subreddit, fs_link) = ($2, $3) RETURNING *"""
-                    self.record = await connection.fetchrow(sql, match.url, self.settings['subreddit'],
-                                                            self.fixture.url)
+                    sql = """UPDATE mtb_history SET match_thread_url = $1
+                          WHERE (subreddit, fs_link) = ($2, $3) RETURNING *"""
+
+                    self.record = await connection.fetchrow(
+                        sql, match.url, self.settings['subreddit'],
+                        self.fixture.url)
         else:
-            match = await self.bot.reddit.submission(url=self.record["match_thread_url"])
+            r = self.record["match_thread_url"]
+            match = await self.bot.reddit.submission(url=r)
             await match.edit(markdown)
 
         for i in range(300):  # Maximum number of loops.
@@ -137,22 +142,28 @@ class MatchThread:
             post = await subreddit.submit(selftext=markdown, title=title)
             await post.load()
 
-            async with self.bot.db.acquire(timeout=60) as connection:
-                async with connection.transaction():
-                    self.record = await connection.fetchrow("""UPDATE mtb_history SET post_match_url = $1 WHERE 
-                            (subreddit, fs_link) = ($2, $3)""", post.url, self.settings['subreddit'], self.fixture.url)
+            async with self.bot.db.acquire(timeout=60) as con:
+                async with con.transaction():
+                    sql = """UPDATE mtb_history SET post_match_url = $1 WHERE
+                            (subreddit, fs_link) = ($2, $3)"""
+                    f = self.fixture.url
+                    sr = self.settings['subreddit']
+                    self.record = await con.fetchrow(sql, post.url, sr, f)
             if c:
-                await c.send(f'{self.settings["subreddit"]} Post-Match Thread: <{post.url}> | <{self.fixture.url}>')
+                await c.send(f'{sr} Post-Match Thread: <{post.url}> | <{f}>')
 
         else:
-            post = await self.bot.reddit.submission(url=self.record["post_match_url"])
+            p = self.record["post_match_url"]
+            post = await self.bot.reddit.submission(url=p)
 
-        title, markdown = await self.write_markdown(post_match=True)  # Re-write post with actual link in it.
+        # Re-write post with actual link in it.
+        title, markdown = await self.write_markdown(post_match=True) 
         await post.edit(markdown)
 
         # Edit match markdown to include the post-match link.
         _, markdown = await self.write_markdown()
-        match = await self.bot.reddit.submission(url=self.record["match_thread_url"])
+        mt = self.record["match_thread_url"]
+        match = await self.bot.reddit.submission(url=mt)
         await match.edit(markdown)
 
         # Then edit the pre-match thread with both links too.
@@ -351,8 +362,10 @@ class MatchThread:
 
             markdown += str(event)
 
-        markdown += f"\n\n---\n\n{formatted_ticker}\n\n---\n\n^(*Beep boop, I am /u/Toon-bot, a bot coded ^badly by " \
-                    f"/u/Painezor. If anything appears to be weird or off, please let him know.*)"
+        markdown += (f"\n\n---\n\n{formatted_ticker}\n\n---\n\n^(*Beep boop, I"
+                     " am /u/Toon-bot, a bot coded ^badly by /u/Painezor. If "
+                     "anything appears to be weird or off, please let him know"
+                     ".*)")
 
         return title, markdown
 

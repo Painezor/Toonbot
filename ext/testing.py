@@ -13,8 +13,8 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-URI = "https://worldofwarships.eu/en/content/\
-    contents-and-drop-rates-of-containers/"
+URI = ("https://worldofwarships.eu/en/content/"
+       "contents-and-drop-rates-of-containers/")
 # TODO: Container drops
 
 

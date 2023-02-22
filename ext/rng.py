@@ -16,12 +16,12 @@ if TYPE_CHECKING:
     from core import Bot
     from discord import Interaction, Message, ButtonStyle
 
-EIGHTBALL_IMAGE = "https://emojipedia-us.s3.dualstack.us-west-1.amazonaws.com/" \
-                  "thumbs/120/samsung/265/pool-8-ball_1f3b1.png"
-COIN_IMAGE = "https://www.iconpacks.net/icons/1/free-heads-or-tails-icon-456-thumb.png"
+COIN = ("https://www.iconpacks.net/icons/1/"
+        "free-heads-or-tails-icon-456-thumb.png")
 
 
-# TODO: Upgrade roll command into dice roller box. Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
+# TODO: Upgrade roll command into dice roller box.
+# Buttons for D4, D6, D8, D10, D12, D20, New Line, Clear.
 # Add Timestamp of the last roll.
 # Send modal for custom roll
 
@@ -57,7 +57,9 @@ class DiceButton(Button):
     view: DiceBox
 
     def __init__(self, sides: int = 6, row: int = 0):
-        super().__init__(label=f"Roll D{sides}", row=row, style=ButtonStyle.blurple)
+        super().__init__(
+            label=f"Roll D{sides}", row=row, style=ButtonStyle.blurple)
+
         self.sides: int = sides
 
     async def callback(self, interaction: Interaction) -> BaseView:
@@ -85,8 +87,8 @@ class CoinView(BaseView):
 
     async def update(self, content: str = None) -> Message:
         """Update embed and push to view"""
-        e: Embed = Embed(colour=Colour.og_blurple(), title=self.flip_results[-1])
-        e.set_thumbnail(url=COIN_IMAGE)
+        e = Embed(colour=Colour.og_blurple(), title=self.flip_results[-1])
+        e.set_thumbnail(url=COIN)
         e.set_author(name="Coin Flip")
 
         counter = Counter(self.flip_results)
@@ -94,7 +96,7 @@ class CoinView(BaseView):
         for c in counter.most_common():
             e.description += f"\n**Total {c[0]}**: {c[1]}"
 
-        return await self.bot.reply(self.interaction, content=content, view=self, embed=e)
+        await self.bot.reply(self.interaction, content, view=self, embed=e)
 
 
 class FlipButton(Button):
@@ -115,16 +117,25 @@ class FlipButton(Button):
 
 class ChoiceModal(Modal):
     """Send a Modal to the User to enter their options in."""
-    question = TextInput(label="Enter a question", placeholder="What should I do?")
-    answers = TextInput(label="Answers (one per line)", style=TextStyle.paragraph, placeholder="Sleep\nPlay FIFA")
+
+    question = TextInput(
+        label="Enter a question", placeholder="What should I do?")
+
+    answers = TextInput(
+        label="Answers (one per line)",
+        style=TextStyle.paragraph,
+        placeholder="Sleep\nPlay FIFA")
 
     def __init__(self) -> None:
         super().__init__(title="Make a Decision")
 
     async def on_submit(self, interaction: Interaction) -> Message:
-        """When the Modal is submitted, pick at random and send the reply back"""
-        e: Embed = Embed(colour=interaction.user.colour, title=self.question)
-        e.set_author(icon_url=interaction.user.display_avatar.url, name=f'Choose')
+        """When the Modal is submitted, send a random choice back"""
+
+        u = interaction.user
+
+        e: Embed = Embed(colour=u.colour, title=self.question)
+        e.set_author(icon_url=u.display_avatar.url, name='Choose')
 
         choices = str(self.answers).split("\n")
         shuffle(choices)
@@ -170,26 +181,35 @@ class Random(Cog):
 
     @command(name="8ball")
     @describe(question="enter a question")
-    async def eight_ball(self, interaction: Interaction, question: str) -> Message:
+    async def eight_ball(self, interaction: Interaction,
+                         question: str) -> Message:
         """Magic Geordie 8ball"""
         res = ["probably", "Aye", "aye mate", "wey aye.", "aye trust is pal.",
-               "Deffo m8", "fuckin aye.", "fucking rights", "think so", "absofuckinlutely",
+               "Deffo m8", "fuckin aye.", "fucking rights", "think so",
+               "absofuckinlutely",
                # Negative
-               "me pal says nar.", "divn't think so", "probs not like.", "nar pal soz", "fuck no",
-               "deffo not.", "nar", "wey nar", "fuck off ya daftie", "absofuckinlutely not",
+               "me pal says nar.", "divn't think so", "probs not like.",
+               "nar pal soz", "fuck no", "deffo not.", "nar", "wey nar",
+               "fuck off ya daftie", "absofuckinlutely not",
                # later
-               "am not sure av just had a bucket", "al tel you later", "giz a minute to figure it out",
-               "mebbe like", "dain't bet on it like"
+               "am not sure av just had a bucket", "al tel you later",
+               "giz a minute to figure it out", "mebbe like",
+               "dain't bet on it like"
                ]
 
-        e: Embed = Embed(title=f'🎱 8 Ball', colour=0x000001, description=f"**{question}**\n{choice(res)}")
-        e.set_author(icon_url=interaction.user.display_avatar.url, name=interaction.user)
+        e = Embed(title='8 Ball', colour=0x000001,
+                  description=f"**{question}**\n{choice(res)}")
+
+        e.set_author(icon_url=interaction.user.display_avatar.url,
+                     name=interaction.user)
         return await self.bot.reply(interaction, embed=e)
 
     @command()
     @describe(dice="enter a roll (format: 1d20+3)")
-    async def roll(self, interaction: Interaction, dice: str = "d20") -> Message:
-        """Roll a set of dice in the format XdY+Z. Use 'adv' or 'dis' for (dis)advantage"""
+    async def roll(self, interaction: Interaction,
+                   dice: str = "d20") -> Message:
+        """Roll a set of dice in the format XdY+Z.
+        Use 'adv' or 'dis' for (dis)advantage"""
 
         await interaction.response.defer(thinking=True)
 
@@ -252,11 +272,12 @@ class Random(Cog):
                     sides = int(sides)
 
                 if dice > 1000:
-                    return await self.bot.error(interaction, content='Too many dice')
+                    return await self.bot.error(interaction, 'Too many dice')
                 if sides > 1000000:
-                    return await self.bot.error(interaction, content='Too many sides')
-                if sides < 1:
-                    return await self.bot.error(interaction, content='Not enough sides')
+                    return await self.bot.error(interaction, 'Too many sides')
+                if sides < 2:
+                    err = 'Not enough sides'
+                    return await self.bot.error(interaction, err)
 
             e.description += f"{r}: "
             total_roll = 0
@@ -268,7 +289,11 @@ class Random(Cog):
 
                 if dice in ["adv", "dis"]:
                     second_roll = randrange(1, 1 + sides)
-                    if (advantage and second_roll > first_roll) or (disadvantage and second_roll < first_roll):
+
+                    bool_a = (advantage and second_roll > first_roll)
+                    bool_b = (disadvantage and second_roll < first_roll)
+
+                    if bool_a or bool_b:
                         roll_outcome = second_roll
                         roll_info += f"({first_roll}, __{second_roll}__)"
                     else:
@@ -283,15 +308,20 @@ class Random(Cog):
                         case 1:
                             e.colour = Colour.red()
                             e.set_footer(text="Critical Failure")
-                        case sides:
+                        case roll_outcome if (roll_outcome == sides):
                             e.colour = Colour.green()
                             e.set_footer(text="Critical.")
 
             roll_info += ", ".join(curr_rolls)
 
             if bonus:
-                roll_info += f" + {bonus}" if bonus > 0 else f" {str(bonus).replace('-', ' - ')}"
+                if bonus > 0:
+                    roll_info += f" + {bonus}"
+                else:
+                    roll_info += f" {str(bonus).replace('-', ' - ')}"
+
             total_roll += bonus
+
             e.description += f"{roll_info} = **{total_roll}**\n"
 
             total += total_roll

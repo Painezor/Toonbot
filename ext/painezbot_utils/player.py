@@ -436,9 +436,13 @@ class PlayerView(BaseView):
 
         e = await self.base_embed()
         e.title = f"Clan Battles (Season {self.cb_season})"
-        e.description = f"**Win Rate**: {round(stats.win_rate, 2)}% ({stats.battles} battles played)\n" \
-                        f"**Average Damage**: {format(round(stats.average_damage, 0), ',')}\n" \
-                        f"**Average Kills**: {round(stats.average_kills, 2)}\n"
+        wr = round(stats.win_rate, 2)
+        n = stats.battles
+        avg = format(round(stats.average_damage, 0), ',')
+        kll = round(stats.average_kills, 2)
+        e.description = (f"**Win Rate**: {wr}% ({n} battles played)\n"
+                         f"**Average Damage**: {avg}\n"
+                         f"**Average Kills**: {kll}\n")
         self._disabled = self.clan_battles
         return await self.update(e)
 
@@ -454,8 +458,12 @@ class PlayerView(BaseView):
             mb_shots = mb.pop('shots')
             mb_hits = mb.pop('hits')
             mb_acc = round(mb_hits / mb_shots * 100, 2)
-            mb = f"Kills: {format(mb_kills, ',')} (Max: {mb_max} - {mb_ship.name})\n" \
-                 f"Accuracy: {mb_acc}% ({format(mb_hits, ',')} hits / {format(mb_shots, ',')} shots)"
+
+            s = mb_ship.name
+            h = format(mb_hits, ',')
+            sh = format(mb_shots, ',')
+            mb = (f"Kills: {format(mb_kills, ',')} (Max: {mb_max} - {s})\n"
+                 f"Accuracy: {mb_acc}% ({h} hits / {sh} shots)")
             e.add_field(name='Main Battery', value=mb, inline=False)
 
         # Secondary Battery
@@ -466,8 +474,12 @@ class PlayerView(BaseView):
             sb_shots = sb.pop('shots', 0)
             sb_hits = sb.pop('hits', 0)
             sb_acc = round(sb_hits / sb_shots * 100, 2)
-            sb = f"Kills: {format(sb_kills, ',')} (Max: {sb_max} - {sb_ship.name})\n" \
-                 f"Accuracy: {sb_acc}% ({format(sb_hits, ',')} hits / {format(sb_shots, ',')} shots)"
+
+            n = sb_ship.name
+            h = format(sb_hits, ',')
+            s = format(sb_shots, ',')
+            sb = (f"Kills: {format(sb_kills, ',')} (Max: {sb_max} - {n})\n"
+                  f"Accuracy: {sb_acc}% ({h} hits / {s} shots)")
             e.add_field(name='Secondary Battery', value=sb, inline=False)
 
         # Torpedoes
@@ -479,8 +491,13 @@ class PlayerView(BaseView):
             trp_shots = trp.pop('shots', 0)
             trp_hits = trp.pop('hits', 0)
             trp_acc = round(trp_hits / trp_shots * 100, 2)
-            trp = f"Kills: {format(trp_kills, ',')} (Max: {trp_max} - {trp_ship.name})\n" \
-                  f"Accuracy: {trp_acc}% ({format(trp_hits, ',')} hit / {format(trp_shots, ',')} launched)"
+
+            n = trp_ship.name
+            h = format(trp_hits, ',')
+            s = format(trp_shots, ',')
+
+            trp = (f"Kills: {format(trp_kills, ',')} (Max: {trp_max} - {n})\n"
+                  f"Accuracy: {trp_acc}% ({h} hit / {s} launched)")
             e.add_field(name='Torpedoes', value=trp, inline=False)
 
         # Ramming

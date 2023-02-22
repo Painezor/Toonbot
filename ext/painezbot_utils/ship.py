@@ -72,15 +72,16 @@ class Fitting:
                   ('torpedoes_id', Torpedoes),
                   ('torpedo_bomber_id', TorpedoBomber)]
         # ('flight_control_id', FlightControl),
-        p.update({k: self.modules.get(v) for k, v in tuples if self.modules.get(v, None) is not None})
+        p.update({k: self.modules.get(v) for k, v in tuples
+                  if self.modules.get(v, None) is not None})
 
         url = "https://api.worldofwarships.eu/wows/encyclopedia/shipprofile/"
         async with self.bot.session.get(url, params=p) as resp:
             match resp.status:
-                case 200:
-                    json = await resp.json()
+                case 200: json = await resp.json()
                 case _:
-                    raise ConnectionError(f'HTTP ERROR {resp.status} accessing {url}')
+                    err = f'HTTP ERROR {resp.status} accessing {url}'
+                    raise ConnectionError(err)
 
         self.data = json['data'][str(self.ship.ship_id)]
         return self.data
@@ -170,30 +171,43 @@ class Ship:
                 case 'TorpedoBomber':
                     fit.modules[TorpedoBomber] = module_id
                 case _:
-                    logging.error(f'Unhandled Module type "{module_type}" setting default fit, id: {module_id}')
+                    m = module_type
+                    i = module_id
+                    err = f'Unhandled Module type "{m}" default fit, id: {i}'
+                    logging.error(err)
         return fit
 
     async def fetch_modules(self) -> list[Module]:
         """Grab all data related to the ship from the API"""
         # Get needed module IDs
-        existing = [x for x in self._modules.values() if x.module_id in [s.module_id for s in self.bot.modules]]
+        m = [s.module_id for s in self.bot.modules]
+        existing = [x for x in self._modules.values() if x.module_id in m]
 
-        # We use a deepcopy, because we're editing values with data from modules tree, but each module can be used on
-        # a number of different ships, and we do not want to contaminate *their* data.
+        # We use a deepcopy, because we're editing values with data from
+        # modules tree, but each module can be used on a number of different
+        # ships, and we do not want to contaminate *their* data.
         self.modules.update({k.module_id: deepcopy(k) for k in existing})
-        if targets := [str(i) for i in self._modules.values() if i not in self.bot.modules]:
+
+        m = self.bot.modules
+        if targets := [str(i) for i in self._modules.values() if i not in m]:
             # We want the module IDs as str for the purposes of params
-            p = {'application_id': self.bot.WG_ID, 'module_id': ','.join(targets)}
+            p = {'application_id': self.bot.WG_ID,
+                 'module_id': ','.join(targets)}
             url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
             async with self.bot.session.get(url, params=p) as resp:
                 match resp.status:
                     case 200:
                         data = await resp.json()
                     case _:
-                        raise ConnectionError(f'{resp.status} error fetching modules for {self.name} on {url}')
+                        s = resp.status
+                        n = self.name
+                        err = f'{s} error fetching modules for {n} on {url}'
+                        raise ConnectionError(err)
 
             for module_id, data in data['data'].items():
-                args = {k: data.pop(k) for k in ['name', 'image', 'tag', 'module_id_str', 'module_id', 'price_credit']}
+                args = {k: data.pop(k) for k in ['name', 'image', 'tag',
+                                                 'module_id_str', 'module_id', 
+                                                 'price_credit']}
 
                 module_type = data.pop('type')
                 kwargs = data.pop('profile').popitem()[1]
@@ -301,11 +315,16 @@ class ShipSentinel(Enum):
 class ShipButton(Button):
     """Change to a view of a different ship"""
 
-    def __init__(self, interaction: Interaction, ship: Ship, row: int = 0, higher: bool = False) -> None:
+    def __init__(
+            self, interaction: Interaction, ship: Ship, row: int = 0, 
+            higher: bool = False) -> None:
         self.ship: Ship = ship
         self.interaction: Interaction = interaction
 
-        super().__init__(label=f"Tier {ship.tier}: {ship.name}", row=row, emoji="▶" if higher else "◀")
+        emoji = "▶" if higher else "◀"
+
+        super().__init__(
+            label=f"Tier {ship.tier}: {ship.name}", row=row, emoji=emoji)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Change message of interaction to a different ship"""
@@ -337,7 +356,9 @@ class ShipView(BaseView):
 
         nation = self.ship.nation.alias if self.ship.nation else ''
         tier = f'Tier {self.ship.tier}' if self.ship.tier else ''
-        e.set_author(name=" ".join([i for i in [tier, nation, _class, self.ship.name] if i]), icon_url=icon_url)
+
+        name = [i for i in [tier, nation, _class, self.ship.name] if i]
+        e.set_author(name=" ".join(name), icon_url=icon_url)
 
         if self.ship.images:
             e.set_thumbnail(url=self.ship.images['contour'])
@@ -355,13 +376,17 @@ class ShipView(BaseView):
             name = f"{rp['name']} (Tier {rp['plane_level']}, Rocket Planes)"
             value = [f"**Hit Points**: {format(rp['max_health'], ',')}",
                      f"**Cruising Speed**: {rp['cruise_speed']} kts",
-                     "\n*Rocket Plane Damage is not available in the API, sorry*"]
+                     "\n*Rocket Plane Damage not available in the API, sorry*"]
             e.add_field(name=name, value='\n'.join(value), inline=False)
 
         if (tb := self.fitting.data['torpedo_bomber']) is not None:
             name = f"{tb['name']} (Tier {tb['plane_level']}, Torpedo Bombers"
 
-            t_name = 'Unnamed Torpedo' if tb['torpedo_name'] is None else tb['torpedo_name']
+            if tb['torpedo_name'] is None:
+                t_name = 'Unnamed Torpedo'
+            else:
+                t_name = tb['torpedo_name']
+            
             value = [f"**Hit Points**: {format(tb['max_health'], ',')}",
                      f"**Cruising Speed**: {tb['cruise_speed']} kts",
                      "",
@@ -374,14 +399,19 @@ class ShipView(BaseView):
         if (db := self.fitting.data['dive_bomber']) is not None:
             name = f"{db['name']} (Tier {db['plane_level']}, Dive Bombers"
 
-            bomb_name = 'Bomb Stats' if db['bomb_name'] is None else db['bomb_name']
+            if db['bomb_name'] is None:
+                bomb_name = 'Bomb Stats'
+            else:
+                bomb_name = db['bomb_name']
+            
             value = [f"**Hit Points**: {format(db['max_health'], ',')}",
                      f"**Cruising Speed**: {db['cruise_speed']} kts",
                      "",
                      f"**{bomb_name}**",
                      f"**Damage**: {format(db['max_damage'], ',')}",
                      f"**Mass**: {db['bomb_bullet_mass']}kg",
-                     f"**Accuracy**: {db['accuracy']['min']} - {db['accuracy']['max']}"
+                     f"**Accuracy**: {db['accuracy']['min']}"
+                     f"- {db['accuracy']['max']}"
                      ]
 
             if (fire_chance := db['bomb_burn_probability']) is not None:
@@ -389,8 +419,8 @@ class ShipView(BaseView):
             e.add_field(name=name, value='\n'.join(value), inline=False)
 
         self.disabled = self.aircraft
-        e.set_footer(text='Rocket plane armaments, and Skip Bombers as a\
-                     whole are currently not listed in the API.')
+        e.set_footer(text='Rocket plane armaments, and Skip Bombers as a'
+                     'whole are currently not listed in the API.')
         return await self.update(embed=e)
 
     async def auxiliary(self) -> Message:
@@ -403,17 +433,17 @@ class ShipView(BaseView):
         desc = []
 
         if (sec := self.fitting.data['atbas']) is None:
-            e.add_field(name='No Secondary Armament',
-                        value="```diff\n\
-                               - This ship has no secondary armament.```")
+            e.add_field(
+                name='No Secondary Armament',
+                value="```diff\n- This ship has no secondary armament.```")
         elif 'slots' not in sec:
             e.add_field(name='API Error',
-                        value="```diff\n\
-                              - Secondary armament not found in API.```")
+                        value="```diff\n"
+                              "- Secondary armament not found in API.```")
         else:
             desc.append(f'**Secondary Range**: {sec["distance"]}')
-            desc.append(f'**Total Barrels**: \
-                        {self.fitting.data["hull"]["atba_barrels"]}')
+            desc.append("**Total Barrels**: "
+                        f'{self.fitting.data["hull"]["atba_barrels"]}')
 
             for v in sec['slots'].values():
                 name = v['name']
@@ -421,8 +451,8 @@ class ShipView(BaseView):
 
                 value = [f"**Damage**: {format(dmg, ',')}",
                          f"**Shell Type**: {v['type']}",
-                         f"**Reload Time**: {v['shot_delay']}s (\
-                            {round(v['gun_rate'], 1)} rounds/minute)",
+                         f"**Reload Time**: {v['shot_delay']}s ("
+                         f"{round(v['gun_rate'], 1)} rounds/minute)",
                          f"**Initial Velocity**: {v['bullet_speed']}m/s",
                          f"**Shell Weight**: {v['bullet_mass']}kg"
                          ]

@@ -30,21 +30,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger('warships')
 
 # noinspection SpellCheckingInspection
-ASLAIN = 'https://aslain.com/index.php?/topic/2020-download-%E2%98%85-world-of-warships-%E2%98%85-modpack/'
+ASLAIN = ("https://aslain.com/index.php?/topic/2020-download-%E2%98%85-"
+          "world-of-warships-%E2%98%85-modpack/")
 HELP_ME_BUILDS = "http://wo.ws/builds"
 HELP_ME_DISCORD = "https://discord.gg/c4vK9rM"
-HELP_ME_LOGO = 'https://media.discordapp.net/attachments/443846252019318804/992914761723433011/Logo_Discord2.png'
+HELP_ME_LOGO = ("https://media.discordapp.net/attachments/443846252019318804/"
+                "992914761723433011/Logo_Discord2.png")
 HOW_IT_WORKS = 'https://wowsp-wows-eu.wgcdn.co/dcont/fb/image/tmb/2f4c2e32-4315-11e8-84e0-ac162d8bc1e4_1200x.jpg'
 # noinspection SpellCheckingInspection
 MODSTATION = 'https://worldofwarships.com/en/content/modstation/'
 MOD_POLICY = 'https://worldofwarships.com/en/news/general-news/mods-policy/'
 OVERMATCH = 'https://media.discordapp.net/attachments/303154190362869761/990588535201484800/unknown.png'
 # noinspection SpellCheckingInspection
-RAGNAR = "Ragnar is inherently underpowered. It lacks the necessary attributes to make meaningful impact on match " \
-         "result. No burst damage to speak of, split turrets, and yet still retains a fragile platform. I would take" \
-         " 1 Conqueror..Thunderer or 1 DM or even 1 of just about any CA over 2 Ragnars on my team any day of the" \
-         " week. Now... If WG gave it the specialized repair party of the Nestrashimy ( and 1 more base charge)..." \
-         " And maybe a few more thousand HP if could make up for where it is seriously lacking with longevity"
+RAGNAR = ("Ragnar is inherently underpowered. It lacks the necessary"
+          "attributes to make meaningful impact on match result. No burst "
+          "damage to speak of, split turrets, and yet still retains a fragile "
+          "platform. I would take 1 Conqueror..Thunderer or 1 DM or even 1 of "
+          "just about any CA over 2 Ragnars on my team any day of the week. "
+          "Now... If WG gave it the specialized repair party of the "
+          "Nestrashimy ( and 1 more base charge)... And maybe a few more "
+          "thousand HP if could make up for where it is seriously lacking with"
+          " longevity")
 
 API_PATH = "https://api.worldofwarships.eu/wows/"
 INFO = API_PATH + 'encyclopedia/info/'
@@ -236,15 +242,19 @@ async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
         clan = interaction.client.get_clan(i['clan_id'])
         clan.tag = i['tag']
         clan.name = i['name']
-        choices.append(Choice(name=f"[{clan.tag}] {clan.name}", value=str(clan.clan_id)))
+        choices.append(
+            Choice(name=f"[{clan.tag}] {clan.name}", value=str(clan.clan_id)))
     return choices
 
 
 async def ship_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
     bot: PBot = interaction.client
-    matches = [i for i in bot.ships if current.lower() in i.ac_row.lower() and hasattr(i, 'ship_id_str')]
-    filtered = sorted(matches, key=lambda x: x.name)  #  This may have to be decoded again using unidecode. 
+    matches = [i for i in bot.ships if current.lower() in i.ac_row.lower()
+               and hasattr(i, 'ship_id_str')]
+    
+    #  This may have to be decoded again using unidecode
+    filtered = sorted(matches, key=lambda x: x.name)
     return [Choice(name=i.ac_row[:100], value=i.ship_id_str) for i in filtered][:25]
 
 
@@ -409,13 +419,15 @@ class Warships(Cog):
             v.add_item(Button(style=ButtonStyle.url, url=region.logbook, emoji=region.emote, label=region.name))
         return await self.bot.reply(interaction, embed=e, view=v)
 
+    # TODO: Make this into a view.
     @command()
     async def how_it_works(self, interaction: Interaction) -> Message:
         """Links to the various How It Works videos"""
         e = Embed(title="How it Works Video Series", colour=Colour.dark_red())
-        e.description = "The how it works video series give comprehensive overviews of some of the game's mechanics," \
-                        "you can find links to them all below\n\n" \
-                        "**Latest Video**: [In-Game Mechanics](https://youtu.be/hFfBqjqQ-S8)\n\n" + \
+        e.description = (
+            "The how it works video series give comprehensive overviews of "
+            "some of the game's mechanics, you can find links to them all "
+            "below\n\n**Latest Video**: [In-Game Mechanics](https://youtu.be/hFfBqjqQ-S8)\n\n" +
                         ', '.join(["[AA Guns & Fighters](https://youtu.be/Dvrwz-1XhnM)",
                                    "[Armour](https://youtu.be/yQcutrneBJQ)",
                                    "[Ballistics](https://youtu.be/02pb8VS_mFo)",
@@ -436,7 +448,7 @@ class Warships(Cog):
                                    "[Spotting](https://youtu.be/OgRUSmzcw2s)",
                                    "[Tips & Tricks](https://youtu.be/tD9jaMrrY3I)",
                                    "[Torpedoes](https://youtu.be/LPTgi20O15Q)",
-                                   "[Upgrades](https://youtu.be/zqwa9ZlzMA8)"])
+                                   "[Upgrades](https://youtu.be/zqwa9ZlzMA8)"]))
         e.set_thumbnail(url=HOW_IT_WORKS)
         await self.bot.reply(interaction, embed=e)
 
@@ -500,10 +512,11 @@ class Warships(Cog):
         e = Embed(colour=Colour.red())
         e.set_thumbnail(url='http://i.imgur.com/2LiednG.jpg')
         e.title = "World of Warships Mods"
-        e.description = "There are two official sources available for in-game modifications.\n" \
-                        f"• [Modstation]({MODSTATION})\n• [Official Forum]({ASLAIN})\n\n" \
-                        f"[Aslain's Modpack]({ASLAIN}) is a popular third party compilation of mods available from " \
-                        f"the official forum\n"
+        e.description = ("There are two official sources available for in-game"
+                         f"modifications.\n • [Modstation]({MODSTATION})\n"
+                         f"• Official Forum\n\n [Aslain's Modpack]({ASLAIN}) "
+                         "is a popular third party compilation of mods"
+                         " available from the official forum\n")
         e.add_field(name='Mod Policy', value=MOD_POLICY)
         v = View()
         v.add_item(Button(url=MODSTATION, label="Modstation"))
@@ -525,9 +538,12 @@ class Warships(Cog):
     async def help_me(self, interaction: Interaction) -> Message:
         """Help me Discord info"""
         e = Embed(title="Help Me Discord", colour=0xae8a6d)
-        e.description = (f"The [Help Me Discord]({HELP_ME_DISCORD}) is full of helpful players from top level clans "
-                         f"who donate their time to give advice and replay analysis to those in need of it."
-                         f"\nYou can join by clicking [here](http://wo.ws/builds) or by using the button below.")
+        e.description = (
+            f"The [Help Me Discord]({HELP_ME_DISCORD}) is full of helpful "
+            "players from top level clans who donate their time to give "
+            "advice and replay analysis to those in need of it. \nYou can"
+            " join by clicking [here](http://wo.ws/builds) or by using "
+            "the button below.")
         e.set_thumbnail(url=HELP_ME_LOGO)
         v = View()
         v.add_item(Button(url=HELP_ME_DISCORD, label="Help Me Discord"))
@@ -537,8 +553,9 @@ class Warships(Cog):
     async def guides(self, interaction: Interaction) -> Message:
         """Yurra's collection of guides"""
         yurra = self.bot.get_user(192601340244000769)
-        v = "Yurra's guides contain advice on various game mechanics, play styles classes, tech tree branches," \
-            " and some specific ships.\n\nhttps://bit.ly/yurraguides"
+        v = ("Yurra's guides contain advice on various game mechanics, play "
+             "styles classes, tech tree branches, and some specific ships."
+             "\n\nhttps://bit.ly/yurraguides")
         e = Embed(title="Yurra's guides", description=v)
         e.url = 'https://bit.ly/yurraguides'
         e.set_thumbnail(url=yurra.avatar.url)

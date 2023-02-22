@@ -714,8 +714,8 @@ class Fixture(FlashScoreItem):
 
     def __str__(self) -> str:
         match self.time:
-            case GameState.LIVE | GameState.STOPPAGE_TIME |\
-                 GameState.EXTRA_TIME:
+            case (GameState.LIVE | GameState.STOPPAGE_TIME |
+                  GameState.EXTRA_TIME):
                 time = self.state.name
             case GameState():
                 time = self.ko_relative
@@ -855,8 +855,8 @@ class Fixture(FlashScoreItem):
             output.append(f"`{self.state.emote}")
 
             match self.time:
-                case GameState.STOPPAGE_TIME | GameState.EXTRA_TIME |\
-                     GameState.LIVE:
+                case (GameState.STOPPAGE_TIME | GameState.EXTRA_TIME |
+                      GameState.LIVE):
                     output.append(f"{self.state.value}`")
                 case _:
                     output.append(f"{self.state.shorthand}`")

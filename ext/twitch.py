@@ -158,9 +158,9 @@ class Stream:
     @property
     def row(self) -> str:
         """Return a row formatted for an embed"""
-        return f"{self.flag} **{self.markdown}**" \
-               f"```\n{self.title}```\n" \
-               f"{self.viewers} viewers, live since {self.live_time}\n"
+        return (f"{self.flag} **{self.markdown}**"
+                f"```\n{self.title}```\n"
+                f"{self.viewers} viewers, live since {self.live_time}\n")
 
 
 class TrackerChannel:
@@ -570,11 +570,13 @@ class TwitchTracker(Cog):
         return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
     @command()
-    @describe(search="search by name (e.g.: painezor, yuzorah), or website name (ex: twitch, dailybounce)",
+    @describe(search="search by name (e.g.: painezor, yuzorah), "
+              "or website name (ex: twitch, dailybounce)",
               region="Filter by region", language='Filter by language')
     @autocomplete(search=cc_ac, language=language_ac)
-    async def cc(self, interaction: Interaction, search: str = None, region: REGIONS = None, language: str = None) \
-            -> Message:
+    async def cc(
+            self, interaction: Interaction, search: str = None,
+            region: REGIONS = None, language: str = None) -> Message:
         """Fetch The List of all CCs"""
 
         await interaction.response.defer(thinking=True)
