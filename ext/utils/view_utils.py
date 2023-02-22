@@ -29,9 +29,9 @@ class BaseView(View):
         """Make sure only the person running the command can select options"""
         return self.interaction.user.id == interaction.user.id
 
-    async def on_timeout(self) -> Message:
+    async def on_timeout(self) -> None:
         """Cleanup"""
-        return await self.bot.reply(self.interaction, view=None, followup=False)
+        await self.bot.reply(self.interaction, view=None, followup=False)
 
     async def on_error(self, interaction: Interaction, error: Exception, item):
         """Log the stupid fucking error"""
@@ -57,7 +57,8 @@ def add_page_buttons(view: View, row: int = 0) -> View:
 
 
 class Parent(Button):
-    """If a view has a "parent" view, add a button to allow user to go to it."""
+    """If a view has a "parent" view, add a button
+       to allow user to go to it."""
 
     def __init__(self, row: int = 0, label: str = "Back") -> None:
         super().__init__(label=label, emoji='⬆', row=row)
@@ -85,7 +86,8 @@ class Previous(Button):
     """Get the previous item in a Pagination View"""
 
     def __init__(self, view: View, row: int = 0) -> None:
-        super().__init__(emoji="◀", row=row, disabled=getattr(view, 'index', 0) == 0)
+        d = getattr(view, 'index', 0) == 0
+        super().__init__(emoji="◀", row=row, disabled=d)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
@@ -158,7 +160,12 @@ class Next(Button):
     """Get the next item in a Pagination View"""
 
     def __init__(self, view: View, row: int = 0) -> None:
-        super().__init__(emoji="▶", row=row, disabled=getattr(view, 'index', 0) + 1 >= len(getattr(view, 'pages', [])))
+
+        pg_len = len(getattr(view, 'pages', []))
+
+        d = getattr(view, 'index', 0) + 1 >= pg_len
+
+        super().__init__(emoji="▶", row=row, disabled=d)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
@@ -177,7 +184,10 @@ class Last(Button):
 
     def __init__(self, view: View, row: int = 0) -> None:
         super().__init__(label="Last", emoji="⏭", row=row)
-        self.disabled = len(getattr(view, "pages", [])) == getattr(view, "index", 0)
+
+        pg_len = len(getattr(view, "pages", []))
+        index = getattr(view, "index", 0)
+        self.disabled = pg_len == index
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
@@ -199,19 +209,14 @@ class Stop(Button):
             await self.view.interaction.delete_original_response()
         except NotFound:
             pass
-        except AttributeError:
-            # For anything with a message instead.
-            await self.view.message.delete()
-
-        if (page := getattr(self.view, "page", None)) is not None and not page.isClosed():
-            await page.close()
         self.view.stop()
 
 
 class PageSelect(Select):
     """Page Selector Dropdown"""
 
-    def __init__(self, placeholder: str = None, options: list = None, row: int = 4) -> None:
+    def __init__(self, placeholder: str = None, options: list = None,
+                 row: int = 4) -> None:
         super().__init__(placeholder=placeholder, options=options, row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
@@ -238,10 +243,11 @@ class ItemSelect(Select):
 
 @dataclass
 class Funcable:
-    """A 'Selectable Function' to be used with generate_function_row to create either a FuncDropdown
-    or row of FuncButtons"""
-    def __init__(self, label: str, function: Callable, args: list = None, kw: dict = None, emoji: str = None,
-                 description: str = None, style: ButtonStyle = None, disabled: bool = False):
+    """A 'Selectable Function' to be used with generate_function_row to
+    create either a FuncDropdown or row of FuncButtons"""
+    def __init__(self, label: str, function: Callable, args: list = None,
+                 kw: dict = None, emoji: str = None, description: str = None,
+                 style: ButtonStyle = None, disabled: bool = False):
 
         self.label: str = label
         self.emoji: str = emoji
@@ -254,14 +260,19 @@ class Funcable:
         self.kw: dict = {} if kw is None else kw
 
 
-def generate_function_row(view: View, items: list[Funcable], row: int = 0, placeholder: str = None):
-    """A very ugly method that will create a row of up to 5 Buttons, or a dropdown up to 25 buttons"""
+def generate_function_row(view: View, items: list[Funcable], row: int = 0,
+                          placeholder: str = None):
+    """A very ugly method that will create a row of up to 5 Buttons,
+       or a dropdown up to 25 buttons"""
+
     if len(items) > 25:
         raise ValueError('Too many items')
+
     if len(items) < 6:
         for x in items:
-            view.add_item(FuncButton(x.label, x.function, x.args, x.kw, disabled=x.disabled, row=row, emoji=x.emoji,
-                                     style=x.style))
+            f = FuncButton(x.label, x.function, x.args, x.kw, row=row,
+                           disabled=x.disabled, style=x.style, emoji=x.emoji)
+            view.add_item(f)
     else:
         view.add_item(FuncSelect(items, row, placeholder))
 
@@ -269,14 +280,17 @@ def generate_function_row(view: View, items: list[Funcable], row: int = 0, place
 class FuncSelect(Select):
     """A Select that ties to individually passed functions"""
 
-    def __init__(self, items: list[Funcable], row: int, placeholder: str = None):
+    def __init__(self, items: list[Funcable], row: int,
+                 placeholder: str = None):
+
         self.items: dict[str, Funcable] = {}
 
         super().__init__(row=row, placeholder=placeholder)
 
         for num, i in enumerate(items):
             self.items[str(num)] = i
-            self.add_option(label=i.label, emoji=i.emoji, description=i.description, value=str(num))
+            self.add_option(label=i.label, emoji=i.emoji,
+                            description=i.description, value=str(num))
 
     async def callback(self, interaction: Interaction) -> Any:
         """The handler for the FuncSelect Dropdown"""
@@ -289,7 +303,9 @@ class FuncSelect(Select):
 class FuncButton(Button):
     """A Generic Button with a passed through function."""
 
-    def __init__(self, label: str, func: Callable, args: list = None, kw: dict = None, **kwargs) -> None:
+    def __init__(self, label: str, func: Callable, args: list = None,
+                 kw: dict = None, **kwargs) -> None:
+
         super().__init__(label=label, **kwargs)
 
         self.func: Callable = func
@@ -297,7 +313,8 @@ class FuncButton(Button):
         self.kwargs: dict = {} if kw is None else kw
 
     async def callback(self, interaction: Interaction) -> None:
-        """The Callback performs the passed function with any passed args/kwargs"""
+        """The Callback performs the passed function with any passed
+           args/kwargs"""
 
         await interaction.response.defer()
         return await self.func(*self.args, **self.kwargs)
@@ -307,12 +324,14 @@ class FuncButton(Button):
 class FuncDropdown(Select):
     """Perform function based on user's dropdown choice"""
 
-    # Passed List of [Select Option, Dict of args to setattr, Function to apply.]
+    # [Select Option, Dict of args to setattr, Function to apply.]
 
     def __init__(self, options: list[tuple[SelectOption, dict, Callable]],
                  placeholder: str = None, row: int = 3) -> None:
+
         self.raw = options
-        super().__init__(placeholder=placeholder, options=[o[0] for o in options][:25], row=row)
+        super().__init__(placeholder=placeholder,
+                         options=[o[0] for o in options][:25], row=row)
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set View Index"""
@@ -335,25 +354,31 @@ class Paginator(BaseView):
         """Refresh the view and send to user"""
         self.clear_items()
         add_page_buttons(self)
-        return await self.bot.reply(self.interaction, content=content, embed=self.pages[self.index], view=self)
+        e = self.pages[self.index]
+        await self.bot.reply(self.interaction, content, embed=e, view=self)
 
 
 class Confirmation(BaseView):
     """Ask the user if they wish to confirm an option."""
 
-    def __init__(self, interaction: Interaction, label_a: str = "Yes", label_b: str = "No",
-                 colour_a: ButtonStyle = None, colour_b: ButtonStyle = None) -> None:
+    def __init__(self, interaction: Interaction, label_a: str = "Yes",
+                 label_b: str = "No", colour_a: ButtonStyle = None,
+                 colour_b: ButtonStyle = None) -> None:
+
         super().__init__(interaction)
-        self.add_item(BoolButton(label=label_a, colour=colour_a))
-        self.add_item(BoolButton(label=label_b, colour=colour_b, value=False))
+
+        self.add_item(BoolButton(label_a, colour_a))
+        self.add_item(BoolButton(label_b, colour_b, value=False))
         self.value = None
 
 
 class BoolButton(Button):
     """Set View value"""
 
-    def __init__(self, label="Yes", colour: ButtonStyle = None, value: bool = True) -> None:
-        super().__init__(label=label, style=ButtonStyle.secondary if colour is None else colour)
+    def __init__(self, label="Yes", style: ButtonStyle = ButtonStyle.secondary,
+                 value: bool = True) -> None:
+
+        super().__init__(label=label, style=style)
         self.value: bool = value
 
     async def callback(self, interaction: Interaction) -> None:

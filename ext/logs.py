@@ -1,5 +1,6 @@
 """Notify server moderators about specific events"""
-# TODO: Fallback parser using regular events -- Check if bot has view_audit_log perms
+# TODO: Fallback parser using regular events -- Check if bot has
+# view_audit_log perms
 # TODO: Validate all auditlog actions on test server.
 # TODO: Fix Timestamping for all auditlog actions
 
@@ -7,10 +8,10 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Callable
 
 import discord
-from discord import Embed, Colour, AuditLogAction, File, Message, Emoji, Interaction, Member, User, Role, TextChannel
+from discord import (Embed, Colour, AuditLogAction, File, Message, Emoji,
+                     Interaction, Member, User, Role, TextChannel)
 from discord.app_commands import command, default_permissions
 from discord.ext.commands import Cog
 from discord.ui import Button
@@ -19,17 +20,21 @@ from ext.utils import timed_events, view_utils
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import BaseView
 
+from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-TWITCH_LOGO = "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
+TWTCH = ("https://seeklogo.com/images/T/"
+         "twitch-tv-logo-51C922E0F0-seeklogo.com.png")
 
 
 class ToggleButton(Button):
     """A Button to toggle the notifications settings."""
 
-    def __init__(self, bot: Bot | PBot, db_key: str, value: bool, row: int = 0) -> None:
+    def __init__(self, bot: Bot | PBot, db_key: str, value: bool,
+                 row: int = 0) -> None:
         self.value: bool = value
         self.db_key: str = db_key  # The Database Key this button correlates to
         self.bot: Bot | PBot = bot
@@ -46,19 +51,22 @@ class ToggleButton(Button):
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = f"""UPDATE notifications_settings SET {self.db_key} = $1 WHERE channel_id = $2"""
-                await connection.execute(q, not self.value, self.view.channel.id)
+                q = f"""UPDATE notifications_settings SET {self.db_key} =
+                    $1 WHERE channel_id = $2"""
+                c = self.view.channel.id
+                await connection.execute(q, not self.value, c)
 
-        cog: Cog = self.bot.get_cog("Logs")
-        upd: Callable = getattr(cog, "update_cache")
-        await upd()
+        await self.bot.get_cog("Logs").update_cache()
         return await self.view.update()
 
 
 class LogsConfig(BaseView):
     """Generic Config View"""
-    def __init__(self, interaction: Interaction, channel: discord.TextChannel) -> None:
+    def __init__(self, interaction: Interaction,
+                 channel: discord.TextChannel) -> None:
+
         super().__init__(interaction)
+
         self.channel: discord.TextChannel = channel
 
     async def on_timeout(self) -> Message:
@@ -69,19 +77,21 @@ class LogsConfig(BaseView):
         """Regenerate view and push to message"""
         self.clear_items()
 
-        q_stg = """SELECT * FROM notifications_settings WHERE (channel_id) = $1"""
-        qq = """INSERT INTO notifications_channels (guild_id, channel_id) VALUES ($1, $2)"""
+        q = """SELECT * FROM notifications_settings WHERE (channel_id) = $1"""
+        qq = """INSERT INTO notifications_channels (guild_id, channel_id)
+                VALUES ($1, $2)"""
         qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 
+        c = self.channel.id
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                if not (stg := await connection.fetchrow(q_stg, self.channel.id)):
-                    await connection.execute(qq, self.interaction.guild.id, self.channel.id)
-                    await connection.execute(qqq, self.channel.id)
+                if not (stg := await connection.fetchrow(q, c)):
+                    await connection.execute(qq, self.interaction.guild.id, c)
+                    await connection.execute(qqq, c)
                     return await self.update()
 
         e: Embed = Embed(color=0x7289DA, title="Notification Logs config")
-        e.description = "Click the buttons below to turn on or off logging for events."
+        e.description = "Click the buttons below to toggle logging for events."
 
         row = 0
         for num, (k, v) in enumerate(sorted(stg.items())):
@@ -93,7 +103,7 @@ class LogsConfig(BaseView):
 
             self.add_item(ToggleButton(self.bot, db_key=k, value=v, row=row))
         self.add_item(view_utils.Stop(row=4))
-        await self.bot.reply(self.interaction, content=content, embed=e, view=self)
+        await self.bot.reply(self.interaction, content, embed=e, view=self)
 
 
 def do_footer(entry, embed):
@@ -147,9 +157,32 @@ def stringify_mfa(value: discord.MFALevel) -> str:
     """Convert discord.MFALevel to human-readable string"""
     match value:
         case discord.MFALevel.disabled: return "Disabled"
-        case discord.MFALevel.require_2fa: return "2-Factor Authentication Required"
+        case discord.MFALevel.require_2fa:
+            return "2-Factor Authentication Required"
         case _:
             logging.info(f'Could not parse value for MFALevel {value}')
+            return value
+
+
+def stringify_content_filter(value: discord.ContentFilter) -> str:
+    """Convert Enum to human string"""
+    match value:
+        case discord.ContentFilter.all_members:
+            return "Check All Members"
+        case discord.ContentFilter.no_role:
+            return "Check Un-roled Members"
+        case discord.ContentFilter.disabled:
+            return None
+
+
+def stringify_notification_level(value: discord.NotificationLevel) -> str:
+    """Convert Enum to human string"""
+    match value:
+        case discord.NotificationLevel.all_messages:
+            return "All Messages"
+        case discord.NotificationLevel.only_mentions:
+            return "Mentions Only"
+        case _:
             return value
 
 
@@ -157,12 +190,14 @@ def stringify_trigger_type(value: discord.AutoModRuleTriggerType) -> str:
     """Convert discord.AutModRuleTriggerType to human-readable string"""
     match value:
         case discord.AutoModRuleTriggerType.keyword: return "Keyword Mentioned"
-        case discord.AutoModRuleTriggerType.keyword_preset: return "Keyword Preset Mentioned"
-        case discord.AutoModRuleTriggerType.harmful_link: return "Harmful Links"
+        case discord.AutoModRuleTriggerType.keyword_preset:
+            return "Keyword Preset Mentioned"
+        case discord.AutoModRuleTriggerType.harmful_link:
+            return "Harmful Links"
         case discord.AutoModRuleTriggerType.mention_spam: return "Mention Spam"
         case discord.AutoModRuleTriggerType.spam: return "Spam"
         case _:
-            logging.info(f'Could not parse value for AutoModRuleTriggerType {value}')
+            logging.info(f'Failed to parse AutoModRuleTriggerType {value}')
             return "Unknown"
 
 
@@ -171,11 +206,13 @@ def stringify_verification(value: discord.VerificationLevel) -> str:
     match value:
         case discord.VerificationLevel.none: return "None"
         case discord.VerificationLevel.low: return "Verified Email"
-        case discord.VerificationLevel.medium: return "Verified Email, Registered for 5 minutes"
-        case discord.VerificationLevel.high: return "Verified Email, Registered for 5 minutes, Server Member 10 Minutes"
+        case discord.VerificationLevel.medium:
+            return "Verified Email, Registered 5 minutes"
+        case discord.VerificationLevel.high:
+            return "Verified Email, Registered 5 minutes, Member 10 Minutes"
         case discord.VerificationLevel.highest: return "Verified Phone"
         case _:
-            logging.info(f'Could not parse value for Verification Level {value}')
+            logging.info(f'Failed to parse Verification Level {value}')
             return value
 
 
@@ -227,8 +264,10 @@ class Logs(Cog):
             async with connection.transaction():
                 self.bot.notifications_cache = await connection.fetch(q)
 
-    async def dispatch(self, channels: list[TextChannel], e: list[Embed], view: discord.ui.View = None):
+    async def dispatch(self, channels: list[TextChannel], e: list[Embed],
+                       view: discord.ui.View = None):
         """Bulk dispatch messages to their destinations"""
+
         for ch in channels:
             try:
                 await ch.send(embeds=e, view=view)
@@ -249,13 +288,15 @@ class Logs(Cog):
     # Join messages
     @Cog.listener()
     async def on_member_join(self, member: Member) -> None:
-        """Event handler to Dispatch new member information for servers that request it"""
+        """Event handler to Dispatch new member information
+           for servers that request it"""
         if not (channels := self.get_channels(member.guild, ['joins'])):
             return
 
         # Extended member join information.
         e: Embed = Embed(colour=0x7289DA, title="Member Joined")
-        e.set_author(name=f"{member.name} {member.id}", icon_url=member.display_avatar.url)
+        e.set_author(name=f"{member.name} {member.id}",
+                     icon_url=member.display_avatar.url)
 
         def onboard() -> str:
             """Get the member's onboarding status"""
@@ -317,12 +358,17 @@ class Logs(Cog):
     async def on_user_update(self, bf: User, af: User):
         """Triggered when a user updates their profile"""
         guilds = [i.id for i in self.bot.guilds if i.get_member(af.id)]
-        channels = [i for i in self.bot.notifications_cache if i['guild_id'] in guilds and i['users']]
-        if not (channels := list(filter(None, [self.bot.get_channel(i) for i in channels]))):
+
+        n = self.bot.notifications_cache
+        channels = [i for i in n if i['guild_id'] in guilds and i['users']]
+        channels = [self.bot.get_channel(i) for i in channels]
+        channels = [i for i in channels if i is not None]
+        if channels:
             return
 
         before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=discord.utils.utcnow(),
+        after: Embed = Embed(colour=Colour.light_gray(),
+                             timestamp=discord.utils.utcnow(),
                              description="")
 
         if bf.name != af.name:
@@ -334,8 +380,14 @@ class Logs(Cog):
             after.description += f"**Discriminator**: {af.discriminator}\n"
 
         if bf.display_avatar.url != af.display_avatar.url:
-            before.description += f"**Discriminator**: {bf.display_avatar.url}\n"
-            after.description += f"**Discriminator**: {af.display_avatar.url}\n"
+            b = bf.display_avatar.url
+            before.description += f"**Avatar**: [Link]({b})\n"
+            if b:
+                before.set_thumbnail(url=b)
+            a = af.display_avatar.url
+            if a:
+                after.set_thumbnail(url=a)
+            after.description += f"**Avatar**: [Link]({a})\n"
 
         return await self.dispatch(channels, [before, after])
 
@@ -357,7 +409,8 @@ class Logs(Cog):
                 output += f"ID# {user_or_role.id}: "
 
             output += ', '.join(f"✅ {k}" for (k, v) in perms if v)
-            output += ', '.join(f"❌ {k}" for (k, v) in perms if v is False)  # False but not None.
+            # False but not None.
+            output += ', '.join(f"❌ {k}" for (k, v) in perms if v is False)
             output += "\n\n"
         e.add_field(name="Permission Overwrites", value=output)
 
@@ -368,9 +421,12 @@ class Logs(Cog):
 
         changes = {k: v for k, v in entry.changes.after if k != 'type'}
         c_type = str(entry.target.type).replace('_', ' ').title()
-        e = Embed(colour=Colour.orange(), title=f"{c_type} Channel Created", timestamp=entry.created_at)
+        e = Embed(colour=Colour.orange(), title=f"{c_type} Channel Created",
+                  timestamp=entry.created_at)
+
         do_footer(entry, e)
-        e.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
+        t = entry.target
+        e.description = f"<#{t.id}> {t.name} ({t.id})\n\n"
 
         if _ := changes.pop("name", False):
             pass  # Name is found in entry.target anyway.
@@ -382,13 +438,14 @@ class Logs(Cog):
             e.description += f"**User Limit**: {max_users}\n"
 
         if archive := changes.pop("default_auto_archive_duration", False):
-            e.description += f"**Thread Archiving**: {stringify_minutes(archive)}\n"
+            s = stringify_minutes(archive)
+            e.description += f"**Thread Archiving**: {s}\n"
 
         if order := changes.pop("position", False):
             e.description += f"**Position**: {order}\n"
 
         if _ := changes.pop("nsfw", False):
-            e.description += f"**NSFW**: `True`\n"
+            e.description += "**NSFW**: `True`\n"
 
         if region := changes.pop("rtc_region", False):
             e.description += f"**Region**: {region}\n"
@@ -406,9 +463,9 @@ class Logs(Cog):
         # Flags
         if flags := changes.pop('flags', False):
             if flags.pinned:
-                e.description += f"**Thread Pinned**: `True`\n"
+                e.description += "**Thread Pinned**: `True`\n"
             if flags.require_tag:
-                e.description += f"**Force Tags?**: `True`\n"
+                e.description += "**Force Tags?**: `True`\n"
 
         # Permission Overwrites
         if overwrites := changes.pop("overwrites", False):
@@ -434,10 +491,14 @@ class Logs(Cog):
             pass  # Get from target object.
 
         c_type = str(entry.target.type).replace('_', ' ').title()
-        before: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Channel Updated", description="")
-        before.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
+        before = Embed(colour=Colour.dark_gray(),
+                       title=f"{c_type} Channel Updated", description="")
 
-        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        t = entry.target
+        before.description = f"<#{t.id}> {t.name} ({t.id})\n\n"
+
+        after: Embed = Embed(colour=Colour.light_gray(),
+                             timestamp=entry.created_at, description="")
         do_footer(entry, after)
 
         if key := changes.pop("name", False):
@@ -445,22 +506,30 @@ class Logs(Cog):
             after.description += f"**Name**: {key['after']}\n"
 
         if key := changes.pop('type', False):
-            before.description += f"**Type**: {key['before'].name.title() if key['before'] is not None else ''}"
-            after.description += f"**Type**: {key['after'].name.title() if key['after'] is not None else ''}\n"
+            if (b := key['before']) is not None:
+                before.description += f"**Type**: {b.name.title()}\n"
+            if (a := key['after']) is not None:
+                after.description += f"**Type**: {a.name.title()}\n"
 
         if key := changes.pop("bitrate", False):
-            bf = f"{math.floor(key['before'] / 1000)}kbps" if key['before'] else None
-            af = f"{math.floor(key['after'] / 1000)}kbps" if key['after'] else None
+            b = key['before']
+            a = key['after']
+            bf = f"{math.floor(b / 1000)}kbps" if b else None
+            af = f"{math.floor(a / 1000)}kbps" if a else None
             before.description += f"**Bitrate**: {bf}\n"
             after.description += f"**Bitrate**: {af}\n"
 
         if key := changes.pop("user_limit", False):
-            before.description += f"**User Limit**: {key['before']}\n" if key['before'] != 0 else ''
-            after.description += f"**User Limit**: {key['after']}\n" if key['after'] != 0 else ''
+            if key['before']:
+                before.description += f"**User Limit**: {key['before']}\n"
+            if key['after']:
+                after.description += f"**User Limit**: {key['after']}\n"
 
         if key := changes.pop("default_auto_archive_duration", False):
-            before.description += f"**Thread Archiving**: {stringify_minutes(key['before'])}\n"
-            after.description += f"**Thread Archiving**: {stringify_minutes(key['after'])}\n"
+            s = stringify_minutes(key['before'])
+            before.description += f"**Thread Archiving**: {s}\n"
+            s = stringify_minutes(key['after'])
+            after.description += f"**Thread Archiving**: {s}\n"
 
         if key := changes.pop("position", False):
             before.description += f"**Order**: {key['before']}\n"
@@ -485,8 +554,10 @@ class Logs(Cog):
             after.description += f"**Create New Threads Slowmode**: {sm_af}\n"
 
         if key := changes.pop("default_reaction_emoji", False):
-            before.description += f"**Default Reaction Emoji**: {key['before']}\n"
-            after.description += f"**Default Reaction Emoji**: {key['after']}\n"
+            b = key['before']
+            a = key['after']
+            before.description += f"**Default Reaction Emoji**: {b}\n"
+            after.description += f"**Default Reaction Emoji**: {a}\n"
 
         if key := changes.pop("default_thread_slowmode_delay", False):
             sm_bf = stringify_seconds(key['before'])
@@ -496,8 +567,10 @@ class Logs(Cog):
 
         # Enums
         if key := changes.pop('video_quality_mode', False):
-            before.description += f"**Video Quality**: {key['before'].name.title() if key['before'] else 'Auto'}"
-            after.description += f"**Video Quality**: {key['after'].name.title() if key['before'] else 'Auto'}\n"
+            o = key['before'].name.title() if key['before'] else 'Auto'
+            before.description += f"**Video Quality**: {o}\n"
+            o = key['after'].name.title() if key['before'] else 'Auto'
+            after.description += f"**Video Quality**: {o}\n"
 
         # Flags
         if key := changes.pop('flags', False):
@@ -507,20 +580,32 @@ class Logs(Cog):
             if isinstance(entry.target, discord.Thread):
                 if isinstance(entry.target.parent, discord.ForumChannel):
                     if bf_flags is not None:
-                        before.description += f"**Thread Pinned**: {bf_flags.pinned}\n"
-                        before.description += f"**Force Tags?**: {bf_flags.require_tag}\n"
+                        b = bf_flags.pinned
+                        before.description += f"**Thread Pinned**: `{b}`\n"
+                        b = bf_flags.require_tag
+                        before.description += f"**Force Tags?**: `{b}`\n"
                     if af_flags is not None:
-                        after.description += f"**Thread Pinned**: {af_flags.pinned}\n"
-                        after.description += f"**Force Tags?**: {af_flags.require_tag}\n"
+                        a = af_flags.pinned
+                        after.description += f"**Thread Pinned**: `{a}`\n"
+                        a = af_flags.require_tag
+                        after.description += f"**Force Tags?**: `{a}`\n"
 
         if key := changes.pop('available_tags', False):
             if new := [i for i in key['after'] if i not in key['before']]:
-                after.add_field(name="Tags Added", value=', '.join(
-                    f'{i.emoji} {i.name}{" (Mod Only)" if i.moderated else ""}' for i in new))
+                txt = ""
+                for i in new:
+                    txt += f'{i.emoji} {i.name}'
+                    if i.moderated:
+                        txt += " (Mod Only)"
+                after.add_field(name="Tags Added", value=txt)
 
             if removed := [i for i in key['before'] if i not in key['after']]:
-                before.add_field(name="Tags Removed", value=', '.join(
-                    f'{i.emoji} {i.name}{" (Mod Only)" if i.moderated else ""}' for i in removed))
+                txt = ""
+                for i in removed:
+                    txt += f'{i.emoji} {i.name}'
+                    if i.moderated:
+                        txt += " (Mod Only)"
+                before.add_field(name="Tags Removed", value=txt)
 
         # Permission Overwrites
         if key := changes.pop("overwrites", False):
@@ -542,13 +627,16 @@ class Logs(Cog):
         if not (c_type := changes.pop('type', False)):
             c_type = str(entry.target.type).replace('_', ' ').title()
 
-        e: Embed = Embed(colour=Colour.dark_orange(), title=f"{c_type}Channel Deleted", timestamp=entry.created_at)
+        e = Embed(colour=Colour.dark_orange(),
+                  title=f"{c_type}Channel Deleted", timestamp=entry.created_at)
+
         do_footer(entry, e)
 
+        t = entry.target
         if name := changes.pop("name", False):
-            e.description = f"<#{entry.target.id}> {name} ({entry.target.id})\n\n"
+            e.description = f"<#{t.id}> {name} ({t.id})\n\n"
         else:
-            e.description = f"<#{entry.target.id}> ({entry.target.id})\n\n"
+            e.description = f"<#{t.id}> ({t.id})\n\n"
 
         if bitrate := changes.pop("bitrate", False):
             e.description += f"**Bitrate**: {math.floor(bitrate / 1000)}kbps\n"
@@ -557,13 +645,14 @@ class Logs(Cog):
             e.description += f"**User Limit**: {max_users}"
 
         if archive := changes.pop("default_auto_archive_duration", False):
-            e.description += f"**Thread Archiving**: {stringify_minutes(archive)}\n"
+            s = stringify_minutes(archive)
+            e.description += f"**Thread Archiving**: {s}\n"
 
         if position := changes.pop("position", False):
             e.description += f"**Position**: {position}\n"
 
         if _ := changes.pop("nsfw", False):
-            e.description += f"**NSFW**: `True`\n"
+            e.description += "**NSFW**: `True`\n"
 
         if region := changes.pop("rtc_region", False):
             e.description += f"**Region**: {region}\n"
@@ -584,9 +673,9 @@ class Logs(Cog):
         # Flags
         if flags := changes.pop('flags', False):
             if flags.pinned:
-                e.description += f"**Thread Pinned**: `True`\n"
+                e.description += "**Thread Pinned**: `True`\n"
             if flags.require_tag:
-                e.description += f"**Force Tags?**: `True`\n"
+                e.description += "**Force Tags?**: `True`\n"
 
         # Permission Overwrites
         if overwrites := changes.pop("overwrites", False):
@@ -609,21 +698,22 @@ class Logs(Cog):
             changes[k]["after"] = v
 
         before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
+        after: Embed = Embed(colour=Colour.light_gray(),
+                             timestamp=entry.created_at, description="")
         do_footer(entry, after)
 
         # Author Icon
         if icon := changes.pop('icon', False):
             if icon['before'] is None:
                 bf_ico = entry.guild.icon.url
-                before.description += f"**Icon**: None\n"
+                before.description += "**Icon**: None\n"
             else:
                 bf_ico = icon['before'].url
                 before.description += f"**Icon**: [link]({bf_ico})\n"
 
             if icon['after'] is None:
                 af_ico = entry.guild.icon.url
-                after.description += f"**Icon**: None\n"
+                after.description += "**Icon**: None\n"
             else:
                 af_ico = icon['after'].url
                 after.description += f"**Icon**: [link]({af_ico})\n"
@@ -636,11 +726,14 @@ class Logs(Cog):
             before.description += f"**Name**: {key['before']}\n"
             after.description += f"**Name**: {key['after']}\n"
         else:
-            before.set_author(name=f"{entry.guild.name} Updated", icon_url=bf_ico)
+            before.set_author(name=f"{entry.guild.name} Updated",
+                              icon_url=bf_ico)
 
         if key := changes.pop("owner", False):
-            before.description += f"**Owner**: {key['before'].mention if key['before'] else None}\n"
-            after.description += f"**Owner**: {key['after'].mention if key['after'] else None}\n"
+            old_owner = key['before'].mention if key['before'] else None
+            before.description += f"**Owner**: {old_owner}\n"
+            new_owner = key['after'].mention if key['after'] else None
+            after.description += f"**Owner**: {new_owner}\n"
 
         if key := changes.pop("public_updates_channel", False):
             bf = key['before'].mention if key['before'] else None
@@ -661,60 +754,52 @@ class Logs(Cog):
             after.description += f"**Rules Channel**: {af}\n"
 
         if key := changes.pop("system_channel", False):
-            before.description += f"**System Channel**: {key['before'].mention if key['before'] else None}\n"
-            after.description += f"**System Channel**: {key['after'].mention if key['after'] else None}\n"
+            bf_ch = key['before'].mention if key['before'] else None
+            before.description += f"**System Channel**: {bf_ch}\n"
+            af_ch = key['after'].mention if key['after'] else None
+            after.description += f"**System Channel**: {af_ch}\n"
 
         if key := changes.pop("widget_channel", False):
-            before.description += f"**Widget Channel**: {key['before'].mention if key['before'] else None}\n"
-            after.description += f"**Widget Channel**: {key['after'].mention if key['after'] else None}\n"
+            bf_ch = key['before'].mention if key['before'] else None
+            before.description += f"**Widget Channel**: {bf_ch}\n"
+            af_ch = key['after'].mention if key['after'] else None
+            after.description += f"**Widget Channel**: {af_ch}\n"
 
         if key := changes.pop("afk_timeout", False):
-            before.description += f"AFK Timeout: {key['before'] + ' seconds' if key['before'] else None}\n"
-            after.description += f"AFK Timeout: {key['after'] + ' seconds' if key['after'] else None}\n"
+            s = stringify_seconds(key['before'])
+            before.description += f"AFK Timeout: {s}\n"
+            s = stringify_seconds(key['after'])
+            after.description += f"AFK Timeout: {s}\n"
 
         if key := changes.pop("default_notifications", False):
-            def stringify(value: discord.NotificationLevel) -> str:
-                """Convert Enum to human string"""
-                match value:
-                    case discord.NotificationLevel.all_messages:
-                        return "All Messages"
-                    case discord.NotificationLevel.only_mentions:
-                        return "Mentions Only"
-                    case _:
-                        return value
-
-            before.description += f"Default Notifications: {stringify(key['before'])}\n"
-            after.description += f"Default Notifications: {stringify(key['after'])}\n"
+            s = stringify_notification_level(key['before'])
+            before.description += f"Default Notifications: {s}\n"
+            s = stringify_notification_level(key['after'])
+            after.description += f"Default Notifications: {s}\n"
 
         if key := changes.pop("explicit_content_filter", False):
-            def stringify(value: discord.ContentFilter) -> str:
-                """Convert Enum to human string"""
-                match value:
-                    case discord.ContentFilter.all_members:
-                        return "Check All Members"
-                    case discord.ContentFilter.no_role:
-                        return "Check Un-roled Members"
-                    case discord.ContentFilter.disabled:
-                        return None
-
-            before.description += f"**Explicit Content Filter**: {stringify(key['before'])}\n"
-            after.description += f"**Explicit Content Filter**: {stringify(key['after'])}\n"
+            s = stringify_content_filter(key['before'])
+            before.description += f"**Explicit Content Filter**: {s}\n"
+            s = stringify_content_filter(key['after'])
+            after.description += f"**Explicit Content Filter**: {s}\n"
 
         if key := changes.pop("mfa_level", False):
-            before.description += f"**MFA Level**: {stringify_mfa(key['before'])}\n"
-            after.description += f"**MFA Level**: {stringify_mfa(key['after'])}\n"
+            s = stringify_mfa(key['before'])
+            before.description += f"**MFA Level**: {s}\n"
+            s = stringify_mfa(key['after'])
+            after.description += f"**MFA Level**: {s}\n"
 
         if key := changes.pop("verification_level", False):
-            before.description += (f"**Verification Level**: "
-                                   f"{stringify_verification(key['before'])}\n")
-            after.description += (f"**Verification Level**: "
-                                  f"{stringify_verification(key['after'])}\n")
+            s = stringify_verification(key['before'])
+            before.description += (f"**Verification Level**: {s}\n")
+            s = stringify_verification(key['after'])
+            after.description += (f"**Verification Level**: {s}\n")
 
         if key := changes.pop("vanity_url_code", False):
             before.description += (f"**Invite URL**: [{key['before']}]"
-                                   "(https://discord.gg/{key['before']})")
+                                   f"(https://discord.gg/{key['before']})")
             after.description += (f"**Invite URL**: [{key['after']}]"
-                                  "(https://discord.gg/{key['after']})")
+                                  f"(https://discord.gg/{key['after']})")
 
         if key := changes.pop("description", False):
             before.add_field(name="**Description**", value=key['before'])
@@ -738,11 +823,15 @@ class Logs(Cog):
 
         if key := changes.pop("splash", None):
             if key['before']:
-                before.description += f"**Invite Image**: [link]({key['before'].url})\n"
-                before.set_image(url=key['before'].url if key['before'].url else None)
+                u = key['before'].url
+                before.description += f"**Invite Image**: [link]({u})\n"
+                if u:
+                    before.set_image(url=u)
             if key['after']:
-                after.description += f"**Invite Image**: [link]({key['after'].url})\n"
-                after.set_image(url=key['before'].url if key['after'].url else None)
+                u = key['after'].url
+                after.description += f"**Invite Image**: [link]({u})\n"
+                if u:
+                    after.set_image(url=u)
 
         if key := changes.pop("discovery_splash", None):
             if key['before']:
@@ -753,20 +842,24 @@ class Logs(Cog):
                 before.description += "**Discovery Image**: None"
 
             if key['after']:
-                after.description += f"**Discovery Image**: [link]({key['after'].url})\n"
-                after.set_image(url=key['after'].url)
+                a = key['after'].url
+                after.description += f"**Discovery Image**: [link]({a})\n"
+                after.set_image(url=a)
             else:
                 after.description += "**Discovery Image**: None"
 
         if key := changes.pop("banner", None):
             if key['before']:
-                before.description += f"**Banner**: [link]({key['before'].url})\n"
-                before.set_image(url=key['before'].url)
+                b = key['before'].url
+                before.description += f"**Banner**: [link]({b})\n"
+                before.set_image(url=b)
             else:
-                before.description += f"**Banner**: None\n"
+                before.description += "**Banner**: None\n"
+
             if key['after']:
-                after.description += f"**Banner**: [link]({key['after'].url})\n"
-                after.set_image(url=key['after'].url)
+                a = key['after'].url
+                after.description += f"**Banner**: [link]({a})\n"
+                after.set_image(url=a)
             else:
                 after.description += "**Banner**: None\n"
 
@@ -788,9 +881,13 @@ class Logs(Cog):
                 o = "on" if a else "off"
                 after.description += f"**Join Notifications**: {o}\n"
 
-            if (b := bf.join_notification_replies) != (a := af.join_notification_replies):
-                before.description += f"**Join Stickers**: {'on' if b else 'off'}\n"
-                after.description += f"**Join Stickers**: {'on' if a else 'off'}\n"
+            b = bf.join_notification_replies
+            a = af.join_notification_replies
+            if a != b:
+                o = 'on' if b else 'off'
+                before.description += f"**Join Stickers**: {o}\n"
+                o = 'on' if a else 'off'
+                after.description += f"**Join Stickers**: {o}\n"
 
             b = bf.premium_subscription
             a = af.premium_subscriptions
@@ -835,7 +932,8 @@ class Logs(Cog):
                 pass  # Get from target object.
 
         c_type = str(entry.target.type).replace('_', ' ').title()
-        e: Embed = Embed(colour=Colour.light_gray(), title=f"{c_type} Created", timestamp=entry.created_at)
+        e: Embed = Embed(colour=Colour.light_gray(), title=f"{c_type} Created",
+                         timestamp=entry.created_at)
         e.description = f"<#{entry.target.id}> ({entry.target.id})\n\n"
         do_footer(entry, e)
 
@@ -845,21 +943,24 @@ class Logs(Cog):
                     e.description += f"**{k.title()}**: `True`\n"
 
         if key := changes.pop('auto_archive_duration', False):
-            e.description += f"**Inactivity Archive**: {stringify_minutes(key['after'])}\n"
+            s = stringify_minutes(key['after'])
+            e.description += f"**Inactivity Archive**: {s}\n"
 
         if key := changes.pop('applied_tags', False):
-            e.add_field(name="Tags", value=', '.join([f"{i.emoji} {i.name}" for i in key['after']]))
+            txt = ', '.join([f"{i.emoji} {i.name}" for i in key['after']])
+            e.add_field(name="Tags", value=txt)
 
         if key := changes.pop('flags', False):
             af: discord.ChannelFlags = key['after']
             if af.pinned:
-                e.description += f"**Thread Pinned**: `True`\n"
+                e.description += "**Thread Pinned**: `True`\n"
             if af.require_tag:
-                e.description += f"**Force Tags?**: `True`\n"
+                e.description += "**Force Tags?**: `True`\n"
 
         if key := changes.pop('slowmode_delay', False):
             if key['after']:
-                e.description += f"**Slow Mode**: {stringify_seconds(key['after'])}"
+                s = stringify_seconds(key['after'])
+                e.description += f"**Slow Mode**: {s}"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
@@ -881,14 +982,19 @@ class Logs(Cog):
             pass  # Get from target object.
 
         c_type = str(entry.target.type).replace('_', ' ').title()
-        before: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Updated", description="")
-        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        before: Embed = Embed(colour=Colour.dark_gray(), 
+                              title=f"{c_type} Updated", description="")
+        after: Embed = Embed(colour=Colour.light_gray(), 
+                             timestamp=entry.created_at, description="")
         do_footer(entry, after)
 
         if isinstance(thread := entry.target, discord.Object):
             thread: discord.Thread = entry.guild.get_thread(thread.id)
 
-        before.description = f"Thread ID# {entry.target.id}\n\n" if thread is None else f"{thread.mention}\n\n"
+        if thread is None:
+            before.description = f"Thread ID# {entry.target.id}\n\n"
+        else:
+            before.description = f"{thread.mention}\n\n"
 
         for k in ['name', 'invitable', 'locked', 'archived']:
             if key := changes.pop(k, False):
@@ -896,12 +1002,16 @@ class Logs(Cog):
                 after.description += f"**{k.title()}**: {key['after']}\n"
 
         if key := changes.pop('auto_archive_duration', False):
-            before.description += f"**Inactivity Archive**: {stringify_minutes(key['before'])}\n"
-            after.description += f"**Inactivity Archive**: {stringify_minutes(key['after'])}\n"
+            s = stringify_minutes(key['before'])
+            before.description += f"**Inactivity Archive**: {s}\n"
+            s = stringify_minutes(key['after'])
+            after.description += f"**Inactivity Archive**: {s}\n"
 
         if key := changes.pop('applied_tags', False):
-            bf: list[discord.ForumTag] = [f"{i.emoji} {i.name}" for i in key['before']]
-            af: list[discord.ForumTag] = [f"{i.emoji} {i.name}" for i in key['after']]
+            b = key['before']
+            a = key['after']
+            bf: list[discord.ForumTag] = [f"{i.emoji} {i.name}" for i in b]
+            af: list[discord.ForumTag] = [f"{i.emoji} {i.name}" for i in a]
 
             if new := [i for i in af if i not in bf]:
                 after.add_field(name="Tags Removed", value=', '.join(new))
@@ -920,8 +1030,10 @@ class Logs(Cog):
                 after.description += f"**Force Tags?**: {af.require_tag}\n"
 
         if key := changes.pop('slowmode_delay', False):
-            before.description += f"**Slow Mode**: {stringify_seconds(key['before'])}\n"
-            after.description += f"**Slow Mode**: {stringify_seconds(key['after'])}\n"
+            s = stringify_seconds(key['before'])
+            before.description += f"**Slow Mode**: {s}\n"
+            stringify_seconds(key['after'])
+            after.description += f"**Slow Mode**: {s}\n"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
@@ -937,7 +1049,8 @@ class Logs(Cog):
             pass  # Get from target object.
 
         c_type = str(entry.target.type).replace('_', ' ').title()
-        e: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Deleted", description="")
+        e: Embed = Embed(colour=Colour.dark_gray(),
+                         title=f"{c_type} Deleted", description="")
         e.description = f"<#{entry.target.id}> ({entry.target.id})"
         do_footer(entry, e)
 
@@ -946,16 +1059,18 @@ class Logs(Cog):
                 e.description += f"**{k.title()}**: {key}\n"
 
         if archive := changes.pop('auto_archive_duration', False):
-            e.description += f"**Inactivity Archive**: {stringify_minutes(archive)}\n"
+            s = stringify_minutes(archive)
+            e.description += f"**Inactivity Archive**: {s}\n"
 
         if tags := changes.pop('applied_tags', False):
-            e.add_field(name="Tags", value=', '.join([f"{i.emoji} {i.name}" for i in tags]))
+            e.add_field(name="Tags",
+                        value=', '.join([f"{i.emoji} {i.name}" for i in tags]))
 
         if flags := changes.pop('flags', False):
             if flags.pinned:
-                e.description += f"**Thread Pinned**: `True`\n"
+                e.description += "**Thread Pinned**: `True`\n"
             if flags.require_tag:
-                e.description += f"**Force Tags?**: `True`\n"
+                e.description += "**Force Tags?**: `True`\n"
 
         if slowmode := changes.pop('slowmode_delay', False):
             e.description += f"**Slow Mode**: {stringify_seconds(slowmode)}\n"
@@ -972,17 +1087,23 @@ class Logs(Cog):
 
         changes = {k: v for k, v in entry.changes.after}
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="Stage Instance Started", timestamp=entry.created_at)
+        e: Embed = Embed(colour=Colour.light_gray(),
+                         title="Stage Instance Started",
+                         timestamp=entry.created_at)
         do_footer(entry, e)
 
+        t = entry.target
         # A Stage *INSTANCE* happens on a stage *CHANNEL*
         if isinstance(entry.target, discord.Object):
-            stage: discord.StageChannel = entry.guild.get_channel(entry.target.id)
+            stage: discord.StageChannel = entry.guild.get_channel(t.id)
         else:
             instance: discord.StageInstance = entry.target
             stage = instance.channel
 
-        e.description = f"{stage.mention}\n\n" if stage is not None else f"Channel #{entry.target.id}\n\n"
+        if stage is None:
+            e.description = f"Channel #{entry.target.id}\n\n"
+        else:
+            e.description = f"{stage.mention}\n\n"
 
         if topic := changes.pop('topic', False):
             e.add_field(name="Topic", value=topic, inline=False)
@@ -1006,19 +1127,25 @@ class Logs(Cog):
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        before: Embed = Embed(colour=Colour.dark_gray(), title="Stage Instance Updated", description="")
-        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        before: Embed = Embed(colour=Colour.dark_gray(),
+                              title="Stage Instance Updated", description="")
+        after: Embed = Embed(colour=Colour.light_gray(),
+                             timestamp=entry.created_at, description="")
 
         do_footer(entry, after)
 
+        t = entry.target
         # A Stage *INSTANCE* happens on a stage *CHANNEL*
         if isinstance(entry.target, discord.Object):
-            stage: discord.StageChannel = entry.guild.get_channel(entry.target.id)
+            stage: discord.StageChannel = entry.guild.get_channel(t.id)
         else:
             instance: discord.StageInstance = entry.target
             stage = instance.channel
 
-        before.description = f"{stage.mention}\n\n" if stage is not None else f"Channel #{entry.target.id}\n\n"
+        if stage is not None:
+            before.desription = f"Channel #{entry.target.id}\n\n"
+        else:
+            before.description = f"{stage.mention}\n\n"
 
         if key := changes.pop('topic', False):
             before.add_field(name="Topic", value=key['before'], inline=False)
@@ -1037,17 +1164,22 @@ class Logs(Cog):
             return
 
         changes = {k: v for k, v in entry.changes.before}
-        e: Embed = Embed(colour=Colour.dark_gray(), title="Stage Instance Ended")
+        e: Embed = Embed(colour=Colour.dark_gray(),
+                         title="Stage Instance Ended")
         do_footer(entry, e)
 
         # A Stage *INSTANCE* happens on a stage *CHANNEL*
+        t = entry.target
         if isinstance(entry.target, discord.Object):
-            stage: discord.StageChannel = entry.guild.get_channel(entry.target.id)
+            stage: discord.StageChannel = entry.guild.get_channel(t.id)
         else:
             instance: discord.StageInstance = entry.target
             stage = instance.channel
 
-        e.description = f"{stage.mention}\n\n" if stage is not None else f"Channel #{entry.target.id}\n\n"
+        if stage is None:
+            e.description = f"Channel #{entry.target.id}\n\n"
+        else:
+            e.description = f"{stage.mention}\n\n"
 
         if topic := changes.pop('topic', False):
             e.add_field(name="Topic", value=topic, inline=False)
@@ -1065,11 +1197,16 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="Message Pinned", timestamp=entry.created_at, description="")
+        e: Embed = Embed(colour=Colour.light_gray(),
+                         title="Message Pinned",
+                         timestamp=entry.created_at, description="")
         do_footer(entry, e)
 
-        msg = entry.extra.channel.get_partial_message(entry.extra.message_id)
-        e.description = f"{entry.extra.channel.mention} {entry.target.mention}\n\n[Jump to Message]({msg.jump_url})"
+        x = entry.extra
+        t = entry.target
+        msg = x.channel.get_partial_message(x.message_id)
+        e.description = (f"{x.channel.mention} {t.mention}\n\n"
+                         f"[Jump to Message]({msg.jump_url})")
 
         return await self.dispatch(channels, [e])
 
@@ -1078,11 +1215,14 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        e: Embed = Embed(colour=Colour.dark_gray(), title="Message Unpinned", timestamp=entry.created_at)
+        e: Embed = Embed(colour=Colour.dark_gray(), title="Message Unpinned",
+                         timestamp=entry.created_at)
         do_footer(entry, e)
 
-        msg = entry.extra.channel.get_partial_message(entry.extra.message_id)
-        e.description = (f"{entry.extra.channel.mention} {entry.target.mention}"
+        x = entry.extra
+        t = entry.target
+        msg = entry.extra.channel.get_partial_message(x.message_id)
+        e.description = (f"{x.channel.mention} {t.mention}"
                          f"\n\n[Jump to Message]({msg.jump_url})")
 
         return await self.dispatch(channels, [e])
@@ -1092,17 +1232,22 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        changes = {k: v for k, v in entry.changes.after if k not in ['id', 'type']}
-        e: Embed = Embed(colour=Colour.light_gray(), title="Channel Permissions Created", timestamp=entry.created_at)
+        af = entry.changes.after
+        changes = {k: v for k, v in af if k not in ['id', 'type']}
+        e: Embed = Embed(colour=Colour.light_gray(),
+                         title="Channel Permissions Created",
+                         timestamp=entry.created_at)
         do_footer(entry, e)
 
-        e.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
+        t = entry.target
+        e.description = f"<#{t.id}> {t.name} ({t.id})\n\n"
+        x = entry.extra
         if isinstance(entry.extra, discord.Role):
-            e.description += f"<@&{entry.extra.id}> {entry.extra.name} (Role #{entry.extra.id})"
+            e.description += f"<@&{x.id}> {x.name} (Role #{x.id})"
         elif isinstance(entry.extra, discord.User | discord.Member):
-            e.description += f"<@{entry.extra.id}> {entry.extra.name} (User #{entry.extra.id})"
+            e.description += f"<@{x.id}> {x.name} (User #{x.extra.id})"
         else:
-            logging.info(f'entry.extra for handle_overwrite_create is {entry.extra} ({type(entry.extra)})')
+            logging.info(f'extra for overwrite_create is {x} ({type(x)})')
 
         if deny := changes.pop('deny', False):
             if fmt := [f"❌ {k}" for k, v in iter(deny) if v]:
@@ -1129,31 +1274,47 @@ class Logs(Cog):
             changes[k]["after"] = v
 
         c_type = str(entry.target.type).title()
-        before: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Channel Permissions Updated")
-        after: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
+        before: Embed = Embed(colour=Colour.dark_gray(),
+                              title=f"{c_type} Channel Permissions Updated")
+        after: Embed = Embed(colour=Colour.light_gray(),
+                             timestamp=entry.created_at, description="")
         do_footer(entry, after)
 
-        before.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})"
+        t = entry.target
+        x = entry.extra
+        before.description = f"<#{t.id}> {t.name} ({t.id})"
         match type(entry.extra):
             case discord.Role:
-                before.description += f"<@&{entry.extra.id}> {entry.extra.name} (Role #{entry.extra.id})"
+                before.description += f"<@&{x.id}> {x.name} (Role #{x.id})"
             case discord.Member:
-                before.description += f"<@{entry.extra.id}> {entry.extra.name} (User #{entry.extra.id})"
+                before.description += f"<@{x.id}> {x.name} (User #{x.id})"
             case _:
-                logging.info(f'entry.extra for handle_overwrite_update is {entry.extra} ({type(entry.extra)})')
+                logging.info(f'extra for overwrite_update is {x} ({type(x)})')
 
         if key := changes.pop('deny', False):
-            if new_deny := [f"❌ {i[0]}" for i in key['after'] if i not in key['before'] and i[1]]:
-                after.add_field(name='Denied Permissions Added', value=', '.join(new_deny))
-            if reset_deny := [f"🔄 {i[0]}" for i in key['before'] if i not in key['after'] and i[1]]:
-                before.add_field(name='Denied Permissions Reset', value='\n'.join(reset_deny))
+            a = key['after']
+            b = key['before']
+
+            if new_deny := [f"❌ {i[0]}" for i in a if i not in b and i[1]]:
+
+                after.add_field(name='Denied Permissions Added',
+                                value=', '.join(new_deny))
+
+            if reset_deny := [f"🔄 {i[0]}" for i in b if i not in a and i[1]]:
+                before.add_field(name='Denied Permissions Reset',
+                                 value='\n'.join(reset_deny))
 
         if key := changes.pop('allow', False):
-            if new_allow := [f"✅ {i[0]}" for i in key['after'] if i not in key['before'] and i[1]]:
-                after.add_field(name='Allowed Permissions Added', value=', '.join(new_allow))
+            a = key['after']
+            b = key['before']
 
-            if reset_allow := [f"🔄 {i[0]}" for i in key['before'] if i not in key['after'] and i[1]]:
-                before.add_field(name='Allowed Permissions Reset', value='\n'.join(reset_allow))
+            if new_allow := [f"✅ {i[0]}" for i in a if i not in b and i[1]]:
+                after.add_field(name='Allowed Permissions Added',
+                                value=', '.join(new_allow))
+
+            if reset_allow := [f"🔄 {i[0]}" for i in b if i not in a and i[1]]:
+                before.add_field(name='Allowed Permissions Reset',
+                                 value='\n'.join(reset_allow))
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
@@ -1165,28 +1326,34 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['channels'])):
             return
 
-        changes = {k: v for k, v in entry.changes.before if k not in ['id', 'type']}
+        bf = entry.changes.before
+        changes = {k: v for k, v in bf if k not in ['id', 'type']}
         c_type = str(entry.target.type).title()
-        e: Embed = Embed(colour=Colour.dark_gray(), title=f"{c_type} Channel Permissions Removed",
+        e: Embed = Embed(colour=Colour.dark_gray(),
+                         title=f"{c_type} Channel Permissions Removed",
                          timestamp=discord.utils.utcnow())
         do_footer(entry, e)
 
-        e.description = f"<#{entry.target.id}> {entry.target.name} ({entry.target.id})\n\n"
+        t = entry.target
+        x = entry.extra
+        e.description = f"<#{t.id}> {t.name} ({t.id})\n\n"
         match type(entry.extra):
             case discord.Role:
-                e.description += f"<@&{entry.extra.id}> {entry.extra.name} (Role #{entry.extra.id})"
+                e.description += f"<@&{x.id}> {x.name} (Role #{x.id})"
             case discord.Member:
-                e.description += f"<@{entry.extra.id}> {entry.extra.name} (User #{entry.extra.id})"
+                e.description += f"<@{x.id}> {x.name} (User #{x.id})"
             case _:
-                logging.info(f'entry.extra for handle_overwrite_delete is {entry.extra} ({type(entry.extra)})')
+                logging.info(f'extra for overwrite_delete is {x} ({type(x)})')
 
         if deny := changes.pop('deny', False):
             if fmt := [f"🔄 {k}" for k, v in iter(deny) if v]:
-                e.add_field(name='Denied Permissions Reset', value='\n'.join(fmt))
+                e.add_field(name='Denied Permissions Reset', 
+                            value='\n'.join(fmt))
 
         if allow := changes.pop('allow', False):
             if fmt := [f"🔄 {k}" for k, v in iter(allow) if v]:
-                e.add_field(name='Allowed Permissions Reset', value='\n'.join(fmt))
+                e.add_field(name='Allowed Permissions Reset', 
+                            value='\n'.join(fmt))
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
@@ -1199,7 +1366,9 @@ class Logs(Cog):
             return
 
         changes = {k: v for k, v in entry.changes.after}
-        e: Embed = Embed(colour=Colour.light_gray(), title="Scheduled Event Created", timestamp=entry.created_at)
+        e: Embed = Embed(colour=Colour.light_gray(),
+                         title="Scheduled Event Created", 
+                         timestamp=entry.created_at)
         e.description = ""
         do_footer(entry, e)
 
@@ -1211,7 +1380,8 @@ class Logs(Cog):
             e.set_image(url=image.url)
 
         if description := changes.pop('description', False):
-            e.add_field(name="Event Description", value=description, inline=False)
+            e.add_field(name="Event Description", value=description, 
+                        inline=False)
 
         if privacy := changes.pop('privacy_level', False):
             e.description += f"**Privacy**: {privacy}\n"
@@ -1221,13 +1391,14 @@ class Logs(Cog):
 
         if entity := changes.pop('entity_type', False):
             match entity:
-                case discord.EntityType.voice | discord.EntityType.stage_instance:
+                case (discord.EntityType.voice |
+                      discord.EntityType.stage_instance):
                     e.description += f"**Location**: {channel.mention}"
                 case discord.EntityType.external:
                     try:
                         e.description += f"**Location**: {location}"
                     except AttributeError:
-                        e.description += f"**Location**: Unknown"
+                        e.description += "**Location**: Unknown"
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
@@ -1245,8 +1416,10 @@ class Logs(Cog):
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        before: Embed = Embed(colour=Colour.dark_gray(), title="Scheduled Event Updated", description="")
-        after: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
+        before: Embed = Embed(colour=Colour.dark_gray(),
+                              title="Scheduled Event Updated", description="")
+        after: Embed = Embed(colour=Colour.light_gray(),
+                             timestamp=entry.created_at, description="")
         do_footer(entry, after)
 
         for attr in ['name', 'status']:
@@ -1269,18 +1442,22 @@ class Logs(Cog):
             after.description += f"**Privacy**: {key['after']}\n"
 
         location: dict[str, str] = changes.pop('location', {})
-        channel: dict[str, discord.StageChannel | discord.VoiceChannel] = changes.pop('channel', {})
+        channel: changes.pop('channel', None)
 
         if key := changes.pop('entity_type', False):
             match key['before']:
-                case discord.EntityType.voice | discord.EntityType.stage_instance:
-                    before.description += f"**Location**: {channel['before'].mention}"
+                case (discord.EntityType.voice |
+                      discord.EntityType.stage_instance):
+                    c_bf = channel['before'].mention
+                    before.description += f"**Location**: {c_bf}"
                 case discord.EntityType.external:
                     before.description += f"**Location**: {location['before']}"
 
             match key['after']:
-                case discord.EntityType.voice | discord.EntityType.stage_instance:
-                    after.description += f"**Location**: {channel['after'].mention}"
+                case (discord.EntityType.voice |
+                      discord.EntityType.stage_instance):
+                    c_af = channel['after'].mention
+                    after.description += f"**Location**: {c_af}"
                 case discord.EntityType.external:
                     after.description += f"**Location**: {location['after']}"
 
@@ -1296,7 +1473,8 @@ class Logs(Cog):
 
         changes = {k: v for k, v in entry.changes.before}
 
-        e: Embed = Embed(colour=Colour.dark_gray(), title="Scheduled Event Deleted", description="")
+        e: Embed = Embed(colour=Colour.dark_gray(),
+                         title="Scheduled Event Deleted", description="")
         do_footer(entry, e)
         e.description = ""
 
@@ -1318,7 +1496,8 @@ class Logs(Cog):
 
         if entity := changes.pop('entity_type', False):
             match entity:
-                case discord.EntityType.voice | discord.EntityType.stage_instance:
+                case (discord.EntityType.voice |
+                      discord.EntityType.stage_instance):
                     e.description += f"**Location**: {channel.mention}"
                 case discord.EntityType.external:
                     e.description += f"**Location**: {location}"
@@ -1333,14 +1512,16 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['kicks'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="User Kicked", timestamp=entry.created_at, description="")
+        e: Embed = Embed(colour=Colour.light_gray(), title="User Kicked",
+                         timestamp=entry.created_at, description="")
         do_footer(entry, e)
 
         if isinstance(target := entry.target, discord.Object):
             target: User = self.bot.get_user(target.id)
 
         if target is not None:
-            e.set_author(name=f"{target} ({entry.target.id})", icon_url=entry.target.display_avatar.url)
+            e.set_author(name=f"{target} ({entry.target.id})", 
+                         icon_url=entry.target.display_avatar.url)
             e.description = f"{target.mention} (ID: {target.id}) was kicked."
         else:
             e.set_author(name=f"User #{entry.target.id}")
@@ -1353,14 +1534,16 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['bans'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="User Banned", timestamp=entry.created_at, description="")
+        e: Embed = Embed(colour=Colour.light_gray(), title="User Banned",
+                         timestamp=entry.created_at, description="")
         do_footer(entry, e)
 
         if isinstance(target := entry.target, discord.Object):
             target = self.bot.get_user(entry.target.id)
 
         if target is not None:
-            e.set_author(name=f"{target} ({entry.target.id})", icon_url=entry.target.display_avatar.url)
+            e.set_author(name=f"{target} ({entry.target.id})",
+                         icon_url=entry.target.display_avatar.url)
             e.description = f"{entry.target.mention} was banned."
         else:
             e.set_author(name=f"User #{entry.target.id}")
@@ -1373,14 +1556,17 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['bans'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="User Unbanned", timestamp=entry.created_at, description="")
+        e: Embed = Embed(colour=Colour.light_gray(),
+                         title="User Unbanned",
+                         timestamp=entry.created_at, description="")
         do_footer(entry, e)
 
         if isinstance(user := entry.target, discord.Object):
             user = self.bot.get_user(entry.target.id)
 
         if user is not None:
-            e.set_author(name=f"{user} ({user.id})", icon_url=user.display_avatar.url)
+            e.set_author(name=f"{user} ({user.id})",
+                         icon_url=user.display_avatar.url)
             e.description = f"{user.mention} was unbanned."
         else:
             e.set_author(name=f"User #{entry.target.id}")
@@ -1406,7 +1592,8 @@ class Logs(Cog):
         if isinstance(user := entry.target, discord.Object):
             user = entry.guild.get_member(user.id)
 
-        e.set_author(name=f"{user} ({user.id})", icon_url=user.display_avatar.url)
+        e.set_author(name=f"{user} ({user.id})",
+                     icon_url=user.display_avatar.url)
         e.description = f"{user.mention}\n\n"
 
         if key := changes.pop("nick", False):
@@ -1430,7 +1617,8 @@ class Logs(Cog):
         if key := changes.pop("timed_out_until", False):
             if key['before'] is None:
                 e.title = "Timed Out"
-                e.description += f"**Timeout Expires**: {Timestamp(key['after']).relative}\n"
+                s = Timestamp(key['after']).relative
+                e.description += f"**Timeout Expires**: {s}\n"
             else:
                 e.title = "Timeout Ended"
 
@@ -1444,10 +1632,13 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['moderation'])):
             return
 
-        e: Embed = Embed(colour=Colour.brand_red(), title="Moved to Voice Channel", description="")
+        e: Embed = Embed(colour=Colour.brand_red(),
+                         title="Moved to Voice Channel",
+                         description="")
         do_footer(entry, e)
 
-        e.description = f"{entry.extra.count} users\n\nNew Channel: <#{entry.extra.channel.id}>"
+        x = entry.extra
+        e.description = f"{x.count} users\n\nNew Channel: <#{x.channel.id}>"
 
         return await self.dispatch(channels, [e])
 
@@ -1456,7 +1647,9 @@ class Logs(Cog):
         if not (channels := self.get_channels(entry.guild, ['moderation'])):
             return
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="Kicked From Voice Channel", timestamp=entry.created_at)
+        e: Embed = Embed(colour=Colour.light_gray(),
+                         title="Kicked From Voice Channel",
+                         timestamp=entry.created_at)
         do_footer(entry, e)
         e.description = f"{entry.extra.count} members"
 
@@ -1647,7 +1840,7 @@ class Logs(Cog):
         for k, v in entry.changes.after:
             changes[k]["after"] = v
 
-        e: Embed = Embed(colour=Colour.light_gray(), title="After", timestamp=entry.created_at, description="")
+        e: Embed = Embed(colour=Colour.light_gray(), timestamp=entry.created_at, description="")
         do_footer(entry, e)
 
         member = entry.target
@@ -2634,7 +2827,7 @@ class Logs(Cog):
                 if not emoji.managed:
                     continue
 
-                e.set_author(name="Twitch Integration", icon_url=TWITCH_LOGO)
+                e.set_author(name="Twitch Integration", icon_url=TWTCH)
                 if emoji.roles:
                     e.add_field(name='Available to roles', value=' '.join([i.mention for i in emoji.roles]))
 

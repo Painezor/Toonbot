@@ -5,7 +5,8 @@ import logging
 
 import discord
 from discord import Embed, Interaction, Message, Colour, InteractionResponse
-from discord.app_commands import AppCommandError, BotMissingPermissions, MissingPermissions
+from discord.app_commands import (AppCommandError, BotMissingPermissions,
+                                  MissingPermissions)
 from discord.ext.commands import Cog, NotOwner
 
 from ext.quotes import TargetOptedOutError, OptedOutError
@@ -23,7 +24,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger('reply')
 
 
-async def error(i: Interaction, content: str, message: Message = None, followup: bool = True, **kwargs) -> Message:
+async def error(i: Interaction, content: str, message: Message = None,
+                followup: bool = True, **kwargs) -> Message:
     """Send a Generic Error Embed"""
     e: Embed = Embed(colour=Colour.red(), description=content)
 
@@ -31,10 +33,12 @@ async def error(i: Interaction, content: str, message: Message = None, followup:
 
     v = BaseView(i)
     v.add_item(view_utils.Stop())
-    return await reply(i, message=message, embed=e, ephemeral=True, followup=followup, view=v, **kwargs)
+    return await reply(i, message=message, embed=e, ephemeral=True,
+                       followup=followup, view=v, **kwargs)
 
 
-async def reply(i: Interaction, message: Message = None, followup: bool = True, **kwargs) -> Message:
+async def reply(i: Interaction, message: Message = None, followup: bool = True,
+                **kwargs) -> Message:
     """Generic reply handler."""
     r: InteractionResponse = i.response
     if message is None and not r.is_done():
@@ -44,7 +48,9 @@ async def reply(i: Interaction, message: Message = None, followup: bool = True, 
     try:
         att = kwargs.copy()
         if "file" in kwargs:
-            att['attachments'] = [i for i in [att.pop('file', None)] + att.pop('files', []) if i]
+            attr = [i for i in [att.pop('file', None)]
+                    + att.pop('files', []) if i]
+            att['attachments'] = attr
         att.pop("ephemeral", None)
         return await i.edit_original_response(**att)
     except discord.HTTPException:
@@ -52,7 +58,8 @@ async def reply(i: Interaction, message: Message = None, followup: bool = True, 
             return
         followup: discord.Webhook = i.followup
         try:
-            return await followup.send(**kwargs, wait=True)  # Return the message.
+            # Return the message.
+            return await followup.send(**kwargs, wait=True)
         except discord.HTTPException:
             try:
                 return await i.user.send(**kwargs)
@@ -69,23 +76,30 @@ class Reply(Cog):
         self.bot.error = error
         self.bot.tree.on_error = self.error_handler
 
-    async def error_handler(self, interaction: Interaction, err: AppCommandError) -> Message:
+    async def error_handler(self, interaction: Interaction,
+                            err: AppCommandError) -> Message:
         """Event listener for when commands raise exceptions"""
         # Unpack CIE
         if isinstance(err, NotOwner):
-            return await self.bot.error(interaction, 'You do not own this bot.')
-        elif isinstance(err, TargetOptedOutError | OptedOutError):  # QuoteDB Specific
+            msg = 'You do not own this bot.'
+            return await self.bot.error(interaction, msg)
+        # QuoteDB Specific
+        elif isinstance(err, TargetOptedOutError | OptedOutError):
             return await self.bot.error(interaction, err.args[0])
         elif isinstance(err, BotMissingPermissions):
             miss = ', '.join(err.missing_permissions)
-            return await self.bot.error(interaction, f"The bot requires the {miss} permissions to run this command")
+            msg = f"The bot requires {miss} permissions to run this command"
+            return await self.bot.error(interaction, msg)
         elif isinstance(err, MissingPermissions):
             miss = ', '.join(err.missing_permissions)
-            return await self.bot.error(interaction, f"You required {miss} permissions to run this command")
+            msg = f"You required {miss} permissions to run this command"
+            return await self.bot.error(interaction, msg)
         else:
-            await self.bot.error(interaction, f'An Internal error occurred.\n{err.args}')
+            msg = f'An Internal error occurred.\n{err.args}'
+            await self.bot.error(interaction, msg)
 
-        logger.error(f"Error from {interaction.command.qualified_name} {interaction.data.items()}")
+        logger.error(f"Error from {interaction.command.qualified_name}"
+                     f"{interaction.data.items()}")
         logger.error(f"{err.args}")
         raise err
 

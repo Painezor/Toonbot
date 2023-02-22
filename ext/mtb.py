@@ -395,8 +395,7 @@ class MatchThreadCommands(commands.Cog):
         for r in records:
             # Get upcoming games from flashscore.
             if (team := self.bot.get_team(r["team_flashscore_id"])) is None:
-                if (team := await flashscore.Team.by_id(self.bot, r["team_flashscore_id"])) is None:
-                    continue
+                continue
 
             for fixture in await team.fixtures():
                 await self.spool_thread(fixture, r)

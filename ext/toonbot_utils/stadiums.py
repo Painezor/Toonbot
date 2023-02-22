@@ -13,18 +13,23 @@ if TYPE_CHECKING:
     from core import Bot
 
 
-# TODO: Store stadiums to database to allow for autocomplete, or find autocomplete on footballgroundmap
+# TODO: Store stadiums to database to allow for autocomplete,
+# or find autocomplete on footballgroundmap
 class Stadium:
-    """An object representing a football Stadium from football ground map.com"""
-    __slots__ = {'url': 'A Url representing a link to this stadium on football ground map',
+    """An object representing a football Stadium from footballgroundmap.com"""
+    __slots__ = {'url': 'A Url representing a link to this stadium on football'
+                 ' ground map',
                  'name': 'The name of the stadium',
                  'team': 'The team that plays at this stadium',
                  'league': 'The league of the team that plays at this stadium',
                  'country': 'The country this stadium is in',
-                 'team_badge': 'The badge of the team that plays at this stadium',
+                 'team_badge': 'The badge of the team that plays at this '
+                 'stadium',
                  'image': 'A link to an image of this stadium',
-                 'current_home': 'A list of teams this ground is the current home of',
-                 'former_home': 'A list of teams that this ground is the current home of',
+                 'current_home': 'A list of teams this ground is the current'
+                 ' home of',
+                 'former_home': 'A list of teams that this ground is the '
+                 'current home of',
                  'map_link': 'A link to a map to this stadium',
                  'address': 'A link to the address of this stadium',
                  'capacity': 'The maximum capacity of this stadium',
@@ -62,38 +67,60 @@ class Stadium:
                     src = src.decode('ISO-8859-1')
                     tree = html.fromstring(src)
                 case _:
-                    raise ConnectionError(f'Error {resp.status} during fetch_more on {self.url}')
+                    er = f'Error {resp.status} during fetch_more on {self.url}'
+                    raise ConnectionError(er)
 
         self.image = ''.join(tree.xpath('.//div[@class="page-img"]/img/@src'))
 
         # Teams
         try:
-            v = tree.xpath('.//tr/th[contains(text(), "Former home")]/following-sibling::td')[0]
-            t = [f"[{x}]({y})" for x, y in list(zip(v.xpath('.//a/text()'), v.xpath('.//a/@href'))) if "/team/" in y]
+            xp = ('.//tr/th[contains(text(), "Former home")]'
+                  '/following-sibling::td')
+            v = tree.xpath(xp)[0]
+            t = [f"[{x}]({y})" for x, y in list(
+                zip(v.xpath('.//a/text()'), v.xpath('.//a/@href')))
+                 if "/team/" in y]
             self.former_home = t
         except IndexError:
             pass
 
         try:
-            v = tree.xpath('.//tr/th[contains(text(), "home to")]/following-sibling::td')[0]
-            t = [f"[{x}]({y})" for x, y in list(zip(v.xpath('.//a/text()'), v.xpath('.//a/@href'))) if "/team/" in y]
+            xp = './/tr/th[contains(text(), "home to")]/following-sibling::td'
+            v = tree.xpath(xp)[0]
+            t = [f"[{x}]({y})" for x, y in list(
+                zip(v.xpath('.//a/text()'), v.xpath('.//a/@href')))
+                  if "/team/" in y]
             self.current_home = t
         except IndexError:
             pass
 
         self.map_link = ''.join(tree.xpath('.//figure/img/@src'))
-        self.address = ''.join(tree.xpath('.//tr/th[contains(text(), "Address")]/following-sibling::td//text()'))
-        self.capacity = ''.join(tree.xpath('.//tr/th[contains(text(), "Capacity")]/following-sibling::td//text()'))
-        self.cost = ''.join(tree.xpath('.//tr/th[contains(text(), "Cost")]/following-sibling::td//text()'))
-        self.website = ''.join(tree.xpath('.//tr/th[contains(text(), "Website")]/following-sibling::td//text()'))
-        self.attendance_record = ''.join(
-            tree.xpath('.//tr/th[contains(text(), "Record attendance")]/following-sibling::td//text()'))
+
+        xp = ('.//tr/th[contains(text(), "Address")]'
+              '/following-sibling::td//text()')
+        self.address = ''.join(tree.xpath(xp))
+
+        xp = ('.//tr/th[contains(text(), "Capacity")]'
+              '/following-sibling::td//text()')
+        self.capacity = ''.join(tree.xpath(xp))
+
+        xp = './/tr/th[contains(text(), "Cost")]/following-sibling::td//text()'
+        self.cost = ''.join(tree.xpath(xp))
+
+        xp = ('.//tr/th[contains(text(), "Website")]'
+              '/following-sibling::td//text()')
+        self.website = ''.join(tree.xpath(xp))
+
+        xp = ('.//tr/th[contains(text(), "Record attendance")]'
+              '/following-sibling::td//text()')
+        self.attendance_record = ''.join(tree.xpath(xp))
 
     def __str__(self) -> str:
         return f"**{self.name}** ({self.country}: {self.team})"
 
     async def to_embed(self) -> Embed:
-        """Create a discord Embed object representing the information about a football stadium"""
+        """Create a discord Embed object representing the information about
+           a football stadium"""
         e: Embed = Embed(title=self.name, url=self.url)
         e.set_footer(text="FootballGroundMap.com")
 
@@ -106,20 +133,24 @@ class Stadium:
             e.set_image(url=self.image.replace(' ', '%20'))
 
         if self.current_home:
-            e.add_field(name="Home to", value=", ".join(self.current_home), inline=False)
+            e.add_field(name="Home to", value=", ".join(self.current_home),
+                        inline=False)
 
         if self.former_home:
-            e.add_field(name="Former home to", value=", ".join(self.former_home), inline=False)
+            e.add_field(name="Former home to",
+                        value=", ".join(self.former_home), inline=False)
 
         # Location
         if self.map_link:
-            e.add_field(name="Location", value=f"[{self.address}]({self.map_link})", inline=False)
+            e.add_field(name="Location", inline=False,
+                        value=f"[{self.address}]({self.map_link})")
         elif self.address != "Link to map":
             e.add_field(name="Location", value=self.address, inline=False)
 
         # Misc Data.
         e.description = ""
-        for x, y in [("Capacity", self.capacity), ("Record Attendance", self.attendance_record),
+        for x, y in [("Capacity", self.capacity),
+                     ("Record Attendance", self.attendance_record),
                      ("Cost", self.cost), ("Website", self.website)]:
             if x:
                 e.description += f"{x}: {y}\n"
@@ -128,13 +159,17 @@ class Stadium:
 
 async def get_stadiums(bot: Bot, query: str) -> list[Stadium]:
     """Fetch a list of Stadium objects matching a user query"""
-    async with bot.session.get(f'https://www.footballgroundmap.com/search/{quote_plus(query)}') as resp:
+    uri = f'https://www.footballgroundmap.com/search/{quote_plus(query)}'
+    async with bot.session.get(uri) as resp:
         tree = html.fromstring(await resp.text())
 
     stadiums: list[Stadium] = []
 
-    for i in tree.xpath(".//div[@class='using-grid'][1]/div[@class='grid']/div"):
-        team = ''.join(i.xpath('.//small/preceding-sibling::a//text()')).title()
+    xp = ".//div[@class='using-grid'][1]/div[@class='grid']/div"
+    for i in tree.xpath(xp):
+
+        xp = './/small/preceding-sibling::a//text()'
+        team = ''.join(i.xpath(xp)).title()
         badge = i.xpath('.//img/@src')[0]
 
         if not (comp_info := i.xpath('.//small/a//text()')):
@@ -148,6 +183,13 @@ async def get_stadiums(bot: Bot, query: str) -> list[Stadium]:
             if query.lower() not in name.lower() + team.lower():
                 continue  # Filtering.
 
-            stadiums.append(Stadium(bot, name=name, url=''.join(s.xpath('./@href')), team=team, team_badge=badge,
-                                    country=country, league=league))
+            stadium = Stadium(bot)
+            stadium.name = name
+            stadium.url = ''.join(s.xpath('./@href'))
+            stadium.team = team
+            stadium.team_badge = badge
+            stadium.country = country
+            stadium.league = league
+
+            stadiums.append(stadium)
     return stadiums

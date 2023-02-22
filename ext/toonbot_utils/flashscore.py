@@ -45,7 +45,7 @@ ADS = ('.ads-envelope, '
        )
 
 FLASHSCORE = 'https://www.flashscore.com'
-LOGO_URL = "https://www.flashscore.com/res/image/data/"
+LOGO_URL = FLASHSCORE + "/res/image/data/"
 INJURY_EMOJI = "<:injury:682714608972464187>"
 DEFAULT_LEAGUES = [
     "WORLD: Friendly international",
@@ -94,15 +94,13 @@ class FlashScoreItem:
 
     __slots__ = ['id', 'url', 'name', 'embed_colour', 'logo_url']
 
-    def __init__(self, bot: Bot, fsid: str = None, name: str = None,
+    def __init__(self, fsid: str = None, name: str = None,
                  link: str = None) -> None:
         self.id: Optional[str] = fsid
         self.url: Optional[str] = link
         self.name: Optional[str] = name
         self.embed_colour: Optional[Colour] = None
         self.logo_url: Optional[str] = None
-
-        self.__class__.bot = bot
 
     def __hash__(self) -> hash:
         return hash(repr(self))
@@ -174,7 +172,7 @@ class FlashScoreItem:
         for i in games:
             try:
                 fx_id = i.xpath("./@id")[0].split("_")[-1]
-                url = "https://www.flashscore.com/match/" + fx_id
+                url = FLASHSCORE + "/match/" + fx_id
             except IndexError:
                 # This (might be) a header row.
                 if "event__header" in i.classes:
@@ -189,22 +187,20 @@ class FlashScoreItem:
                             comp = x
                             break
                     else:
-                        comp = Competition(self.bot)
+                        comp = Competition()
                         comp.country = country
                         comp.name = league
                 continue
 
-            fixture = Fixture(self.bot, fx_id)
+            fixture = Fixture(fx_id)
             fixture.competition = comp
             fixture.url = url
 
             # score
             xp = './/div[contains(@class,"event__participant")]/text()'
             home, away = i.xpath(xp)
-            fixture.home = Team(self.bot)
-            fixture.home.name = home.strip()
-            fixture.away = Team(self.bot)
-            fixture.away.name = away.strip()
+            fixture.home = Team(name=home.strip())
+            fixture.away = Team(name=away.strip())
 
             try:
                 xp = './/div[contains(@class,"event__score")]//text()'
@@ -285,10 +281,10 @@ class Team(FlashScoreItem):
     # Constant
     emoji: ClassVar[str] = '👕'
 
-    def __init__(self, bot: Bot, fs_id: str = None, name: str = None,
+    def __init__(self, fs_id: str = None, name: str = None,
                  link: str = None, **kwargs) -> None:
 
-        super().__init__(bot, fs_id, name, link)
+        super().__init__(fs_id, name, link)
         self.competition: Competition | None = kwargs.pop('competition', None)
 
     def __str__(self) -> str:
@@ -318,21 +314,7 @@ class Team(FlashScoreItem):
 
         # Example URL:
         # https://www.flashscore.com/team/thailand-stars/jLsL0hAF/
-        return f"https://www.flashscore.com/team/{self.url}/{self.id}"
-
-    @classmethod
-    async def by_id(cls, bot: Bot, team_id: str) -> Optional[Team]:
-        """Create a Team object from it's Flashscore ID"""
-        async with semaphore:
-            page = await bot.browser.new_page()
-            try:
-                url = f"https://flashscore.com/?r=3:{team_id}"
-                await page.goto(url, timeout=5000)
-                url = await page.evaluate("() => window.location.href")
-                obj = cls(bot, link=url, fs_id=team_id)
-                return obj
-            finally:
-                await page.close()
+        return FLASHSCORE + f"/team/{self.url}/{self.id}"
 
     async def save_to_db(self) -> None:
         """Save the Team to the Bot Database"""
@@ -433,7 +415,7 @@ class Team(FlashScoreItem):
                     position = pos
                 continue  # There will not be additional data.
 
-            player = Player(self.bot)
+            player = Player()
             player.team = self
             player.position = position
 
@@ -487,9 +469,9 @@ class Competition(FlashScoreItem):
     # Constant
     emoji: ClassVar[str] = '🏆'
 
-    def __init__(self, bot: Bot, fsid: str = None, link: str = None,
+    def __init__(self, fsid: str = None, link: str = None,
                  name: str = None, **kwargs) -> None:
-        super().__init__(bot, fsid=fsid, link=link, name=name)
+        super().__init__(fsid=fsid, link=link, name=name)
         self.country: Optional[str] = kwargs.pop('country', None)
         self.logo_url: Optional[str] = kwargs.pop('logo_url', None)
         self.score_embeds: list[Embed] = []
@@ -524,7 +506,7 @@ class Competition(FlashScoreItem):
             name = "Unidentified League"
             country = None
 
-        comp = cls(bot)
+        comp = cls()
         comp.url = link
         comp.country = country
         comp.name = name
@@ -634,7 +616,7 @@ class Competition(FlashScoreItem):
             except ValueError:
                 continue
 
-            player = Player(self.bot, competition=self, rank=rank)
+            player = Player(competition=self, rank=rank)
 
             xp = './/span[contains(@class,"flag")]/@title'
             player.country = ''.join(i.xpath(xp)).strip()
@@ -685,8 +667,8 @@ class Fixture(FlashScoreItem):
 
     emoji: ClassVar[str] = '⚽'
 
-    def __init__(self, bot: Bot, fs_id: str = None) -> None:
-        super().__init__(bot, fs_id=fs_id)
+    def __init__(self, fs_id: str = None) -> None:
+        super().__init__(fs_id)
 
         self.away: Optional[Team] = None
         self._cards_away: Optional[int] = None
@@ -1103,7 +1085,7 @@ class Fixture(FlashScoreItem):
                     comp = None
 
             if not comp:
-                comp = Competition(self.bot)
+                comp = Competition()
                 comp.name = name
                 comp.country = country
                 comp.url = href
@@ -1128,10 +1110,10 @@ class Player(FlashScoreItem):
                  'apps', 'goals', 'assists', 'rank', 'yellows', 'reds',
                  'injury')
 
-    def __init__(self, bot: Bot, fs_id: str = None, name: str = None,
+    def __init__(self, fs_id: str = None, name: str = None,
                  link: str = None, **kwargs) -> None:
 
-        super().__init__(bot, fs_id=fs_id, link=link, name=name)
+        super().__init__(fs_id=fs_id, link=link, name=name)
 
         self.number: int | None = kwargs.pop('number', None)
         self.position: str | None = kwargs.pop('position', None)
@@ -1158,7 +1140,7 @@ class Player(FlashScoreItem):
         if "https://" in self.url:
             return self.url
         else:
-            return f"https://www.flashscore.com{self.url}"
+            return FLASHSCORE + self.url
 
     @property
     def squad_row(self) -> str:

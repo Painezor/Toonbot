@@ -370,7 +370,7 @@ class Info(Cog):
 
         cover.description += f"**Members**: {len(g.members)}\n"
 
-        n = g.default_notifications
+        n = logs.stringify_notification_level(g.default_notifications)
         cover.description += f"**Notification Settings**: {n}\n"
 
         s = logs.stringify_mfa(g.mfa_level)
