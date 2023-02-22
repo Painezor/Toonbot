@@ -41,7 +41,7 @@ class ToggleButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
 
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -2718,7 +2718,7 @@ class Logs(Cog):
     async def logs(self, interaction: Interaction, channel: discord.TextChannel = None) -> Message:
         """Create moderator logs in this channel."""
         # TODO: Split /logs command into subcommands with sub-views & Parent.
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         if channel is None:
             channel = interaction.channel

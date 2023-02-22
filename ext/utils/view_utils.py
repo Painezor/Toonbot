@@ -75,7 +75,7 @@ class First(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         self.view.index = 0
         return await self.view.update()
@@ -89,7 +89,7 @@ class Previous(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         try:
             self.view.index = max(self.view.index - 1, 0)
@@ -124,7 +124,7 @@ class Jump(Button):
 
     async def callback(self, interaction: Interaction) -> Modal:
         """When button is clicked…"""
-        # noinspection PyUnresolvedReferences
+
         return await interaction.response.send_modal(JumpModal(self.view))
 
 
@@ -140,7 +140,7 @@ class JumpModal(Modal):
 
     async def on_submit(self, interaction: Interaction) -> Message:
         """Validate entered data & set parent index."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
 
         pages: list = getattr(self.view, "pages", [])
@@ -162,7 +162,7 @@ class Next(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         try:
             if self.view.index + 1 < len(self.view.pages):
@@ -181,7 +181,7 @@ class Last(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Do this when button is pressed"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         self.view.index = len(getattr(self.view, "pages", []))
         return await self.view.update()
@@ -216,7 +216,7 @@ class PageSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set View Index"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         self.view.index = int(self.values[0]) - 1
         self.view.remove_item(self)
@@ -230,7 +230,7 @@ class ItemSelect(Select):
 
     async def callback(self, interaction: Interaction) -> None:
         """Response object for view"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         self.view.value = self.values
         self.view.stop()
@@ -280,7 +280,7 @@ class FuncSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Any:
         """The handler for the FuncSelect Dropdown"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         value: Funcable = self.items[self.values[0]]
         return await value.function(*value.args, **value.kw)
@@ -298,7 +298,7 @@ class FuncButton(Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """The Callback performs the passed function with any passed args/kwargs"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         return await self.func(*self.args, **self.kwargs)
 
@@ -316,7 +316,7 @@ class FuncDropdown(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set View Index"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
 
         for k, v in self.raw[index := int(self.values[0])][1].items():

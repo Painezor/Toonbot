@@ -7,7 +7,7 @@ from importlib import reload
 from re import finditer
 from typing import TYPE_CHECKING
 
-from dateutil.parser import parser
+import datetime
 from discord import Embed
 from discord.app_commands import describe, autocomplete, Group, Choice
 from discord.ext.commands import Cog
@@ -83,7 +83,7 @@ def parse(results: dict) -> list[Embed]:
             e.add_field(name="Usage", value=ex)
 
         e.set_footer(text=f"👍{i['thumbs_up']} 👎{i['thumbs_down']} - {i['author']}")
-        e.timestamp = parser().parse(i['written_on'])
+        e.timestamp = datetime.datetime.fromisoformat(i['written_on'])
         embeds.append(e)
     return embeds
 
@@ -102,7 +102,7 @@ class UrbanDictionary(Cog):
     @autocomplete(term=ud_ac)
     async def search(self, interaction: Interaction, term: str) -> UrbanView | Message:
         """Lookup a definition from Urban Dictionary"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get(f"http://api.urbandictionary.com/v0/define?term={term}") as resp:
             match resp.status:
@@ -116,7 +116,7 @@ class UrbanDictionary(Cog):
     @ud.command()
     async def random(self, interaction: Interaction) -> UrbanView | Message:
         """Get some random definitions from Urban Dictionary"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get("https://api.urbandictionary.com/v0/random") as resp:
             match resp.status:
@@ -128,7 +128,7 @@ class UrbanDictionary(Cog):
     @ud.command()
     async def word_of_the_day(self, interaction: Interaction) -> UrbanView | Message:
         """Get the Word of the Day from Urban Dictionary"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get("https://api.urbandictionary.com/v0/words_of_the_day") as resp:
             match resp.status:

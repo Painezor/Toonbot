@@ -14,7 +14,7 @@ from ext.utils.view_utils import BaseView
 if TYPE_CHECKING:
     from core import Bot
     from discord import Interaction
-
+ 
 
 class XKCDView(BaseView):
     """A View to browse XKCD Comics"""
@@ -59,21 +59,21 @@ class XKCD(Cog):
     @xkcd.command()
     async def latest(self, interaction: Interaction):
         """Get the latest XKCD Comic"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         return await XKCDView(interaction).update()
 
     @xkcd.command()
     async def random(self, interaction: Interaction):
         """Get the latest XKCD Comic"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         return await XKCDView(interaction, -1).update()
 
     @xkcd.command()
     async def number(self, interaction: Interaction, number: int):
         """Get XKCD Comic by number..."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         return await XKCDView(interaction, number).update()
 

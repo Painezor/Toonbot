@@ -268,7 +268,6 @@ class Images(Cog):
     async def eyes(self, interaction: Interaction, user: Member | User = None, link: str = None,
                    file: Attachment = None) -> Message:
         """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
-        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await ImageView(interaction, link=link, user=user, file=file).push_eyes()
 
@@ -277,7 +276,6 @@ class Images(Cog):
     async def ruins(self, interaction: Interaction, user: Member | User = None, link: str = None,
                     file: Attachment = None) -> Message:
         """Local man ruins everything"""
-        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
         return await ImageView(interaction, link=link, user=user, file=file).push_ruins()
 
@@ -286,7 +284,7 @@ class Images(Cog):
     async def bob_ross(self, interaction: Interaction, user: User | Member = None, link: str = None,
                        file: Attachment = None) -> Message:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         return await ImageView(interaction, link=link, user=user, file=file).push_bob()
 

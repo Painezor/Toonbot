@@ -31,7 +31,7 @@ class Info(Cog):
     @describe(user="Select a user")
     async def avatar(self, interaction: Interaction, user: User | Member = None) -> Message:
         """Shows a member's avatar"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         if user is None:
@@ -49,7 +49,7 @@ class Info(Cog):
     @describe(channel="select a channel")
     async def channel(self, interaction: Interaction, channel: GuildChannel):
         """Get information about a channel"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         base_embed = Embed(description=f"{channel.mention}\n\n", timestamp=channel.created_at)
@@ -190,7 +190,7 @@ class Info(Cog):
     @describe(role="select a role")
     async def role(self, interaction: Interaction, role: Role):
         """Get information about a channel"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         e = Embed(description=f"{role.mention}\n\n", colour=role.colour)
@@ -244,7 +244,7 @@ class Info(Cog):
     @describe(emoji="enter a list of emotes")
     async def info_emote(self, interaction: Interaction, emoji: str) -> Message:
         """View a bigger version of an Emoji"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         embeds = []
@@ -275,7 +275,7 @@ class Info(Cog):
     @guild_only()
     async def server(self, interaction: Interaction) -> Message:
         """Shows information about the server"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         g = interaction.guild
@@ -400,7 +400,7 @@ class Info(Cog):
     async def user(self, interaction: Interaction, member: Member) -> Message:
         """Show info about this member."""
         # Embed 1: Generic Info
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         base_embed: Embed = Embed(colour=member.accent_colour, timestamp=utcnow())

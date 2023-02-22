@@ -106,7 +106,7 @@ class Mod(Cog):
     async def embed(self, interaction: Interaction, destination: TextChannel = None, colour: str = 'random') \
             -> Message:
         """Send an embedded announcement as the bot in a specified channel"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         if destination is None:
@@ -126,7 +126,7 @@ class Mod(Cog):
             return await self.bot.error(interaction, f"Bot missing permission: {destination.mention} ❌ embed_links")
 
         modal = EmbedModal(self.bot, interaction, destination, colour)
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.send_modal(modal)
 
     @command()
@@ -135,7 +135,7 @@ class Mod(Cog):
     @describe(message="Enter a message to send as the bot", destination="Choose Target Channel")
     async def say(self, interaction: Interaction, message: str, destination: TextChannel = None) -> Message:
         """Say something as the bot in specified channel"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         if destination is None:
@@ -159,7 +159,7 @@ class Mod(Cog):
     @describe(number="Enter the maximum number of messages to delete.")
     async def clean(self, interaction: Interaction, number: int = 10):
         """Deletes my messages from the last x messages in channel"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         def is_me(m):

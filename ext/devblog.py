@@ -354,7 +354,7 @@ class DevBlog(Cog):
     @default_permissions(manage_channels=True)
     async def blog_tracker(self, interaction: Interaction, enabled: Literal['on', 'off']) -> Message:
         """Enable/Disable the World of Warships dev blog tracker in this channel."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         if enabled:
@@ -383,7 +383,7 @@ class DevBlog(Cog):
     @describe(search="Search for a dev blog by text content")
     async def devblog(self, interaction: Interaction, search: str) -> Message:
         """Fetch a World of Warships dev blog, either search for text or leave blank to get latest."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         try:

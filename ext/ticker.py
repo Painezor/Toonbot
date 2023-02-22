@@ -362,7 +362,7 @@ class ToggleButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
 
         match self.value:
@@ -384,7 +384,7 @@ class ResetLeagues(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         await self.view.tc.reset_leagues()
 
@@ -402,7 +402,7 @@ class DeleteTicker(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Click button delete ticker"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         await self.view.tc.delete_ticker()
 
@@ -425,7 +425,7 @@ class RemoveLeague(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """When a league is selected, delete channel / league row from DB"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         return await self.view.remove_leagues(self.values)
 
@@ -641,7 +641,7 @@ class Ticker(Cog):
     @describe(channel="Manage which channel?")
     async def manage_ticker(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """View the config of this channel's Match Event Ticker"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel
@@ -661,7 +661,7 @@ class Ticker(Cog):
     @describe(query="Search for a league by name", channel="Add to which channel?")
     async def add_league(self, interaction: Interaction, query: str, channel: TextChannel = None) -> Message:
         """Add a league to your Match Event Ticker"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         if channel is None:

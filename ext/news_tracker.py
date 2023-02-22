@@ -38,7 +38,7 @@ class ToggleButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Set view value to button value"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         new_value: bool = not self.value
 
@@ -363,7 +363,7 @@ class NewsTracker(Cog):
     @autocomplete(text=news_ac)
     async def newspost(self, interaction: Interaction, text: str):
         """Search for a recent World of Warships news article"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         try:
@@ -381,7 +381,7 @@ class NewsTracker(Cog):
     @describe(channel="Select a channel to edit")
     async def news_tracker(self, interaction: Interaction, channel: TextChannel = None) -> Message:
         """Enable/Disable the World of Warships dev blog tracker in this channel."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel

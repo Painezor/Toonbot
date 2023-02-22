@@ -303,7 +303,7 @@ class ShipButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Change message of interaction to a different ship"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         return await self.ship.view(self.interaction).overview()
 
@@ -625,7 +625,7 @@ class ModuleSelect(Select):
 
     async def callback(self, interaction: Interaction) -> None:
         """Mount each selected module into the fitting."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         v: ShipView = self.view
         for value in self.values:

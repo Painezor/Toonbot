@@ -794,7 +794,7 @@ class LeagueTableSelect(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Upon Item Selection do this"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         try:
             return await self.view.push_table(self.objects[int(next(self.values))])
@@ -894,7 +894,6 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def default_team(self, interaction: Interaction, team: str) -> Message:
         """Set the default team for your flashscore lookups"""
-        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         # Receive Autocomplete.
@@ -920,7 +919,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def default_comp(self, interaction: Interaction, competition: str) -> Message:
         """Set the default competition for your flashscore lookups"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         # Receive Autocomplete.
@@ -943,7 +942,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def fx_team(self, interaction: Interaction, team: str) -> Message:
         """Fetch upcoming fixtures for a team."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message):
@@ -955,7 +954,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def rx_team(self, interaction: Interaction, team: str) -> Message:
         """Get recent results for a Team"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message):
@@ -967,7 +966,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def scorers_team(self, interaction: Interaction, team: str) -> Message:
         """Get top scorers for a team in various competitions."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message):
@@ -979,7 +978,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def team_table(self, interaction: Interaction, team: str) -> Message:
         """Get the Table of one of a Team's competitions"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_team(team)) is None:
             if isinstance(fsr := await fs_search(interaction, team, mode="team"), Message | None):
@@ -991,7 +990,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def fx_comp(self, interaction: Interaction, competition: str) -> Message:
         """Fetch upcoming fixtures for a competition."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance((fsr := await fs_search(interaction, competition, mode="comp")), Message):
@@ -1003,7 +1002,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def rx_comp(self, interaction: Interaction, competition: str) -> Message:
         """Get recent results for a competition"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance((fsr := await fs_search(interaction, competition, mode="comp")), Message):
@@ -1015,7 +1014,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def scorers_comp(self, interaction: Interaction, competition: str) -> Message:
         """Get top scorers from a competition."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance((fsr := await fs_search(interaction, competition, mode="comp")), Message):
@@ -1028,7 +1027,7 @@ class Fixtures(Cog):
     @autocomplete(competition=competition_autocomplete_with_defaults)
     async def scores(self, interaction: Interaction, competition: str = None) -> Message:
         """Fetch current scores for a specified competition, or all live games."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         if not self.bot.games:
@@ -1068,7 +1067,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def injuries(self, interaction: Interaction, team: str) -> Message:
         """Get a team's current injuries"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if not (fsr := self.bot.get_team(team)):
             if isinstance(fsr := await fs_search(interaction, team, mode="team"), Message | None):
@@ -1081,7 +1080,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def news(self, interaction: Interaction, team: str) -> Message:
         """Get the latest news for a team"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if not (fsr := self.bot.get_team(team)):
             if isinstance((fsr := await fs_search(interaction, team, mode="team")), Message | None):
@@ -1093,7 +1092,7 @@ class Fixtures(Cog):
     @describe(team="Enter the name of a team to search for")
     async def squad(self, interaction: Interaction, team: str) -> Message:
         """Lookup a team's squad members"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if not (fsr := self.bot.get_team(team)):
             if isinstance(fsr := await fs_search(interaction, team, mode="team"), Message | None):
@@ -1105,7 +1104,7 @@ class Fixtures(Cog):
     @describe(competition="Enter the name of a competition to search for")
     async def comp_table(self, interaction: Interaction, competition: str) -> Message:
         """Get the Table of a competition"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             if isinstance(fsr := await fs_search(interaction, competition, mode="comp"), Message | None):
@@ -1118,7 +1117,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def table_fx(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the table for a fixture."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1131,7 +1130,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def stats(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the stats for a fixture."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1144,7 +1143,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def lineups(self, interaction: Interaction, fixture: str) -> Message:
         """Look up the lineups and/or formations for a Fixture."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1157,7 +1156,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def summary(self, interaction: Interaction, fixture: str) -> Message:
         """Get a summary for a fixture"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1170,7 +1169,7 @@ class Fixtures(Cog):
     @describe(fixture="Search for a fixture by team name")
     async def h2h(self, interaction: Interaction, fixture: str) -> Message:
         """Lookup the head-to-head details for a Fixture"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             if isinstance(fsr := await fs_search(interaction, fixture, mode="team"), Message | None):
@@ -1183,7 +1182,7 @@ class Fixtures(Cog):
     @describe(stadium="Search for a stadium by it's name")
     async def stadium(self, interaction: Interaction, stadium: str) -> Message:
         """Lookup information about a team's stadiums"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         if not (std := await get_stadiums(self.bot, stadium)):

@@ -62,7 +62,7 @@ class DiceButton(Button):
 
     async def callback(self, interaction: Interaction) -> BaseView:
         """When clicked roll"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         roll = randrange(1, self.sides + 1)
 
@@ -106,7 +106,7 @@ class FlipButton(Button):
 
     async def callback(self, interaction: Interaction) -> BaseView:
         """When clicked roll"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         for x in range(self.count):
             self.view.flip_results.append(choice(['H', 'T']))
@@ -150,7 +150,7 @@ class Random(Cog):
     @command()
     async def choose(self, interaction: Interaction) -> ChoiceModal:
         """Make a decision for you (separate choices with new lines)"""
-        # noinspection PyUnresolvedReferences
+
         return await interaction.response.send_modal(ChoiceModal())
 
     @command()
@@ -190,7 +190,7 @@ class Random(Cog):
     @describe(dice="enter a roll (format: 1d20+3)")
     async def roll(self, interaction: Interaction, dice: str = "d20") -> Message:
         """Roll a set of dice in the format XdY+Z. Use 'adv' or 'dis' for (dis)advantage"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         advantage = dice.startswith("adv")

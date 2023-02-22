@@ -317,7 +317,7 @@ class ClanButton(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Change message of interaction to a different ship"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         return await self.clan.view(self.interaction, parent=self.parent).overview()
 

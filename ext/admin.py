@@ -46,7 +46,6 @@ class Admin(Cog):
     @describe(guild="enter guild ID")
     async def sync(self, interaction: Interaction, guild: bool = False) -> Message:
         """Sync the command tree with discord"""
-        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         if not guild:
@@ -63,7 +62,6 @@ class Admin(Cog):
     @autocomplete(cog=cg_ac)
     async def reload(self, interaction: Interaction, cog: str) -> Message:
         """Reloads a module."""
-        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         try:
@@ -78,7 +76,6 @@ class Admin(Cog):
     @describe(cog="pick a cog to load")
     async def load(self, interaction: Interaction, cog: str) -> Message:
         """Loads a module."""
-        # noinspection PyUnresolvedReferences
         await interaction.response.defer(thinking=True)
 
         try:
@@ -93,7 +90,7 @@ class Admin(Cog):
     @autocomplete(cog=cg_ac)
     async def unload(self, interaction: Interaction, cog: str) -> Message:
         """Unloads a module."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         try:
@@ -107,7 +104,7 @@ class Admin(Cog):
     @cogs.command()
     async def list(self, interaction: Interaction) -> Message:
         """List all currently loaded modules"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         loaded = sorted([i for i in self.bot.cogs])
@@ -119,7 +116,7 @@ class Admin(Cog):
     @console.command(name="print")
     async def _print(self, interaction: Interaction, to_print: str) -> Message:
         """Print something to console."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if not interaction.user.id == self.bot.owner_id:
             raise NotOwner
@@ -131,7 +128,7 @@ class Admin(Cog):
     @console.command(name="clear")
     async def clear(self, interaction: Interaction) -> Message:
         """Clear the command window."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
@@ -157,7 +154,7 @@ class Admin(Cog):
     @describe(code=">>> Code Go Here")
     async def debug(self, interaction: Interaction, code: str) -> Message:
         """Evaluates code."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
@@ -192,7 +189,7 @@ class Admin(Cog):
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
 
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         self.bot.dispatch("bot_notification", notification)
@@ -206,7 +203,7 @@ class Admin(Cog):
     @describe(file='The file to upload', link="Provide a link")
     async def avatar(self, interaction: Interaction, file: Attachment = None, link: str = None) -> Message:
         """Change the avatar of the bot"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
@@ -237,7 +234,7 @@ class Admin(Cog):
     @describe(status="What game is the bot playing")
     async def playing(self, interaction: Interaction, status: str) -> Message:
         """Set bot status to playing {status}"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         return await self.update_presence(interaction, Activity(type=0, name=status))
@@ -246,7 +243,7 @@ class Admin(Cog):
     @describe(status="What is the bot streaming")
     async def streaming(self, interaction: Interaction, status: str) -> Message:
         """Change status to streaming {status}"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
         return await self.update_presence(interaction, Activity(type=1, name=status))
 
@@ -254,7 +251,7 @@ class Admin(Cog):
     @describe(status="What is the bot watching")
     async def watching(self, interaction: Interaction, status: str) -> Message:
         """Change status to watching {status}"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         return await self.update_presence(interaction, Activity(type=2, name=status))
@@ -263,7 +260,7 @@ class Admin(Cog):
     @describe(status="What is the bot listening to")
     async def listening(self, interaction: Interaction, status: str) -> Message:
         """Change status to listening to {status}"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         return await self.update_presence(interaction, Activity(type=3, name=status))

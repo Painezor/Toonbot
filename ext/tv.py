@@ -77,7 +77,7 @@ class Tv(commands.Cog):
     @autocomplete(team=tv_ac)
     async def tv(self, interaction: Interaction, team: str = None) -> Message:
         """Lookup next televised games for a team"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         e: Embed = Embed(colour=0x034f76)

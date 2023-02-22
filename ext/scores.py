@@ -245,7 +245,7 @@ class ResetLeagues(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Click button reset leagues"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         await self.view.sc.reset_leagues()
         return await self.view.update(content=f"Tracked leagues for {self.view.sc.channel.mention} reset")
@@ -260,7 +260,7 @@ class RemoveLeague(Select):
 
     async def callback(self, interaction: Interaction) -> Message:
         """When a league is selected"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         return await self.view.remove_leagues(self.values)
 
@@ -635,7 +635,7 @@ class Scores(Cog):
     @describe(league_name="league name to search for or direct flashscore link", channel="Target Channel")
     async def add_league(self, interaction: Interaction, league_name: str, channel: TextChannel = None) -> Message:
         """Add a league to an existing live-scores channel"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         if channel is None:
