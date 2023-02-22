@@ -92,7 +92,7 @@ class Global(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Flip the bool."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         self.view.all_guilds = not self.view.all_guilds
         self.view.index = 0
@@ -107,7 +107,7 @@ class RandomQuote(Button):
 
     async def callback(self, interaction: Interaction) -> Message:
         """Randomly select a number"""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer()
         self.view.index = random.randrange(0, len(self.view.pages))
         return await self.view.update()
@@ -202,7 +202,6 @@ class QuotesView(BaseView):
 async def quote_add(interaction: Interaction, message: Message) -> Message:
     """Add a quote, either by message ID or grabs the last message a user sent"""
     bot: Bot = interaction.client
-    # noinspection PyUnresolvedReferences
     await interaction.response.defer(thinking=True)
     blacklist = bot.quote_blacklist
 
@@ -281,7 +280,7 @@ class QuoteDB(commands.Cog):
     @quotes.command()
     async def random(self, interaction: Interaction) -> Message:
         """Get a random quote."""
-        # noinspection PyUnresolvedReferences
+
         await interaction.response.defer(thinking=True)
 
         if interaction.user.id in self.bot.quote_blacklist:
