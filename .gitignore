@@ -10,8 +10,11 @@
 *.log
 *.iml
 *.ttf
-Run.bat
+*.ai
+*.bat
 *.pyc
 /ext/mtb-old.py
 /ext/test.py
 /ext/test.py
+sidebar
+.idea/.name
