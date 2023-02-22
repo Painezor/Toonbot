@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from asyncio import to_thread
-from copy import deepcopy
 from io import BytesIO
 
 from aiohttp import ClientSession
@@ -10,7 +9,10 @@ from colorthief import ColorThief
 from discord import Message, File, Colour, Embed, Interaction
 
 
-async def embed_image(interaction: Interaction, e: Embed, image: BytesIO | bytes, filename: str = None) -> Message:
+async def embed_image(interaction: Interaction,
+                      e: Embed,
+                      image: BytesIO | bytes,
+                      filename: str = None) -> Message:
     """Utility / Shortcut to upload image & set it within an embed."""
     filename = filename.replace('_', '').replace(' ', '').replace(':', '')
     e.set_image(url=f"attachment://{filename}")
@@ -35,7 +37,8 @@ async def get_colour(url: str) -> Colour | int:
         return Colour.og_blurple()
 
 
-def rows_to_embeds(e: Embed, items: list[str], rows: int = 10, header: str = None, footer: str = None) -> list[Embed]:
+def rows_to_embeds(e: Embed, items: list[str], rows: int = 10,
+                   header: str = None, footer: str = None) -> list[Embed]:
     """Create evenly distributed rows of text from a list of data"""
     desc: str = f"{header}\n" if header else ""
     count: int = 0
@@ -53,19 +56,19 @@ def rows_to_embeds(e: Embed, items: list[str], rows: int = 10, header: str = Non
             desc += footer
 
         e.description = desc
-        embeds.append(deepcopy(e))
+        embeds.append(e.copy())
 
         # Reset loop
         desc = f"{header}\n{row}\n" if header else f"{row}\n"
         count = 1
 
     e.description = f"{desc}{footer}" if footer is not None else desc
-    embeds.append(deepcopy(e))
+    embeds.append(e.copy())
     return embeds
 
 
 def stack_embeds(embeds: list[Embed]) -> list[list[Embed]]:
-    """Paginate a list of embeds up to the maximum size for a discord Message"""
+    """Paginate a list of embeds up to the maximum size for a Message"""
     this_iter: list[Embed] = []
     output: list[list[Embed]] = []
     length: int = 0

@@ -1,9 +1,9 @@
-"""This Cog Grabs data from Flashscore and outputs the latest scores to user-configured live score channels"""
+"""This Cog Grabs data from Flashscore and outputs the latest scores to user
+-configured live score channels"""
 from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from copy import deepcopy
 from datetime import datetime, timezone, timedelta
 from importlib import reload
 from itertools import zip_longest
@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, ClassVar
 
 import discord
 from asyncpg import Record
-from discord import TextChannel, ButtonStyle, Colour, Embed, PermissionOverwrite, Permissions, Message, \
-    Forbidden, NotFound
+from discord import TextChannel, ButtonStyle, Colour, Embed,\
+    PermissionOverwrite, Permissions, Message, Forbidden, NotFound
 from discord.app_commands import Group, describe, autocomplete
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -87,12 +87,16 @@ class ScoreChannel:
 
     async def reset_leagues(self) -> list[str]:
         """Reset the Score Channel to the list of default leagues."""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.execute('''DELETE FROM scores_leagues WHERE channel_id = $1''', self.channel.id)
+        async with self.bot.db.acquire(timeout=60) as c:
+            async with c.transaction():
+                sql = '''DELETE FROM scores_leagues WHERE channel_id = $1'''
+                await c.execute(sql, self.channel.id)
 
-                sql = """INSERT INTO scores_leagues (channel_id, league) VALUES ($1, $2)"""
-                await connection.executemany(sql, [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES])
+                sql = """INSERT INTO scores_leagues (channel_id, league)
+                         VALUES ($1, $2)"""
+
+                r = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
+                await c.executemany(sql, r)
         self.leagues = fs.DEFAULT_LEAGUES
         return self.leagues
 
@@ -358,7 +362,7 @@ class Scores(Cog):
         comps = set(i.competition for i in self.bot.games)
 
         for comp in comps.copy():
-            e = deepcopy(await comp.base_embed())
+            e = await comp.base_embed().copy()
             fix = sorted([i for i in self.bot.games if i.competition == comp],
                          key=lambda c: now if c.kickoff is None else c.kickoff)
 
@@ -580,13 +584,16 @@ class Scores(Cog):
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                row = await connection.fetchrow("""SELECT * FROM scores_channels WHERE channel_id = $1""", channel.id)
+                sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
+                row = await connection.fetchrow(sql, channel.id)
 
         if not row:
-            return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
+            err = f"{channel.mention} is not a live-scores channel."
+            return await self.bot.error(interaction, err)
 
         try:
-            sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
+            sc = next(i for i in self.bot.score_channels
+                      if i.channel.id == channel.id)
         except StopIteration:
             sc = ScoreChannel(channel)
             self.bot.score_channels.append(sc)
@@ -614,21 +621,26 @@ class Scores(Cog):
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """INSERT INTO guild_settings (guild_id) VALUES ($1) ON CONFLICT DO NOTHING"""
+                q = """INSERT INTO guild_settings (guild_id) VALUES ($1)
+                       ON CONFLICT DO NOTHING"""
                 await connection.execute(q, interaction.guild.id)
-                q = """INSERT INTO scores_channels (guild_id, channel_id) VALUES ($1, $2)"""
+                q = """INSERT INTO scores_channels (guild_id, channel_id)
+                       VALUES ($1, $2)"""
                 await connection.execute(q, channel.guild.id, channel.id)
 
         sc = ScoreChannel(channel)
         self.bot.score_channels.append(sc)
         await sc.reset_leagues()
         try:
-            await sc.channel.send(f'{interaction.user.mention} Welcome to your new livescores channel.\n'
-                                  f'Use `/livescores add_league` to add new leagues, and `/livescores manage` to '
-                                  f'remove them')
-            await self.bot.reply(interaction, content=f"{channel.mention} created successfully.")
+            await sc.channel.send(f'{interaction.user.mention} Welcome to your\
+                                  new livescores channel.\n Use `/livescores\
+                                  add_league` to add new leagues, and\
+                                  `/livescores manage` to remove them')
+            msg = f"{channel.mention} created successfully."
+            await self.bot.reply(interaction, msg)
         except Forbidden:
-            await self.bot.reply(interaction, content=f"{channel.mention} created, but I need send_messages perms.")
+            msg = f"{channel.mention} created, but I need send_messages perms."
+            await self.bot.reply(interaction, msg)
 
     @livescores.command()
     @autocomplete(league_name=fs.lg_ac)
@@ -642,9 +654,11 @@ class Scores(Cog):
             channel = interaction.channel
 
         try:
-            sc = next(i for i in self.bot.score_channels if i.channel.id == channel.id)
+            sc = next(i for i in self.bot.score_channels
+                      if i.channel.id == channel.id)
         except StopIteration:
-            return await self.bot.error(interaction, f"{channel.mention} is not a live-scores channel.")
+            err = f"{channel.mention} is not a live-scores channel."
+            return await self.bot.error(interaction, err)
 
         # Get the league object
         comp = self.bot.get_competition(league_name)

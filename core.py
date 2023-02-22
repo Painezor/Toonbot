@@ -36,13 +36,15 @@ with open('credentials.json') as f:
 COGS = ['reply',  # Utility Cogs
         # Slash commands.
         'metatoonbot',
-        'admin', 'bans', 'fixtures', 'images', 'info', 'logs', 'lookup', 'memes', 'mod', 'nufc', 'poll', 'quotes',
-        'reminders', 'rng', 'scores', 'sidebar', 'streams', 'ticker', 'transfers', 'tv', 'translations',
+        'admin', 'bans', 'fixtures', 'images', 'info', 'logs', 'lookup',
+        'memes', 'mod', 'nufc', 'poll', 'quotes', 'reminders', 'rng', 'scores',
+        'sidebar', 'streams', 'ticker', 'transfers', 'tv', 'translations',
         'urbandictionary', 'xkcd'
         ]
 
-INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&permissions=1514244730006" \
-             "&scope=bot%20applications.commands"
+INVITE_URL = ("https://discord.com/api/oauth2/authorize?client_id="
+              "250051254783311873&permissions=1514244730006"
+              "&scope=bot%20applications.commands")
 
 
 class Bot(AutoShardedBot):
@@ -117,15 +119,17 @@ class Bot(AutoShardedBot):
 
     async def setup_hook(self) -> None:
         """Load Cogs asynchronously"""
-        self.browser = await make_browser(self)
-        self.session = ClientSession(loop=self.loop, connector=TCPConnector(ssl=False))
+        self.browser = await make_browser()
+        connector = TCPConnector(ssl=False)
+        self.session = ClientSession(loop=self.loop, connector=connector)
 
         for c in COGS:
             try:
                 await self.load_extension(f'ext.{c}')
                 logging.info(f'Loaded ext.{c}')
             except Exception as e:
-                logging.error(f'Failed to load cog {c}\n{type(e).__name__}: {e}')
+                err = f"{type(e).__name__}: {e}"
+                logging.error(f'Failed to load cog {c}\n{err}')
         return
 
     def get_competition(self, comp_id: str) -> Optional[fs.Competition]:
@@ -143,7 +147,9 @@ class Bot(AutoShardedBot):
     async def dump_image(self, data: BytesIO) -> str:
         """Save a stitched image"""
         try:
-            img_msg = await self.get_channel(874655045633843240).send(file=File(fp=data, filename="dumped_image.png"))
+            file = File(fp=data, filename="dumped_image.png")
+            channel = self.get_channel(874655045633843240)
+            img_msg = await channel.send(file=file)
             return img_msg.attachments[0].url
         except AttributeError:
             return None
@@ -152,7 +158,8 @@ class Bot(AutoShardedBot):
         """Cache the QuoteDB"""
         async with self.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                self.quotes = await connection.fetch("""SELECT * FROM quotes""")
+                sql = """SELECT * FROM quotes"""
+                self.quotes = await connection.fetch(sql)
 
 
 async def run() -> None:

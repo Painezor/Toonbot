@@ -65,11 +65,13 @@ class Fitting:
         """Get the ship's specs with the currently selected modules."""
         p = {'application_id': self.bot.WG_ID, 'ship_id': self.ship.ship_id}
 
-        tuples = [('artillery_id', Artillery), ('dive_bomber_id', DiveBomber), ('engine_id', Engine),
-                  ('fire_control_id', FireControl),  # ('flight_control_id', FlightControl),
-                  ('hull_id', Hull), ('fighter_id', RocketPlane), ('torpedoes_id', Torpedoes),
+        tuples = [('artillery_id', Artillery), ('dive_bomber_id', DiveBomber),
+                  ('engine_id', Engine),
+                  ('fire_control_id', FireControl),
+                  ('hull_id', Hull), ('fighter_id', RocketPlane),
+                  ('torpedoes_id', Torpedoes),
                   ('torpedo_bomber_id', TorpedoBomber)]
-
+        # ('flight_control_id', FlightControl),
         p.update({k: self.modules.get(v) for k, v in tuples if self.modules.get(v, None) is not None})
 
         url = "https://api.worldofwarships.eu/wows/encyclopedia/shipprofile/"
@@ -109,15 +111,16 @@ class Ship:
 
         # Initial Data
         self.description: Optional[str] = None  # Ship description
-        self.has_demo_profile: bool = False  # Indicates that ship characteristics may be changed.
+        # Indicates that ship iS WIP
+        self.has_demo_profile: bool = False
         self.is_premium: bool = False  # Indicates if the ship is Premium ship
-        self.is_special: bool = False  # Indicates if the ship is on a special offer
+        self.is_special: bool = False  # ship is on a special offer
         self.images: dict = {}  # A list of images
         self.mod_slots: int = 0  # Number of slots for upgrades
         self._modules: dict = {}  # Dict of Lists of available modules.
         self.modules_tree: dict = {}  #
         self.nation: Optional[Nation] = None  # Ship Nation
-        self.next_ships: dict = {}  # {k: ship_id as str, v: xp required as int }
+        self.next_ships: dict = {}  # {k: ship_id as str, v: xp as int }
         self.price_credit: int = 0  # Cost in credits
         self.price_gold: int = 0  # Cost in doubloons
         self.tier: Optional[int] = None  # Tier of the ship (1 - 11 for super)
@@ -145,7 +148,10 @@ class Ship:
         """Generate a fitting from the default modules of this ship."""
         tree = self.modules_tree
         fit = Fitting(self, data=self.default_profile)
-        for module_id, module_type in {int(k): v['type'] for k, v in tree.items() if v['is_default']}.items():
+
+        dic = {int(k): v['type'] for k, v in tree.items() if v['is_default']}
+
+        for module_id, module_type in dic.items():
             match module_type:
                 case 'Artillery':
                     fit.modules[Artillery] = module_id
@@ -309,7 +315,7 @@ class ShipButton(Button):
 
 
 class ShipView(BaseView):
-    """A view representing a ship, with buttons to change between different menus."""
+    """A view representing a ship"""
 
     def __init__(self, interaction: Interaction, ship: Ship) -> None:
         super().__init__(interaction)
@@ -349,7 +355,7 @@ class ShipView(BaseView):
             name = f"{rp['name']} (Tier {rp['plane_level']}, Rocket Planes)"
             value = [f"**Hit Points**: {format(rp['max_health'], ',')}",
                      f"**Cruising Speed**: {rp['cruise_speed']} kts",
-                     f"\n*Rocket Plane Damage is not available in the API, sorry*"]
+                     "\n*Rocket Plane Damage is not available in the API, sorry*"]
             e.add_field(name=name, value='\n'.join(value), inline=False)
 
         if (tb := self.fitting.data['torpedo_bomber']) is not None:
@@ -383,7 +389,8 @@ class ShipView(BaseView):
             e.add_field(name=name, value='\n'.join(value), inline=False)
 
         self.disabled = self.aircraft
-        e.set_footer(text='Rocket plane armaments, and Skip Bombers as a whole are currently not listed in the API.')
+        e.set_footer(text='Rocket plane armaments, and Skip Bombers as a\
+                     whole are currently not listed in the API.')
         return await self.update(embed=e)
 
     async def auxiliary(self) -> Message:
@@ -397,12 +404,16 @@ class ShipView(BaseView):
 
         if (sec := self.fitting.data['atbas']) is None:
             e.add_field(name='No Secondary Armament',
-                        value="```diff\n- This ship does not have a secondary armament.```")
+                        value="```diff\n\
+                               - This ship has no secondary armament.```")
         elif 'slots' not in sec:
-            e.add_field(name='API Error', value="```diff\n- This ships secondary armament is not in the API.```")
+            e.add_field(name='API Error',
+                        value="```diff\n\
+                              - Secondary armament not found in API.```")
         else:
             desc.append(f'**Secondary Range**: {sec["distance"]}')
-            desc.append(f'**Total Barrels**: {self.fitting.data["hull"]["atba_barrels"]}')
+            desc.append(f'**Total Barrels**: \
+                        {self.fitting.data["hull"]["atba_barrels"]}')
 
             for v in sec['slots'].values():
                 name = v['name']
@@ -410,7 +421,8 @@ class ShipView(BaseView):
 
                 value = [f"**Damage**: {format(dmg, ',')}",
                          f"**Shell Type**: {v['type']}",
-                         f"**Reload Time**: {v['shot_delay']}s ({round(v['gun_rate'], 1)} rounds/minute)",
+                         f"**Reload Time**: {v['shot_delay']}s (\
+                            {round(v['gun_rate'], 1)} rounds/minute)",
                          f"**Initial Velocity**: {v['bullet_speed']}m/s",
                          f"**Shell Weight**: {v['bullet_mass']}kg"
                          ]
@@ -574,22 +586,28 @@ class ShipView(BaseView):
         """Push the latest version of the Ship view to the user"""
         self.clear_items()
 
-        prev = [i for i in self.bot.ships if str(self.ship.ship_id) in i.next_ships if i.next_ships is not None]
+        prev = [i for i in self.bot.ships
+                if str(self.ship.ship_id) in i.next_ships
+                and i.next_ships is not None]
         for ship in prev:
             self.add_item(ShipButton(self.interaction, ship, row=3))
 
         if self.ship.next_ships:
-            nxt = map(lambda x: self.bot.get_ship(int(x)), self.ship.next_ships)
+            nxt = map(lambda x: self.bot.get_ship(int(x)),
+                      self.ship.next_ships)
             for ship in sorted(nxt, key=lambda x: x.tier):
-                self.add_item(ShipButton(self.interaction, ship, higher=True, row=3))
+                self.add_item(ShipButton(self.interaction, ship, higher=True,
+                                         row=3))
 
         # FuncButton - Overview, Armaments, Leaderboard.
         self.add_item(FuncButton(func=self.overview, label="Overview",
-                                 disabled=self.disabled == self.overview, emoji=Hull.emoji))
+                                 disabled=self.disabled == self.overview,
+                                 emoji=Hull.emoji))
 
         if Artillery in self.fitting.modules:
             self.add_item(FuncButton(func=self.main_guns, label="Main Battery",
-                                     disabled=self.disabled == self.main_guns, emoji=Artillery.emoji))
+                                     disabled=self.disabled == self.main_guns,
+                                     emoji=Artillery.emoji))
 
         if Torpedoes in self.fitting.modules:
             self.add_item(FuncButton(func=self.torpedoes, label="Torpedoes",
@@ -603,7 +621,8 @@ class ShipView(BaseView):
             pass
 
         # Secondaries & AA
-        self.add_item(FuncButton(func=self.auxiliary, label="Auxiliary", disabled=self.disabled == self.auxiliary,
+        self.add_item(FuncButton(func=self.auxiliary, label="Auxiliary",
+                                 disabled=self.disabled == self.auxiliary,
                                  emoji=Module.emoji))
 
         if not self.ship.modules:

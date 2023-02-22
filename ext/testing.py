@@ -13,8 +13,10 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
+URI = "https://worldofwarships.eu/en/content/\
+    contents-and-drop-rates-of-containers/"
+# TODO: Container drops
 
-# TODO: Container drops / https://worldofwarships.eu/en/content/contents-and-drop-rates-of-containers/
 
 class Test(commands.Cog):
     """Various testing functions"""
@@ -24,7 +26,7 @@ class Test(commands.Cog):
 
     @staticmethod
     async def get_request(request: Request):
-        """Print the request, has to be a floating function because of lambda."""
+        """Print the request, has to be floating function because of lambda."""
         if "get_lootbox/" not in request.url:
             return
 
@@ -39,9 +41,12 @@ class Test(commands.Cog):
 
         await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()
-        page.on('request', lambda request: self.bot.loop.create_task(self.get_request(request)))
-        await page.goto('https://worldofwarships.eu/en/content/contents-and-drop-rates-of-containers/')
-        return await self.bot.reply(interaction, content='Request complete, check console.')
+
+        page.on('request', lambda r: self.bot.loop.create_task(
+            self.get_request(r)))
+        await page.goto(URI)
+        msg = 'Request complete, check console.'
+        return await self.bot.reply(interaction, msg)
 
 
 async def setup(bot: Bot | PBot):

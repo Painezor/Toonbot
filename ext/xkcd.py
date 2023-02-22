@@ -24,7 +24,8 @@ class XKCDView(BaseView):
 
     async def update(self):
         """Get the latest version of the view."""
-        async with self.bot.session.get(f"https://xkcd.com/info.{self.index}.json") as resp:
+        url = f"https://xkcd.com/info.{self.index}.json"
+        async with self.bot.session.get(url) as resp:
             match resp.status:
                 case 200:
                     json = await resp.json()
@@ -33,12 +34,14 @@ class XKCDView(BaseView):
                         self.index = randrange(1, json['num'])
                         return await self.update()
                 case _:
-                    return await self.bot.error(self.interaction, 'Could not connect to XKCD API')
+                    err = 'Could not connect to XKCD API'
+                    return await self.bot.error(self.interaction, err)
 
         def parse() -> Embed:
             """Convert JSON To Embed"""
             e = Embed(title=F"{json['num']}: {json['safe_title']}")
-            e.timestamp = datetime.datetime(day=json['day'], month=json['month'], year=json['year'])
+            ts = datetime.datetime(json['year'], json['month'], json['day'])
+            e.timestamp = ts
             e.set_footer(text=json['alt'])
             e.set_image(url=json['img'])
             return e

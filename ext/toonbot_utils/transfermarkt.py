@@ -2,7 +2,6 @@
 from __future__ import annotations  # Cyclic Type hinting
 
 import logging
-from copy import deepcopy
 from datetime import datetime
 from typing import Optional
 
@@ -16,7 +15,8 @@ from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import FuncButton, add_page_buttons, Parent, BaseView
 
 
-FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/Transfermarkt_favicon.png"
+FAVICON = "https://upload.wikimedia.org/wikipedia/commons/f/fb/"\
+          "Transfermarkt_favicon.png"
 TF = "https://www.transfermarkt.co.uk"
 
 
@@ -52,7 +52,8 @@ class SearchResult:
             return "🌍"
 
         if isinstance(self.country, list):
-            return ' '.join([x for x in [get_flag(i) for i in self.country] if x is not None])
+            flags = [get_flag(i) for i in self.country]
+            return ' '.join([x for x in flags if x is not None])
         else:
             return get_flag(self.country)
 
@@ -99,7 +100,8 @@ class Team(SearchResult):
     @property
     def select_option(self) -> str:
         """A Select Option representation of this Team"""
-        return SelectOption(emoji=self.flag, label=self.name, description=self.league.name)
+        return SelectOption(emoji=self.flag, label=self.name,
+                            description=self.league.name)
 
     @property
     def badge(self) -> str:
@@ -161,7 +163,7 @@ class Referee(SearchResult):
 
 
 class Staff(SearchResult):
-    """An object representing a Trainer or Manager from a Transfermarkt search"""
+    """An object representing a Trainer or Manager from Transfermarkt"""
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
         super().__init__(name, link)
@@ -174,7 +176,8 @@ class Staff(SearchResult):
 
     def __str__(self) -> str:
         team = self.team.markdown if self.team is not None else ''
-        return f"{self.flag} {self.markdown} {self.age}, {self.job} {team}".strip()
+        md = self.markdown
+        return f"{self.flag} {md} {self.age}, {self.job} {team}".strip()
 
 
 class Agent(SearchResult):
@@ -202,7 +205,8 @@ class Transfer:
 
     @property
     def loan_fee(self) -> str:
-        """Returns either Loan Information or the total fee of a player's transfer"""
+        """Returns either Loan Information or the total fee of a player's
+        transfer"""
         output = f"[{self.fee.title()}]({self.fee_link})"
 
         if self.date is not None:
@@ -262,7 +266,7 @@ class TeamView(BaseView):
         self.pages: list[Embed] = []
         self.parent: BaseView = None
 
-    async def update(self, content: str = None) -> Message:
+    async def update(self, content: str = None) -> None:
         """Send the latest version of the view"""
         self.clear_items()
         if self.parent:
@@ -271,26 +275,21 @@ class TeamView(BaseView):
         else:
             hide_row = 3
 
-        self.add_item(FuncButton(label="Transfers", func=self.push_transfers, emoji='🔄'))
-        self.add_item(FuncButton(label="Rumours", func=self.push_rumours, emoji='🕵'))
-        self.add_item(FuncButton(label="Trophies", func=self.push_trophies, emoji='🏆'))
-        self.add_item(FuncButton(label="Contracts", func=self.push_contracts, emoji='📝'))
+        # TODO: Funcables.
+        self.add_item(FuncButton("Transfers", self.push_transfers, emoji='🔄'))
+        self.add_item(FuncButton("Rumours", self.push_rumours, emoji='🕵'))
+        self.add_item(FuncButton("Trophies", self.push_trophies, emoji='🏆'))
+        self.add_item(FuncButton("Contracts", self.push_contracts, emoji='📝'))
         add_page_buttons(self, row=hide_row)
 
         e = self.pages[self.index]
-        return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
+        await self.bot.reply(self.interaction, content, embed=e, view=self)
 
     async def push_transfers(self) -> Message:
         """Push transfers to View"""
         url = self.team.link.replace('startseite', 'transfers')
 
-        # # Winter window, Summer window.
-        # now = datetime.datetime.now()
-        # period, season_id = ("w", now.year - 1) if now.month < 7 else ("s", now.year)
-        # url = f"{url}/saison_id/{season_id}/pos//0/w_s/plus/plus/1"
-        #
-        # p = {"w_s": period}
-        async with self.bot.session.get(url) as resp:  # , params=p
+        async with self.bot.session.get(url) as resp:
             match resp.status:
                 case 200:
                     tree = html.fromstring(await resp.text())
@@ -299,53 +298,71 @@ class TeamView(BaseView):
                     return await self.bot.error(self.interaction, err)
 
         def parse(rows: list, out: bool = False) -> list[Transfer]:
-            """Read through the transfers page and extract relevant data, returning a list of transfers"""
+            """Read through the transfers page and extract relevant data,
+               returning a list of transfers"""
 
             transfers = []
             for i in rows:
                 # Block 1 - Discard, Position Colour Marker.
 
                 # Block 2 - Name, Link, Picture, Position
-                if not (name := ''.join(i.xpath('.//tm-tooltip[@data-type="player"]/a/@title')).strip()):
+                xp = './/tm-tooltip[@data-type="player"]/a/@title'
+                if not (name := ''.join(i.xpath(xp)).strip()):
                     name = ''.join(i.xpath('./td[2]//a/text()')).strip()
 
-                if not (link := ''.join(i.xpath('./tm-tooltip[@data-type="player"]/a/@href'))):
+                xp = './tm-tooltip[@data-type="player"]/a/@href'
+                if not (link := ''.join(i.xpath(xp))):
                     link = ''.join(i.xpath('./td[2]//a/@href'))
 
                 if link and TF not in link:
                     link = TF + link
 
                 player = Player(name=name, link=link)
-                player.picture = ''.join(i.xpath('./img[@class="bilderrahmen-fixed"]/@data-src'))
-                player.position = ''.join(i.xpath('./td[2]//tr[2]/td/text()')).strip()
+                xp = './img[@class="bilderrahmen-fixed"]/@data-src'
+                player.picture = ''.join(i.xpath(xp))
+
+                xp = './td[2]//tr[2]/td/text()'
+                player.position = ''.join(i.xpath(xp)).strip()
 
                 # Block 3 - Age
                 player.age = ''.join(i.xpath('./td[3]/text()')).strip()
 
                 # Block 4 - Nationality
-                player.country = [_.strip() for _ in i.xpath('./td[4]//img/@title') if _.strip()]
+                xp = './td[4]//img/@title'
+                player.country = [_.strip() for _ in i.xpath(xp) if _.strip()]
 
                 transfer = Transfer(player=player)
 
                 # Block 5 - Other Team
-                team_name = ''.join(i.xpath('./td[5]//td[@class="hauptlink"]/a/text()')).strip()
-                if (team_link := ''.join(i.xpath('./td[5]//td[@class="hauptlink"]/a/@href'))) and TF not in team_link:
+                xp = './td[5]//td[@class="hauptlink"]/a/text()'
+                team_name = ''.join(i.xpath(xp)).strip()
+
+                xp = './td[5]//td[@class="hauptlink"]/a/@href'
+                if (team_link := ''.join(i.xpath(xp))) and TF not in team_link:
                     team_link = TF + team_link
 
-                comp_name = ''.join(i.xpath("./td[5]//tr[2]//a/text()")).strip()
-                comp_link = ''.join(i.xpath("./td[5]//tr[2]//a/@href")).strip()
+                xp = "./td[5]//tr[2]//a/text()"
+                comp_name = ''.join(i.xpath(xp)).strip()
+
+                xp = "./td[5]//tr[2]//a/@href"
+                comp_link = ''.join(i.xpath(xp)).strip()
+
                 league = Competition(name=comp_name, link=comp_link)
 
                 team = Team(name=team_name, link=team_link)
                 team.league = league
-                team.country = [_.strip() for _ in i.xpath("./td[5]//img[@class='flaggenrahmen']/@title") if _.strip()]
+
+                xp = "./td[5]//img[@class='flaggenrahmen']/@title"
+                team.country = [_.strip() for _ in i.xpath(xp) if _.strip()]
 
                 transfer.new_team = team if out else self.team
                 transfer.old_team = self.team if out else team
 
                 # Block 6 - Fee or Loan
                 transfer.fee = ''.join(i.xpath('.//td[6]//text()'))
-                transfer.fee_link = TF + ''.join(i.xpath('.//td[6]//@href')).strip()
+
+                xp = './/td[6]//@href'
+                transfer.fee_link = TF + ''.join(i.xpath(xp)).strip()
                 transfer.date = ''.join(i.xpath('.//i/text()'))
                 transfers.append(transfer)
             return transfers
@@ -355,16 +372,19 @@ class TeamView(BaseView):
         base_embed.url = url
 
         embeds = []
-        _ = tree.xpath('.//div[@class="box"][.//h2[contains(text(),"Arrivals")]]//tr[@class="even" or @class="odd"]')
-        if players_in := parse(_):
-            e = deepcopy(base_embed)
+        xp = './/div[@class="box"][.//h2[contains(text(),"Arrivals")]]'\
+             '//tr[@class="even" or @class="odd"]'
+
+        if players_in := parse(tree.xpath(xp)):
+            e = base_embed.copy()
             e.title = f"Inbound Transfers for {e.title}"
             e.colour = Colour.green()
             embeds += rows_to_embeds(e, [i.inbound for i in players_in])
 
-        _ = tree.xpath('.//div[@class="box"][.//h2[contains(text(),"Departures")]]//tr[@class="even" or @class="odd"]')
-        if players_out := parse(_, out=True):
-            e = deepcopy(base_embed)
+        xp = './/div[@class="box"][.//h2[contains(text(),"Departures")]]\
+              //tr[@class="even" or @class="odd"]'
+        if players_out := parse(tree.xpath(xp), out=True):
+            e = base_embed.copy()
             e.title = f"Outbound Transfers for {e.title}"
             e.colour = Colour.red()
             embeds += rows_to_embeds(e, [i.outbound for i in players_out])
@@ -382,12 +402,14 @@ class TeamView(BaseView):
     async def push_rumours(self) -> Message:
         """Send transfer rumours for a team to View"""
         e = self.team.base_embed
-        async with self.bot.session.get(self.team.link.replace('startseite', 'geruechte')) as resp:
+
+        url = self.team.link.replace('startseite', 'geruechte')
+        async with self.bot.session.get(url) as resp:
             match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
+                case 200: tree = html.fromstring(await resp.text())
                 case _:
-                    return await self.bot.error(self.interaction, f"Error {resp.status} connecting to {resp.url}")
+                    err = f"Error {resp.status} connecting to {resp.url}"
+                    return await self.bot.error(self.interaction, err)
 
         e.url = str(resp.url)
         e.title = f"Transfer rumours for {self.team.name}"
@@ -659,42 +681,32 @@ class SearchView(BaseView):
         """This should always be polymorphed"""
         raise NotImplementedError
 
-    async def on_error(self, error: Exception, item, interaction: Interaction) -> None:
-        """Error handling & logging."""
-        logging.info(f"Please typehint 'error' to {type(error)}")
-        logging.info(f"Please typehint 'item' to {type(item)}")
-
-        logging.error(f"Error in {self.__class__.__name__}\n"
-                      f"Command: {self.interaction.command}, "
-                      f"{item}: {item.__dict__}, {interaction}")
-        raise error
-
-    async def on_timeout(self) -> Message:
+    async def on_timeout(self) -> None:
         """Cleanup."""
         self.clear_items()
-        return await self.bot.reply(self.interaction, view=None, followup=False)
+        await self.bot.reply(self.interaction, view=None, followup=False)
 
-    async def update(self, content: str = None) -> Message:
+    async def update(self, content: str = None) -> None:
         """Populate Initial Results"""
-        url = 'https://www.transfermarkt.co.uk/schnellsuche/ergebnis/schnellsuche'
+        url = TF + 'schnellsuche/ergebnis/schnellsuche'
 
-        # Header names, scrape then compare (because they don't follow a pattern.)
+        # Header names, scrape then compare (don't follow a pattern.)
         # TransferMarkt Search indexes from 1.
         p = {"query": self.query, self.query_string: self.index + 1}
 
         async with self.bot.session.post(url, params=p) as resp:
             match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
+                case 200: tree = html.fromstring(await resp.text())
                 case _:
-                    raise ConnectionError(f"Error {resp.status} Connecting to Transfermarkt")
+                    err = f"Error {resp.status} Connecting to Transfermarkt"
+                    return await self.bot.error(err)
 
         # Get trs of table after matching header / {ms} name.
+        xp = f".//div[@class='box']/h2[@class='content-box-headline']"\
+             f"[contains(text(),'{self.match_string}')]"
 
-        header_xpath = f".//div[@class='box']/h2[@class='content-box-headline'][contains(text(),'{self.match_string}')]"
-
-        trs = f"{header_xpath}/following::div[1]//tbody/tr"
-        header = ''.join(tree.xpath(f"{header_xpath}//text()"))
+        trs = f"{xp}/following::div[1]//tbody/tr"
+        header = ''.join(tree.xpath(f"{xp}//text()"))
 
         try:
             matches = int(''.join([i for i in header if i.isdecimal()]))
@@ -702,14 +714,17 @@ class SearchView(BaseView):
             logging.error(f"ValueError when parsing header, {header}")
             matches = 0
 
-        e: Embed = Embed(title=f"{matches} results for {self.query}", url=resp.url)
-        e.set_author(name=f"TransferMarkt Search: {self.category.title()}", icon_url=FAVICON)
+        e = Embed(title=f"{matches} results for {self.query}", url=resp.url)
+
+        cat = self.category.title()
+        e.set_author(name=f"TransferMarkt Search: {cat}", icon_url=FAVICON)
 
         self.parse(tree.xpath(trs))
 
         if not self._results:
             self.index = 0
-            return await self.bot.error(self.interaction, f"🚫 No results found for {self.category}: {self.query}")
+            err = f"No results found for {self.category}: {self.query}"
+            return await self.bot.error(self.interaction, err)
 
         e = rows_to_embeds(e, [str(i) for i in self._results])[0]
 
@@ -720,7 +735,7 @@ class SearchView(BaseView):
 
         if self.fetch and self._results:
             self.add_item(SearchSelect(objects=self._results))
-        return await self.bot.reply(self.interaction, content=content, embed=e, view=self)
+        await self.bot.reply(self.interaction, content, embed=e, view=self)
 
 
 class AgentSearch(SearchView):
@@ -819,13 +834,19 @@ class RefereeSearch(SearchView):
         """Parse a transfer page to get a list of referees"""
         results = []
         for i in rows:
-            link = ''.join(i.xpath('.//td[@class="hauptlink"]/a/@href')).strip()
+            xp = './/td[@class="hauptlink"]/a/@href'
+            link = ''.join(i.xpath(xp)).strip()
             if TF not in link:
                 link = TF + link
 
-            results.append(Referee(name=''.join(i.xpath('.//td[@class="hauptlink"]/a/text()')).strip(), link=link,
-                                   country=i.xpath('.//td/img[1]/@title'),
-                                   age=''.join(i.xpath('.//td[@class="zentriert"]/text()')).strip()))
+            xp = './/td[@class="hauptlink"]/a/text()'
+            name = ''.join(i.xpath()).strip()
+            country = i.xpath('.//td/img[1]/@title')
+            age = ''.join(i.xpath('.//td[@class="zentriert"]/text()')).strip()
+            ref = Referee(name, link, country=country, age=age)
+
+            results.append(ref)
+                                   
         self._results = results
 
 
@@ -841,20 +862,28 @@ class StaffSearch(SearchView):
     def parse(self, rows: list) -> list[Staff]:
         """Parse a list of staff"""
         results = []
-        for i in rows:
-
-            if TF not in (link := ''.join(i.xpath('.//td[@class="hauptlink"]/a/@href'))):
+        for i in rows:   
+            xp = './/td[@class="hauptlink"]/a/@href'
+            if TF not in (link := ''.join(i.xpath(xp))):
                 link = TF + link
 
-            staff = Staff(name=''.join(i.xpath('.//td[@class="hauptlink"]/a/text()')), link=link,
-                          picture=''.join(i.xpath('.//img[@class="bilderrahmen-fixed"]/@src')),
-                          age=''.join(i.xpath('.//td[3]/text()')),
-                          job=''.join(i.xpath('.//td[5]/text()')),
-                          country=i.xpath('.//img[@class="flaggenrahmen"]/@title'))
+            name = ''.join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
 
+            staff = Staff(name, link)
+
+            xp = './/img[@class="bilderrahmen-fixed"]/@src'
+            staff.picture = ''.join(i.xpath(xp))
+            staff.age = ''.join(i.xpath('.//td[3]/text()'))
+            staff.job = ''.join(i.xpath('.//td[5]/text()'))
+            staff.country = i.xpath('.//img[@class="flaggenrahmen"]/@title')
+
+            # TODO: Staff can take an actual Team() object.
             try:
-                staff.team = i.xpath('.//tm-tooltip[@data-type="club"][1]/a/@title')[0]
-                if TF not in (tl := i.xpath('.//tm-tooltip[@data-type="club"][1]/a/@href')[0]):
+                xp = './/tm-tooltip[@data-type="club"][1]/a/@title'
+                staff.team = i.xpath(xp)[0]
+
+                tl = i.xpath('.//tm-tooltip[@data-type="club"][1]/a/@href')[0]
+                if TF not in tl:
                     tl = TF + tl
                 staff.team_link = tl
             except IndexError:
@@ -894,12 +923,19 @@ class TeamSearch(SearchView):
 
 
 DEFAULT_LEAGUES = [
-    Competition(name="Premier League", country="England", link=TF + "premier-league/startseite/wettbewerb/GB1"),
-    Competition(name="Championship", country="England", link=TF + "/championship/startseite/wettbewerb/GB2"),
-    Competition(name="Eredivisie", country="Netherlands", link=TF + "/eredivisie/startseite/wettbewerb/NL1"),
-    Competition(name="Bundesliga", country="Germany", link=TF + "/bundesliga/startseite/wettbewerb/L1"),
-    Competition(name="Serie A", country="Italy", link=TF + "/serie-a/startseite/wettbewerb/IT1"),
-    Competition(name="LaLiga", country="Spain", link=TF + "/laliga/startseite/wettbewerb/ES1"),
-    Competition(name="Ligue 1", country="France", link=TF + "/ligue-1/startseite/wettbewerb/FR1"),
+    Competition(name="Premier League", country="England",
+                link=TF + "premier-league/startseite/wettbewerb/GB1"),
+    Competition(name="Championship", country="England",
+                link=TF + "/championship/startseite/wettbewerb/GB2"),
+    Competition(name="Eredivisie", country="Netherlands",
+                link=TF + "/eredivisie/startseite/wettbewerb/NL1"),
+    Competition(name="Bundesliga", country="Germany",
+                link=TF + "/bundesliga/startseite/wettbewerb/L1"),
+    Competition(name="Serie A", country="Italy",
+                link=TF + "/serie-a/startseite/wettbewerb/IT1"),
+    Competition(name="LaLiga", country="Spain",
+                link=TF + "/laliga/startseite/wettbewerb/ES1"),
+    Competition(name="Ligue 1", country="France",
+                link=TF + "/ligue-1/startseite/wettbewerb/FR1"),
     Competition(name="Major League Soccer", country="United States",
                 link=TF + "/major-league-soccer/startseite/wettbewerb/MLS1")]
