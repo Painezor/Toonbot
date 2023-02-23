@@ -276,7 +276,7 @@ class NewsConfig(BaseView):
         self.clear_items()
 
         sql = """SELECT * FROM news_trackers WHERE channel_id = $1"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(sql, self.channel.id)
 

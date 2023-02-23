@@ -58,13 +58,11 @@ class MetaToonbot(Cog):
         members = f"{format(total_members, ',')} users across {g} servers."
 
         e.description = (
-            f"I do football lookup related things.\n I serve "
-            f"commands from {members}\n I was created by "
-            "Painezor#8489 as a hobby, feel free to send a"
-            " donation if you would like to help support me with"
-            " this project. \nToonbot has no premium features and"
-            " is offered completely for free at the expense of my"
-            " own time and hosting."
+            f"I do football lookup related things.\n I serve commands from"
+            f"{members}\n I was created by Painezor#8489 as a hobby, feel free"
+            " to send a  donation if you would like to help support me with "
+            "this project. \nToonbot has no premium features and is offered "
+            " completely for free at the expense of my  own time and hosting."
         )
 
         view = View()

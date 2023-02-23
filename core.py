@@ -88,7 +88,7 @@ class Bot(AutoShardedBot):
         self.error: Callable = None
 
         # Database & Credentials
-        self.database: Pool = kwargs.pop("database")
+        self.db: Pool = kwargs.pop("database")
         self.credentials: dict = credentials
         self.initialised_at = datetime.utcnow()
         self.invite: str = INVITE_URL
@@ -177,7 +177,7 @@ class Bot(AutoShardedBot):
 
     async def cache_quotes(self) -> None:
         """Cache the QuoteDB"""
-        async with self.database.acquire(timeout=60) as connection:
+        async with self.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """SELECT * FROM quotes"""
                 self.quotes = await connection.fetch(sql)

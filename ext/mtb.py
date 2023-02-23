@@ -78,7 +78,7 @@ class MatchThread:
             pre = await subreddit.submit(selftext=markdown, title=title)
             await pre.load()
 
-            async with self.bot.database.acquire(timeout=60) as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     sql = """UPDATE mtb_history SET pre_match_url = $1 WHERE
                              (subreddit, fs_link) = ($2, $3)"""
@@ -124,7 +124,7 @@ class MatchThread:
                 f = self.fixture.url
                 await c.send(f"{sr} Match Thread Posted: {match.url} | <{f}>")
 
-            async with self.bot.database.acquire(timeout=60) as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     sql = """UPDATE mtb_history SET match_thread_url = $1
                           WHERE (subreddit, fs_link) = ($2, $3) RETURNING *"""
@@ -164,7 +164,7 @@ class MatchThread:
             post = await subreddit.submit(selftext=markdown, title=title)
             await post.load()
 
-            async with self.bot.database.acquire(timeout=60) as con:
+            async with self.bot.db.acquire(timeout=60) as con:
                 async with con.transaction():
                     sql = """UPDATE mtb_history SET post_match_url = $1 WHERE
                             (subreddit, fs_link) = ($2, $3)"""
@@ -467,7 +467,7 @@ class MatchThreadCommands(commands.Cog):
     async def schedule_threads(self) -> None:
         """Schedule tomorrow's match threads"""
         # Number of minutes before the match to post
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             records = await connection.fetch("""SELECT * FROM mtb_schedule""")
 
         for r in records:
@@ -493,7 +493,7 @@ class MatchThreadCommands(commands.Cog):
 
         sql = """SELECT * FROM mtb_history
                  WHERE (subreddit, fs_link) = ($1, $2)"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(sql, sub, f.url)
                 if not record:

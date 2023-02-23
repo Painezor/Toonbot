@@ -341,7 +341,7 @@ class Team(FlashScoreItem):
 
     async def save_to_db(self) -> None:
         """Save the Team to the Bot Database"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO fs_teams (id, name, logo_url, url)
                        VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
@@ -574,7 +574,7 @@ class Competition(FlashScoreItem):
 
     async def save_to_db(self) -> None:
         """Save the competition to the bot database"""
-        async with self.bot.database.acquire(timeout=60) as c:
+        async with self.bot.db.acquire(timeout=60) as c:
             async with c.transaction():
                 q = """INSERT INTO fs_competitions
                        (id, country, name, logo_url, url)

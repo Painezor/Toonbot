@@ -58,7 +58,7 @@ class TransferChannel:
     async def get_leagues(self) -> list[tfm.Competition]:
         """Get the leagues needed for this channel"""
         sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, self.channel.id)
 
@@ -72,7 +72,7 @@ class TransferChannel:
 
     async def create_ticker(self) -> TransferChannel:
         """Create a ticker for the channel"""
-        async with self.bot.database.acquire(timeout=60) as c:
+        async with self.bot.db.acquire(timeout=60) as c:
             async with c.transaction():
                 # Create the ticker itself.
                 sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
@@ -94,7 +94,7 @@ class TransferChannel:
         """Delete the ticker channel from the database and
         remove it from the bots loop"""
         sql = """DELETE FROM transfers_channels WHERE channel_id = $1"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(sql, self.channel.id)
 
@@ -113,7 +113,7 @@ class TransferChannel:
                 leagues[i].country = i.country[0]
 
         rows = [(self.channel.id, i.name, i.country, i.link) for i in leagues]
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO transfers_leagues
                          (channel_id, name, country, link)
@@ -130,7 +130,7 @@ class TransferChannel:
         sql = """DELETE from transfers_leagues
                  WHERE (channel_id, link) = ($1, $2)"""
         rows = [(self.channel.id, x.link) for x in leagues]
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(sql, rows)
         self.leagues = [i for i in self.leagues if i not in leagues]
@@ -145,7 +145,7 @@ class TransferChannel:
 
         lg = tfm.DEFAULT_LEAGUES
         fields = [(self.channel.id, x.name, x.country, x.link) for x in lg]
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(sql_1, self.channel.id)
                 await connection.executemany(sql_2, fields)
@@ -426,7 +426,7 @@ class Transfers(Cog):
     async def update_cache(self) -> list[TransferChannel]:
         """Load Transfer Channels into the bot."""
         sql = """SELECT * FROM transfers_channels"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql)
 
@@ -453,7 +453,7 @@ class Transfers(Cog):
     async def transfers_loop(self) -> None:
         """Core transfer ticker loop - refresh every minute and
         get all new transfers from transfermarkt"""
-        if None in [self.bot.database, self.bot.session]:
+        if None in [self.bot.db, self.bot.session]:
             return
         if not self.bot.guilds:
             return
@@ -567,7 +567,7 @@ class Transfers(Cog):
                      FROM transfers_channels LEFT OUTER JOIN transfers_leagues
                      ON transfers_channels.channel_id
                      = transfers_leagues.channel_id WHERE link in ($1, $2)"""
-            async with self.bot.database.acquire(timeout=60) as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     records = await connection.fetch(sql, old_link, new_link)
 
@@ -677,7 +677,7 @@ class Transfers(Cog):
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Delete all transfer info for deleted channel from database"""
         sql = """DELETE FROM transfers_channels WHERE channel_id = $1"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 log = await connection.execute(sql, channel.id)
                 if log != "DELETE 0":

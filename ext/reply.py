@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 
 import discord
 from discord import Embed, Interaction, Message, Colour, InteractionResponse
@@ -92,39 +91,20 @@ class Reply(Cog):
         self.bot: Bot | PBot = bot
         self.bot.reply = reply
         self.bot.error = error
-        self.bot.tree.on_error = self.error_handler
+        # self.bot.tree.on_error = self.error_handler
 
     async def error_handler(
         self, interaction: Interaction, err: AppCommandError
     ) -> Message:
         """Event listener for when commands raise exceptions"""
-        # Unpack CIE
-        if isinstance(err, NotOwner):
-            msg = "You do not own this bot."
-            return await self.bot.error(interaction, msg)
-        # QuoteDB Specific
-
-        elif isinstance(err, TargetOptedOutError | OptedOutError):
-            return await self.bot.error(interaction, err.args[0])
-
-        elif isinstance(err, BotMissingPermissions):
-            miss = ", ".join(err.missing_permissions)
-            msg = f"Bot needs {miss} permissions to run this command"
-            return await self.bot.error(interaction, msg)
-
-        elif isinstance(err, MissingPermissions):
-            miss = ", ".join(err.missing_permissions)
-            msg = f"You need {miss} permissions to run this command"
-            return await self.bot.error(interaction, msg)
-
-        else:
-            msg = f"An Internal error occurred.\n{err.args}"
-            await self.bot.error(interaction, msg)
+        # Unpack CI
+        msg = f"An Internal error occurred.\n{err.args}"
+        await self.bot.error(interaction, msg)
 
         i1 = interaction.command.qualified_name
         i2 = interaction.data.items()
         logger.error("Error from %s\n%s", i1, i2)
-        raise sys.exc_info()
+        raise err.with_traceback
 
 
 async def setup(bot: Bot | PBot):

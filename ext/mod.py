@@ -286,7 +286,7 @@ class Mod(Cog):
     @Cog.listener()
     async def on_guild_join(self, guild: Guild) -> None:
         """Create database entry for new guild"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """INSERT INTO guild_settings (guild_id) VALUES ($1)
                        ON CONFLICT DO NOTHING"""
@@ -295,7 +295,7 @@ class Mod(Cog):
     @Cog.listener()
     async def on_guild_remove(self, guild: Guild) -> None:
         """Delete guild's info upon leaving one."""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """DELETE FROM guild_settings WHERE guild_id = $1"""
                 await connection.execute(q, guild.id)

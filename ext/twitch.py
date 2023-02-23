@@ -27,7 +27,7 @@ from discord.app_commands import (
 from discord.ext.commands import Cog
 from discord.ui import Select
 from iso639 import languages
-from twitchio import PartialUser, Tag, ChannelInfo, User, ChatSettings
+import twitchio
 from twitchio.ext.commands import Bot as TBot
 from ext.logs import stringify_seconds
 
@@ -69,7 +69,7 @@ class Contributor:
         name: str,
         links: list[str],
         language: list[str],
-        region: "Region",
+        region: Region,
     ):
         self.name: str = name
         self.links: list[str] = links
@@ -123,9 +123,8 @@ class Contributor:
     @property
     def row(self) -> str:
         """Return a short row representing all of a CC's social media info"""
-        return (
-            f"{self.region.emote} {self.name} ({self.flag})\n{self.markdown}"
-        )
+        em = self.region.emote
+        return f"{em} {self.name} ({self.flag})\n{self.markdown}"
 
     @property
     def auto_complete(self) -> str:
@@ -168,7 +167,7 @@ class Stream:
     def __init__(
         self,
         language: str,
-        user: PartialUser,
+        user: twitchio.PartialUser,
         viewers: int,
         title: str,
         timestamp: Timestamp,
@@ -536,7 +535,7 @@ class TwitchTracker(Cog):
         self.bot.contributors = contributors
         return self.bot.contributors
 
-    async def generate_twitch_embed(self, member: "Member") -> Embed:
+    async def generate_twitch_embed(self, member: Member) -> Embed:
         """Generate the embed for the twitch user"""
         e = Embed(title=member.activity.name, url=member.activity.url)
 
@@ -544,9 +543,10 @@ class TwitchTracker(Cog):
         match member.activity.platform:
             case "Twitch":
                 e.colour = 0x9146FF
-                info: ChannelInfo = await self.bot.twitch.fetch_channel(
-                    member.activity.twitch_name
-                )
+
+                twitch_name = member.activity.twitch_name
+                info = await self.bot.twitch.fetch_channel(twitch_name)
+
                 if info.delay > 0:
                     minutes, seconds = divmod(info.delay, 60)
                     delay = f"{minutes} minutes"
@@ -555,8 +555,8 @@ class TwitchTracker(Cog):
                     e.add_field(name="Stream Delay", value=delay)
 
                 desc.append(get_flag(info.language))
-                user: User = await info.user.fetch(force=True)
-                settings: ChatSettings = await user.fetch_chat_settings()
+                user = await info.user.fetch(force=True)
+                settings = await user.fetch_chat_settings()
 
                 modes = []
                 if settings.emote_mode:
@@ -578,7 +578,7 @@ class TwitchTracker(Cog):
                 desc.append(f"{member.mention}: {Timestamp().relative}")
 
                 # Stream Tags
-                tags: list[Tag] = await user.fetch_tags()
+                tags: list[twitchio.Tag] = await user.fetch_tags()
                 if tags:
                     localised = ", ".join(
                         [i.localization_names["en-us"] for i in tags]

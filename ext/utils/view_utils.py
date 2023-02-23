@@ -239,7 +239,6 @@ class ItemSelect(Select):
 
     async def callback(self, interaction: Interaction) -> None:
         """Response object for view"""
-
         await interaction.response.defer()
         self.view.value = self.values
         self.view.stop()

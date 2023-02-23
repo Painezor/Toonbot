@@ -109,7 +109,7 @@ class DeleteQuote(Button):
 
             if view.value:
                 qid = r["quote_id"]
-                async with bot.database.acquire(timeout=60) as connection:
+                async with bot.db.acquire(timeout=60) as connection:
                     async with connection.transaction():
                         sql = "DELETE FROM quotes WHERE quote_id = $1"
                         await connection.execute(sql, qid)
@@ -311,7 +311,7 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
     if not message.content:
         return await bot.error(interaction, "That message has no content.")
 
-    async with bot.database.acquire(timeout=60) as connection:
+    async with bot.db.acquire(timeout=60) as connection:
         async with connection.transaction():
             try:
                 await connection.fetchrow(
@@ -385,7 +385,7 @@ class QuoteDB(commands.Cog):
         """Cache the list of users who have opted out of the quote DB"""
 
         q = """SELECT * FROM quotes_optout"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(q)
 
@@ -453,7 +453,7 @@ class QuoteDB(commands.Cog):
 
         sql = """SELECT * FROM quotes WHERE author_user_id = $1
                  ORDER BY random()"""
-        async with bot.database.acquire(timeout=60) as connection:
+        async with bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
 
                 r = await connection.fetch(sql, member.id)
@@ -489,7 +489,7 @@ class QuoteDB(commands.Cog):
         if member.id in blacklist:
             raise TargetOptedOutError(member)
 
-        async with bot.database.acquire(timeout=60) as connection:
+        async with bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 g = interaction.guild.id
                 r = await connection.fetchrow(QT_SQL, member.id, g)
@@ -529,7 +529,7 @@ class QuoteDB(commands.Cog):
             if v.value:
                 # User has chosen to opt in.
                 sql = """DELETE FROM quotes_optout WHERE userid = $1"""
-                async with self.bot.database.acquire(timeout=60) as connection:
+                async with self.bot.db.acquire(timeout=60) as connection:
                     await connection.execute(sql, u)
 
                 msg = "You have opted back into the Quotes Database."
@@ -538,7 +538,7 @@ class QuoteDB(commands.Cog):
                 msg = "Opt in cancelled, quotes cannot be added about you."
                 return await self.bot.error(interaction, msg)
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 r = await connection.fetchrow(QT_SQL, u, g)
 
@@ -585,7 +585,7 @@ class QuoteDB(commands.Cog):
             sql = """DELETE FROM quotes WHERE author_user_id = $1
                      OR submitter_user_id = $2"""
 
-            async with self.bot.database.acquire(timeout=60) as connection:
+            async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     r = await connection.execute(sql, u, u)
 

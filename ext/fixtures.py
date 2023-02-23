@@ -35,92 +35,90 @@ semaphore = asyncio.Semaphore(5)
 JS = "ads => ads.forEach(x => x.remove());"
 
 
+async def set_default(
+    interaction: Interaction, param: Literal["default_league", "default_team"]
+):
+    """Fetch the default team or default league for this server"""
+
+    q = f"""SELECT {param} FROM fixtures_defaults WHERE (guild_id) = $1"""
+    if interaction.guild is None:
+        interaction.extras["default"] = None
+        return
+
+    async with interaction.client.db.acquire(timeout=60) as connection:
+        async with connection.transaction():
+            r = await connection.fetchrow(q, interaction.guild.id)
+
+    if r is None or r["param"] is None:
+        interaction.extras["default"] = None
+        return
+
+    if param == "default_teaam":
+        default = interaction.client.get_team(r[param])
+    else:
+        default = interaction.client.get_competition(r[param])
+
+    name = rf"\⭐Server default: {default.name}"[:100]
+    default = Choice(name=name, value=default.id)
+    interaction.extras["default"] = default
+    print("Returning.")
+    return
+
+
 # Autocompletes
 async def team_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete from list of stored teams"""
     bot: Bot = interaction.client
     teams: list[fs.Team] = sorted(bot.teams, key=lambda x: x.name)
 
+    print("Team AC is active.")
+    # Run Once - Set Default for interaction.
     if "default" not in interaction.extras:
-        if interaction.guild is None:
-            interaction.extras["default"] = None
-        else:
-            async with bot.database.acquire(timeout=60) as connection:
-                q = """SELECT default_team FROM fixtures_defaults WHERE
-                       (guild_id) = $1"""
-                async with connection.transaction():
-                    r = await connection.fetchrow(q, interaction.guild.id)
-
-            if r is None or r["default_team"] is None:
-                interaction.extras["default"] = None
-            else:
-                default = bot.get_team(r["default_team"])
-                t = Choice(
-                    name=f"Server default: {default.name}"[:100],
-                    value=default.id,
-                )
-                interaction.extras["default"] = t
-
-    if opts := [
-        Choice(name=t.name[:100], value=t.id)
-        for t in teams
-        if current.lower() in t.name.lower()
-    ]:
-        if interaction.extras["default"] is not None:
-            opts = [interaction.extras["default"]] + opts
-    return list(opts[:25])
+        await set_default(interaction, "default_team")
+    print("set_default finished.")
+    opts = []
+    curr = current.lower()
+    for t in teams:
+        if curr in t.name.lower():
+            opts.append(Choice(name=t.name[:100], value=t.id))
+    if interaction.extras["default"] is not None:
+        opts = [interaction.extras["default"]] + opts
+    print(f"Found {opts}")
+    return opts[:25]
 
 
 async def comp_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete from list of stored competitions"""
-    lgs = sorted(interaction.client.competitions, key=lambda x: x.title)
+    bot: Bot = interaction.client
+    lgs: list[fs.Competition] = sorted(bot.competitions, key=lambda x: x.title)
 
     if "default" not in interaction.extras:
-        if interaction.guild is None:
-            interaction.extras["default"] = None
-        else:
-            async with interaction.client.db.acquire(timeout=60) as connection:
-                async with connection.transaction():
-                    q = """SELECT default_league FROM fixtures_defaults
-                           WHERE (guild_id) = $1"""
-                    r = await connection.fetchrow(q, interaction.guild.id)
+        await set_default(interaction, "default_team")
 
-            if r is None or r["default_league"] is None:
-                interaction.extras["default"] = None
-            else:
-                bot = interaction.client
-                default = bot.get_competition(r["default_league"])
-                t = Choice(
-                    name=f"Server default: {default.title}"[:100],
-                    value=default.id,
-                )
-                interaction.extras["default"] = t
+    opts = []
+    curr = current.lower()
+    for lg in lgs:
+        if curr in lg.title.lower():
+            opts.append(Choice(name=lg.title[:100], value=lg.id))
 
-    matches = [i for i in lgs if i.id is not None]
-    if opts := [
-        Choice(name=lg.title[:100], value=lg.id)
-        for lg in matches
-        if current.lower() in lg.title.lower()
-    ]:
-        if interaction.extras["default"] is not None:
-            opts = [interaction.extras["default"]] + opts
-    return opts[:25]
+    if interaction.extras["default"] is not None:
+        opts = [interaction.extras["default"]] + opts
+    return list(opts[:25])
 
 
 async def fx_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Check if user's typing is in list of live games"""
     games = [i for i in interaction.client.games if i.id is not None]
-    matches = [i for i in games if current.lower() in i.autocomplete.lower()]
-    choices = [
-        Choice(name=i.autocomplete[:100], value=i.id) for i in matches[:25]
-    ]
+    games = [i for i in games if current.lower() in i.autocomplete.lower()]
+    games = [Choice(name=i.autocomplete[:100], value=i.id) for i in games[:25]]
+
     if current:
         v = f"🔎 Search for '{current}'"
-        if len(choices) == 25:  # Replace Item #25
-            choices[-1] = [Choice(name=v, value=current)]
+        if len(games) == 25:  # Replace Item #25
+            games[-1] = [Choice(name=v, value=current)]
         else:  # Or Add
-            choices.append(Choice(name=v, value=current))
-    return choices
+            games.append(Choice(name=v, value=current))
+    return games
 
 
 class CompetitionView(view_utils.BaseView):
@@ -968,13 +966,12 @@ class LeagueTableSelect(Select):
 
     def __init__(self, leagues: list[fs.Competition]) -> None:
         self.objects = leagues
-        super().__init__(placeholder="Select which league to get table from…")
+        super().__init__(placeholder="Select a league")
         for num, league in enumerate(leagues):
+            desc = league.link
+            label = league.title
             self.add_option(
-                label=league.title,
-                emoji="🏆",
-                description=league.link,
-                value=str(num),
+                label=label, emoji="🏆", description=desc, value=str(num)
             )
 
     async def callback(self, interaction: Interaction) -> Message:
@@ -982,9 +979,9 @@ class LeagueTableSelect(Select):
 
         await interaction.response.defer()
         try:
-            args = self.objects[int(next(self.values))]
+            args = self.objects[int(self.values[0])]
             return await self.view.push_table(args)
-        except StopIteration:
+        except IndexError:
             return await self.view.update()
 
 
@@ -1019,7 +1016,47 @@ class FixtureSelect(view_utils.BaseView):
             e.description += f"{f.bold_markdown}\n"
         self.add_item(d)
         view_utils.add_page_buttons(self, 1)
-        return await self.interaction.client.reply(embed=e, view=self)
+        return await self.interaction.client.reply(
+            self.interaction, embed=e, view=self
+        )
+
+
+class TeamSelect(view_utils.BaseView):
+    """View for asking user to select a specific fixture"""
+
+    def __init__(self, interaction: Interaction, teams: list[fs.Team]):
+        super().__init__(interaction)
+
+        self.interaction: Interaction = interaction
+        self.teams: list[fs.Team] = teams
+
+        # Pagination
+        self.index: int = 0
+
+        p = [self.teams[i : i + 25] for i in range(0, len(self.teams), 25)]
+        self.pages: list[list[fs.Team]] = p
+
+        # Final result
+        self.value: Any = None
+
+    async def update(self):
+        """Handle Pagination"""
+        targets: list[fs.Team] = self.pages[self.index]
+        d = view_utils.ItemSelect(placeholder="Please choose a team")
+        e = Embed(title="Choose a Team", description="")
+        logger.info("embed created")
+
+        em = fs.Team.emoji
+        logger.info(f"got emoji {em}")
+        for team in targets:
+            n = team.name
+            dsc = team.link
+            d.add_option(label=n, description=dsc, emoji=em, value=team.url)
+            e.description += f"`{team.id}` {team.markdown}\n"
+        self.add_item(d)
+        view_utils.add_page_buttons(self, 1)
+        i = self.interaction
+        return await i.client.reply(i, embed=e, view=self)
 
 
 class StadiumSelect(view_utils.BaseView):
@@ -1053,7 +1090,9 @@ class StadiumSelect(view_utils.BaseView):
             e.description += f"[{desc}]({i.url})\n"
         self.add_item(d)
         view_utils.add_page_buttons(self, 1)
-        return await self.interaction.client.reply(embed=e, view=self)
+
+        i = self.interaction
+        return await i.client.reply(i, embed=e, view=self)
 
 
 async def choose_recent_fixture(
@@ -1079,24 +1118,8 @@ class Fixtures(Cog):
     default = Group(
         name="default",
         guild_only=True,
-        description=(
-            "Set the server's default team and competition for " "commands."
-        ),
+        description="Set the server's default team and competition.",
         default_permissions=Permissions(manage_guild=True),
-    )
-
-    fixture = Group(
-        name="fixture",
-        description="Get information about a fixture from flashscore",
-    )
-
-    team = Group(
-        name="team", description="Get information about a team from flashscore"
-    )
-
-    league = Group(
-        name="competition",
-        description="Get information about a competition from flashscore",
     )
 
     @default.command(name="team")
@@ -1114,7 +1137,7 @@ class Fixtures(Cog):
             if isinstance(fsr, Message):
                 return fsr  # Not Found
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO guild_settings (guild_id)
                          VALUES ($1) ON CONFLICT DO NOTHING"""
@@ -1153,7 +1176,7 @@ class Fixtures(Cog):
                 VALUES ($1,$2) ON CONFLICT (guild_id)
                 DO UPDATE SET default_league = $2
                 WHERE excluded.guild_id = $1"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(q, interaction.guild.id, fsr.id)
 
@@ -1164,59 +1187,69 @@ class Fixtures(Cog):
         )
         return await self.bot.reply(interaction, embed=e)
 
-    @team.command(name="fixtures")
-    @autocomplete(team=team_ac)
-    @describe(team="Enter the name of a team to search for")
-    async def fx_team(self, interaction: Interaction, team: str) -> Message:
-        """Fetch upcoming fixtures for a team."""
+    fixture = Group(
+        name="fixture",
+        description="Get information about a fixture from flashscore",
+    )
 
-        await interaction.response.defer(thinking=True)
-        if (fsr := self.bot.get_team(team)) is None:
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message):
-                return fsr
-        return await TeamView(interaction, fsr).fixtures()
-
-    @team.command(name="results")
-    @autocomplete(team=team_ac)
-    @describe(team="Enter the name of a team to search for")
-    async def rx_team(self, interaction: Interaction, team: str) -> Message:
-        """Get recent results for a Team"""
-
-        await interaction.response.defer(thinking=True)
-        if (fsr := self.bot.get_team(team)) is None:
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message):
-                return fsr
-        return await TeamView(interaction, fsr).results()
-
-    @team.command(name="scorers")
-    @autocomplete(team=team_ac)
-    @describe(team="Enter the name of a team to search for")
-    async def scorers_team(
-        self, interaction: Interaction, team: str
+    # FIXTURE commands
+    @fixture.command(name="table")
+    @autocomplete(fixture=fx_ac)
+    @describe(fixture="Search for a fixture by team name")
+    async def table_fx(
+        self, interaction: Interaction, fixture: str
     ) -> Message:
-        """Get top scorers for a team in various competitions."""
+        """Look up the table for a fixture."""
+        if (fix := self.bot.get_fixture(fixture)) is None:
+            team = await self.fetch_team(interaction, fix)
+            fix = await choose_recent_fixture(interaction, team)
+        fix = await choose_recent_fixture(interaction, team)
+        return await FixtureView(interaction, fix).table()
 
-        await interaction.response.defer(thinking=True)
-        if (fsr := self.bot.get_team(team)) is None:
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message):
-                return fsr
-        return await TeamView(interaction, fsr).scorers()
+    @fixture.command()
+    @autocomplete(fixture=fx_ac)
+    @describe(fixture="Search for a fixture by team name")
+    async def stats(self, interaction: Interaction, fixture: str) -> Message:
+        """Look up the stats for a fixture."""
+        if (fix := self.bot.get_fixture(fixture)) is None:
+            team = await self.fetch_team(interaction, fix)
+            fix = await choose_recent_fixture(interaction, team)
+        return await FixtureView(interaction, fix).stats()
 
-    @team.command(name="table")
-    @autocomplete(team=team_ac)
-    @describe(team="Enter the name of a team to search for")
-    async def team_table(self, interaction: Interaction, team: str) -> Message:
-        """Get the Table of one of a Team's competitions"""
+    @fixture.command()
+    @autocomplete(fixture=fx_ac)
+    @describe(fixture="Search for a fixture by team name")
+    async def lineups(self, interaction: Interaction, fixture: str) -> Message:
+        """Look up the lineups and/or formations for a Fixture."""
+        if (fix := self.bot.get_fixture(fixture)) is None:
+            team = await self.fetch_team(interaction, fix)
+            fix = await choose_recent_fixture(interaction, team)
+        return await FixtureView(interaction, fix).lineups()
 
-        await interaction.response.defer(thinking=True)
-        if (fsr := self.bot.get_team(team)) is None:
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message):
-                return fsr
-        return await TeamView(interaction, fsr).table()
+    @fixture.command()
+    @autocomplete(fixture=fx_ac)
+    @describe(fixture="Search for a fixture by team name")
+    async def summary(self, interaction: Interaction, fixture: str) -> Message:
+        """Get a summary for a fixture"""
+        if (fix := self.bot.get_fixture(fixture)) is None:
+            team = await self.fetch_team(interaction, fix)
+            fix = await choose_recent_fixture(interaction, team)
+        return await FixtureView(interaction, fix).summary()
+
+    @fixture.command(name="h2h")
+    @autocomplete(fixture=fx_ac)
+    @describe(fixture="Search for a fixture by team name")
+    async def h2h(self, interaction: Interaction, fixture: str) -> Message:
+        """Lookup the head-to-head details for a Fixture"""
+        if (fix := self.bot.get_fixture(fixture)) is None:
+            team = await self.fetch_team(interaction, fix)
+            fix = await choose_recent_fixture(interaction, team)
+        return await FixtureView(interaction, fix).h2h()
+
+    league = Group(
+        name="competition",
+        description="Get information about a competition from flashscore",
+    )
 
     @league.command(name="fixtures")
     @autocomplete(competition=comp_ac)
@@ -1261,7 +1294,6 @@ class Fixtures(Cog):
                 return fsr
         return await CompetitionView(interaction, fsr).push_scorers()
 
-    # COMPETITION only
     @league.command()
     @describe(competition="Enter the name of a competition to search for")
     @autocomplete(competition=comp_ac)
@@ -1315,46 +1347,6 @@ class Fixtures(Cog):
         embeds.append(e)
         return await view_utils.Paginator(interaction, embeds).update()
 
-    @team.command()
-    @autocomplete(team=team_ac)
-    @describe(team="Enter the name of a team to search for")
-    async def injuries(self, interaction: Interaction, team: str) -> Message:
-        """Get a team's current injuries"""
-
-        await interaction.response.defer(thinking=True)
-        if not (fsr := self.bot.get_team(team)):
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-        return await TeamView(interaction, fsr).injuries()
-
-    # TEAM only
-    @team.command()
-    @autocomplete(team=team_ac)
-    @describe(team="Enter the name of a team to search for")
-    async def news(self, interaction: Interaction, team: str) -> Message:
-        """Get the latest news for a team"""
-
-        await interaction.response.defer(thinking=True)
-        if not (fsr := self.bot.get_team(team)):
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-        return await TeamView(interaction, fsr).news()
-
-    @team.command()
-    @autocomplete(team=team_ac)
-    @describe(team="Enter the name of a team to search for")
-    async def squad(self, interaction: Interaction, team: str) -> Message:
-        """Lookup a team's squad members"""
-
-        await interaction.response.defer(thinking=True)
-        if not (fsr := self.bot.get_team(team)):
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-        return await TeamView(interaction, fsr).squad()
-
     @league.command(name="table")
     @autocomplete(competition=comp_ac)
     @describe(competition="Enter the name of a competition to search for")
@@ -1366,82 +1358,80 @@ class Fixtures(Cog):
         await interaction.response.defer(thinking=True)
         if (fsr := self.bot.get_competition(competition)) is None:
             fsr = await fs_search(interaction, competition, mode="comp")
-            if isinstance(fsr, Message | None):
-                return fsr
         return await CompetitionView(interaction, fsr).push_table()
 
-    # FIXTURE commands
-    @fixture.command(name="table")
-    @autocomplete(fixture=fx_ac)
-    @describe(fixture="Search for a fixture by team name")
-    async def table_fx(
-        self, interaction: Interaction, fixture: str
-    ) -> Message:
-        """Look up the table for a fixture."""
+    team = Group(name="team", description="Get information about a team ")
 
+    async def fetch_team(self, interaction: Interaction, team: str) -> fs.Team:
         await interaction.response.defer(thinking=True)
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            fsr = await fs_search(interaction, fixture, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-            fix = await choose_recent_fixture(interaction, fsr)
-        return await FixtureView(interaction, fix).table()
+        if fsr := self.bot.get_team(team):
+            return fsr
 
-    @fixture.command()
-    @autocomplete(fixture=fx_ac)
-    @describe(fixture="Search for a fixture by team name")
-    async def stats(self, interaction: Interaction, fixture: str) -> Message:
-        """Look up the stats for a fixture."""
+        teams = await fs_search(interaction, team, mode="team")
 
-        await interaction.response.defer(thinking=True)
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            fsr = await fs_search(interaction, fixture, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-            fix = await choose_recent_fixture(interaction, fsr)
-        return await FixtureView(interaction, fix).stats()
+        await (v := TeamSelect(interaction, teams)).update()
+        await v.wait()
 
-    @fixture.command()
-    @autocomplete(fixture=fx_ac)
-    @describe(fixture="Search for a fixture by team name")
-    async def lineups(self, interaction: Interaction, fixture: str) -> Message:
-        """Look up the lineups and/or formations for a Fixture."""
+        if not v.value:
+            raise TimeoutError
 
-        await interaction.response.defer(thinking=True)
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            fsr = await fs_search(interaction, fixture, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-            fix = await choose_recent_fixture(interaction, fsr)
-        return await FixtureView(interaction, fix).lineups()
+        return next(i for i in teams if i.link == [v.value[0]])
 
-    @fixture.command()
-    @autocomplete(fixture=fx_ac)
-    @describe(fixture="Search for a fixture by team name")
-    async def summary(self, interaction: Interaction, fixture: str) -> Message:
-        """Get a summary for a fixture"""
+    @team.command(name="fixtures")
+    @autocomplete(team=team_ac)
+    @describe(team="Enter the name of a team to search for")
+    async def fx_team(self, interaction: Interaction, team: str) -> Message:
+        """Fetch upcoming fixtures for a team."""
+        team = await self.fetch_team(interaction, team)
+        return await team.fixtures()
 
-        await interaction.response.defer(thinking=True)
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            fsr = await fs_search(interaction, fixture, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-            fix = await choose_recent_fixture(interaction, fsr)
-        return await FixtureView(interaction, fix).summary()
+    @team.command(name="results")
+    @autocomplete(team=team_ac)
+    @describe(team="Enter the name of a team to search for")
+    async def rx_team(self, interaction: Interaction, team: str) -> Message:
+        """Get recent results for a Team"""
+        team = await self.fetch_team(interaction, team).results()
+        return await team.results()
 
-    @fixture.command(name="h2h")
-    @autocomplete(fixture=fx_ac)
-    @describe(fixture="Search for a fixture by team name")
-    async def h2h(self, interaction: Interaction, fixture: str) -> Message:
-        """Lookup the head-to-head details for a Fixture"""
+    @team.command(name="scorers")
+    @autocomplete(team=team_ac)
+    @describe(team="Enter the name of a team to search for")
+    async def sc_team(self, interaction: Interaction, team: str) -> Message:
+        """Get top scorers for a team in various competitions."""
+        team = await self.fetch_team(interaction, team)
+        return await team.scorers()
 
-        await interaction.response.defer(thinking=True)
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            fsr = await fs_search(interaction, fixture, mode="team")
-            if isinstance(fsr, Message | None):
-                return fsr
-            fix = await choose_recent_fixture(interaction, fsr)
-        return await FixtureView(interaction, fix).h2h()
+    @team.command(name="table")
+    @autocomplete(team=team_ac)
+    @describe(team="Enter the name of a team to search for")
+    async def team_table(self, interaction: Interaction, team: str) -> Message:
+        """Get the Table of one of a Team's competitions"""
+        team = await self.fetch_team(interaction, team)
+        return await team.scorers()
+
+    @team.command()
+    @autocomplete(team=team_ac)
+    @describe(team="Enter the name of a team to search for")
+    async def injuries(self, interaction: Interaction, team: str) -> Message:
+        """Get a team's current injuries"""
+        team = await self.fetch_team(interaction, team)
+        return await team.injuries()
+
+    @team.command()
+    @autocomplete(team=team_ac)
+    @describe(team="Enter the name of a team to search for")
+    async def news(self, interaction: Interaction, team: str) -> Message:
+        """Get the latest news for a team"""
+        team = await self.fetch_team(interaction, team)
+        return await team.news()
+
+    @team.command()
+    @autocomplete(team=team_ac)
+    @describe(team="Enter the name of a team to search for")
+    async def squad(self, interaction: Interaction, team: str) -> Message:
+        """Lookup a team's squad members"""
+        team = await self.fetch_team(interaction, team)
+        return await team.squad()
 
     # UNIQUE commands
     @command()

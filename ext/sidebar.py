@@ -86,7 +86,7 @@ class NUFCSidebar(Cog):
     @sidebar_loop.before_loop
     async def fetch_team_data(self) -> None:
         """Grab information about teams from local database."""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 self.bot.reddit_teams = await connection.fetch(
                     """SELECT * FROM team_data"""

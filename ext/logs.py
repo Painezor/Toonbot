@@ -8,20 +8,21 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import TYPE_CHECKING
 
 import discord
 from discord import (
-    Embed,
-    Colour,
     AuditLogAction,
-    File,
-    Message,
+    Colour,
+    Embed,
     Emoji,
+    File,
     Interaction,
     Member,
-    User,
+    Message,
     Role,
     TextChannel,
+    User,
 )
 from discord.app_commands import command, default_permissions
 from discord.ext.commands import Cog
@@ -30,8 +31,6 @@ from discord.ui import Button
 from ext.utils import timed_events, view_utils
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import BaseView
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core import Bot
@@ -63,7 +62,7 @@ class ToggleButton(Button):
 
         await interaction.response.defer()
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = f"""UPDATE notifications_settings SET {self.db_key} =
                     $1 WHERE channel_id = $2"""
@@ -99,7 +98,7 @@ class LogsConfig(BaseView):
         qqq = """INSERT INTO notifications_settings (channel_id) VALUES ($1)"""
 
         c = self.channel.id
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 if not (stg := await connection.fetchrow(q, c)):
                     await connection.execute(qq, self.interaction.guild.id, c)
@@ -285,7 +284,7 @@ class Logs(Cog):
         q = """SELECT * FROM notifications_channels LEFT OUTER JOIN
             notifications_settings ON notifications_channels.channel_id
             = notifications_settings.channel_id"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 self.bot.notifications_cache = await connection.fetch(q)
 
@@ -3326,7 +3325,7 @@ class Logs(Cog):
         self, payload: discord.RawMemberRemoveEvent
     ) -> None:
         """Event handler for outputting information about member kick, ban
-           or other departures"""
+        or other departures"""
         # Check if in mod action log and override to specific channels.
         guild = self.bot.get_guild(payload.guild_id)
         if not (channels := self.get_channels(guild, ["leaves"])):
@@ -3382,7 +3381,7 @@ class Logs(Cog):
                         value=" ".join([i.mention for i in emoji.roles]),
                     )
 
-                anim = 'animated ' if emoji.animated else ''
+                anim = "animated " if emoji.animated else ""
                 e.title = f"New {anim}emote: {emoji.name}"
                 e.set_image(url=emoji.url)
                 e.set_footer(text=emoji.url)

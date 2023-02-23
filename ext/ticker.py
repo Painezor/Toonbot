@@ -281,7 +281,7 @@ class TickerChannel:
     # Database management.
     async def get_settings(self) -> dict:
         """Retrieve the settings of the TickerChannel from the database"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 stg = await connection.fetchrow(
                     """SELECT * FROM ticker_settings WHERE channel_id = $1""",
@@ -304,7 +304,7 @@ class TickerChannel:
     async def create_ticker(self) -> TickerChannel:
         """Create a ticker for the target channel"""
         guild = self.bot.get_channel(self.channel).guild.id
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             # Verify that this is not a livescores channel.
             async with connection.transaction():
                 q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
@@ -329,7 +329,7 @@ class TickerChannel:
 
     async def delete_ticker(self) -> None:
         """Delete the ticker for this channel from the database"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(
                     """DELETE FROM ticker_channels WHERE channel_id = $1""",
@@ -344,7 +344,7 @@ class TickerChannel:
         sql = """INSERT INTO ticker_leagues (channel_id, league)
                  VALUES ($1, $2) ON CONFLICT DO NOTHING"""
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(
                     sql, [(self.channel, x) for x in leagues]
@@ -357,7 +357,7 @@ class TickerChannel:
         """Remove a list of leagues for the channel from the database"""
         sql = """DELETE from ticker_leagues
                  WHERE (channel_id, league) = ($1, $2)"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(
                     sql, [(self.channel, x) for x in leagues]
@@ -371,7 +371,7 @@ class TickerChannel:
         sql = """INSERT INTO ticker_leagues (channel_id, league)
                  VALUES ($1, $2) ON CONFLICT DO NOTHING"""
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(
                     sql, [(self.channel, x) for x in DEFAULT_LEAGUES]
@@ -384,7 +384,7 @@ class TickerChannel:
         self, db_key: str, new_value: Optional[bool]
     ) -> dict:
         """Toggle a database setting"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = f"""UPDATE ticker_settings SET {db_key} = $1
                      WHERE channel_id = $2"""
@@ -550,7 +550,7 @@ class TickerConfig(BaseView):
 
     async def creation_dialogue(self) -> bool:
         """Send a dialogue to check if the user wishes
-           to create a new ticker."""
+        to create a new ticker."""
         # Ticker Verify -- NOT A SCORES CHANNEL
         if self.tc.channel in [i.channel.id for i in self.bot.score_channels]:
             err = "You cannot create a ticker in a livescores channel."
@@ -565,8 +565,9 @@ class TickerConfig(BaseView):
             label_a="Create ticker",
             label_b="Cancel",
         )
-        notfound = (f"{c} does not have a ticker,"
-                    " would you like to create one?")
+        notfound = (
+            f"{c} does not have a ticker," " would you like to create one?"
+        )
         await self.bot.reply(self.interaction, notfound, view=view)
         await view.wait()
 
@@ -618,8 +619,10 @@ class TickerConfig(BaseView):
             missing.append("embed_links")
 
         if missing:
-            v = ("```yaml\nThis ticker channel will not work currently"
-                 f"I am missing the following permissions.\n{missing}```")
+            v = (
+                "```yaml\nThis ticker channel will not work currently"
+                f"I am missing the following permissions.\n{missing}```"
+            )
             embed.add_field(name="Missing Permissions", value=v)
 
         if not self.tc.leagues:
@@ -655,7 +658,7 @@ class TickerConfig(BaseView):
             for k, v in self.tc.settings.items():
                 # We don't need a button for channel_id,
                 # it's just the database key.
-                if (k == "channel_id"):
+                if k == "channel_id":
                     continue
                 row = 2 + count // 5
                 self.add_item(ToggleButton(db_key=k, value=v, row=row))
@@ -684,7 +687,7 @@ class Ticker(Cog):
     async def update_cache(self) -> None:
         """Store a list of all Ticker Channels into the bot"""
         sql = """SELECT DISTINCT channel_id FROM transfers_channels"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql)
 
@@ -708,7 +711,7 @@ class Ticker(Cog):
                   ticker_leagues.channel_id WHERE {not_nulls}
                   AND (league = $1::text)"""
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, f.competition.title)
 
@@ -844,7 +847,7 @@ class Ticker(Cog):
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Handle delete channel data from database upon channel deletion."""
         sql = """DELETE FROM ticker_channels WHERE channel_id = $1"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(sql, channel.id)
 

@@ -99,7 +99,7 @@ class RemindModal(Modal):
         gid = None if interaction.guild is None else interaction.guild.id
         ch_id = interaction.channel.id
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO reminders
                         (message_id, channel_id, guild_id, reminder_content,
@@ -171,7 +171,7 @@ class ReminderView(View):
             except HTTPException:
                 pass
 
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(
                     """DELETE FROM reminders WHERE created_time = $1""",
@@ -203,7 +203,7 @@ class Reminders(Cog):
 
     async def cog_load(self) -> None:
         """Do when the cog loads"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch("""SELECT * FROM reminders""")
 
@@ -232,7 +232,7 @@ class Reminders(Cog):
     @reminder.command()
     async def list(self, interaction: Interaction) -> Message:
         """Check your active reminders"""
-        async with self.bot.database.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(
                     """SELECT * FROM reminders WHERE user_id = $1""",

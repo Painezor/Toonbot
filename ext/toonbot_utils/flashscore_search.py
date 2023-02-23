@@ -9,7 +9,7 @@ from discord import Locale
 from ext.toonbot_utils import flashscore as fs
 
 if TYPE_CHECKING:
-    from discord import Interaction, Message
+    from discord import Interaction
     from typing import Literal
     from core import Bot
 
@@ -55,9 +55,9 @@ locales = {
 }
 
 
-async def fs_search(interaction: Interaction,
-                    query: str, mode: Literal['comp', 'team']
-                    ) -> list[fs.FlashScoreItem] | Message:
+async def fs_search(
+    interaction: Interaction, query: str, mode: Literal["comp", "team"]
+) -> list[fs.FlashScoreItem]:
     """Fetch a list of items from flashscore matching the user's query"""
     query = quote(query.translate(dict.fromkeys(map(ord, "'[]#<>"), None)))
 
@@ -72,15 +72,18 @@ async def fs_search(interaction: Interaction,
             lang_id = 1
 
     # Type IDs: 1 - Team | Tournament, 2 - Team, 3 - Player 4 - PlayerInTeam
-    url = (f"https://s.livesport.services/api/v2/search/?q={query}"
-           f"&lang-id={lang_id}&type-ids=1,2,3,4&sport-ids=1")
+    url = (
+        f"https://s.livesport.services/api/v2/search/?q={query}"
+        f"&lang-id={lang_id}&type-ids=1,2,3,4&sport-ids=1"
+    )
 
     async with bot.session.get(url) as resp:
         match resp.status:
-            case 200: res = await resp.json()
+            case 200:
+                res = await resp.json()
             case _:
-                err = f"HTTP {resp.status} error in fs_search"
-                return await interaction.client.error(interaction, err)
+                err = f"HTTP {resp.status} error while searching flashscore"
+                raise LookupError(err)
 
     results: list[fs.Competition | fs.Team] = []
     for x in res:
@@ -90,31 +93,31 @@ async def fs_search(interaction: Interaction,
                     if mode == "comp":
                         continue
 
-                    if not (team := bot.get_team(x['id'])):
+                    if not (team := bot.get_team(x["id"])):
                         team = fs.Team(bot)
-                        team.name = x['name']
-                        team.url = x['url']
-                        team.id = x['id']
-                        team.logo_url = x['images'][0]["path"]
-                        team.gender = x['gender']['name']
+                        team.name = x["name"]
+                        team.url = x["url"]
+                        team.id = x["id"]
+                        team.logo_url = x["images"][0]["path"]
+                        team.gender = x["gender"]["name"]
                         await team.save_to_db()
                     results.append(team)
                 case "TournamentTemplate":
                     if mode == "team":
                         continue
 
-                    if not (comp := bot.get_competition(x['id'])):
+                    if not (comp := bot.get_competition(x["id"])):
                         comp = fs.Competition(bot)
-                        comp.country = x['defaultCountry']['name']
-                        comp.id = x['id']
-                        comp.url = x['url']
-                        comp.logo_url = x['images'][0]['path']
-                        comp.name = x['name']
+                        comp.country = x["defaultCountry"]["name"]
+                        comp.id = x["id"]
+                        comp.url = x["url"]
+                        comp.logo_url = x["images"][0]["path"]
+                        comp.name = x["name"]
                         await comp.save_to_db()
                     results.append(comp)
-                case _: continue  # This is a player, we don't want those.
+                case _:
+                    continue  # This is a player, we don't want those.
 
     if not results:
-        err = f"Flashscore Search: No results found for {query}"
-        return await interaction.client.error(err)
+        raise LookupError("Flashscore Search: No results found for %s", query)
     return results
