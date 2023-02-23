@@ -23,10 +23,28 @@ if TYPE_CHECKING:
 
 # TODO: CommanderXP Command (Show Total Commander XP per Rank)
 # TODO: Encyclopedia - Collections
-# TODO: Pull Achievement Data to specifically get Jolly Rogers and Hurricane Emblems for player stats.
+# TODO: Pull Achievement Data to specifically get Jolly Rogers
+# and Hurricane Emblems for player stats.
 # TODO: Player's Ranked Battle Season History
 # TODO: Clan Battle Season objects for Images for Leaderboard.
 # TODO: Yeet old FuncDropdown shit and replace with Funcables
+
+
+API = "https://api.worldofwarships."
+SHIP_KEYS = {
+    "max_frags_battle": "max_frags_ship_id",
+    "max_damage_dealt": "max_damage_dealt_ship_id",
+    "max_xp": "max_xp_ship_id",
+    "max_total_agro": "max_total_agro_ship_id",
+    "max_damage_scouting": "max_scouting_damage_ship_id",
+    "max_ships_spotted": "max_ships_spotted_ship_id",
+    "max_planes_killed": "max_planes_killed_ship_id",
+    "main_battery.max_frags_battle": "main_battery.max_frags_ship_id",
+    "second_battery.max_frags_battle": "second_battery.max_frags_ship_id",
+    "ramming.max_frags_battle": "ramming.max_frags_ship_id",
+    "torpedoes.max_frags_battle": "torpedoes.max_frags_ship_id",
+    "aircraft.max_frags_battle": "aircraft.max_frags_ship_id",
+}
 
 
 class Achievement:
@@ -36,7 +54,9 @@ class Achievement:
 class Map:
     """A Generic container class representing a map"""
 
-    def __init__(self, name: str, description: str, battle_arena_id: int, icon: str) -> None:
+    def __init__(
+        self, name: str, description: str, battle_arena_id: int, icon: str
+    ) -> None:
         self.name: str = name
         self.description: str = description
         self.battle_arena_id = battle_arena_id
@@ -65,9 +85,11 @@ class Map:
 
 
 class GameMode:
-    """"An Object representing different Game Modes"""
+    """ "An Object representing different Game Modes"""
 
-    def __init__(self, image: str, tag: str, name: str, description: str) -> None:
+    def __init__(
+        self, image: str, tag: str, name: str, description: str
+    ) -> None:
         self.tag: str = tag
         self.name: str = name
         self.image: str = image
@@ -76,11 +98,16 @@ class GameMode:
     @property
     def emoji(self) -> Optional[str]:
         """Get the Emoji Representation of the game mode."""
-        return {'BRAWL': '<:Brawl:989921560901058590>', 'CLAN': '<:Clan:989921285918294027>',
-                'COOPERATIVE': '<:Coop:989844738800746516>', 'EVENT': '<:Event:989921682007420938>',
-                'PVE': '<:Scenario:989921800920109077>', 'PVE_PREMADE': '<:Scenario_Hard:989922089303687230>',
-                'PVP': '<:Randoms:988865875824222338>', 'RANKED': '<:Ranked:989845163989950475>'
-                }.get(self.tag, None)
+        return {
+            "BRAWL": "<:Brawl:989921560901058590>",
+            "CLAN": "<:Clan:989921285918294027>",
+            "COOPERATIVE": "<:Coop:989844738800746516>",
+            "EVENT": "<:Event:989921682007420938>",
+            "PVE": "<:Scenario:989921800920109077>",
+            "PVE_PREMADE": "<:Scenario_Hard:989922089303687230>",
+            "PVP": "<:Randoms:988865875824222338>",
+            "RANKED": "<:Ranked:989845163989950475>",
+        }.get(self.tag, None)
 
 
 class Region(Enum):
@@ -92,7 +119,15 @@ class Region(Enum):
         obj._value_ = value
         return obj
 
-    def __init__(self, db_key: str, url: str, emote: str, colour: Colour, code_prefix: str, realm: str) -> None:
+    def __init__(
+        self,
+        db_key: str,
+        url: str,
+        emote: str,
+        colour: Colour,
+        code_prefix: str,
+        realm: str,
+    ) -> None:
         self.db_key: str = db_key
         self.domain: str = url
         self.emote: str = emote
@@ -113,7 +148,10 @@ class Region(Enum):
     @property
     def clans(self) -> str:
         """Returns a link to the 'Clans' webpage"""
-        return f"https://clans.worldofwarships.{self.domain}/clans/gateway/wows/profile"
+        return (
+            f"https://clans.worldofwarships.{self.domain}"
+            "/clans/gateway/wows/profile"
+        )
 
     @property
     def logbook(self) -> str:
@@ -136,19 +174,20 @@ class Region(Enum):
         return f"https://friends.worldofwarships.{self.domain}/en/players/"
 
     # database key, domain, emote, colour, code prefix, realm
-    EU = ('eu', 'eu', "<:EU:993495456988545124>", 0x0000ff, 'eu', 'eu')
-    NA = ('na', 'com', "<:NA:993495467788869663>", 0x00ff00, 'na', 'us')
-    SEA = ('sea', 'asia', "<:ASIA:993495476978589786>", 0x00ffff, 'asia', 'sg')
-    CIS = ('cis', 'ru', "<:CIS:993495488248680488>", 0xff0000, 'ru', 'ru')
+    EU = ("eu", "eu", "<:EU:993495456988545124>", 0x0000FF, "eu", "eu")
+    NA = ("na", "com", "<:NA:993495467788869663>", 0x00FF00, "na", "us")
+    SEA = ("sea", "asia", "<:ASIA:993495476978589786>", 0x00FFFF, "asia", "sg")
+    CIS = ("cis", "ru", "<:CIS:993495488248680488>", 0xFF0000, "ru", "ru")
 
 
 class Player:
     """A World of Warships player."""
+
     bot: ClassVar[PBot]
 
     def __init__(self, account_id: int, **kwargs) -> None:
         self.account_id: int = account_id
-        self.nickname: str = kwargs.pop('nickname', None)
+        self.nickname: str = kwargs.pop("nickname", None)
 
         # Additional Fetched Data.
         self.clan: Optional[Clan] = None
@@ -158,12 +197,16 @@ class Player:
         self.clan_role: str = None  # Officer, Leader, Recruiter...
         self.karma: Optional[int] = None  # Player Karma (Hidden from API?)
         self.last_battle_time: Optional[Timestamp] = None  # Last Battle
-        self.private: None = None  # Player's private data. We do not have access.
+        self.private: None = (
+            None  # Player's private data. We do not have access.
+        )
         self.levelling_tier: Optional[int] = None  # Player account level
         self.levelling_points: Optional[int] = None  # Player account XP
         self.logout_at: Optional[Timestamp] = None  # Last Logout
         self.stats_updated_at: Optional[Timestamp] = None  # Last Stats Update
-        self.statistics: dict[Ship | None, dict] = {}  # Parsed Player Statistics
+        self.statistics: dict[
+            Ship | None, dict
+        ] = {}  # Parsed Player Statistics
 
         # Data from CB Endpoint
         self.average_damage: float = 0
@@ -178,21 +221,30 @@ class Player:
         self.is_banned: bool = False
 
         # CB Season Stats
-        self.clan_battle_stats: dict[int, PlayerCBStats] = {}  # Keyed By Season ID.
+        self.clan_battle_stats: dict[
+            int, PlayerCBStats
+        ] = {}  # Keyed By Season ID.
 
     @property
     def region(self) -> Region:
         """Get a Region object based on the player's ID number."""
         match self.account_id:
-            case self.account_id if 0 < self.account_id < 500000000: return Region.CIS
-            case self.account_id if 500000000 < self.account_id < 999999999: return Region.EU
-            case self.account_id if 1000000000 < self.account_id < 1999999999: return Region.NA
-            case _: return Region.SEA
+            case self.account_id if 0 < self.account_id < 500000000:
+                return Region.CIS
+            case self.account_id if 500000000 < self.account_id < 999999999:
+                return Region.EU
+            case self.account_id if 1000000000 < self.account_id < 1999999999:
+                return Region.NA
+            case _:
+                return Region.SEA
 
     @property
     def community_link(self) -> str:
         """Get a link to this player's community page."""
-        return f"https://worldofwarships.{self.region.domain}/community/accounts/{self.account_id}-{self.nickname}/"
+        return (
+            f"https://worldofwarships.{self.region.domain}/"
+            f"community/accounts/{self.account_id}-{self.nickname}/"
+        )
 
     @property
     def wows_numbers(self) -> str:
@@ -206,72 +258,99 @@ class Player:
                 region = "ru."
             case _:
                 region = ""
-        return f"https://{region}wows-numbers.com/player/{self.account_id},{self.nickname}/"
+        return (
+            f"https://{region}wows-numbers.com/player/"
+            f"{self.account_id},{self.nickname}/"
+        )
 
     async def get_pr(self) -> int:
         """Calculate a player's personal rating"""
         if not self.bot.pr_data_updated_at:
-            async with self.bot.session.get('https://api.wows-numbers.com/personal/rating/expected/json/') as resp:
+            async with self.bot.session.get(
+                "https://api.wows-numbers.com/personal/rating/expected/json/"
+            ) as resp:
                 match resp.status:
-                    case 200: pass
-                    case _: raise ConnectionError(f'{resp.status} Error accessing {resp.url}')
+                    case 200:
+                        pass
+                    case _:
+                        raise ConnectionError(
+                            f"{resp.status} Error accessing {resp.url}"
+                        )
         # TODO: Get PR
         raise NotImplementedError
 
     async def get_clan_info(self) -> Optional[Clan]:
         """Get a Player's clan"""
-        link = f"https://api.worldofwarships.{self.region.domain}/wows/clans/accountinfo/"
-        p = {'application_id': self.bot.WG_ID, 'account_id': self.account_id, 'extra': 'clan'}
+        link = API + self.region.domain + "/wows/clans/accountinfo/"
+        p = {
+            "application_id": self.bot.wg_id,
+            "account_id": self.account_id,
+            "extra": "clan",
+        }
 
         async with self.bot.session.get(link, params=p) as resp:
             match resp.status:
-                case 200: json = await resp.json()
-                case _: return None
+                case 200:
+                    json = await resp.json()
+                case _:
+                    return None
 
-        if (data := json['data'].pop(str(self.account_id))) is None:
+        if (data := json["data"].pop(str(self.account_id))) is None:
             self.clan = False
             return None
 
-        self.joined_clan_at = Timestamp(datetime.utcfromtimestamp(data.pop('joined_at')))
+        self.joined_clan_at = Timestamp(
+            datetime.utcfromtimestamp(data.pop("joined_at"))
+        )
 
-        clan_id = data.pop('clan_id')
+        clan_id = data.pop("clan_id")
         clan = self.bot.get_clan(clan_id)
 
-        clan_data = data.pop('clan')
-        clan.created_at = Timestamp(datetime.utcfromtimestamp(clan_data.pop('created_at')))
-        clan.members_count = clan_data.pop('members_count')
-        clan.name = clan_data.pop('name')
-        clan.tag = clan_data.pop('tag')
+        clan_data = data.pop("clan")
+        clan.created_at = Timestamp(
+            datetime.utcfromtimestamp(clan_data.pop("created_at"))
+        )
+        clan.members_count = clan_data.pop("members_count")
+        clan.name = clan_data.pop("name")
+        clan.tag = clan_data.pop("tag")
 
         self.clan = clan
         return self.clan
 
     async def get_stats(self, ship: Ship = None) -> None:
         """Get the player's stats as a dict"""
-        p = {'application_id': self.bot.WG_ID, 'account_id': self.account_id}
+        p = {"application_id": self.bot.wg_id, "account_id": self.account_id}
 
         if ship is None:
-            url = f"https://api.worldofwarships.{self.region.domain}/wows/account/info/"
-            p.update({'extra': 'statistics.pvp_solo,'
-                               'statistics.pvp_div2, '
-                               'statistics.pvp_div3, '
-                               'statistics.rank_solo, '
-                               'statistics.rank_div2, '
-                               'statistics.rank_div3, '
-                               'statistics.pve, '
-                               'statistics.pve_div2, '
-                               'statistics.pve_div3, '
-                               'statistics.pve_solo, '
-                               'statistics.oper_solo, '
-                               'statistics.oper_div, '
-                               'statistics.oper_div_hard'})
+            url = API + self.region.domain + "/wows/account/info/"
+            p.update(
+                {
+                    "extra": "statistics.pvp_solo,"
+                    "statistics.pvp_div2, "
+                    "statistics.pvp_div3, "
+                    "statistics.rank_solo, "
+                    "statistics.rank_div2, "
+                    "statistics.rank_div3, "
+                    "statistics.pve, "
+                    "statistics.pve_div2, "
+                    "statistics.pve_div3, "
+                    "statistics.pve_solo, "
+                    "statistics.oper_solo, "
+                    "statistics.oper_div, "
+                    "statistics.oper_div_hard"
+                }
+            )
         else:
-            url = f'https://api.worldofwarships.{self.region.domain}/wows/ships/stats/'
-            p.update({'ship_id': ship.ship_id})
-            p.update({'extra': 'pvp_solo, pvp_div2, pvp_div3, '
-                               'rank_solo, rank_div2, rank_div3, '
-                               'pve, pve_div2, pve_div3, pve_solo, '
-                               'oper_solo, oper_div, oper_div_hard'})
+            url = API + self.region.domain + "/wows/ships/stats/"
+            p.update({"ship_id": ship.ship_id})
+            p.update(
+                {
+                    "extra": "pvp_solo, pvp_div2, pvp_div3, "
+                    "rank_solo, rank_div2, rank_div3, "
+                    "pve, pve_div2, pve_div3, pve_solo, "
+                    "oper_solo, oper_div, oper_div_hard"
+                }
+            )
 
         async with self.bot.session.get(url, params=p) as resp:
             match resp.status:
@@ -284,22 +363,38 @@ class Player:
                         return []
 
         try:
-            stats = json['data'].pop(str(self.account_id))  # Why the fuck is this randomly a string now, seriously WG?
+            stats = json["data"].pop(
+                str(self.account_id)
+            )  # Why the fuck is this randomly a string now, seriously WG?
         except KeyError:
             raise KeyError(f'Unable to find key "data" in {json}')
 
-        self.created_at = Timestamp(datetime.utcfromtimestamp(stats.pop('created_at', None)))
-        self.last_battle_time = Timestamp(datetime.utcfromtimestamp(stats.pop('last_battle_time', None)))
-        self.stats_updated_at = Timestamp(datetime.utcfromtimestamp(stats.pop('stats_updated_at', None)))
-        self.logout_at = Timestamp(datetime.utcfromtimestamp(stats.pop('logout_at', None)))
-        self.hidden_profile = stats.pop('hidden_profile', False)
+        self.created_at = Timestamp(
+            datetime.utcfromtimestamp(stats.pop("created_at", None))
+        )
+        self.last_battle_time = Timestamp(
+            datetime.utcfromtimestamp(stats.pop("last_battle_time", None))
+        )
+        self.stats_updated_at = Timestamp(
+            datetime.utcfromtimestamp(stats.pop("stats_updated_at", None))
+        )
+        self.logout_at = Timestamp(
+            datetime.utcfromtimestamp(stats.pop("logout_at", None))
+        )
+        self.hidden_profile = stats.pop("hidden_profile", False)
         if ship is None:
-            self.statistics[None] = stats.pop('statistics')
+            self.statistics[None] = stats.pop("statistics")
         else:
             self.statistics[ship] = stats
         return
 
-    def view(self, interaction: Interaction, mode: GameMode, div_size: int, ship: Ship = None) -> PlayerView:
+    def view(
+        self,
+        interaction: Interaction,
+        mode: GameMode,
+        div_size: int,
+        ship: Ship = None,
+    ) -> PlayerView:
         """Return a PlayerVIew of this Player"""
         return PlayerView(interaction, self, mode, div_size, ship)
 
@@ -307,7 +402,13 @@ class Player:
 class ClanButton(Button):
     """Change to a view of a different ship"""
 
-    def __init__(self, interaction: Interaction, clan: Clan, parent: View = None, row: int = 0) -> None:
+    def __init__(
+        self,
+        interaction: Interaction,
+        clan: Clan,
+        parent: View = None,
+        row: int = 0,
+    ) -> None:
         super().__init__(label="Clan", row=row)
 
         self.clan: Clan = clan
@@ -319,14 +420,22 @@ class ClanButton(Button):
         """Change message of interaction to a different ship"""
 
         await interaction.response.defer()
-        return await self.clan.view(self.interaction, parent=self.parent).overview()
+        return await self.clan.view(
+            self.interaction, parent=self.parent
+        ).overview()
 
 
 class PlayerView(BaseView):
     """A View representing a World of Warships player"""
 
-    def __init__(self, interaction: Interaction, player: Player, mode: GameMode,
-                 div_size: int, ship: Ship = None) -> None:
+    def __init__(
+        self,
+        interaction: Interaction,
+        player: Player,
+        mode: GameMode,
+        div_size: int,
+        ship: Ship = None,
+    ) -> None:
         super().__init__(interaction)
 
         # Passed
@@ -345,13 +454,14 @@ class PlayerView(BaseView):
         """Base Embed used for all sub embeds."""
         e = Embed()
 
+        p = self.player
         if self.player.clan is None:
             await self.player.get_clan_info()
 
         if self.player.clan:
-            e.set_author(name=f'[{self.player.clan.tag}] {self.player.nickname} ({self.player.region.name})')
+            e.set_author(name=f"[{p.clan.tag}] {p.nickname} ({p.region.name})")
         else:
-            e.set_author(name=f'{self.player.nickname} ({self.player.region.name})')
+            e.set_author(name=f"{p.nickname} ({p.region.name})")
 
         e.set_thumbnail(url=self.mode.image)
 
@@ -364,39 +474,39 @@ class PlayerView(BaseView):
         """Sum The Stats from multiple game modes."""
         output = {}
 
-        dicts = [flatten(d, reducer='dot') for d in dicts]
+        dicts = [flatten(d, reducer="dot") for d in dicts]
 
         for key in dicts[0].keys():
             match key:
                 case key if "ship_id" in key:
                     pass
-                case key if 'max' in key:
-                    ship_keys = {'max_frags_battle': 'max_frags_ship_id',
-                                 'max_damage_dealt': 'max_damage_dealt_ship_id',
-                                 'max_xp': 'max_xp_ship_id',
-                                 'max_total_agro': 'max_total_agro_ship_id',
-                                 'max_damage_scouting': 'max_scouting_damage_ship_id',
-                                 'max_ships_spotted': 'max_ships_spotted_ship_id',
-                                 'max_planes_killed': 'max_planes_killed_ship_id',
-                                 'main_battery.max_frags_battle': 'main_battery.max_frags_ship_id',
-                                 'second_battery.max_frags_battle': 'second_battery.max_frags_ship_id',
-                                 'ramming.max_frags_battle': 'ramming.max_frags_ship_id',
-                                 'torpedoes.max_frags_battle': 'torpedoes.max_frags_ship_id',
-                                 'aircraft.max_frags_battle': 'aircraft.max_frags_ship_id',
+                case key if "max" in key:
+                    ship_keys = SHIP_KEYS
 
-                                 }
-
-                    paired_keys = [(n.get(key, 0), n.get(ship_keys[key])) for n in dicts if n.get(key, 0)]
-                    filter_keys = filter(lambda x: x[1] is not None, paired_keys)
+                    paired_keys = [
+                        (n.get(key, 0), n.get(ship_keys[key]))
+                        for n in dicts
+                        if n.get(key, 0)
+                    ]
+                    filter_keys = filter(
+                        lambda x: x[1] is not None, paired_keys
+                    )
                     try:
                         value = sorted(filter_keys, key=lambda x: x[0])[0]
                     except IndexError:
                         value = (0, None)
                     output.update({key: value[0], ship_keys[key]: value[1]})
                 case _:
-                    value = sum([x for x in [n.get(key, 0) for n in dicts] if x is not None], 0)
+                    value = sum(
+                        [
+                            x
+                            for x in [n.get(key, 0) for n in dicts]
+                            if x is not None
+                        ],
+                        0,
+                    )
                     output.update({key: value})
-        output = unflatten(output, splitter='dot')
+        output = unflatten(output, splitter="dot")
         return output
 
     async def filter_stats(self) -> tuple[str, dict]:
@@ -406,24 +516,47 @@ class PlayerView(BaseView):
 
         s = self.player.statistics[self.ship]
         match self.mode.tag, self.div_size:
-            case "PVP", 1: return "Random Battles (Solo)", s['pvp_solo']
-            case "PVP", 2: return "Random Battles (2-person Division)", s['pvp_div2']
-            case "PVP", 3: return "Random Battles (3-person Division)", s['pvp_div3']
-            case "PVP", _: return "Random Battles (Overall)", s['pvp']
-            case "COOPERATIVE", 1: return "Co-op Battles (Solo)", s['pve_solo']
-            case "COOPERATIVE", 2: return "Co-op Battles (2-person Division)", s['pve_div2']
-            case "COOPERATIVE", 3: return "Co-op Battles (3-person Division)", s['pve_div3']
-            case "COOPERATIVE", _: return "Co-op Battles (Overall)", s['pve']  # All
-            case "RANKED", 1: return "Ranked Battles (Solo)", s['rank_solo']
-            case "RANKED", 2: return "Ranked Battles (2-Man Division)", s['rank_div2']
-            case "RANKED", 3: return "Ranked Battles (3-Man Division)", s['rank_div3']
+            case "PVP", 1:
+                return "Random Battles (Solo)", s["pvp_solo"]
+            case "PVP", 2:
+                return "Random Battles (2-person Division)", s["pvp_div2"]
+            case "PVP", 3:
+                return "Random Battles (3-person Division)", s["pvp_div3"]
+            case "PVP", _:
+                return "Random Battles (Overall)", s["pvp"]
+            case "COOPERATIVE", 1:
+                return "Co-op Battles (Solo)", s["pve_solo"]
+            case "COOPERATIVE", 2:
+                return "Co-op Battles (2-person Division)", s["pve_div2"]
+            case "COOPERATIVE", 3:
+                return "Co-op Battles (3-person Division)", s["pve_div3"]
+            case "COOPERATIVE", _:
+                return "Co-op Battles (Overall)", s["pve"]  # All
+            case "RANKED", 1:
+                return "Ranked Battles (Solo)", s["rank_solo"]
+            case "RANKED", 2:
+                return "Ranked Battles (2-Man Division)", s["rank_div2"]
+            case "RANKED", 3:
+                return "Ranked Battles (3-Man Division)", s["rank_div3"]
             case "RANKED", 0:  # Sum 3 Dicts.
-                return "Ranked Battles (Overall)", self.sum_stats([s['rank_solo'], s['rank_div2'], s['rank_div3']])
-            case "PVE", 0: return "Operations (Overall)", self.sum_stats([s['oper_solo'], s['oper_div']])
-            case "PVE", 1: return "Operations (Solo)", s['oper_solo']
-            case "PVE", _: return "Operations (Pre-made)", s['oper_div']
-            case "PVE_PREMADE", _: return "Operations (Hard Pre-Made)", s['oper_div_hard']
-            case _: return f"Missing info for {self.mode.tag}, {self.div_size}", s['pvp']
+                return "Ranked Battles (Overall)", self.sum_stats(
+                    [s["rank_solo"], s["rank_div2"], s["rank_div3"]]
+                )
+            case "PVE", 0:
+                return "Operations (Overall)", self.sum_stats(
+                    [s["oper_solo"], s["oper_div"]]
+                )
+            case "PVE", 1:
+                return "Operations (Solo)", s["oper_solo"]
+            case "PVE", _:
+                return "Operations (Pre-made)", s["oper_div"]
+            case "PVE_PREMADE", _:
+                return "Operations (Hard Pre-Made)", s["oper_div_hard"]
+            case _:
+                return (
+                    f"Missing info for {self.mode.tag}, {self.div_size}",
+                    s["pvp"],
+                )
 
     async def clan_battles(self) -> Message:
         """Attempt to fetch player's Clan Battles data."""
@@ -432,17 +565,19 @@ class PlayerView(BaseView):
 
         stats = self.player.clan_battle_stats[self.cb_season]
 
-        logging.info(f'Found clan battle stats {stats}')
+        logging.info(f"Found clan battle stats {stats}")
 
         e = await self.base_embed()
         e.title = f"Clan Battles (Season {self.cb_season})"
         wr = round(stats.win_rate, 2)
         n = stats.battles
-        avg = format(round(stats.average_damage, 0), ',')
+        avg = format(round(stats.average_damage, 0), ",")
         kll = round(stats.average_kills, 2)
-        e.description = (f"**Win Rate**: {wr}% ({n} battles played)\n"
-                         f"**Average Damage**: {avg}\n"
-                         f"**Average Kills**: {kll}\n")
+        e.description = (
+            f"**Win Rate**: {wr}% ({n} battles played)\n"
+            f"**Average Damage**: {avg}\n"
+            f"**Average Kills**: {kll}\n"
+        )
         self._disabled = self.clan_battles
         return await self.update(e)
 
@@ -451,90 +586,100 @@ class PlayerView(BaseView):
         e = await self.base_embed()
         e.title, p_stats = await self.filter_stats()
 
-        if mb := p_stats.pop('main_battery', {}):
-            mb_kills = mb.pop('frags')
-            mb_ship = self.bot.get_ship(mb.pop('max_frags_ship_id'))
-            mb_max = mb.pop('max_frags_battle')
-            mb_shots = mb.pop('shots')
-            mb_hits = mb.pop('hits')
+        if mb := p_stats.pop("main_battery", {}):
+            mb_kills = mb.pop("frags")
+            mb_ship = self.bot.get_ship(mb.pop("max_frags_ship_id"))
+            mb_max = mb.pop("max_frags_battle")
+            mb_shots = mb.pop("shots")
+            mb_hits = mb.pop("hits")
             mb_acc = round(mb_hits / mb_shots * 100, 2)
 
             s = mb_ship.name
-            h = format(mb_hits, ',')
-            sh = format(mb_shots, ',')
-            mb = (f"Kills: {format(mb_kills, ',')} (Max: {mb_max} - {s})\n"
-                 f"Accuracy: {mb_acc}% ({h} hits / {sh} shots)")
-            e.add_field(name='Main Battery', value=mb, inline=False)
+            h = format(mb_hits, ",")
+            sh = format(mb_shots, ",")
+            mb = (
+                f"Kills: {format(mb_kills, ',')} (Max: {mb_max} - {s})\n"
+                f"Accuracy: {mb_acc}% ({h} hits / {sh} shots)"
+            )
+            e.add_field(name="Main Battery", value=mb, inline=False)
 
         # Secondary Battery
-        if sb := p_stats.pop('second_battery', {}):
-            sb_kills = sb.pop('frags', 0)
-            sb_ship = self.bot.get_ship(sb.pop('max_frags_ship_id', None))
-            sb_max = sb.pop('max_frags_battle', 0)
-            sb_shots = sb.pop('shots', 0)
-            sb_hits = sb.pop('hits', 0)
+        if sb := p_stats.pop("second_battery", {}):
+            sb_kills = sb.pop("frags", 0)
+            sb_ship = self.bot.get_ship(sb.pop("max_frags_ship_id", None))
+            sb_max = sb.pop("max_frags_battle", 0)
+            sb_shots = sb.pop("shots", 0)
+            sb_hits = sb.pop("hits", 0)
             sb_acc = round(sb_hits / sb_shots * 100, 2)
 
             n = sb_ship.name
-            h = format(sb_hits, ',')
-            s = format(sb_shots, ',')
-            sb = (f"Kills: {format(sb_kills, ',')} (Max: {sb_max} - {n})\n"
-                  f"Accuracy: {sb_acc}% ({h} hits / {s} shots)")
-            e.add_field(name='Secondary Battery', value=sb, inline=False)
+            h = format(sb_hits, ",")
+            s = format(sb_shots, ",")
+            sb = (
+                f"Kills: {format(sb_kills, ',')} (Max: {sb_max} - {n})\n"
+                f"Accuracy: {sb_acc}% ({h} hits / {s} shots)"
+            )
+            e.add_field(name="Secondary Battery", value=sb, inline=False)
 
         # Torpedoes
-        trp = p_stats.pop('torpedoes', None)
+        trp = p_stats.pop("torpedoes", None)
         if trp is not None:
-            trp_kills = trp.pop('frags')
-            trp_ship = self.bot.get_ship(trp.pop('max_frags_ship_id', None))
-            trp_max = trp.pop('max_frags_battle', 0)
-            trp_shots = trp.pop('shots', 0)
-            trp_hits = trp.pop('hits', 0)
+            trp_kills = trp.pop("frags")
+            trp_ship = self.bot.get_ship(trp.pop("max_frags_ship_id", None))
+            trp_max = trp.pop("max_frags_battle", 0)
+            trp_shots = trp.pop("shots", 0)
+            trp_hits = trp.pop("hits", 0)
             trp_acc = round(trp_hits / trp_shots * 100, 2)
 
             n = trp_ship.name
-            h = format(trp_hits, ',')
-            s = format(trp_shots, ',')
+            h = format(trp_hits, ",")
+            s = format(trp_shots, ",")
 
-            trp = (f"Kills: {format(trp_kills, ',')} (Max: {trp_max} - {n})\n"
-                  f"Accuracy: {trp_acc}% ({h} hit / {s} launched)")
-            e.add_field(name='Torpedoes', value=trp, inline=False)
+            trp = (
+                f"Kills: {format(trp_kills, ',')} (Max: {trp_max} - {n})\n"
+                f"Accuracy: {trp_acc}% ({h} hit / {s} launched)"
+            )
+            e.add_field(name="Torpedoes", value=trp, inline=False)
 
         # Ramming
-        if ram := p_stats.pop('ramming', {}):
+        if ram := p_stats.pop("ramming", {}):
             out = f"Kills: {ram.pop('frags', 0)}"
-            if ram_ship := self.bot.get_ship(ram.pop('max_frags_ship_id', None)):
-                out += f" (Max: {ram.pop('max_frags_battle', 0)} - {ram_ship.name})\n"
-            e.add_field(name='Ramming', value=out)
+            if r_ship := self.bot.get_ship(ram.pop("max_frags_ship_id", None)):
+                kills = ram.pop("max_frags_battle", 0)
+                out += f" (Max: {kills} - {r_ship.name})\n"
+            e.add_field(name="Ramming", value=out)
 
         # Aircraft
-        if cv := p_stats.pop('aircraft', {}):
+        if cv := p_stats.pop("aircraft", {}):
             out = f"Kills: {cv.pop('frags')}"
-            if cv_ship := self.bot.get_ship(cv.pop('max_frags_ship_id', None)):
-                out += f" (Max: {cv.pop('max_frags_battle')} - {cv_ship.name})\n"
-            e.add_field(name='Aircraft', value=out)
+            if cv_ship := self.bot.get_ship(cv.pop("max_frags_ship_id", None)):
+                kills = cv.pop("max_frags_battle")
+                out += f" (Max: {kills} - {cv_ship.name})\n"
+            e.add_field(name="Aircraft", value=out)
 
         # Build the second embed.
         desc = []
 
         try:
-            cap_solo = p_stats.pop('control_captured_points')
-            cap_team = p_stats.pop('team_capture_points')
+            cap_solo = p_stats.pop("control_captured_points")
+            cap_team = p_stats.pop("team_capture_points")
             cap_rate = round(cap_solo / cap_team * 100, 2)
-            desc.append(f"Capture Contribution: {cap_rate}% ({format(cap_solo, ',')} / {format(cap_team, ',')})")
+            solo = format(cap_solo, ",")
+            team = format(cap_team, ",")
+            desc.append(f"Capture Contribution: {cap_rate}% ({solo} / {team})")
         except (KeyError, ZeroDivisionError):
             pass
 
         try:
-            def_solo = p_stats.pop('control_dropped_points', 0)
-            def_team = p_stats.pop('team_dropped_capture_points', 0)
-            def_rate = round(def_solo / def_team * 100, 2)
-            desc.append(f"Defence Contribution: {def_rate}% ({format(def_solo, ',')} / {format(def_team, ',')})")
+            def_solo = format(p_stats.pop("control_dropped_points", 0), ", ")
+            team = format(p_stats.pop("team_dropped_capture_points", 0), ", ")
+            rate = round(def_solo / team * 100, 2)
+            desc.append(f"Defence Contribution: {rate}% ({def_solo} / {team})")
         except (KeyError, ZeroDivisionError):
             pass
 
         # Capture Points & Defends, Distance Travelled
-        e.description = '\n'.join(desc)
+        e.description = "\n".join(desc)
         self._disabled = self.weapons
         return await self.update(e)
 
@@ -545,18 +690,26 @@ class PlayerView(BaseView):
         e.title, p_stats = await self.filter_stats()
 
         if self.player.stats_updated_at is not None:
-            desc.append(f"**Stats updated**: {self.player.stats_updated_at.relative}\n")
+            desc.append(
+                f"**Stats updated**: {self.player.stats_updated_at.relative}\n"
+            )
 
         if self.player.created_at is not None:
-            desc.append(f"**Account Created**: {self.player.created_at.relative}")
+            desc.append(
+                f"**Account Created**: {self.player.created_at.relative}"
+            )
 
         if self.player.last_battle_time is not None:
-            desc.append(f"**Last Battle**: {self.player.last_battle_time.relative}")
+            desc.append(
+                f"**Last Battle**: {self.player.last_battle_time.relative}"
+            )
 
         if self.player.logout_at is not None:
             desc.append(f"**Last Logout**: {self.player.logout_at.relative}")
 
-        distance = self.player.statistics[None]['distance']  # This is stored 1 level up.
+        distance = self.player.statistics[None][
+            "distance"
+        ]  # This is stored 1 level up.
         desc.append(f"**Total Distance Travelled**: {format(distance, ',')}km")
 
         if self.player.clan:
@@ -565,14 +718,22 @@ class PlayerView(BaseView):
             if clan.cb_rating is not None:
                 c_desc.append(f"**Rating**: {clan.cb_rating}")
 
-            c_desc.append(f"**Joined Date**: {self.player.joined_clan_at.relative}")
+            c_desc.append(
+                f"**Joined Date**: {self.player.joined_clan_at.relative}"
+            )
 
             if clan.old_name is not None:
-                c_desc.append(f"**Old Name**: [{clan.old_tag}] {clan.old_name}")
+                c_desc.append(
+                    f"**Old Name**: [{clan.old_tag}] {clan.old_name}"
+                )
                 c_desc.append(f"**Renamed**: {clan.renamed_at.relative}")
-            e.add_field(name=f"[{clan.tag}] {clan.name}", value='\n'.join(c_desc), inline=False)
+            e.add_field(
+                name=f"[{clan.tag}] {clan.name}",
+                value="\n".join(c_desc),
+                inline=False,
+            )
 
-        e.description = '\n'.join(desc)
+        e.description = "\n".join(desc)
         self._disabled = self.overview
         return await self.update(embed=e)
 
@@ -590,102 +751,143 @@ class PlayerView(BaseView):
 
         p_stats = deepcopy(p_stats)
         # Overall Rates - Survival, WR, Wins, Loss, Draw
-        survived = p_stats.pop('survived_battles', 0)
-        suv_wins = p_stats.pop('survived_wins', 0)
-        played = p_stats.pop('battles', 0)
-        wins = p_stats.pop('wins', 0)
-        losses = p_stats.pop('losses', 0)
-        draws = p_stats.pop('draws', 0)
+        survived = p_stats.pop("survived_battles", 0)
+        suv_wins = p_stats.pop("survived_wins", 0)
+        played = p_stats.pop("battles", 0)
+        wins = p_stats.pop("wins", 0)
+        loss = p_stats.pop("losses", 0)
+        draws = p_stats.pop("draws", 0)
 
         try:
             wr = round(wins / played * 100, 2)
-            desc.append(f"**Win Rate**: {wr}% ({played} Battles - {wins} W / {draws} D / {losses} L)  ")
+            rest = f" ({played} Battles - {wins} W / {draws} D / {loss} L )"
+            desc.append(f"**Win Rate**: {wr}%{rest}")
         except ZeroDivisionError:
             pass
 
         try:
             sr = round(survived / played * 100, 2)
-            desc.append(f"**Survival Rate (Overall)**: {sr}% (Total: {format(survived, ',')})")
+            s_tot = format(survived, ",")
+            desc.append(f"**Survival Rate (Overall)**: {sr}% (Total: {s_tot})")
         except ZeroDivisionError:
             pass
 
         try:
             swr = round(suv_wins / wins * 100, 2)
-            desc.append(f"**Survival Rate (Wins)**: {swr}% (Total: {format(suv_wins, ',')})")
+            tot_w = format(suv_wins, ",")
+            desc.append(f"**Survival Rate (Wins)**: {swr}% (Total: {tot_w})")
         except ZeroDivisionError:
             pass
 
         # Totals
-        dmg = p_stats.pop('damage_dealt', 0)
-        kills = p_stats.pop('frags', 0)
-        tot_xp = p_stats.pop('xp', 0)
-        spotted = p_stats.pop('ships_spotted', 0)
-        spotting = p_stats.pop('damage_scouting', 0)
-        potential = p_stats.pop('torpedo_agro', 0) + p_stats.pop('art_agro', 0)
-        planes = p_stats.pop('planes_killed', 0)
+        dmg = p_stats.pop("damage_dealt", 0)
+        kills = p_stats.pop("frags", 0)
+        tot_xp = p_stats.pop("xp", 0)
+        spotted = p_stats.pop("ships_spotted", 0)
+        spotting = p_stats.pop("damage_scouting", 0)
+        potential = p_stats.pop("torpedo_agro", 0) + p_stats.pop("art_agro", 0)
+        planes = p_stats.pop("planes_killed", 0)
 
         # Averages - Kills, Damage, Spotting, Potential
         if mode.tag == "PVE":
-            x_avg = format(round(tot_xp / played), ',')
-            x_tot = format(tot_xp, ',')
-            desc.append(f"**Average XP**: {x_avg}\n"
-                        f"**Total XP**: {x_tot}")
+            x_avg = format(round(tot_xp / played), ",")
+            x_tot = format(tot_xp, ",")
+            desc.append(f"**Average XP**: {x_avg}\n" f"**Total XP**: {x_tot}")
         else:
             try:
-                d_avg = format(round(dmg / played), ',')
+                d_avg = format(round(dmg / played), ",")
                 k_avg = round(kills / played, 2)
-                x_avg = format(round(tot_xp / played), ',')
-                p_avg = format(round(potential / played), ',')
-                s_avg = format(round(spotting / played), ',')
-                sp_av = format(round(spotted / played, 2), ',')
+                x_avg = format(round(tot_xp / played), ",")
+                p_avg = format(round(potential / played), ",")
+                s_avg = format(round(spotting / played), ",")
+                sp_av = format(round(spotted / played, 2), ",")
                 pl_av = round(planes / played, 2)
 
-                avg = (f"**Kills**: {k_avg}\n**Damage**: {d_avg}\n**Potential**: {p_avg}\n**Spotting**: {s_avg}\n"
-                       f"**Ships Spotted**: {sp_av}\n**XP**: {x_avg}\n**Planes**: {pl_av}")
+                avg = (
+                    f"**Kills**: {k_avg}\n**Damage**: {d_avg}\n"
+                    f"**Potential**: {p_avg}\n**Spotting**: {s_avg}\n"
+                    f"**Ships Spotted**: {sp_av}\n**XP**: {x_avg}\n"
+                    f"**Planes**: {pl_av}"
+                )
                 e.add_field(name="Averages", value=avg)
 
                 # Records
-                r_dmg = format(p_stats.pop('max_damage_dealt', 0), ',')
-                r_xp = format(p_stats.pop('max_xp', 0), ',')
-                r_kills = p_stats.pop('max_frags_battle', 0)
-                r_pot = format(p_stats.pop('max_total_agro', 0), ',')
-                r_spot = format(p_stats.pop('max_damage_scouting', 0), ',')
-                r_ship_max = p_stats.pop('max_ships_spotted', 0)
-                r_planes = p_stats.pop('max_planes_killed', 0)
+                r_dmg = format(p_stats.pop("max_damage_dealt", 0), ",")
+                r_xp = format(p_stats.pop("max_xp", 0), ",")
+                r_kills = p_stats.pop("max_frags_battle", 0)
+                r_pot = format(p_stats.pop("max_total_agro", 0), ",")
+                r_spot = format(p_stats.pop("max_damage_scouting", 0), ",")
+                r_ship_max = p_stats.pop("max_ships_spotted", 0)
+                r_planes = p_stats.pop("max_planes_killed", 0)
 
-                s_dmg = self.bot.get_ship(p_stats.pop('max_damage_dealt_ship_id', None))
-                s_xp = self.bot.get_ship(p_stats.pop('max_xp_ship_id', None))
-                s_kills = self.bot.get_ship(p_stats.pop('max_frags_ship_id', None))
-                s_pot = self.bot.get_ship(p_stats.pop('max_total_agro_ship_id', None))
-                s_spot = self.bot.get_ship(p_stats.pop('max_scouting_damage_ship_id', None))
-                s_ship_max = self.bot.get_ship(p_stats.pop('max_ships_spotted_ship_id', None))
-                s_planes = self.bot.get_ship(p_stats.pop('max_planes_killed_ship_id', None))
+                s_dmg = self.bot.get_ship(
+                    p_stats.pop("max_damage_dealt_ship_id", None)
+                )
+                s_xp = self.bot.get_ship(p_stats.pop("max_xp_ship_id", None))
+                s_kills = self.bot.get_ship(
+                    p_stats.pop("max_frags_ship_id", None)
+                )
+                s_pot = self.bot.get_ship(
+                    p_stats.pop("max_total_agro_ship_id", None)
+                )
+                s_spot = self.bot.get_ship(
+                    p_stats.pop("max_scouting_damage_ship_id", None)
+                )
+                s_ship_max = self.bot.get_ship(
+                    p_stats.pop("max_ships_spotted_ship_id", None)
+                )
+                s_planes = self.bot.get_ship(
+                    p_stats.pop("max_planes_killed_ship_id", None)
+                )
 
                 # Records, Totals
                 rec = []
-                for record, ship in [(r_kills, s_kills), (r_dmg, s_dmg), (r_pot, s_pot), (r_ship_max, s_ship_max),
-                                     (r_spot, s_spot), (r_xp, s_xp), (r_planes, s_planes)]:
+                for record, ship in [
+                    (r_kills, s_kills),
+                    (r_dmg, s_dmg),
+                    (r_pot, s_pot),
+                    (r_ship_max, s_ship_max),
+                    (r_spot, s_spot),
+                    (r_xp, s_xp),
+                    (r_planes, s_planes),
+                ]:
                     try:
                         rec.append(f"{record} ({ship.name})")
                     except AttributeError:
                         rec.append(f"{record}")
 
-                e.add_field(name="Records",
-                            value='\n'.join(rec))
+                e.add_field(name="Records", value="\n".join(rec))
 
-                e.add_field(name="Totals", value=f"{format(kills, ',')}\n{format(dmg, ',')}\n{format(potential, ',')}\n"
-                                                 f"{format(spotting, ',')}\n{format(spotted, ',')}\n"
-                                                 f"{format(tot_xp, ',')}\n{format(planes, ',')}")
+                e.add_field(
+                    name="Totals",
+                    value=f"{format(kills, ',')}\n{format(dmg, ',')}\n"
+                    f"{format(potential, ',')}\n{format(spotting, ',')}\n"
+                    f"{format(spotted, ',')}\n{format(tot_xp, ',')}\n"
+                    f"{format(planes, ',')}",
+                )
             except ZeroDivisionError:
-                desc.append('```diff\n- Could not find player stats for this game mode and division size```')
-                logging.error(f'Could not find stats for size [{div_size}] mode [{mode}]')
+                desc.append(
+                    "```diff\n- Could not find player stats for this"
+                    " game mode and division size```"
+                )
+                logging.error(
+                    "Could not find stats for size [%s] mode [%s]",
+                    div_size,
+                    mode,
+                )
 
         # Operations specific stats.
         try:
-            star_rate = sorted([(k, v) for k, v in p_stats.pop('wins_by_tasks').items()], key=lambda st: int(st[0]))
+            star_rate = sorted(
+                [(k, v) for k, v in p_stats.pop("wins_by_tasks").items()],
+                key=lambda st: int(st[0]),
+            )
 
-            s1, s2 = '\⭐', '\★'
-            star_desc = [f"{x * s1}{(5 - x) * s2}: {star_rate[x][1]}" for x in range(0, 5)]
+            s1, s2 = r"\⭐", r"\★"
+            star_desc = [
+                f"{x * s1}{(5 - x) * s2}: {star_rate[x][1]}"
+                for x in range(0, 5)
+            ]
             e.add_field(name="Star Breakdown", value="\n".join(star_desc))
         except KeyError:
             pass
@@ -697,26 +899,59 @@ class PlayerView(BaseView):
     async def update(self, embed: Embed) -> Message:
         """Send the latest version of the embed to view"""
         self.clear_items()
-        self.add_item(FuncButton(func=self.overview, label="Profile", emoji='🔘',
-                                 disabled=self._disabled == self.overview, row=0))
+        self.add_item(
+            FuncButton(
+                func=self.overview,
+                label="Profile",
+                emoji="🔘",
+                disabled=self._disabled == self.overview,
+                row=0,
+            )
+        )
 
         if self.player.clan:
-            self.add_item(ClanButton(self.interaction, self.player.clan, parent=(self, self.player.nickname)))
+            self.add_item(
+                ClanButton(
+                    self.interaction,
+                    self.player.clan,
+                    parent=(self, self.player.nickname),
+                )
+            )
 
         if self.mode.tag != "CLAN":
-            self.add_item(FuncButton(func=self.weapons, label="Armaments", disabled=self._disabled == self.weapons,
-                                     row=0, emoji=Artillery.emoji))
+            self.add_item(
+                FuncButton(
+                    func=self.weapons,
+                    label="Armaments",
+                    disabled=self._disabled == self.weapons,
+                    row=0,
+                    emoji=Artillery.emoji,
+                )
+            )
 
         f = self.mode_stats
         options: list[view_utils.Funcable] = []
-        for num, i in enumerate([i for i in self.bot.modes if i.tag not in ["EVENT", "BRAWL", "PVE_PREMADE"]]):
+        for num, i in enumerate(
+            [
+                i
+                for i in self.bot.modes
+                if i.tag not in ["EVENT", "BRAWL", "PVE_PREMADE"]
+            ]
+        ):
             # We can't fetch CB data without a clan.
             if i.tag == "CLAN" and not self.player.clan:
                 continue
 
-            opt = SelectOption(label=f"{i.name} ({i.tag})", description=i.description, emoji=i.emoji, value=num)
-            options.append((opt, {'mode': i}, f))
-        self.add_item(FuncDropdown(placeholder="Change Game Mode", options=options))
+            opt = SelectOption(
+                label=f"{i.name} ({i.tag})",
+                description=i.description,
+                emoji=i.emoji,
+                value=num,
+            )
+            options.append((opt, {"mode": i}, f))
+        self.add_item(
+            FuncDropdown(placeholder="Change Game Mode", options=options)
+        )
 
         ds = self.div_size
         match self.mode.tag:
@@ -727,31 +962,100 @@ class PlayerView(BaseView):
             case "CLAN":
                 opts = []
 
-                if self.player.clan is not None and self.player.clan.season_number is None:
+                if (
+                    self.player.clan is not None
+                    and self.player.clan.season_number is None
+                ):
                     await self.player.clan.get_data()
 
                 for x in range(self.player.clan.season_number):
-                    opt = SelectOption(label=f"Season {x}", emoji=self.mode.emoji, value=str(x))
-                    opts.append((opt, {'cb_season': x}, self.clan_battles))
-                self.add_item(FuncDropdown(options=opts, row=1, placeholder="Change Season"))
+                    opt = SelectOption(
+                        label=f"Season {x}",
+                        emoji=self.mode.emoji,
+                        value=str(x),
+                    )
+                    opts.append((opt, {"cb_season": x}, self.clan_battles))
+                self.add_item(
+                    FuncDropdown(
+                        options=opts, row=1, placeholder="Change Season"
+                    )
+                )
             case "PVE" | "PVE_PREMADE":
                 easy = next(i for i in self.bot.modes if i.tag == "PVE")
-                hard = next(i for i in self.bot.modes if i.tag == "PVE_PREMADE")
-                self.add_item(FuncButton(func=f, kwargs={'div_size': 0, 'mode': easy},
-                                         label="Pre-Made", row=1, emoji=easy.emoji, disabled=ds == 0))
-                self.add_item(FuncButton(func=f, kwargs={'div_size': 1, 'mode': easy},
-                                         label="Solo", row=1, emoji=easy.emoji, disabled=ds == 1))
-                self.add_item(FuncButton(func=f, kwargs={'mode': hard}, label="Hard Mode", row=1,
-                                         emoji=hard.emoji, disabled=ds == 1))
+                hard = next(
+                    i for i in self.bot.modes if i.tag == "PVE_PREMADE"
+                )
+                self.add_item(
+                    FuncButton(
+                        func=f,
+                        kwargs={"div_size": 0, "mode": easy},
+                        label="Pre-Made",
+                        row=1,
+                        emoji=easy.emoji,
+                        disabled=ds == 0,
+                    )
+                )
+                self.add_item(
+                    FuncButton(
+                        func=f,
+                        kwargs={"div_size": 1, "mode": easy},
+                        label="Solo",
+                        row=1,
+                        emoji=easy.emoji,
+                        disabled=ds == 1,
+                    )
+                )
+                self.add_item(
+                    FuncButton(
+                        func=f,
+                        kwargs={"mode": hard},
+                        label="Hard Mode",
+                        row=1,
+                        emoji=hard.emoji,
+                        disabled=ds == 1,
+                    )
+                )
             case _:
                 emoji = self.mode.emoji
-                self.add_item(FuncButton(func=f, kwargs={'div_size': 0}, label="Overall", row=1, disabled=ds == 0,
-                                         emoji=emoji))
-                self.add_item(FuncButton(func=f, kwargs={'div_size': 1}, label="Solo", row=1, disabled=ds == 1,
-                                         emoji=emoji))
-                self.add_item(FuncButton(func=f, kwargs={'div_size': 2}, label="Division (2)", row=1, disabled=ds == 2,
-                                         emoji=emoji))
-                self.add_item(FuncButton(func=f, kwargs={'div_size': 3}, label="Division (3)", row=1, disabled=ds == 3,
-                                         emoji=emoji))
+                self.add_item(
+                    FuncButton(
+                        func=f,
+                        kwargs={"div_size": 0},
+                        label="Overall",
+                        row=1,
+                        disabled=ds == 0,
+                        emoji=emoji,
+                    )
+                )
+                self.add_item(
+                    FuncButton(
+                        func=f,
+                        kwargs={"div_size": 1},
+                        label="Solo",
+                        row=1,
+                        disabled=ds == 1,
+                        emoji=emoji,
+                    )
+                )
+                self.add_item(
+                    FuncButton(
+                        func=f,
+                        kwargs={"div_size": 2},
+                        label="Division (2)",
+                        row=1,
+                        disabled=ds == 2,
+                        emoji=emoji,
+                    )
+                )
+                self.add_item(
+                    FuncButton(
+                        func=f,
+                        kwargs={"div_size": 3},
+                        label="Division (3)",
+                        row=1,
+                        disabled=ds == 3,
+                        emoji=emoji,
+                    )
+                )
 
         return await self.bot.reply(self.interaction, embed=embed, view=self)

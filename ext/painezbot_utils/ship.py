@@ -32,23 +32,24 @@ class Nation(Enum):
         self.match: str = match
         self.flag: str = flag
 
-    COMMONWEALTH = ("Commonwealth", 'commonwealth', '')
-    EUROPE = ('Pan-European', 'europe', '🇪🇺')
-    FRANCE = ('French', 'france', '🇫🇷')
-    GERMANY = ('German', 'germany', '🇩🇪')
-    ITALY = ('Italian', 'italy', '🇮🇹')
-    JAPAN = ('Japanese', 'japan', '🇯🇵')
-    NETHERLANDS = ('Dutch', 'netherlands', '🇳🇱')
-    PAN_ASIA = ('Pan-Asian', 'pan_asia', '')
-    PAN_AMERICA = ('Pan-American', 'pan_america', '')
-    SPAIN = ('Spanish', 'spain', '🇪🇸')
-    UK = ('British', 'uk', '🇬🇧')
-    USSR = ('Soviet', 'ussr', '')
-    USA = ('American', 'usa', '🇺🇸')
+    COMMONWEALTH = ("Commonwealth", "commonwealth", "")
+    EUROPE = ("Pan-European", "europe", "🇪🇺")
+    FRANCE = ("French", "france", "🇫🇷")
+    GERMANY = ("German", "germany", "🇩🇪")
+    ITALY = ("Italian", "italy", "🇮🇹")
+    JAPAN = ("Japanese", "japan", "🇯🇵")
+    NETHERLANDS = ("Dutch", "netherlands", "🇳🇱")
+    PAN_ASIA = ("Pan-Asian", "pan_asia", "")
+    PAN_AMERICA = ("Pan-American", "pan_america", "")
+    SPAIN = ("Spanish", "spain", "🇪🇸")
+    UK = ("British", "uk", "🇬🇧")
+    USSR = ("Soviet", "ussr", "")
+    USA = ("American", "usa", "🇺🇸")
 
 
 class Fitting:
     """A Ship Configuration"""
+
     bot: PBot = None
 
     def __init__(self, ship: Ship, data: dict = None) -> None:
@@ -63,27 +64,37 @@ class Fitting:
 
     async def get_params(self) -> dict:
         """Get the ship's specs with the currently selected modules."""
-        p = {'application_id': self.bot.WG_ID, 'ship_id': self.ship.ship_id}
+        p = {"application_id": self.bot.wg_id, "ship_id": self.ship.ship_id}
 
-        tuples = [('artillery_id', Artillery), ('dive_bomber_id', DiveBomber),
-                  ('engine_id', Engine),
-                  ('fire_control_id', FireControl),
-                  ('hull_id', Hull), ('fighter_id', RocketPlane),
-                  ('torpedoes_id', Torpedoes),
-                  ('torpedo_bomber_id', TorpedoBomber)]
+        tuples = [
+            ("artillery_id", Artillery),
+            ("dive_bomber_id", DiveBomber),
+            ("engine_id", Engine),
+            ("fire_control_id", FireControl),
+            ("hull_id", Hull),
+            ("fighter_id", RocketPlane),
+            ("torpedoes_id", Torpedoes),
+            ("torpedo_bomber_id", TorpedoBomber),
+        ]
         # ('flight_control_id', FlightControl),
-        p.update({k: self.modules.get(v) for k, v in tuples
-                  if self.modules.get(v, None) is not None})
+        p.update(
+            {
+                k: self.modules.get(v)
+                for k, v in tuples
+                if self.modules.get(v, None) is not None
+            }
+        )
 
         url = "https://api.worldofwarships.eu/wows/encyclopedia/shipprofile/"
         async with self.bot.session.get(url, params=p) as resp:
             match resp.status:
-                case 200: json = await resp.json()
+                case 200:
+                    json = await resp.json()
                 case _:
-                    err = f'HTTP ERROR {resp.status} accessing {url}'
+                    err = f"HTTP ERROR {resp.status} accessing {url}"
                     raise ConnectionError(err)
 
-        self.data = json['data'][str(self.ship.ship_id)]
+        self.data = json["data"][str(self.ship.ship_id)]
         return self.data
 
 
@@ -94,19 +105,20 @@ class ShipType:
         self.match: str = match
         self.alias: str = alias
 
-        self.image = images['image']
-        self.image_elite = images['image_elite']
-        self.image_premium = images['image_premium']
+        self.image = images["image"]
+        self.image_elite = images["image_elite"]
+        self.image_premium = images["image_premium"]
 
 
 class Ship:
     """A World of Warships Ship."""
+
     # Class attr.
     bot: PBot = None
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
-        self.name: str = 'Unknown Ship'
+        self.name: str = "Unknown Ship"
         self.ship_id: Optional[int] = None
         self.ship_id_str: Optional[str] = None
 
@@ -137,8 +149,8 @@ class Ship:
     @property
     def ac_row(self) -> str:
         """Autocomplete text"""
-        nation = 'Unknown nation' if self.nation is None else self.nation.alias
-        type_ = 'Unknown class' if self.type is None else self.type.alias
+        nation = "Unknown nation" if self.nation is None else self.nation.alias
+        type_ = "Unknown class" if self.type is None else self.type.alias
 
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
@@ -150,25 +162,25 @@ class Ship:
         tree = self.modules_tree
         fit = Fitting(self, data=self.default_profile)
 
-        dic = {int(k): v['type'] for k, v in tree.items() if v['is_default']}
+        dic = {int(k): v["type"] for k, v in tree.items() if v["is_default"]}
 
         for module_id, module_type in dic.items():
             match module_type:
-                case 'Artillery':
+                case "Artillery":
                     fit.modules[Artillery] = module_id
-                case 'DiveBomber':
+                case "DiveBomber":
                     fit.modules[DiveBomber] = module_id
-                case 'Engine':
+                case "Engine":
                     fit.modules[Engine] = module_id
-                case 'Hull':
+                case "Hull":
                     fit.modules[Hull] = module_id
-                case 'Fighter':
+                case "Fighter":
                     fit.modules[RocketPlane] = module_id
-                case 'Suo':
+                case "Suo":
                     fit.modules[FireControl] = module_id
-                case 'Torpedoes':
+                case "Torpedoes":
                     fit.modules[Torpedoes] = module_id
-                case 'TorpedoBomber':
+                case "TorpedoBomber":
                     fit.modules[TorpedoBomber] = module_id
                 case _:
                     m = module_type
@@ -191,8 +203,10 @@ class Ship:
         m = self.bot.modules
         if targets := [str(i) for i in self._modules.values() if i not in m]:
             # We want the module IDs as str for the purposes of params
-            p = {'application_id': self.bot.WG_ID,
-                 'module_id': ','.join(targets)}
+            p = {
+                "application_id": self.bot.wg_id,
+                "module_id": ",".join(targets),
+            }
             url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
             async with self.bot.session.get(url, params=p) as resp:
                 match resp.status:
@@ -201,37 +215,45 @@ class Ship:
                     case _:
                         s = resp.status
                         n = self.name
-                        err = f'{s} error fetching modules for {n} on {url}'
+                        err = f"{s} error fetching modules for {n} on {url}"
                         raise ConnectionError(err)
 
-            for module_id, data in data['data'].items():
-                args = {k: data.pop(k) for k in ['name', 'image', 'tag',
-                                                 'module_id_str', 'module_id', 
-                                                 'price_credit']}
+            for module_id, data in data["data"].items():
+                args = {
+                    k: data.pop(k)
+                    for k in [
+                        "name",
+                        "image",
+                        "tag",
+                        "module_id_str",
+                        "module_id",
+                        "price_credit",
+                    ]
+                }
 
-                module_type = data.pop('type')
-                kwargs = data.pop('profile').popitem()[1]
+                module_type = data.pop("type")
+                kwargs = data.pop("profile").popitem()[1]
                 args.update(kwargs)
 
                 match module_type:
-                    case 'Artillery':
+                    case "Artillery":
                         module = Artillery(**args)
-                    case 'DiveBomber':
+                    case "DiveBomber":
                         module = DiveBomber(**args)
-                    case 'Engine':
+                    case "Engine":
                         module = Engine(**args)
-                    case 'Fighter':
+                    case "Fighter":
                         module = RocketPlane(**args)
-                    case 'Suo':
+                    case "Suo":
                         module = FireControl(**args)
-                    case 'Hull':
+                    case "Hull":
                         module = Hull(**args)
-                    case 'TorpedoBomber':
+                    case "TorpedoBomber":
                         module = TorpedoBomber(**args)
-                    case 'Torpedoes':
+                    case "Torpedoes":
                         module = Torpedoes(**args)
                     case _:
-                        logging.error(f'Unhandled Module type {module_type}')
+                        logging.error(f"Unhandled Module type {module_type}")
                         module = Module(**args)
 
                 self.bot.modules.append(module)
@@ -268,63 +290,68 @@ class ShipSentinel(Enum):
         return self._name
 
     # IJN DD Split
-    FUBUKI_OLD = (4287510224, 'Fubuki (pre 01-12-2016)', 8)
-    HATSUHARU_OLD = (4288558800, 'Hatsuharu (pre 01-12-2016)', 7)
-    KAGERO_OLD = (4284364496, 'Kagero (pre 01-12-2016)', 9)
-    MUTSUKI_OLD = (4289607376, 'Mutsuki (pre 01-12-2016)', 6)
+    FUBUKI_OLD = (4287510224, "Fubuki (pre 01-12-2016)", 8)
+    HATSUHARU_OLD = (4288558800, "Hatsuharu (pre 01-12-2016)", 7)
+    KAGERO_OLD = (4284364496, "Kagero (pre 01-12-2016)", 9)
+    MUTSUKI_OLD = (4289607376, "Mutsuki (pre 01-12-2016)", 6)
 
     # Soviet DD Split
-    GNEVNY_OLD = (4184749520, 'Gnevny (pre 06-03-2017)', 5)
-    OGNEVOI_OLD = (4183700944, 'Ognevoi (pre 06-03-2017)', 6)
-    KIEV_OLD = (4180555216, 'Kiev (pre 06-03-2017)', 7)
-    TASHKENT_OLD = (4181603792, 'Tashkent (pre 06-03-2017)', 8)
+    GNEVNY_OLD = (4184749520, "Gnevny (pre 06-03-2017)", 5)
+    OGNEVOI_OLD = (4183700944, "Ognevoi (pre 06-03-2017)", 6)
+    KIEV_OLD = (4180555216, "Kiev (pre 06-03-2017)", 7)
+    TASHKENT_OLD = (4181603792, "Tashkent (pre 06-03-2017)", 8)
 
     # US Cruiser Split
-    CLEVELAND_OLD = (4287543280, 'Cleveland (pre 31-05-2018)', 6)
-    PENSACOLA_OLD = (4282300400, 'Pensacola (pre 31-05-2018)', 7)
-    NEW_ORLEANS_OLD = (4280203248, 'New Orleans (pre 31-05-2018)', 8)
-    BALTIMORE_OLD = (4277057520, 'Baltimore (pre 31-05-2018)', 9)
+    CLEVELAND_OLD = (4287543280, "Cleveland (pre 31-05-2018)", 6)
+    PENSACOLA_OLD = (4282300400, "Pensacola (pre 31-05-2018)", 7)
+    NEW_ORLEANS_OLD = (4280203248, "New Orleans (pre 31-05-2018)", 8)
+    BALTIMORE_OLD = (4277057520, "Baltimore (pre 31-05-2018)", 9)
 
     # CV Rework
-    HOSHO_OLD = (4292851408, 'Hosho (pre 30-01-2019)', 4)
-    ZUIHO_OLD = (4288657104, 'Zuiho (pre 30-01-2019)', 5)
-    RYUJO_OLD = (4285511376, 'Ryujo (pre 30-01-2019)', 6)
-    HIRYU_OLD = (4283414224, 'Hiryu (pre 30-01-2019)', 7)
-    SHOKAKU_OLD = (4282365648, 'Shokaku (pre 30-01-2019)', 8)
-    TAIHO_OLD = (4279219920, 'Taiho (pre 30-01-2019)', 9)
-    HAKURYU_OLD = (4277122768, 'Hakuryu (pre 30-01-2019)', 10)
+    HOSHO_OLD = (4292851408, "Hosho (pre 30-01-2019)", 4)
+    ZUIHO_OLD = (4288657104, "Zuiho (pre 30-01-2019)", 5)
+    RYUJO_OLD = (4285511376, "Ryujo (pre 30-01-2019)", 6)
+    HIRYU_OLD = (4283414224, "Hiryu (pre 30-01-2019)", 7)
+    SHOKAKU_OLD = (4282365648, "Shokaku (pre 30-01-2019)", 8)
+    TAIHO_OLD = (4279219920, "Taiho (pre 30-01-2019)", 9)
+    HAKURYU_OLD = (4277122768, "Hakuryu (pre 30-01-2019)", 10)
 
-    LANGLEY_OLD = (4290754544, 'Langley (pre 30-01-2019)', 4)
-    BOGUE_OLD = (4292851696, 'Bogue (pre 30-01-2019)', 5)
-    INDEPENDENCE_OLD = (4288657392, 'Independence (pre 30-01-2019)', 6)
-    RANGER_OLD = (4284463088, 'Ranger (pre 30-01-2019)', 7)
-    LEXINGTON_OLD = (4282365936, 'Lexington (pre 30-01-2019)', 8)
-    ESSEX_OLD = (4281317360, 'Essex (pre 30-01-2019)', 9)
-    MIDWAY_OLD = (4279220208, 'Midway (pre 30-01-2019)', 10)
+    LANGLEY_OLD = (4290754544, "Langley (pre 30-01-2019)", 4)
+    BOGUE_OLD = (4292851696, "Bogue (pre 30-01-2019)", 5)
+    INDEPENDENCE_OLD = (4288657392, "Independence (pre 30-01-2019)", 6)
+    RANGER_OLD = (4284463088, "Ranger (pre 30-01-2019)", 7)
+    LEXINGTON_OLD = (4282365936, "Lexington (pre 30-01-2019)", 8)
+    ESSEX_OLD = (4281317360, "Essex (pre 30-01-2019)", 9)
+    MIDWAY_OLD = (4279220208, "Midway (pre 30-01-2019)", 10)
 
-    KAGA_OLD = (3763320528, 'Kaga (pre 30-01-2019)', 7)
-    SAIPAN_OLD = (3763320816, 'Saipan (pre 30-01-2019)', 7)
-    ENTERPRISE_OLD = (3762272240, 'Enterprise (pre 30-01-2019)', 8)
-    GRAF_ZEPPELIN_OLD = (3762272048, 'Graf Zeppelin (pre 30-01-2019)', 8)
+    KAGA_OLD = (3763320528, "Kaga (pre 30-01-2019)", 7)
+    SAIPAN_OLD = (3763320816, "Saipan (pre 30-01-2019)", 7)
+    ENTERPRISE_OLD = (3762272240, "Enterprise (pre 30-01-2019)", 8)
+    GRAF_ZEPPELIN_OLD = (3762272048, "Graf Zeppelin (pre 30-01-2019)", 8)
 
     # Submarines ...
-    U_2501 = (4179015472, 'U-2501', 10)
-    CACHALOT = (4078352368, 'Cachalot', 6)
+    U_2501 = (4179015472, "U-2501", 10)
+    CACHALOT = (4078352368, "Cachalot", 6)
 
 
 class ShipButton(Button):
     """Change to a view of a different ship"""
 
     def __init__(
-            self, interaction: Interaction, ship: Ship, row: int = 0, 
-            higher: bool = False) -> None:
+        self,
+        interaction: Interaction,
+        ship: Ship,
+        row: int = 0,
+        higher: bool = False,
+    ) -> None:
         self.ship: Ship = ship
         self.interaction: Interaction = interaction
 
         emoji = "▶" if higher else "◀"
 
         super().__init__(
-            label=f"Tier {ship.tier}: {ship.name}", row=row, emoji=emoji)
+            label=f"Tier {ship.tier}: {ship.name}", row=row, emoji=emoji
+        )
 
     async def callback(self, interaction: Interaction) -> Message:
         """Change message of interaction to a different ship"""
@@ -354,14 +381,14 @@ class ShipView(BaseView):
         else:
             icon_url = None
 
-        nation = self.ship.nation.alias if self.ship.nation else ''
-        tier = f'Tier {self.ship.tier}' if self.ship.tier else ''
+        nation = self.ship.nation.alias if self.ship.nation else ""
+        tier = f"Tier {self.ship.tier}" if self.ship.tier else ""
 
         name = [i for i in [tier, nation, _class, self.ship.name] if i]
         e.set_author(name=" ".join(name), icon_url=icon_url)
 
         if self.ship.images:
-            e.set_thumbnail(url=self.ship.images['contour'])
+            e.set_thumbnail(url=self.ship.images["contour"])
         return e
 
     async def aircraft(self) -> Message:
@@ -372,55 +399,61 @@ class ShipView(BaseView):
         e = self.base_embed()
 
         # Rocket Planes are referred to as 'Fighters'
-        if (rp := self.fitting.data['fighters']) is not None:
+        if (rp := self.fitting.data["fighters"]) is not None:
             name = f"{rp['name']} (Tier {rp['plane_level']}, Rocket Planes)"
-            value = [f"**Hit Points**: {format(rp['max_health'], ',')}",
-                     f"**Cruising Speed**: {rp['cruise_speed']} kts",
-                     "\n*Rocket Plane Damage not available in the API, sorry*"]
-            e.add_field(name=name, value='\n'.join(value), inline=False)
+            value = [
+                f"**Hit Points**: {format(rp['max_health'], ',')}",
+                f"**Cruising Speed**: {rp['cruise_speed']} kts",
+                "\n*Rocket Plane Damage not available in the API, sorry*",
+            ]
+            e.add_field(name=name, value="\n".join(value), inline=False)
 
-        if (tb := self.fitting.data['torpedo_bomber']) is not None:
+        if (tb := self.fitting.data["torpedo_bomber"]) is not None:
             name = f"{tb['name']} (Tier {tb['plane_level']}, Torpedo Bombers"
 
-            if tb['torpedo_name'] is None:
-                t_name = 'Unnamed Torpedo'
+            if tb["torpedo_name"] is None:
+                t_name = "Unnamed Torpedo"
             else:
-                t_name = tb['torpedo_name']
-            
-            value = [f"**Hit Points**: {format(tb['max_health'], ',')}",
-                     f"**Cruising Speed**: {tb['cruise_speed']} kts",
-                     "",
-                     f"**Torpedo**: {t_name}",
-                     f"**Max Damage**: {format(tb['max_damage'])}",
-                     f"**Max Speed**: {tb['torpedo_max_speed']} kts"
-                     ]
-            e.add_field(name=name, value='\n'.join(value), inline=False)
+                t_name = tb["torpedo_name"]
 
-        if (db := self.fitting.data['dive_bomber']) is not None:
+            value = [
+                f"**Hit Points**: {format(tb['max_health'], ',')}",
+                f"**Cruising Speed**: {tb['cruise_speed']} kts",
+                "",
+                f"**Torpedo**: {t_name}",
+                f"**Max Damage**: {format(tb['max_damage'])}",
+                f"**Max Speed**: {tb['torpedo_max_speed']} kts",
+            ]
+            e.add_field(name=name, value="\n".join(value), inline=False)
+
+        if (db := self.fitting.data["dive_bomber"]) is not None:
             name = f"{db['name']} (Tier {db['plane_level']}, Dive Bombers"
 
-            if db['bomb_name'] is None:
-                bomb_name = 'Bomb Stats'
+            if db["bomb_name"] is None:
+                bomb_name = "Bomb Stats"
             else:
-                bomb_name = db['bomb_name']
-            
-            value = [f"**Hit Points**: {format(db['max_health'], ',')}",
-                     f"**Cruising Speed**: {db['cruise_speed']} kts",
-                     "",
-                     f"**{bomb_name}**",
-                     f"**Damage**: {format(db['max_damage'], ',')}",
-                     f"**Mass**: {db['bomb_bullet_mass']}kg",
-                     f"**Accuracy**: {db['accuracy']['min']}"
-                     f"- {db['accuracy']['max']}"
-                     ]
+                bomb_name = db["bomb_name"]
 
-            if (fire_chance := db['bomb_burn_probability']) is not None:
+            value = [
+                f"**Hit Points**: {format(db['max_health'], ',')}",
+                f"**Cruising Speed**: {db['cruise_speed']} kts",
+                "",
+                f"**{bomb_name}**",
+                f"**Damage**: {format(db['max_damage'], ',')}",
+                f"**Mass**: {db['bomb_bullet_mass']}kg",
+                f"**Accuracy**: {db['accuracy']['min']}"
+                f"- {db['accuracy']['max']}",
+            ]
+
+            if (fire_chance := db["bomb_burn_probability"]) is not None:
                 value.append(f"**Fire Chance**: {round(fire_chance, 1)}%")
-            e.add_field(name=name, value='\n'.join(value), inline=False)
+            e.add_field(name=name, value="\n".join(value), inline=False)
 
         self.disabled = self.aircraft
-        e.set_footer(text='Rocket plane armaments, and Skip Bombers as a'
-                     'whole are currently not listed in the API.')
+        e.set_footer(
+            text="Rocket plane armaments, and Skip Bombers as a"
+            "whole are currently not listed in the API."
+        )
         return await self.update(embed=e)
 
     async def auxiliary(self) -> Message:
@@ -432,53 +465,62 @@ class ShipView(BaseView):
 
         desc = []
 
-        if (sec := self.fitting.data['atbas']) is None:
+        if (sec := self.fitting.data["atbas"]) is None:
             e.add_field(
-                name='No Secondary Armament',
-                value="```diff\n- This ship has no secondary armament.```")
-        elif 'slots' not in sec:
-            e.add_field(name='API Error',
-                        value="```diff\n"
-                              "- Secondary armament not found in API.```")
+                name="No Secondary Armament",
+                value="```diff\n- This ship has no secondary armament.```",
+            )
+        elif "slots" not in sec:
+            e.add_field(
+                name="API Error",
+                value="```diff\n" "- Secondary armament not found in API.```",
+            )
         else:
             desc.append(f'**Secondary Range**: {sec["distance"]}')
-            desc.append("**Total Barrels**: "
-                        f'{self.fitting.data["hull"]["atba_barrels"]}')
+            desc.append(
+                "**Total Barrels**: "
+                f'{self.fitting.data["hull"]["atba_barrels"]}'
+            )
 
-            for v in sec['slots'].values():
-                name = v['name']
-                dmg = v['damage']
+            for v in sec["slots"].values():
+                name = v["name"]
+                dmg = v["damage"]
 
-                value = [f"**Damage**: {format(dmg, ',')}",
-                         f"**Shell Type**: {v['type']}",
-                         f"**Reload Time**: {v['shot_delay']}s ("
-                         f"{round(v['gun_rate'], 1)} rounds/minute)",
-                         f"**Initial Velocity**: {v['bullet_speed']}m/s",
-                         f"**Shell Weight**: {v['bullet_mass']}kg"
-                         ]
+                value = [
+                    f"**Damage**: {format(dmg, ',')}",
+                    f"**Shell Type**: {v['type']}",
+                    f"**Reload Time**: {v['shot_delay']}s ("
+                    f"{round(v['gun_rate'], 1)} rounds/minute)",
+                    f"**Initial Velocity**: {v['bullet_speed']}m/s",
+                    f"**Shell Weight**: {v['bullet_mass']}kg",
+                ]
 
-                if fire_chance := v['burn_probability']:
-                    value.append(f'**Fire Chance**: {round(fire_chance, 1)}')
+                if fire_chance := v["burn_probability"]:
+                    value.append(f"**Fire Chance**: {round(fire_chance, 1)}")
 
-                e.add_field(name=name, value='\n'.join(value))
+                e.add_field(name=name, value="\n".join(value))
 
-        if (aa := self.fitting.data['anti_aircraft']) is None:
-            aa_desc = ["```diff\n- This ship does not have any AA Capabilities.```"]
+        if (aa := self.fitting.data["anti_aircraft"]) is None:
+            aa_desc = [
+                "```diff\n- This ship does not have any AA Capabilities.```"
+            ]
         else:
             aa_guns: dict[str, list] = defaultdict(list)
-            for v in aa['slots'].values():
-                value = f'{v["guns"]}x{v["caliber"]}mm ({v["avg_damage"]} dps)\n'
-                aa_guns[v['name']].append(value)
+            for v in aa["slots"].values():
+                value = (
+                    f'{v["guns"]}x{v["caliber"]}mm ({v["avg_damage"]} dps)\n'
+                )
+                aa_guns[v["name"]].append(value)
 
             aa_desc = []
             for k, v in aa_guns.items():
                 aa_desc.append(f"**{k}**\n")
-                aa_desc.append('\n'.join(v))
-                aa_desc.append('\n')
+                aa_desc.append("\n".join(v))
+                aa_desc.append("\n")
 
-        e.add_field(name=f"AA Guns", value=''.join(aa_desc), inline=False)
+        e.add_field(name="AA Guns", value="".join(aa_desc), inline=False)
 
-        e.description = '\n'.join(desc)
+        e.description = "\n".join(desc)
         self.disabled = self.auxiliary
         return await self.update(embed=e)
 
@@ -490,35 +532,43 @@ class ShipView(BaseView):
         e = self.base_embed()
 
         # Guns
-        mb = self.fitting.data['artillery']
+        mb = self.fitting.data["artillery"]
         guns = []
         caliber = ""
-        for gun_type in mb['slots'].values():
-            e.title = gun_type['name']
+        for gun_type in mb["slots"].values():
+            e.title = gun_type["name"]
             guns.append(f"{gun_type['guns']}x{gun_type['barrels']}")
             caliber = f"{e.title.split('mm')[0]}"
 
-        reload_time: float = mb['shot_delay']
+        reload_time: float = mb["shot_delay"]
 
-        mb_desc = [f"**Guns**: {','.join(guns)} {caliber}mm",
-                   f"**Max Dispersion**: {mb['max_dispersion']}m",
-                   f"**Range**: {mb['distance']}km",
-                   f"**Reload Time**: {round(reload_time, 1)}s ({mb['gun_rate']} rounds/minute)"]
+        rlt = round(reload_time, 1)
+        e.description = (
+            f"**Guns**: {','.join(guns)} {caliber}mm\n"
+            f"**Max Dispersion**: {mb['max_dispersion']}m\n"
+            f"**Range**: {mb['distance']}km\n"
+            f"**Reload Time**: {rlt}s ({mb['gun_rate']} rounds/minute)",
+        )
 
-        e.description = "\n".join(mb_desc)
+        for shell_type in mb["shells"].values():
+            vel = format(shell_type["bullet_speed"], ",")
+            weight = format(shell_type["bullet_mass"], ",")
+            shell_data = [
+                f"**Damage**: {format(shell_type['damage'], ',')}",
+                f"**Initial Velocity**: {vel}m/s",
+                f"**Shell Weight**: {weight}kg",
+            ]
 
-        for shell_type in mb['shells'].values():
-            shell_data = [f"**Damage**: {format(shell_type['damage'], ',')}",
-                          f"**Initial Velocity**: {format(shell_type['bullet_speed'], ',')}m/s",
-                          f"**Shell Weight**: {format(shell_type['bullet_mass'], ',')}kg"]
-
-            if (fire_chance := shell_type['burn_probability']) is not None:
+            if (fire_chance := shell_type["burn_probability"]) is not None:
                 shell_data.append(f"**Fire Chance**: {fire_chance}%")
 
-            e.add_field(name=f"{shell_type['type']}: {shell_type['name']}", value="\n".join(shell_data))
+            e.add_field(
+                name=f"{shell_type['type']}: {shell_type['name']}",
+                value="\n".join(shell_data),
+            )
         self.disabled = self.main_guns
 
-        e.set_footer(text='SAP Shells are currently not listed in the API, sorry.')
+        e.set_footer(text="SAP Shells are currently not in the API, sorry.")
         return await self.update(embed=e)
 
     async def torpedoes(self) -> Message:
@@ -528,25 +578,29 @@ class ShipView(BaseView):
 
         e = self.base_embed()
 
-        trp = self.fitting.data['torpedoes']
-        for tube in trp['slots']:
-            barrels = trp['slots'][tube]['barrels']
-            calibre = trp['slots'][tube]['caliber']
-            num_tubes = trp['slots'][tube]['guns']
-            e.add_field(name=trp['slots'][tube]['name'], value=f"{num_tubes}x{barrels}x{calibre}mm")
+        trp = self.fitting.data["torpedoes"]
+        for tube in trp["slots"]:
+            barrels = trp["slots"][tube]["barrels"]
+            calibre = trp["slots"][tube]["caliber"]
+            num_tubes = trp["slots"][tube]["guns"]
+            e.add_field(
+                name=trp["slots"][tube]["name"],
+                value=f"{num_tubes}x{barrels}x{calibre}mm",
+            )
 
-        e.title = trp['torpedo_name']
+        e.title = trp["torpedo_name"]
 
-        reload_time: float = trp['reload_time']
+        reload_time: float = trp["reload_time"]
 
-        trp_desc = [f"**Range**: {trp['distance']}km",
-                    f"**Speed**: {trp['torpedo_speed']}kts",
-                    f"**Damage**: {format(trp['max_damage'], ',')}",
-                    f"**Detectability**: {trp['visibility_dist']}km",
-                    f"**Reload Time**: {round(reload_time, 2)}s",
-                    f"**Launchers**: {self.fitting.data['hull']['torpedoes_barrels']}",
-                    f"**Launcher 180° Time**: {trp['rotation_time']}s",
-                    ]
+        trp_desc = [
+            f"**Range**: {trp['distance']}km",
+            f"**Speed**: {trp['torpedo_speed']}kts",
+            f"**Damage**: {format(trp['max_damage'], ',')}",
+            f"**Detectability**: {trp['visibility_dist']}km",
+            f"**Reload Time**: {round(reload_time, 2)}s",
+            f"**Launchers**: {self.fitting.data['hull']['torpedoes_barrels']}",
+            f"**Launcher 180° Time**: {trp['rotation_time']}s",
+        ]
 
         e.description = "\n".join(trp_desc)
         self.disabled = self.torpedoes
@@ -564,50 +618,84 @@ class ShipView(BaseView):
         slots = self.ship.mod_slots
 
         # Check for bonus Slots (Arkansas Beta, Z-35, …)
-        slt = {1: 1, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4, 7: 4, 8: 5, 9: 6, 10: 6, 11: 6, '': ''}.pop(self.ship.tier)
+        slt = {
+            1: 1,
+            2: 1,
+            3: 2,
+            4: 2,
+            5: 3,
+            6: 4,
+            7: 4,
+            8: 5,
+            9: 6,
+            10: 6,
+            11: 6,
+            "": "",
+        }.pop(self.ship.tier)
         if slots != slt:
-            e.add_field(name="Bonus Upgrade Slots", value=f"This ship has {slots} upgrades instead of {slt[tier]}")
+            e.add_field(
+                name="Bonus Upgrade Slots",
+                value=f"This ship has {slots} upgrades instead of {slt[tier]}",
+            )
 
         if self.ship.images:
-            e.set_image(url=self.ship.images['large'])
+            e.set_image(url=self.ship.images["large"])
 
         e.set_footer(text=self.ship.description)
 
         # Parse Modules for ship data
-        desc = [f"**Hit Points**: {format(params['hull']['health'], ',')}",
-                f"**Concealment**: {params['concealment']['detect_distance_by_ship']}km "
-                f"({params['concealment']['detect_distance_by_plane']}km by air)",
-                f"**Maximum Speed**: {params['mobility']['max_speed']}kts",
-                f"**Rudder Shift Time**: {params['mobility']['rudder_time']} seconds",
-                f"**Turning Radius**: {params['mobility']['turning_radius']}m"]
+        rst = params["mobility"]["rudder_time"]
+        detect = params["concealment"]["detect_distance_by_ship"]
+        air_detect = params["concealment"]["detect_distance_by_plane"]
+        desc = [
+            f"**Hit Points**: {format(params['hull']['health'], ',')}",
+            f"**Concealment**: {detect}km ({air_detect}km by air)",
+            f"**Maximum Speed**: {params['mobility']['max_speed']}kts",
+            f"**Rudder Shift Time**: {rst} seconds",
+            f"**Turning Radius**: {params['mobility']['turning_radius']}m",
+        ]
 
-        # f"-{params['armour']['flood_prob']}% flood chance."  This field appears to be Garbage.
-        if params['armour']['flood_prob'] != 0:
-            desc.append(f"**Torpedo Belt**: -{params['armour']['flood_prob']}% damage")
+        # f"-{params['armour']['flood_prob']}% flood chance."
+        #  This field appears to be Garbage.
+        if params["armour"]["flood_prob"] != 0:
+            desc.append(
+                f"**Torpedo Belt**: -{params['armour']['flood_prob']}% damage"
+            )
 
         # Build Rest of embed description
         if self.ship.price_gold != 0:
-            desc.append(f"**Doubloon Price**: {format(self.ship.price_gold, ',')}")
+            cost = format(self.ship.price_gold, ",")
+            desc.append(f"**Doubloon Price**: {cost}")
 
         if self.ship.price_credit != 0:
-            desc.append(f"**Credit Price**: {format(self.ship.price_credit, ',')}")
+            cost = format(self.ship.price_credit, ",")
+            desc.append(f"**Credit Price**: {cost}")
 
         if self.ship.has_demo_profile:
-            e.add_field(name='Work in Progress', value="Ship Characteristics are not Final.")
+            e.add_field(
+                name="Work in Progress",
+                value="Ship Characteristics are not Final.",
+            )
 
-        e.description = '\n'.join(desc)
+        e.description = "\n".join(desc)
 
         if self.ship.next_ships:
             vals = []
             for ship_id, xp in self.ship.next_ships.items():  # ShipID, XP Cost
                 nxt = self.bot.get_ship(int(ship_id))
-                cr = format(nxt.price_credit, ',')
-                xp = format(xp, ',')
-                vals.append((nxt.tier, f"**{nxt.name}** (Tier {nxt.tier} {nxt.type.alias}): {xp} XP, {cr} credits"))
+                cr = format(nxt.price_credit, ",")
+                xp = format(xp, ",")
+                t = (
+                    f"**{nxt.name}** (Tier {nxt.tier} {nxt.type.alias}):"
+                    f"{xp} XP, {cr} credits"
+                )
+                vals.append((nxt.tier, t))
 
             if vals:
                 vals = [i[1] for i in sorted(vals, key=lambda x: x[0])]
-                e.add_field(name=f"Next Researchable Ships", value="\n".join(vals))
+                e.add_field(
+                    name="Next Researchable Ships", value="\n".join(vals)
+                )
 
         self.disabled = self.overview
         return await self.update(embed=e)
@@ -616,51 +704,93 @@ class ShipView(BaseView):
         """Push the latest version of the Ship view to the user"""
         self.clear_items()
 
-        prev = [i for i in self.bot.ships
-                if str(self.ship.ship_id) in i.next_ships
-                and i.next_ships is not None]
+        prev = [
+            i
+            for i in self.bot.ships
+            if str(self.ship.ship_id) in i.next_ships
+            and i.next_ships is not None
+        ]
         for ship in prev:
             self.add_item(ShipButton(self.interaction, ship, row=3))
 
         if self.ship.next_ships:
-            nxt = map(lambda x: self.bot.get_ship(int(x)),
-                      self.ship.next_ships)
+            nxt = map(
+                lambda x: self.bot.get_ship(int(x)), self.ship.next_ships
+            )
             for ship in sorted(nxt, key=lambda x: x.tier):
-                self.add_item(ShipButton(self.interaction, ship, higher=True,
-                                         row=3))
+                self.add_item(
+                    ShipButton(self.interaction, ship, higher=True, row=3)
+                )
 
         # FuncButton - Overview, Armaments, Leaderboard.
-        self.add_item(FuncButton(func=self.overview, label="Overview",
-                                 disabled=self.disabled == self.overview,
-                                 emoji=Hull.emoji))
+        self.add_item(
+            FuncButton(
+                func=self.overview,
+                label="Overview",
+                disabled=self.disabled == self.overview,
+                emoji=Hull.emoji,
+            )
+        )
 
         if Artillery in self.fitting.modules:
-            self.add_item(FuncButton(func=self.main_guns, label="Main Battery",
-                                     disabled=self.disabled == self.main_guns,
-                                     emoji=Artillery.emoji))
+            self.add_item(
+                FuncButton(
+                    func=self.main_guns,
+                    label="Main Battery",
+                    disabled=self.disabled == self.main_guns,
+                    emoji=Artillery.emoji,
+                )
+            )
 
         if Torpedoes in self.fitting.modules:
-            self.add_item(FuncButton(func=self.torpedoes, label="Torpedoes",
-                                     disabled=self.disabled == self.torpedoes, emoji=Torpedoes.emoji))
+            self.add_item(
+                FuncButton(
+                    func=self.torpedoes,
+                    label="Torpedoes",
+                    disabled=self.disabled == self.torpedoes,
+                    emoji=Torpedoes.emoji,
+                )
+            )
 
         try:
-            emoji = next(i for i in [TorpedoBomber, DiveBomber, RocketPlane] if i in self.fitting.modules).emoji
-            self.add_item(FuncButton(func=self.aircraft, label="Aircraft", disabled=self.disabled == self.aircraft,
-                                     emoji=emoji))
+            emoji = next(
+                i
+                for i in [TorpedoBomber, DiveBomber, RocketPlane]
+                if i in self.fitting.modules
+            ).emoji
+            self.add_item(
+                FuncButton(
+                    func=self.aircraft,
+                    label="Aircraft",
+                    disabled=self.disabled == self.aircraft,
+                    emoji=emoji,
+                )
+            )
         except StopIteration:
             pass
 
         # Secondaries & AA
-        self.add_item(FuncButton(func=self.auxiliary, label="Auxiliary",
-                                 disabled=self.disabled == self.auxiliary,
-                                 emoji=Module.emoji))
+        self.add_item(
+            FuncButton(
+                func=self.auxiliary,
+                label="Auxiliary",
+                disabled=self.disabled == self.auxiliary,
+                emoji=Module.emoji,
+            )
+        )
 
         if not self.ship.modules:
             await self.ship.fetch_modules()
 
         # Dropdown - setattr
-        if excluded := self.ship.modules.keys() - self.fitting.modules.values():
-            available_modules = [self.ship.modules[module_id].select_option for module_id in excluded]
+        if (
+            excluded := self.ship.modules.keys()
+            - self.fitting.modules.values()
+        ):
+            available_modules = [
+                self.ship.modules[module_id].select_option
+                for module_id in excluded
+            ]
             self.add_item(ModuleSelect(options=available_modules))
 
         return await self.bot.reply(self.interaction, embed=embed, view=self)
@@ -670,7 +800,12 @@ class ModuleSelect(Select):
     """A Dropdown to change equipped ship modules"""
 
     def __init__(self, options: list[SelectOption], row: int = 0):
-        super().__init__(options=options, placeholder="Change Equipped Modules", row=row, max_values=len(options))
+        super().__init__(
+            options=options,
+            placeholder="Change Equipped Modules",
+            row=row,
+            max_values=len(options),
+        )
 
     async def callback(self, interaction: Interaction) -> None:
         """Mount each selected module into the fitting."""
@@ -690,9 +825,18 @@ class ModuleSelect(Select):
 
 class Module:
     """A Module that can be mounted on a ship"""
-    emoji = '<:auxiliary:991806987362902088>'
 
-    def __init__(self, name: str, image: str, tag: str, module_id: int, module_id_str: str, price_credit: int) -> None:
+    emoji = "<:auxiliary:991806987362902088>"
+
+    def __init__(
+        self,
+        name: str,
+        image: str,
+        tag: str,
+        module_id: int,
+        module_id_str: str,
+        price_credit: int,
+    ) -> None:
         self.image: Optional[str] = image
         self.name: Optional[str] = name
         self.module_id: Optional[int] = module_id
@@ -718,117 +862,261 @@ class Module:
             if self.price_xp != 0:
                 d.append(f"{format(self.price_xp, ',')} xp")
 
-            d = ', '.join(d) if d else "No Cost"
-        return SelectOption(label=name, value=self.module_id, emoji=self.emoji, description=d)
+            d = ", ".join(d) if d else "No Cost"
+        return SelectOption(
+            label=name, value=self.module_id, emoji=self.emoji, description=d
+        )
 
 
 class Artillery(Module):
     """An 'Artillery' Module"""
+
     emoji = "<:Artillery:991026648935718952>"
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
 
-        self.gun_rate: float = kwargs.pop('gun_rate', 0)  # Fire Rate
-        self.max_damage_AP: int = kwargs.pop('max_damage_AP', 0)  # Maximum Armour Piercing Damage
-        self.max_damage_HE: int = kwargs.pop('max_damage_HE', 0)  # Maximum High Explosive Damage
-        self.rotation_time: float = kwargs.pop('rotation_time', 0)  # Turret Traverse Time in seconds
+        self.gun_rate: float = kwargs.pop("gun_rate", 0)  # Fire Rate
+        self.max_damage_AP: int = kwargs.pop(
+            "max_damage_AP", 0
+        )  # Maximum Armour Piercing Damage
+        self.max_damage_HE: int = kwargs.pop(
+            "max_damage_HE", 0
+        )  # Maximum High Explosive Damage
+        self.rotation_time: float = kwargs.pop(
+            "rotation_time", 0
+        )  # Turret Traverse Time in seconds
 
 
 class DiveBomber(Module):
     """A 'Dive Bomber' Module"""
+
     emoji = "<:DiveBomber:991027856496791682>"
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
 
-        self.bomb_burn_probability: float = kwargs.pop('bomb_burn_probability', 0.0)  # FIre Chance, e.g. 52.0
-        self.accuracy: dict[str, float] = kwargs.pop('accuracy', {'min': 0.0, 'max': 0.0})  # Accuracy, float.
-        self.max_damage: int = kwargs.pop('max_damage', 0)  # Max Bomb Damage
-        self.max_health: int = kwargs.pop('max_health', 0)  # Max Plane HP
-        self.cruise_speed: int = kwargs.pop('cruise_speed', 0)  # Max Plane Speed in knots
+        self.bomb_burn_probability: float = kwargs.pop(
+            "bomb_burn_probability", 0.0
+        )  # FIre Chance, e.g. 52.0
+        self.accuracy: dict[str, float] = kwargs.pop(
+            "accuracy", {"min": 0.0, "max": 0.0}
+        )  # Accuracy, float.
+        self.max_damage: int = kwargs.pop("max_damage", 0)  # Max Bomb Damage
+        self.max_health: int = kwargs.pop("max_health", 0)  # Max Plane HP
+        self.cruise_speed: int = kwargs.pop(
+            "cruise_speed", 0
+        )  # Max Plane Speed in knots
 
 
 class Engine(Module):
     """An 'Engine' Module"""
+
     emoji = "<:Engine:991025095772373032>"
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
 
-        self.max_speed: float = kwargs.pop('max_speed', 0)  # Maximum Speed in kts
+        self.max_speed: float = kwargs.pop(
+            "max_speed", 0
+        )  # Maximum Speed in kts
 
 
 class RocketPlane(Module):
     """A 'Fighter' Module"""
+
     emoji = "<:RocketPlane:991027006554656898>"
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
 
-        self.cruise_speed: int = kwargs.pop('cruise_speed', 0)  # Speed in kts
-        self.max_health: int = kwargs.pop('max_health', 0)  # HP e.g. 1440
+        self.cruise_speed: int = kwargs.pop("cruise_speed", 0)  # Speed in kts
+        self.max_health: int = kwargs.pop("max_health", 0)  # HP e.g. 1440
 
         # Garbage
-        self.avg_damage: int = kwargs.pop('avg_damage', 0)
-        self.max_ammo: int = kwargs.pop('max_ammo', 0)
+        self.avg_damage: int = kwargs.pop("avg_damage", 0)
+        self.max_ammo: int = kwargs.pop("max_ammo", 0)
 
 
 class FireControl(Module):
     """A 'Fire Control' Module"""
+
     emoji = "<:FireControl:991026256722161714>"
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
 
-        self.distance: int = kwargs.pop('distance', 0)
-        self.distance_increase: int = kwargs.pop('distance_increase', 0)
+        self.distance: int = kwargs.pop("distance", 0)
+        self.distance_increase: int = kwargs.pop("distance_increase", 0)
 
 
 class Hull(Module):
     """A 'Hull' Module"""
+
     emoji = "<:Hull:991022247546347581>"
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
 
-        self.health: int = kwargs.pop('health', 0)
-        self.anti_aircraft_barrels: int = kwargs.pop('anti_aircraft_barrels', 0)
-        self.range: dict[str, int] = kwargs.pop('range')  # This info is complete Garbage. Min - Max Armour.
+        self.health: int = kwargs.pop("health", 0)
+        self.anti_aircraft_barrels: int = kwargs.pop(
+            "anti_aircraft_barrels", 0
+        )
+        self.range: dict[str, int] = kwargs.pop(
+            "range"
+        )  # This info is complete Garbage. Min - Max Armour.
 
-        self.artillery_barrels: int = kwargs.pop('artillery_barrels', 0)  # Number of Main Battery Slots
-        self.atba_barrels: int = kwargs.pop('atba_barrels', 0)  # Number of secondary battery mounts.
-        self.torpedoes_barrels: int = kwargs.pop('torpedoes_barrels', 0)  # Number of torpedo launchers.
-        self.hangar_size: int = kwargs.pop('planes_amount', 0)  # Not returned by API.
+        self.artillery_barrels: int = kwargs.pop(
+            "artillery_barrels", 0
+        )  # Number of Main Battery Slots
+        self.atba_barrels: int = kwargs.pop(
+            "atba_barrels", 0
+        )  # Number of secondary battery mounts.
+        self.torpedoes_barrels: int = kwargs.pop(
+            "torpedoes_barrels", 0
+        )  # Number of torpedo launchers.
+        self.hangar_size: int = kwargs.pop(
+            "planes_amount", 0
+        )  # Not returned by API.
 
 
 class Torpedoes(Module):
     """A 'Torpedoes' Module"""
-    emoji = '<:Torpedoes:990731144565764107>'
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    emoji = "<:Torpedoes:990731144565764107>"
 
-        self.distance: Optional[int] = kwargs.pop('distance', 0)  # Maximum Range of torpedo
-        self.max_damage: Optional[int] = kwargs.pop('max_damage', 0)  # Maximum damage of a torpedo
-        self.shot_speed: Optional[float] = kwargs.pop('shot_speed', 0)  # Reload Speed of the torpedo
-        self.torpedo_speed: Optional[int] = kwargs.pop('torpedo_speed', 0)  # Maximum speed of the torpedo (knots)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
+
+        self.distance: Optional[int] = kwargs.pop(
+            "distance", 0
+        )  # Maximum Range of torpedo
+        self.max_damage: Optional[int] = kwargs.pop(
+            "max_damage", 0
+        )  # Maximum damage of a torpedo
+        self.shot_speed: Optional[float] = kwargs.pop(
+            "shot_speed", 0
+        )  # Reload Speed of the torpedo
+        self.torpedo_speed: Optional[int] = kwargs.pop(
+            "torpedo_speed", 0
+        )  # Maximum speed of the torpedo (knots)
 
 
 class TorpedoBomber(Module):
     """A 'Torpedo Bomber' Module"""
+
     emoji = "<:TorpedoBomber:991028330251829338>"
 
-    def __init__(self, name, image, tag, module_id, module_id_str, price_credit, **kwargs) -> None:
-        super().__init__(name, image, tag, module_id, module_id_str, price_credit)
+    def __init__(
+        self,
+        name,
+        image,
+        tag,
+        module_id,
+        module_id_str,
+        price_credit,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            name, image, tag, module_id, module_id_str, price_credit
+        )
 
-        self.cruise_speed: int = kwargs.pop('cruise_speed', 0)  # Cruise Speed in knots, e.g. 120
-        self.torpedo_damage: int = kwargs.pop('torpedo_damage', 0)  # Max Damage, e.g.  6466
-        self.max_damage: int = kwargs.pop('max_damage', 0)  # Exactly the same as torpedo_damage.
-        self.max_health: int = kwargs.pop('max_health', 0)  # Plane HP, e.g. 1800
-        self.torpedo_max_speed: int = kwargs.pop('torpedo_max_speed', 0)  # Torpedo Speed in knots, e.g. 35
+        self.cruise_speed: int = kwargs.pop(
+            "cruise_speed", 0
+        )  # Cruise Speed in knots, e.g. 120
+        self.torpedo_damage: int = kwargs.pop(
+            "torpedo_damage", 0
+        )  # Max Damage, e.g.  6466
+        self.max_damage: int = kwargs.pop(
+            "max_damage", 0
+        )  # Exactly the same as torpedo_damage.
+        self.max_health: int = kwargs.pop(
+            "max_health", 0
+        )  # Plane HP, e.g. 1800
+        self.torpedo_max_speed: int = kwargs.pop(
+            "torpedo_max_speed", 0
+        )  # Torpedo Speed in knots, e.g. 35
 
         # Garbage
-        self.distance: float = kwargs.pop('distance', 0.0)  # "Firing Range" ?
+        self.distance: float = kwargs.pop("distance", 0.0)  # "Firing Range" ?
         # noinspection SpellCheckingInspection
-        self.torpedo_name: str = kwargs.pop('torpedo_name', None)  # """IDS_PAPT108_LEXINGTON_STOCK"""
+        self.torpedo_name: str = kwargs.pop(
+            "torpedo_name", None
+        )  # """IDS_PAPT108_LEXINGTON_STOCK"""

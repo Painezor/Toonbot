@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 class XKCDView(BaseView):
     """A View to browse XKCD Comics"""
+
     def __init__(self, interaction: Interaction, index: int = 0):
         self.index: int = index
         super().__init__(interaction)
@@ -31,19 +32,19 @@ class XKCDView(BaseView):
                     json = await resp.json()
 
                     if self.index == -1:
-                        self.index = randrange(1, json['num'])
+                        self.index = randrange(1, json["num"])
                         return await self.update()
                 case _:
-                    err = 'Could not connect to XKCD API'
+                    err = "Could not connect to XKCD API"
                     return await self.bot.error(self.interaction, err)
 
         def parse() -> Embed:
             """Convert JSON To Embed"""
-            e = Embed(title=F"{json['num']}: {json['safe_title']}")
-            ts = datetime.datetime(json['year'], json['month'], json['day'])
+            e = Embed(title=f"{json['num']}: {json['safe_title']}")
+            ts = datetime.datetime(json["year"], json["month"], json["day"])
             e.timestamp = ts
-            e.set_footer(text=json['alt'])
-            e.set_image(url=json['img'])
+            e.set_footer(text=json["alt"])
+            e.set_image(url=json["img"])
             return e
 
         self.clear_items()

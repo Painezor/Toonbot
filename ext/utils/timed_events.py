@@ -12,7 +12,7 @@ class Timestamp:
         if time is None:
             time = dt.datetime.now(tz=dt.timezone.utc)
         self.value = time
-        self.time = str(time.timestamp()).split('.')[0]
+        self.time = str(time.timestamp()).split(".", maxsplit=1)
 
     def __str__(self) -> str:
         return f"<t:{self.time}:t>"  # <t:1628343360:t>  14:36

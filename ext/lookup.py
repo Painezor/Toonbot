@@ -1,4 +1,5 @@
-"""Commands for fetching information about football entities from transfermarkt"""
+"""Commands for fetching information about football entities from
+   transfermarkt"""
 from __future__ import annotations
 
 from importlib import reload
@@ -21,7 +22,9 @@ class Lookup(Cog):
         self.bot: Bot = bot
         reload(tfm)
 
-    lookup = Group(name="lookup", description="Search for something on transfermarkt")
+    lookup = Group(
+        name="lookup", description="Search for something on transfermarkt"
+    )
 
     @lookup.command(name="player")
     @describe(query="Enter a player name")
@@ -71,11 +74,15 @@ class Lookup(Cog):
         await interaction.response.defer(thinking=True)
         return await tfm.AgentSearch(interaction, query).update()
 
-    transfer = Group(name="transfer", description="Transfers & Rumours for a team")
+    transfer = Group(
+        name="transfer", description="Transfers & Rumours for a team"
+    )
 
     @transfer.command(name="list")
     @describe(team_name="enter a team name to search for")
-    async def listing(self, interaction: Interaction, team_name: str) -> Message:
+    async def listing(
+        self, interaction: Interaction, team_name: str
+    ) -> Message:
         """Get this window's transfers for a team on transfermarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -88,7 +95,9 @@ class Lookup(Cog):
 
     @transfer.command()
     @describe(team_name="enter a team name to search for")
-    async def rumours(self, interaction: Interaction, team_name: str) -> Optional[Message]:
+    async def rumours(
+        self, interaction: Interaction, team_name: str
+    ) -> Optional[Message]:
         """Get the latest transfer rumours for a team"""
 
         await interaction.response.defer(thinking=True)
@@ -102,7 +111,9 @@ class Lookup(Cog):
 
     @command()
     @describe(team_name="enter a team name to search for")
-    async def contracts(self, interaction: Interaction, team_name: str) -> Message:
+    async def contracts(
+        self, interaction: Interaction, team_name: str
+    ) -> Message:
         """Get a team's expiring contracts"""
 
         await interaction.response.defer(thinking=True)
@@ -116,7 +127,9 @@ class Lookup(Cog):
 
     @command()
     @describe(team_name="enter a team name to search for")
-    async def trophies(self, interaction: Interaction, team_name: str) -> Message:
+    async def trophies(
+        self, interaction: Interaction, team_name: str
+    ) -> Message:
         """Get a team's trophy case"""
 
         await interaction.response.defer(thinking=True)
@@ -130,7 +143,9 @@ class Lookup(Cog):
 
     @command()
     @describe(league_name="enter a league name to search for")
-    async def attendance(self, interaction: Interaction, league_name: str) -> Message:
+    async def attendance(
+        self, interaction: Interaction, league_name: str
+    ) -> Message:
         """Get a list of a league's average attendances."""
 
         await interaction.response.defer(thinking=True)

@@ -18,36 +18,42 @@ class Memes(Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-    memes = discord.app_commands.Group(name="memes", description="annoy your friends with dead jokes")
+    memes = discord.app_commands.Group(
+        name="memes", description="annoy your friends with dead jokes")
 
     @memes.command()
     async def dead(self, interaction: Interaction) -> Message:
         """STOP, STOP HE'S ALREADY DEAD"""
-        return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=mAUY1J8KizU")
+        vid = "https://www.youtube.com/watch?v=mAUY1J8KizU"
+        return await self.bot.reply(interaction, vid)
 
     @memes.command(name="f")
     async def press_f(self, interaction) -> Message:
         """Press F to pay respects"""
-        return await self.bot.reply(interaction, content="https://i.imgur.com/zrNE05c.gif")
+        img = "https://i.imgur.com/zrNE05c.gif"
+        return await self.bot.reply(interaction, img)
 
     @memes.command()
     async def helmet(self, interaction: Interaction) -> Message:
         """Helmet"""
-        return await self.bot.reply(interaction, file=File(fp="Images/helmet.jpg"))
+        helmet = File(fp="Images/helmet.jpg")
+        return await self.bot.reply(interaction, file=helmet)
 
     @memes.command()
     async def lenny(self, interaction: Interaction) -> Message:
         """( ͡° ͜ʖ ͡°)"""
-        lennys = ['( ͡° ͜ʖ ͡°)', '(ᴗ ͜ʖ ᴗ)', '(⟃ ͜ʖ ⟄) ', '(͠≖ ͜ʖ͠≖)', 'ʕ ͡° ʖ̯ ͡°ʔ', '( ͠° ͟ʖ ͡°)', '( ͡~ ͜ʖ ͡°)',
-                  '( ͡◉ ͜ʖ ͡◉)', '( ͡° ͜V ͡°)', '( ͡ᵔ ͜ʖ ͡ᵔ )',
-                  '(☭ ͜ʖ ☭)', '( ° ͜ʖ °)', '( ‾ ʖ̫ ‾)', '( ͡° ʖ̯ ͡°)', '( ͡° ل͜ ͡°)', '( ͠° ͟ʖ ͠°)', '( ͡o ͜ʖ ͡o)',
-                  '( ͡☉ ͜ʖ ͡☉)', 'ʕ ͡° ͜ʖ ͡°ʔ', '( ͡° ͜ʖ ͡ °)']
+        lennys = ['( ͡° ͜ʖ ͡°)', '(ᴗ ͜ʖ ᴗ)', '(⟃ ͜ʖ ⟄) ', '(͠≖ ͜ʖ͠≖)',
+                  'ʕ ͡° ʖ̯ ͡°ʔ', '( ͠° ͟ʖ ͡°)', '( ͡~ ͜ʖ ͡°)', '( ͡◉ ͜ʖ ͡◉)',
+                  '( ͡° ͜V ͡°)', '( ͡ᵔ ͜ʖ ͡ᵔ )', '(☭ ͜ʖ ☭)', '( ° ͜ʖ °)',
+                  '( ‾ ʖ̫ ‾)', '( ͡° ʖ̯ ͡°)', '( ͡° ل͜ ͡°)', '( ͠° ͟ʖ ͠°)',
+                  '( ͡o ͜ʖ ͡o)', '( ͡☉ ͜ʖ ͡☉)', 'ʕ ͡° ͜ʖ ͡°ʔ', '( ͡° ͜ʖ ͡ °)']
         return await self.bot.reply(interaction, content=choice(lennys))
 
     @memes.command()
     async def thatsthejoke(self, interaction: Interaction) -> Message:
         """That's the joke"""
-        return await self.bot.reply(interaction, content="https://www.youtube.com/watch?v=xECUrlnXCqk")
+        vid = "https://www.youtube.com/watch?v=xECUrlnXCqk"
+        return await self.bot.reply(interaction, vid)
 
 
 async def setup(bot: Bot) -> None:

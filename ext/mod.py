@@ -4,10 +4,25 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from discord import (Guild, Member, TextChannel, Interaction, Colour, Embed,
-                     HTTPException, Message, TextStyle)
-from discord.app_commands import (command, describe, default_permissions,
-                                  guild_only, Choice, autocomplete)
+from discord import (
+    Guild,
+    Member,
+    TextChannel,
+    Interaction,
+    Colour,
+    Embed,
+    HTTPException,
+    Message,
+    TextStyle,
+)
+from discord.app_commands import (
+    command,
+    describe,
+    default_permissions,
+    guild_only,
+    Choice,
+    autocomplete,
+)
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Modal, TextInput
@@ -19,43 +34,47 @@ if TYPE_CHECKING:
 
 class DiscordColours(Enum):
     """Valid Colours of discord.Colour"""
-    Blue = "blue"
-    Blurple = "blurple"
-    Brand_Green = "brand_green"
-    Brand_Red = 'brand_red'
-    Dark_Blue = 'dark_blue'
-    Dark_Embed = 'dark_embed'
-    Dark_Gold = 'dark_gold'
-    Dark_Gray = 'dark_gray'
-    Dark_Green = 'dark_gray'
-    Dark_Magenta = 'dark_magenta'
-    Dark_Orange = 'dark_orange'
-    Dark_Purple = 'dark_purple'
-    Dark_Red = 'dark_red'
-    Dark_Teal = 'dark_teal'
-    Darker_Gray = 'darker_gray'
-    Default = 'default'
-    Fuchsia = 'fuchsia'
-    Gold = 'gold'
-    Green = 'green'
-    Greyple = 'greyple'
-    Light_Embed = 'light_embed'
-    Light_Gray = 'light_gray'
-    Lighter_Gray = 'lighter_gray'
-    Magenta = 'magenta'
-    Og_Blurple = 'og_blurple'
-    Orange = 'orange'
-    Purple = 'purple'
-    Random = 'random'
-    Red = 'red'
-    Teal = 'teal'
-    Yellow = 'yellow'
+
+    BLUE = "blue"
+    BLURPLE = "blurple"
+    BRAND_GREEN = "brand_green"
+    BRAND_RED = "brand_red"
+    DARK_BLUE = "dark_blue"
+    DARK_EMBED = "dark_embed"
+    DARK_GOLD = "dark_gold"
+    DARK_GRAY = "dark_gray"
+    DARK_GREEN = "dark_gray"
+    DARK_MAGENTA = "dark_magenta"
+    DARK_ORANGE = "dark_orange"
+    DARK_PURPLE = "dark_purple"
+    DARK_RED = "dark_red"
+    DARK_TEAL = "dark_teal"
+    DARKER_GRAY = "darker_gray"
+    DEFAULT = "default"
+    FUCHSIA = "fuchsia"
+    GOLD = "gold"
+    GREEN = "green"
+    GREYPLE = "greyple"
+    LIGHT_EMBED = "light_embed"
+    LIGHT_GRAY = "light_gray"
+    LIGHTER_GRAY = "lighter_gray"
+    MAGENTA = "magenta"
+    OG_BLURPLE = "og_blurple"
+    ORANGE = "orange"
+    PURPLE = "purple"
+    RANDOM = "random"
+    RED = "red"
+    TEAL = "teal"
+    YELLOW = "yellow"
 
 
 async def colour_ac(_: Interaction, current: str) -> list[Choice]:
     """Return from list of colours"""
-    return [Choice(name=i.value, value=i.value) for i in DiscordColours
-            if current.lower() in i.value.lower()][:25]
+    return [
+        Choice(name=i.value, value=i.value)
+        for i in DiscordColours
+        if current.lower() in i.value.lower()
+    ][:25]
 
 
 class EmbedModal(Modal, title="Send an Embed"):
@@ -63,17 +82,30 @@ class EmbedModal(Modal, title="Send an Embed"):
 
     e_title = TextInput(label="Embed Title", placeholder="Announcement")
 
-    text = TextInput(label="Embed Text", placeholder="Enter your text here",
-                     style=TextStyle.paragraph, max_length=4000)
+    text = TextInput(
+        label="Embed Text",
+        placeholder="Enter your text here",
+        style=TextStyle.paragraph,
+        max_length=4000,
+    )
 
-    thumbnail = TextInput(label="Thumbnail", required=False,
-                          placeholder="Enter url for thumbnail image")
+    thumbnail = TextInput(
+        label="Thumbnail",
+        required=False,
+        placeholder="Enter url for thumbnail image",
+    )
 
-    image = TextInput(label="Image", placeholder="Enter url for large image",
-                      required=False)
+    image = TextInput(
+        label="Image", placeholder="Enter url for large image", required=False
+    )
 
-    def __init__(self, bot: Bot | PBot, interaction: Interaction,
-                 destination: TextChannel, colour: Colour) -> None:
+    def __init__(
+        self,
+        bot: Bot | PBot,
+        interaction: Interaction,
+        destination: TextChannel,
+        colour: Colour,
+    ) -> None:
 
         super().__init__()
 
@@ -82,13 +114,15 @@ class EmbedModal(Modal, title="Send an Embed"):
         self.destination: TextChannel = destination
         self.colour: Colour = colour
 
-    async def on_submit(self, interaction: Interaction) -> None:
+    async def on_submit(self) -> None:
         """Send the embed"""
         e = Embed(title=self.e_title, colour=self.colour)
 
         try:
-            e.set_author(name=self.interaction.guild.name,
-                         icon_url=self.interaction.guild.icon.url)
+            e.set_author(
+                name=self.interaction.guild.name,
+                icon_url=self.interaction.guild.icon.url,
+            )
         except AttributeError:
             e.set_author(name=self.interaction.guild.name)
 
@@ -104,10 +138,12 @@ class EmbedModal(Modal, title="Send an Embed"):
 
         try:
             await self.destination.send(embed=e)
-            await self.bot.reply(interaction, "Message sent.", ephemeral=True)
+            await self.bot.reply(
+                self.interaction, "Message sent.", ephemeral=True
+            )
         except HTTPException:
             err = "I can't send messages to that channel."
-            await self.bot.error(interaction, err)
+            await self.bot.error(self.interaction, err)
 
 
 class Mod(Cog):
@@ -120,11 +156,15 @@ class Mod(Cog):
     @guild_only()
     @default_permissions(manage_messages=True)
     @autocomplete(colour=colour_ac)
-    @describe(destination="Choose Target Channel",
-              colour="Choose embed colour")
-    async def embed(self, interaction: Interaction,
-                    destination: TextChannel = None,
-                    colour: str = 'random') -> Message:
+    @describe(
+        destination="Choose Target Channel", colour="Choose embed colour"
+    )
+    async def embed(
+        self,
+        interaction: Interaction,
+        destination: TextChannel = None,
+        colour: str = "random",
+    ) -> Message:
         """Send an embedded announcement as the bot in a specified channel"""
 
         await interaction.response.defer(thinking=True, ephemeral=True)
@@ -158,10 +198,16 @@ class Mod(Cog):
     @command()
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
-    @describe(message="Enter a message to send as the bot",
-              destination="Choose Target Channel")
-    async def say(self, interaction: Interaction, message: str,
-                  destination: TextChannel = None) -> Message:
+    @describe(
+        message="Enter a message to send as the bot",
+        destination="Choose Target Channel",
+    )
+    async def say(
+        self,
+        interaction: Interaction,
+        message: str,
+        destination: TextChannel = None,
+    ) -> Message:
         """Say something as the bot in specified channel"""
 
         await interaction.response.defer(thinking=True, ephemeral=True)
@@ -200,8 +246,10 @@ class Mod(Cog):
 
         try:
             d = await interaction.channel.purge(
-                limit=number, check=is_me,
-                reason=f"/clean ran by {interaction.user}")
+                limit=number,
+                check=is_me,
+                reason=f"/clean ran by {interaction.user}",
+            )
 
             msg = f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}'
             await self.bot.reply(interaction, msg)
@@ -211,10 +259,16 @@ class Mod(Cog):
     @command()
     @default_permissions(moderate_members=True)
     @bot_has_permissions(moderate_members=True)
-    @describe(member="Pick a user to untimeout",
-              reason="Enter the reason for ending the timeout.")
-    async def untimeout(self, interaction: Interaction, member: Member,
-                        reason: str = "Not provided"):
+    @describe(
+        member="Pick a user to untimeout",
+        reason="Enter the reason for ending the timeout.",
+    )
+    async def untimeout(
+        self,
+        interaction: Interaction,
+        member: Member,
+        reason: str = "Not provided",
+    ):
         """End the timeout for a user."""
         if not member.is_timed_out():
             err = "That user is not timed out."
@@ -232,7 +286,7 @@ class Mod(Cog):
     @Cog.listener()
     async def on_guild_join(self, guild: Guild) -> None:
         """Create database entry for new guild"""
-        async with self.bot.db.acquire(timeout=60) as connection:
+        async with self.bot.database.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """INSERT INTO guild_settings (guild_id) VALUES ($1)
                        ON CONFLICT DO NOTHING"""
@@ -241,7 +295,7 @@ class Mod(Cog):
     @Cog.listener()
     async def on_guild_remove(self, guild: Guild) -> None:
         """Delete guild's info upon leaving one."""
-        async with self.bot.db.acquire(timeout=60) as connection:
+        async with self.bot.database.acquire(timeout=60) as connection:
             async with connection.transaction():
                 q = """DELETE FROM guild_settings WHERE guild_id = $1"""
                 await connection.execute(q, guild.id)

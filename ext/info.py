@@ -5,8 +5,19 @@ import re
 from typing import TYPE_CHECKING
 
 import discord
-from discord import (Member, Embed, Colour, Forbidden, Interaction, Message,
-                     PartialEmoji, User, Emoji, Permissions, Role)
+from discord import (
+    Member,
+    Embed,
+    Colour,
+    Forbidden,
+    Interaction,
+    Message,
+    PartialEmoji,
+    User,
+    Emoji,
+    Permissions,
+    Role,
+)
 from discord.abc import GuildChannel
 from discord.app_commands import command, guild_only, describe, Group
 from discord.ext.commands import Cog
@@ -30,8 +41,9 @@ class Info(Cog):
 
     @command()
     @describe(user="Select a user")
-    async def avatar(self, interaction: Interaction,
-                     user: User | Member = None) -> Message:
+    async def avatar(
+        self, interaction: Interaction, user: User | Member = None
+    ) -> Message:
         """Shows a member's avatar"""
 
         await interaction.response.defer(thinking=True)
@@ -42,8 +54,9 @@ class Info(Cog):
             user = interaction.user
         else:
             auth = interaction.user
-            e.set_author(name=f"{auth} ({auth.id})",
-                         icon_url=auth.display_avatar.url)
+            e.set_author(
+                name=f"{auth} ({auth.id})", icon_url=auth.display_avatar.url
+            )
 
         e.description = f"{user.mention}'s avatar"
         e.colour = user.colour
@@ -51,8 +64,9 @@ class Info(Cog):
         e.set_image(url=user.display_avatar.url)
         return await self.bot.reply(interaction, embed=e)
 
-    info = Group(name="info",
-                 description="Get information about things on your server")
+    info = Group(
+        name="info", description="Get information about things on your server"
+    )
 
     @info.command()
     @describe(channel="select a channel")
@@ -129,11 +143,13 @@ class Info(Cog):
             case discord.CategoryChannel:
                 e.title = "Category Channel"
                 c: discord.CategoryChannel
-                e.description += (f"**Channels In Category**:"
-                                  f"{len(c.channels)} "
-                                  f"({len(c.text_channels)} Text, "
-                                  f"{len(c.voice_channels)} Voice, "
-                                  f"{len(c.stage_channels)} Stage)\n")
+                e.description += (
+                    f"**Channels In Category**:"
+                    f"{len(c.channels)} "
+                    f"({len(c.text_channels)} Text, "
+                    f"{len(c.voice_channels)} Voice, "
+                    f"{len(c.stage_channels)} Stage)\n"
+                )
 
             case discord.StageChannel:
                 e.title = "Stage Channel"
@@ -163,9 +179,11 @@ class Info(Cog):
                     ins: discord.StageInstance
 
                     private = not ins.discoverable_disabled
-                    val = (f"**Topic**: {ins.topic}\n\n"
-                           f"**Privacy Level**: {ins.privacy_level}\n"
-                           f"**Public Event?**: {private}\n")
+                    val = (
+                        f"**Topic**: {ins.topic}\n\n"
+                        f"**Privacy Level**: {ins.privacy_level}\n"
+                        f"**Public Event?**: {private}\n"
+                    )
 
                     if ins.scheduled_event:
                         ev: discord.ScheduledEvent = ins.scheduled_event
@@ -179,7 +197,8 @@ class Info(Cog):
                             e.set_image(url=ev.cover_image.url)
 
                     e.add_field(
-                        name="Stage in Progress", value=val, inline=False)
+                        name="Stage in Progress", value=val, inline=False
+                    )
 
             case discord.ForumChannel:
                 c: discord.ForumChannel
@@ -208,7 +227,8 @@ class Info(Cog):
                 if tags := channel.available_tags:
                     e.add_field(
                         name="Available Tags",
-                        value=', '.join(f"{i.emoji} {i.name}" for i in tags))
+                        value=", ".join(f"{i.emoji} {i.name}" for i in tags),
+                    )
 
         # List[Role | Member | Object]
         if not channel.overwrites:
@@ -221,10 +241,10 @@ class Info(Cog):
             emb.title = "Permission Overwrites"
             emb.description = f"{target.mention} ({target.id})"
 
-            if allow := '\n'.join(f'✅ {k}' for k, v in overwrite if v):
+            if allow := "\n".join(f"✅ {k}" for k, v in overwrite if v):
                 emb.add_field(name="Allowed", value=allow)
 
-            if deny := '\n'.join(f'❌ {k}' for k, v in overwrite if v is False):
+            if deny := "\n".join(f"❌ {k}" for k, v in overwrite if v is False):
                 emb.add_field(name="Denied", value=deny)
             embeds.append(emb)
 
@@ -247,8 +267,10 @@ class Info(Cog):
                 e.description += "**This Role is Unused**\n"
 
             case role.members if len(role.members) < 15:
-                e.add_field(name="Users",
-                            value=', '.join(i.mention for i in role.members))
+                e.add_field(
+                    name="Users",
+                    value=", ".join(i.mention for i in role.members),
+                )
 
             case _:
                 e.description = f"**Total Users**: {len(role.members)}\n"
@@ -292,7 +314,8 @@ class Info(Cog):
 
             perm_embed.add_field(
                 name="✅ Allowed Perms",
-                value=', '.join([i for i in permissions if i[1]]))
+                value=", ".join([i for i in permissions if i[1]]),
+            )
 
             perm_embed.title = "Role Permissions"
 
@@ -305,15 +328,16 @@ class Info(Cog):
 
     @info.command(name="emote")
     @describe(emoji="enter a list of emotes")
-    async def info_emote(self, interaction: Interaction,
-                         emoji: str) -> Message:
+    async def info_emote(
+        self, interaction: Interaction, emoji: str
+    ) -> Message:
         """View a bigger version of an Emoji"""
 
         await interaction.response.defer(thinking=True)
 
         embeds = []
 
-        regex = r'<(?P<animated>a?):(?P<name>\w{2,32}):(?P<id>\d{18,22})>'
+        regex = r"<(?P<animated>a?):(?P<name>\w{2,32}):(?P<id>\d{18,22})>"
 
         for anim, name, e_id in re.findall(regex, emoji):
             e = Embed(title=name)
@@ -333,8 +357,10 @@ class Info(Cog):
             embeds.append(e)
 
         if not embeds:
-            err = (f"No emotes found in {emoji}\n\nPlease note this only works"
-                   " for custom server emotes, not default emotes.")
+            err = (
+                f"No emotes found in {emoji}\n\nPlease note this only works"
+                " for custom server emotes, not default emotes."
+            )
             return await self.bot.error(interaction, err)
 
         return await Paginator(interaction, embeds).update()
@@ -432,29 +458,29 @@ class Info(Cog):
             chs.description += f"\n**System Channel**: {sys}\n"
             f = g.system_channel_flags
 
-            o = 'on' if f.guild_reminder_notifications else 'off'
+            o = "on" if f.guild_reminder_notifications else "off"
             fl.append(f"**Setup Tips**: {o}")
 
-            o = 'on' if f.join_notifications else 'off'
+            o = "on" if f.join_notifications else "off"
             fl.append(f"**Join Notifications**: {o}")
 
-            o = 'on' if f.join_notification_replies else 'off'
+            o = "on" if f.join_notification_replies else "off"
             fl.append(f"**Join Stickers**: {o}")
 
-            o = 'on' if f.premium_subscriptions else 'off'
+            o = "on" if f.premium_subscriptions else "off"
             fl.append(f"**Boost Notifications**: {o}")
 
-            o = {'on' if f.role_subscription_purchase_notifications else 'off'}
+            o = {"on" if f.role_subscription_purchase_notifications else "off"}
             fl.append(f"**Role Subscriptions**: {o}")
 
             if f.role_subscription_purchase_notification_replies:
-                o = 'on'
+                o = "on"
             else:
-                o = 'off'
+                o = "off"
 
             fl.append(f"**Sub Stickers**: {o}")
 
-            chs.add_field(name="System Channel Flags", value='\n'.join(fl))
+            chs.add_field(name="System Channel Flags", value="\n".join(fl))
         except AttributeError:
             pass
 
@@ -531,24 +557,24 @@ class Info(Cog):
             voice_other = len(voice.members) - 1
 
             others = f"with {voice_other} others" if voice_other else "alone"
-            voice = f'In voice channel {voice.mention} {others}'
+            voice = f"In voice channel {voice.mention} {others}"
             generic.add_field(name="Voice Status", value=voice)
 
         roles = [r.mention for r in reversed(member.roles) if r.position != 0]
         if roles:
-            generic.add_field(name='Roles', value=' '.join(roles[:20]))
+            generic.add_field(name="Roles", value=" ".join(roles[:20]))
 
         if member.banner:
             generic.set_image(url=member.banner.url)
 
         try:
             ts = Timestamp(member.joined_at).countdown
-            desc.append(f'**Joined Date**: {ts}')
+            desc.append(f"**Joined Date**: {ts}")
         except AttributeError:
             pass
 
         ts = Timestamp(member.created_at).countdown
-        desc.append(f'**Account Created**: {ts}')
+        desc.append(f"**Account Created**: {ts}")
         generic.description = "\n".join(desc)
 
         # User Flags
@@ -590,7 +616,7 @@ class Info(Cog):
             flags.append("**Known Spammer**")
 
         if flags:
-            generic.add_field(name="Flags", value=', '.join(flags))
+            generic.add_field(name="Flags", value=", ".join(flags))
 
         # Embed 2 - User Permissions
         try:
@@ -599,7 +625,8 @@ class Info(Cog):
 
             perm_embed.add_field(
                 name="✅ Allowed Perms",
-                value=', '.join([i for i in permissions if i[1]]))
+                value=", ".join([i for i in permissions if i[1]]),
+            )
 
             perm_embed.title = "Member Permissions"
 

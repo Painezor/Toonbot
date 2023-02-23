@@ -22,8 +22,13 @@ if TYPE_CHECKING:
 class ImageView(BaseView):
     """Holder View for Image Manipulation functions."""
 
-    def __init__(self, interaction: Interaction, user: User = None, link: str = None,
-                 file: Attachment = None) -> None:
+    def __init__(
+        self,
+        interaction: Interaction,
+        user: User = None,
+        link: str = None,
+        file: Attachment = None,
+    ) -> None:
 
         if link is not None:
             self.target_url = link
@@ -32,7 +37,9 @@ class ImageView(BaseView):
         elif user is not None:
             self.target_url = user.display_avatar.with_format("png").url
         else:
-            self.target_url = interaction.user.display_avatar.with_format("png").url
+            self.target_url = interaction.user.display_avatar.with_format(
+                "png"
+            ).url
 
         self.image: bytes = None
         self.coordinates: dict = {}
@@ -50,20 +57,36 @@ class ImageView(BaseView):
     async def get_faces(self) -> Optional[Message]:
         """Retrieve face features from Project Oxford"""
         # Prepare POST
-        h = {"Content-Type": "application/json",
-             "Ocp-Apim-Subscription-Key": self.bot.credentials['Oxford']['OxfordKey']}
-        p = {"returnFaceId": "False", "returnFaceLandmarks": "True", "returnFaceAttributes": "headPose"}
+        h = {
+            "Content-Type": "application/json",
+            "Ocp-Apim-Subscription-Key": self.bot.credentials["Oxford"][
+                "OxfordKey"
+            ],
+        }
+        p = {
+            "returnFaceId": "False",
+            "returnFaceLandmarks": "True",
+            "returnFaceAttributes": "headPose",
+        }
         d = dumps({"url": self.target_url})
         url = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
 
         # Get Project Oxford reply
-        async with self.bot.session.post(url, params=p, headers=h, data=d) as resp:
+        async with self.bot.session.post(
+            url, params=p, headers=h, data=d
+        ) as resp:
             match resp.status:
-                case 200: self.coordinates = await resp.json()
-                case 400: return await self.bot.error(self.interaction, await resp.json())
+                case 200:
+                    self.coordinates = await resp.json()
+                case 400:
+                    return await self.bot.error(
+                        self.interaction, await resp.json()
+                    )
                 case _:
-                    err = f"HTTP Error {resp.status} accessing facial recognition API."
-                    return await self.interaction.followup.send(err, ephemeral=True)
+                    err = f"{resp.status} error on facial recognition API."
+                    return await self.interaction.followup.send(
+                        err, ephemeral=True
+                    )
 
         # Get target image as file
         async with self.bot.session.get(self.target_url) as resp:
@@ -71,7 +94,10 @@ class ImageView(BaseView):
                 case 200:
                     self.image = await resp.content.read()
                 case _:
-                    return await self.bot.error(self.interaction, f"Error {resp.status} opening {self.target_url}.")
+                    return await self.bot.error(
+                        self.interaction,
+                        f"Error {resp.status} opening {self.target_url}.",
+                    )
 
     async def push_ruins(self) -> Message:
         """Push the Local man ruins everything image to view"""
@@ -177,10 +203,16 @@ class ImageView(BaseView):
             for coordinates in self.coordinates:
                 mlx = int(coordinates["faceLandmarks"]["mouthLeft"]["x"])
                 mrx = int(coordinates["faceLandmarks"]["mouthRight"]["x"])
-                lip_y = int(coordinates["faceLandmarks"]["upperLipBottom"]["y"])
-                lip_x = int(coordinates["faceLandmarks"]["upperLipBottom"]["x"])
+                lip_y = int(
+                    coordinates["faceLandmarks"]["upperLipBottom"]["y"]
+                )
+                lip_x = int(
+                    coordinates["faceLandmarks"]["upperLipBottom"]["x"]
+                )
 
-                angle = int(coordinates["faceAttributes"]["headPose"]["roll"] * -1)
+                angle = int(
+                    coordinates["faceAttributes"]["headPose"]["roll"] * -1
+                )
                 w = int((mrx - mlx)) * 2
                 h = w
                 tk = ImageOps.fit(knob, (w, h)).rotate(angle)
@@ -218,14 +250,22 @@ class ImageView(BaseView):
                 y = int(coordinates["faceRectangle"]["top"])
                 w = int(coordinates["faceRectangle"]["width"])
                 h = int(coordinates["faceRectangle"]["height"])
-                roll = int(coordinates["faceAttributes"]["headPose"]["roll"]) * -1
+                roll = (
+                    int(coordinates["faceAttributes"]["headPose"]["roll"]) * -1
+                )
                 top_left = int(x - (w / 4))
                 bottom_left = int(y - (h / 2))
                 top_right = int(x + (w * 1.25))
                 bottom_right = int((y + (h * 1.25)))
 
-                this = ImageOps.fit(bob, (top_right - top_left, bottom_right - bottom_left)).rotate(roll)
-                im.paste(this, box=(top_left, bottom_left, top_right, bottom_right), mask=this)
+                this = ImageOps.fit(
+                    bob, (top_right - top_left, bottom_right - bottom_left)
+                ).rotate(roll)
+                im.paste(
+                    this,
+                    box=(top_left, bottom_left, top_right, bottom_right),
+                    mask=this,
+                )
             im.save(output := BytesIO(), "PNG")
             output.seek(0)
 
@@ -242,17 +282,30 @@ class ImageView(BaseView):
         """Push the latest versio of the view to the user"""
         self.clear_items()
 
-        self.add_item(FuncButton(label="Eyes", func=self.push_eyes, emoji='👀'))
-        self.add_item(FuncButton(label="Bob Ross", func=self.push_bob, emoji='🖌️'))
-        self.add_item(FuncButton(label="Ruins", func=self.push_ruins, emoji='🏚️'))
+        self.add_item(FuncButton(label="Eyes", func=self.push_eyes, emoji="👀"))
+        self.add_item(
+            FuncButton(label="Bob Ross", func=self.push_bob, emoji="🖌️")
+        )
+        self.add_item(
+            FuncButton(label="Ruins", func=self.push_ruins, emoji="🏚️")
+        )
 
         if self.interaction.channel.is_nsfw():
-            self.add_item(FuncButton(label="Knob", func=self.push_knob, emoji='🍆'))
+            self.add_item(
+                FuncButton(label="Knob", func=self.push_knob, emoji="🍆")
+            )
 
-        e: Embed = Embed(colour=0xFFFFFF, description=self.interaction.user.mention)
+        e: Embed = Embed(
+            colour=0xFFFFFF, description=self.interaction.user.mention
+        )
         e.add_field(name="Source Image", value=self.target_url)
-        e.set_image(url=f"attachment://img")
-        return await self.bot.reply(self.interaction, file=File(fp=self.output, filename="img"), embed=e, view=self)
+        e.set_image(url="attachment://img")
+        return await self.bot.reply(
+            self.interaction,
+            file=File(fp=self.output, filename="img"),
+            embed=e,
+            view=self,
+        )
 
 
 class Images(Cog):
@@ -264,29 +317,59 @@ class Images(Cog):
     images = Group(name="images", description="image manipulation commands")
 
     @images.command()
-    @describe(user="Select a user", link="Provide a link to an image", file="Upload a file")
-    async def eyes(self, interaction: Interaction, user: Member | User = None, link: str = None,
-                   file: Attachment = None) -> Message:
-        """Draw Googly eyes on an image. Mention a user to use their avatar. Only works for human faces."""
+    @describe(
+        user="Select a user",
+        link="Provide a link to an image",
+        file="Upload a file",
+    )
+    async def eyes(
+        self,
+        interaction: Interaction,
+        user: Member | User = None,
+        link: str = None,
+        file: Attachment = None,
+    ) -> Message:
+        """Draw Googly eyes on an image. Mention a user to use their avatar.
+        Only works for human faces."""
         await interaction.response.defer(thinking=True)
-        return await ImageView(interaction, link=link, user=user, file=file).push_eyes()
+        return await ImageView(
+            interaction, link=link, user=user, file=file
+        ).push_eyes()
 
     @images.command()
-    @describe(user="Select a user", link="Provide a link to an image", file="Upload a file")
-    async def ruins(self, interaction: Interaction, user: Member | User = None, link: str = None,
-                    file: Attachment = None) -> Message:
+    @describe(
+        user="Select a user",
+        link="Provide a link to an image",
+        file="Upload a file",
+    )
+    async def ruins(
+        self,
+        interaction: Interaction,
+        user: Member | User = None,
+        link: str = None,
+        file: Attachment = None,
+    ) -> Message:
         """Local man ruins everything"""
         await interaction.response.defer(thinking=True)
-        return await ImageView(interaction, link=link, user=user, file=file).push_ruins()
+        return await ImageView(
+            interaction, link=link, user=user, file=file
+        ).push_ruins()
 
     @images.command()
     @describe(user="pick a user", link="provide a link", file="upload a file")
-    async def bob_ross(self, interaction: Interaction, user: User | Member = None, link: str = None,
-                       file: Attachment = None) -> Message:
+    async def bob_ross(
+        self,
+        interaction: Interaction,
+        user: User | Member = None,
+        link: str = None,
+        file: Attachment = None,
+    ) -> Message:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
 
         await interaction.response.defer()
-        return await ImageView(interaction, link=link, user=user, file=file).push_bob()
+        return await ImageView(
+            interaction, link=link, user=user, file=file
+        ).push_bob()
 
     @images.command()
     @guild_only()
@@ -303,7 +386,9 @@ class Images(Cog):
             except AttributeError:
                 continue
         else:
-            return await self.bot.error(interaction, "Nobody swiped right on you.")
+            return await self.bot.error(
+                interaction, "Nobody swiped right on you."
+            )
 
         def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
             """Draw Images for the tinder command"""
@@ -311,16 +396,23 @@ class Images(Cog):
             im: Image = Image.open("Images/tinder.png").convert(mode="RGBA")
 
             # Prepare the Mask and set size.
-            mask: Image = ImageOps.fit(Image.open("Images/circle mask.png").convert('L'), (185, 185))
+            mask: Image = ImageOps.fit(
+                Image.open("Images/circle mask.png").convert("L"), (185, 185)
+            )
 
             # Open the User's Avatar, fit to size, apply mask.
-            avatar: Image = ImageOps.fit(Image.open(BytesIO(avatar)).convert(mode="RGBA"), (185, 185))
+            avatar: Image = ImageOps.fit(
+                Image.open(BytesIO(avatar)).convert(mode="RGBA"), (185, 185)
+            )
             avatar.putalpha(mask)
             im.paste(avatar, box=(100, 223, 285, 408), mask=mask)
 
             # Open the second user's avatar, do same.
-            other: Image = ImageOps.fit(Image.open(BytesIO(image)).convert(mode="RGBA"), (185, 185),
-                                        centering=(0.5, 0.0))
+            other: Image = ImageOps.fit(
+                Image.open(BytesIO(image)).convert(mode="RGBA"),
+                (185, 185),
+                centering=(0.5, 0.0),
+            )
             other.putalpha(mask)
             im.paste(other, box=(313, 223, 498, 408), mask=mask)
 
@@ -331,23 +423,31 @@ class Images(Cog):
 
             # Write "it's a mutual match"
             text = f"You and {user_name} have liked each other."
-            font = ImageFont.truetype('Whitney-Medium.ttf', 24)
+            font = ImageFont.truetype("Whitney-Medium.ttf", 24)
             w = font.getsize(text)[0]  # Width, Height
-            ImageDraw.Draw(im).text((300 - w / 2, 180), text, font=font, fill="#ffffff")
+            ImageDraw.Draw(im).text(
+                (300 - w / 2, 180), text, font=font, fill="#ffffff"
+            )
 
             im.save(out := BytesIO(), "PNG")
             im.close()
             out.seek(0)
             return out
 
+        u = interaction.user.mention
         output = await to_thread(draw_tinder, target, av, name)
         if match.id == interaction.user.id:
-            caption = f"{interaction.user.mention} matched with themself, How pathetic."
+            caption = f"{u} matched with themself, How pathetic."
         elif match.id == self.bot.user.id:
-            caption = f"{interaction.user.mention} Fancy a shag?"
+            caption = f"{u} Fancy a shag?"
         else:
-            caption = f"{interaction.user.mention} matched with {match.mention}"
-        icon = "https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/512/tinder-512.png"
+            caption = (
+                f"{interaction.user.mention} matched with {match.mention}"
+            )
+        icon = (
+            "https://cdn0.iconfinder.com/data/icons/"
+            "social-flat-rounded-rects/512/tinder-512.png"
+        )
         e: Embed = Embed(description=caption, colour=0xFD297B)
         e.set_author(name="Tinder", icon_url=icon)
         return await embed_image(interaction, e, output, filename="Tinder.png")

@@ -13,8 +13,10 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-URI = ("https://worldofwarships.eu/en/content/"
-       "contents-and-drop-rates-of-containers/")
+URI = (
+    "https://worldofwarships.eu/en/content/"
+    "contents-and-drop-rates-of-containers/"
+)
 # TODO: Container drops
 
 
@@ -30,7 +32,7 @@ class Test(commands.Cog):
         if "get_lootbox/" not in request.url:
             return
 
-        logging.debug(f'REQUEST RECEIVED {request.url}\n')
+        logging.debug(f"REQUEST RECEIVED {request.url}\n")
         resp = await request.response()
         logging.debug(resp.json())
 
@@ -42,10 +44,11 @@ class Test(commands.Cog):
         await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()
 
-        page.on('request', lambda r: self.bot.loop.create_task(
-            self.get_request(r)))
+        page.on(
+            "request", lambda r: self.bot.loop.create_task(self.get_request(r))
+        )
         await page.goto(URI)
-        msg = 'Request complete, check console.'
+        msg = "Request complete, check console."
         return await self.bot.reply(interaction, msg)
 
 

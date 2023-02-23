@@ -17,10 +17,10 @@ translations: dict = {}
 
 for x in Locale:
     try:
-        with open(f'./ext/utils/translations/{x.name}.json') as f:
+        with open(f"./ext/utils/translations/{x.name}.json") as f:
             translations[x] = json.load(f)
     except Exception as e:
-        logging.error(f'{e} Unable to load translation file {x}, {x.name}.json')
+        logging.error(f"{e} Unable to load translation {x}, {x.name}.json")
 
 
 class TL(Translator):
@@ -32,15 +32,20 @@ class TL(Translator):
 
     async def unload(self):
         """On Unload."""
-        # in case you need to switch translators, this gets called when being removed
+        # in case you need to switch translators, this gets called
+        # when being removed
 
-    async def translate(self, string: locale_str, locale: Locale, context: TranslationContext) -> str | None:
+    async def translate(
+        self, string: locale_str, locale: Locale, context: TranslationContext
+    ) -> str | None:
         """
         `locale_str` is the string that is requesting to be translated
         `locale` is the target language to translate to
-        `context` is the origin of this string, eg TranslationContext.command_name, etc
-        This function must return a string (that's been translated), or `None` to signal no available translation
-        available, and will default to the original.
+        `context` is the origin of this string,
+        eg TranslationContext.command_name, etc
+        This function must return a string (that's been translated), or `None`
+        to signal no available translation available, and will default to the
+        original.
         """
 
         try:

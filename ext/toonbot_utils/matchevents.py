@@ -8,29 +8,30 @@ from typing import Optional, TYPE_CHECKING, Type
 from discord import Colour, Embed
 from lxml import etree
 
+from ext.toonbot_utils.flashscore import Player
+
 if TYPE_CHECKING:
-    from ext.toonbot_utils.flashscore import Team, Fixture, Player
+    from ext.toonbot_utils.flashscore import Team, Fixture
 
 
 # This function Generates Event Objects from the etree.
 def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
     """Get a list of match events"""
-    from ext.toonbot_utils.flashscore import Player
 
     events = []
 
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
         # Detection of Teams
-        team_detection = i.attrib['class']
+        team_detection = i.attrib["class"]
         if "Header" in team_detection:
-            parts = [x.strip() for x in i.xpath('.//text()')]
+            parts = [x.strip() for x in i.xpath(".//text()")]
             if "Penalties" in parts:
                 try:
                     fixture.penalties_home = parts[1]
                     fixture.penalties_away = parts[3]
                 except ValueError:
                     _, pen_string = parts
-                    h, a = pen_string.split(' - ')
+                    h, a = pen_string.split(" - ")
                     fixture.penalties_home = h
                     fixture.penalties_away = a
             continue
@@ -45,15 +46,15 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
             continue
 
         node = i.xpath('./div[contains(@class, "incident")]')[0]  # event_node
-        xp = './/div[contains(@class, "incidentIcon")]//@title'
-        title = ''.join(node.xpath(xp)).strip()
-        description = title.replace('<br />', ' ')
+        xpath = './/div[contains(@class, "incidentIcon")]//@title'
+        title = "".join(node.xpath(xpath)).strip()
+        description = title.replace("<br />", " ")
 
-        xp = './/div[contains(@class, "incidentIcon")]//svg//text()'
-        icon_desc = ''.join(node.xpath(xp)).strip()
+        xpath = './/div[contains(@class, "incidentIcon")]//svg//text()'
+        icon_desc = "".join(node.xpath(xpath)).strip()
 
-        xp = './/div[contains(@class, "incidentIcon")]//svg/@class'
-        match (icon := ''.join(node.xpath(xp)).strip()).lower():
+        xpath = './/div[contains(@class, "incidentIcon")]//svg/@class'
+        match (icon := "".join(node.xpath(xpath)).strip()).lower():
             # Goal types
             case "footballGoal-ico" | "soccer":
                 match icon_desc.lower():
@@ -63,8 +64,9 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
                         event = Penalty()
                     case _:
                         logging.error(
-                            f"[GOAL] icon: <{icon}> unhandled "
-                            f"icon_desc: <{icon_desc}> on {fixture.url}")
+                            f"[GOAL] icon: <{icon}> unhandled"
+                            f"icon_desc: <{icon_desc}> on {fixture.url}"
+                        )
                         continue
             case "footballowngoal-ico" | "soccer footballowngoal-ico":
                 event = OwnGoal()
@@ -91,18 +93,18 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
                 event = Substitution()
 
                 p = Player()
-                xp = './/div[contains(@class, "incidentSubOut")]/a/text()'
-                p.name = "".join(node.xpath(xp)).strip()
+                xpath = './/div[contains(@class, "incidentSubOut")]/a/text()'
+                p.name = "".join(node.xpath(xpath)).strip()
 
-                xp = './/div[contains(@class, "incidentSubOut")]/a/@href'
-                p.url = "".join(node.xpath(xp)).strip()
+                xpath = './/div[contains(@class, "incidentSubOut")]/a/@href'
+                p.url = "".join(node.xpath(xpath)).strip()
 
                 event.player_off = p
             # VAR types
             case "var-ico" | "var":
                 event = VAR()
                 if not icon_desc:
-                    icon_desc = ''.join(node.xpath('./div//text()')).strip()
+                    icon_desc = "".join(node.xpath("./div//text()")).strip()
                 if icon_desc:
                     event.note = icon_desc
             case "varlive-ico" | "var varlive-ico":
@@ -135,46 +137,49 @@ def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
                         p = Player()
 
                         s = './/div[contains(@class, "incidentSubOut")]/a/'
-                        p.name = "".join(node.xpath(s + 'text()')).strip()
+                        p.name = "".join(node.xpath(s + "text()")).strip()
                         p.url = "".join(node.xpath(s + "@href")).strip()
 
                         event.player_off = p
                     case _:
-                        logging.error(f"Match Event (icon: {icon})\n"
-                                      f"icon_desc: {icon_desc}\n{fixture.url}")
+                        logging.error(
+                            f"Match Event (icon: {icon})\n"
+                            f"icon_desc: {icon_desc}\n{fixture.url}"
+                        )
                         continue
 
         event.team = team
 
         # Data not always present.
-        xp = './/a[contains(@class, "playerName")]//text()'
-        if name := ''.join(node.xpath(xp)).strip():
+        xpath = './/a[contains(@class, "playerName")]//text()'
+        if name := "".join(node.xpath(xpath)).strip():
             p = Player(fixture.bot)
             p.name = name
-            xp = './/a[contains(@class, "playerName")]//@href'
-            p.url = ''.join(node.xpath(xp)).strip()
+            xpath = './/a[contains(@class, "playerName")]//@href'
+            p.url = "".join(node.xpath(xpath)).strip()
             event.player = p
 
-        xp = './/div[contains(@class, "assist")]//text()'
-        if assist := ''.join(node.xpath(xp)):
+        xpath = './/div[contains(@class, "assist")]//text()'
+        if assist := "".join(node.xpath(xpath)):
             p = Player(fixture.bot)
-            p.name = assist.strip('()')
+            p.name = assist.strip("()")
 
-            xp = './/div[contains(@class, "assist")]//@href'
-            p.url = ''.join(node.xpath(xp))
+            xpath = './/div[contains(@class, "assist")]//@href'
+            p.url = "".join(node.xpath(xpath))
             event.assist = p
 
         if description:
             event.description = description
 
-        xp = './/div[contains(@class, "timeBox")]//text()'
-        event.time = ''.join(node.xpath(xp)).strip()
+        xpath = './/div[contains(@class, "timeBox")]//text()'
+        event.time = "".join(node.xpath(xpath)).strip()
         events.append(event)
     return events
 
 
 class MatchEvent:
     """An object representing an event happening in a fixture"""
+
     __slots__ = ("note", "description", "player", "team", "time", "fixture")
 
     colour: Colour = None
@@ -198,29 +203,32 @@ class MatchEvent:
     @property
     def embed(self) -> Embed:
         """The Embed for this match event"""
-        e = Embed(description=str(self), colour=self.colour)
-        e.set_author(name=f"{self.__class__.__name__} ({self.team.name})",
-                     icon_url=self.icon_url)
+        eembed = Embed(description=str(self), colour=self.colour)
+        eembed.set_author(
+            name=f"{self.__class__.__name__} ({self.team.name})",
+            icon_url=self.icon_url,
+        )
 
         if self.team is not None:
-            e.set_thumbnail(url=self.team.logo_url)
-        return e
+            eembed.set_thumbnail(url=self.team.logo_url)
+        return eembed
 
     @property
     def embed_extended(self) -> Embed:
         """The Extended Embed for this match event"""
-        e = self.embed
+        embed = self.embed
         if self.fixture:
             for x in self.fixture.events:
                 if x == self:
                     continue
-                e.description += f"\n{str(x)}"
-        return e
+                embed.description += f"\n{str(x)}"
+        return embed
 
 
 class Substitution(MatchEvent):
     """A substitution event for a fixture"""
-    __slots__ = ['player_off']
+
+    __slots__ = ["player_off"]
 
     Colour = Colour.greyple()
 
@@ -229,18 +237,19 @@ class Substitution(MatchEvent):
         self.player_off: Optional[Player] = None
 
     def __str__(self) -> str:
-        o = ['`🔄`'] if self.time is None else [f"`🔄 {self.time}`"]
+        o = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
         if self.team is not None:
             o.append(self.team.tag)
         if self.player is not None:
             o.append(f"🔺 {self.player.markdown}")
         if self.player_off is not None:
             o.append(f"🔻 {self.player_off.markdown}")
-        return ' '.join(o)
+        return " ".join(o)
 
 
 class Goal(MatchEvent):
     """A Generic Goal Event"""
+
     __slots__ = "assist"
 
     colour = Colour.green()
@@ -259,12 +268,12 @@ class Goal(MatchEvent):
             o.append(f"(ass: {self.assist.markdown})")
         if self.note is not None:
             o.append(f"({self.note})")
-        return ' '.join(o)
+        return " ".join(o)
 
     @property
     def emote(self) -> str:
         """An Emoji representing a Goal"""
-        return '⚽'
+        return "⚽"
 
     @property
     def timestamp(self) -> str:
@@ -280,8 +289,7 @@ class OwnGoal(Goal):
 
     colour = Colour.dark_green()
 
-    def __init__(self) -> None:
-        super().__init__()
+    super().__init__()
 
     @property
     def emote(self) -> str:
@@ -291,7 +299,8 @@ class OwnGoal(Goal):
 
 class Penalty(Goal):
     """A Penalty Event"""
-    __slots__ = ['missed']
+
+    __slots__ = ["missed"]
 
     colour = Colour.brand_green()
 
@@ -334,24 +343,23 @@ class RedCard(MatchEvent):
             o.append(self.player.markdown)
 
         if self.note is not None:
-            if 'Red card' not in self.note:
+            if "Red card" not in self.note:
                 o.append(f"({self.note})")
-        return ' '.join(o)
+        return " ".join(o)
 
     @property
     def emote(self) -> str:
         """Return an emoji representing a red card"""
-        return '🟥'
+        return "🟥"
 
 
 class SecondYellow(RedCard):
     """An object representing the event of a dismissal of a player
-       after a second yellow card"""
+    after a second yellow card"""
 
     colour = Colour.brand_red()
 
-    def __init__(self) -> None:
-        super().__init__()
+    super().__init__()
 
     def __str__(self) -> str:
 
@@ -367,19 +375,19 @@ class SecondYellow(RedCard):
             o.append(self.player.markdown)
 
         if self.note is not None:
-            if 'Yellow card / Red card' not in self.note:
+            if "Yellow card / Red card" not in self.note:
                 o.append(f"({self.note})")
-        return ' '.join(o)
+        return " ".join(o)
 
     @property
     def emote(self) -> str:
         """Return an emoji representing a second yellow card"""
-        return '🟨🟥'
+        return "🟨🟥"
 
 
 class Booking(MatchEvent):
     """An object representing the event of a player being given
-      a yellow card"""
+    a yellow card"""
 
     colour = Colour.yellow()
 
@@ -400,19 +408,20 @@ class Booking(MatchEvent):
             o.append(self.player.markdown)
 
         if self.note:
-            if self.note.lower().strip() != 'yellow card':
+            if self.note.lower().strip() != "yellow card":
                 o.append(f"({self.note})")
-        return ' '.join(o)
+        return " ".join(o)
 
     @property
     def emote(self) -> str:
         """Return an emoji representing a booking"""
-        return '🟨'
+        return "🟨"
 
 
 class VAR(MatchEvent):
     """An Object Representing the event of a
-       Video Assistant Referee Review Decision"""
+    Video Assistant Referee Review Decision"""
+
     __slots__ = ["in_progress", "assist"]
 
     colour = Colour.og_blurple()
@@ -432,14 +441,19 @@ class VAR(MatchEvent):
             o.append(f"({self.note})")
         if self.in_progress:
             o.append("\n**DECISION IN PROGRESS**")
-        return ' '.join(o)
+        return " ".join(o)
 
 
 class EventType(Enum):
     """An Enum representing an EventType for ticker events"""
 
-    def __init__(self, value: str, colour: Colour, db_fields: list[str],
-                 valid_events: Type[MatchEvent]):
+    def __init__(
+        self,
+        value: str,
+        colour: Colour,
+        db_fields: list[str],
+        valid_events: Type[MatchEvent],
+    ):
         self._value_ = value
         self.colour = colour
         self.db_fields = db_fields
@@ -453,13 +467,21 @@ class EventType(Enum):
     # Cards
     RED_CARD = "Red Card", Colour.red(), ["var"], RedCard | VAR
     VAR_RED_CARD = "VAR Red Card", Colour.og_blurple(), ["var"], VAR
-    RED_CARD_OVERTURNED = ("Red Card Overturned", Colour.og_blurple(), ["var"],
-                           VAR)
+    RED_CARD_OVERTURNED = (
+        "Red Card Overturned",
+        Colour.og_blurple(),
+        ["var"],
+        VAR,
+    )
 
     # State Changes
     DELAYED = "Match Delayed", Colour.orange(), ["delayed"], type(None)
-    INTERRUPTED = ("Match Interrupted", Colour.dark_orange(), ["delayed"],
-                   type(None))
+    INTERRUPTED = (
+        "Match Interrupted",
+        Colour.dark_orange(),
+        ["delayed"],
+        type(None),
+    )
     CANCELLED = "Match Cancelled", Colour.red(), ["delayed"], type(None)
     POSTPONED = "Match Postponed", Colour.red(), ["delayed"], type(None)
     ABANDONED = "Match Abandoned", Colour.red(), ["full_time"], type(None)
@@ -467,32 +489,80 @@ class EventType(Enum):
 
     # Period Changes
     KICK_OFF = "Kick Off", Colour.green(), ["kick_off"], type(None)
-    HALF_TIME = "Half Time", 0x00ffff, ["half_time"], type(None)
-    SECOND_HALF_BEGIN = ("Second Half", Colour.light_gray(),
-                         ["second_half_begin"], type(None))
-    PERIOD_BEGIN = ("Period #PERIOD#", Colour.light_gray(),
-                    ["second_half_begin"], type(None))
-    PERIOD_END = ("Period #PERIOD# Ends", Colour.light_gray(), ["half_time"],
-                  type(None))
+    HALF_TIME = "Half Time", 0x00FFFF, ["half_time"], type(None)
+    SECOND_HALF_BEGIN = (
+        "Second Half",
+        Colour.light_gray(),
+        ["second_half_begin"],
+        type(None),
+    )
+    PERIOD_BEGIN = (
+        "Period #PERIOD#",
+        Colour.light_gray(),
+        ["second_half_begin"],
+        type(None),
+    )
+    PERIOD_END = (
+        "Period #PERIOD# Ends",
+        Colour.light_gray(),
+        ["half_time"],
+        type(None),
+    )
 
     FULL_TIME = "Full Time", Colour.teal(), ["full_time"], type(None)
-    FINAL_RESULT_ONLY = ("Final Result", Colour.teal(), ["final_result_only"],
-                         type(None))
-    SCORE_AFTER_EXTRA_TIME = ("Score After Extra Time", Colour.teal(),
-                              ["full_time"], type(None))
+    FINAL_RESULT_ONLY = (
+        "Final Result",
+        Colour.teal(),
+        ["final_result_only"],
+        type(None),
+    )
+    SCORE_AFTER_EXTRA_TIME = (
+        "Score After Extra Time",
+        Colour.teal(),
+        ["full_time"],
+        type(None),
+    )
 
-    NORMAL_TIME_END = ("End of normal time", Colour.greyple(), ["extra_time"],
-                       type(None))
-    EXTRA_TIME_BEGIN = ("ET: First Half", Colour.lighter_grey(),
-                        ["extra_time"], type(None))
-    HALF_TIME_ET_BEGIN = ("ET: Half Time", Colour.light_grey(),
-                          ["half_time", "extra_time"], type(None))
-    HALF_TIME_ET_END = ("ET: Second Half", Colour.dark_grey(),
-                        ["second_half_begin", "extra_time"], type(None))
-    EXTRA_TIME_END = ("ET: End of Extra Time", Colour.darker_gray(),
-                      ["extra_time"], type(None))
+    NORMAL_TIME_END = (
+        "End of normal time",
+        Colour.greyple(),
+        ["extra_time"],
+        type(None),
+    )
+    EXTRA_TIME_BEGIN = (
+        "ET: First Half",
+        Colour.lighter_grey(),
+        ["extra_time"],
+        type(None),
+    )
+    HALF_TIME_ET_BEGIN = (
+        "ET: Half Time",
+        Colour.light_grey(),
+        ["half_time", "extra_time"],
+        type(None),
+    )
+    HALF_TIME_ET_END = (
+        "ET: Second Half",
+        Colour.dark_grey(),
+        ["second_half_begin", "extra_time"],
+        type(None),
+    )
+    EXTRA_TIME_END = (
+        "ET: End of Extra Time",
+        Colour.darker_gray(),
+        ["extra_time"],
+        type(None),
+    )
 
-    PENALTIES_BEGIN = ("Penalties Begin", Colour.dark_gold(), ["penalties"],
-                       type(None))
-    PENALTY_RESULTS = ("Penalty Results", Colour.gold(), ["penalties"],
-                       type(None))
+    PENALTIES_BEGIN = (
+        "Penalties Begin",
+        Colour.dark_gold(),
+        ["penalties"],
+        type(None),
+    )
+    PENALTY_RESULTS = (
+        "Penalty Results",
+        Colour.gold(),
+        ["penalties"],
+        type(None),
+    )

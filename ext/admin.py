@@ -11,30 +11,43 @@ from traceback import format_exception
 from typing import TYPE_CHECKING
 
 from discord import Interaction, Embed, Colour, Message, Object
-from discord.app_commands import (Choice, describe, autocomplete, Group,
-                                  command, guilds, Command, ContextMenu)
+from discord.app_commands import (
+    Choice,
+    describe,
+    autocomplete,
+    Group,
+    command,
+    guilds,
+    Command,
+    ContextMenu,
+)
 from discord.ext.commands import Cog, NotOwner
 
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-logger = logging.getLogger('Admin')
+logger = logging.getLogger("Admin")
 
 
 def error_to_codeblock(error):
     """Formatting of python errors into codeblocks"""
     fmt = format_exception(type(error), error, error.__traceback__)
-    return (f':no_entry_sign: {type(error).__name__}: {error}```py\n'
-            f'{"".join(fmt)}```')
+    return (
+        f":no_entry_sign: {type(error).__name__}: {error}```py\n"
+        f'{"".join(fmt)}```'
+    )
 
 
 async def cg_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete from list of cogs"""
     bot: Bot | PBot = interaction.client
 
-    return [Choice(name=c, value=c) for c in sorted(bot.cogs)
-            if current.lower() in c.lower()]
+    return [
+        Choice(name=c, value=c)
+        for c in sorted(bot.cogs)
+        if current.lower() in c.lower()
+    ]
 
 
 class Admin(Cog):
@@ -45,8 +58,9 @@ class Admin(Cog):
 
     @command(name="sync")
     @describe(guild="enter guild ID")
-    async def sync(self, interaction: Interaction,
-                   guild: bool = False) -> Message:
+    async def sync(
+        self, interaction: Interaction, guild: bool = False
+    ) -> Message:
         """Sync the command tree with discord"""
         await interaction.response.defer(thinking=True)
 
@@ -58,8 +72,11 @@ class Admin(Cog):
             await self.bot.tree.sync(guild=Object(id=interaction.guild.id))
             return await self.bot.reply(interaction, "Guild Synced")
 
-    cogs = Group(name="cogs", description="Load and unload modules",
-                 guild_ids=[250252535699341312])
+    cogs = Group(
+        name="cogs",
+        description="Load and unload modules",
+        guild_ids=[250252535699341312],
+    )
 
     @cogs.command(name="reload")
     @describe(cog="pick a cog to reload")
@@ -69,11 +86,14 @@ class Admin(Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.reload_extension(f'ext.{cog.lower()}')
+            await self.bot.reload_extension(f"ext.{cog.lower()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
-        e = Embed(title="Modules", colour=Colour.og_blurple(),
-                  description=f'⚙️ Reloaded {cog}')
+        e = Embed(
+            title="Modules",
+            colour=Colour.og_blurple(),
+            description=f"⚙️ Reloaded {cog}",
+        )
         return await self.bot.reply(interaction, embed=e)
 
     @cogs.command()
@@ -84,12 +104,15 @@ class Admin(Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.load_extension(f'ext.{cog.lower()}')
+            await self.bot.load_extension(f"ext.{cog.lower()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
-        e = Embed(title="Modules", colour=Colour.og_blurple(),
-                  description=f'⚙️ Loaded {cog}')
+        e = Embed(
+            title="Modules",
+            colour=Colour.og_blurple(),
+            description=f"⚙️ Loaded {cog}",
+        )
         return await self.bot.reply(interaction, embed=e)
 
     @cogs.command()
@@ -100,16 +123,22 @@ class Admin(Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.unload_extension(f'ext.{cog.lower()}')
+            await self.bot.unload_extension(f"ext.{cog.lower()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
-        e = Embed(title="Modules", colour=Colour.og_blurple(),
-                  description=f':⚙️: Unloaded {cog}')
-        return await self.bot.reply(interaction, embed=e)
+        embed = Embed(
+            title="Modules",
+            colour=Colour.og_blurple(),
+            description=f":⚙️: Unloaded {cog}",
+        )
+        return await self.bot.reply(interaction, embed=embed)
 
-    console = Group(name="console", description="Console Commands",
-                    guild_ids=[250252535699341312])
+    console = Group(
+        name="console",
+        description="Console Commands",
+        guild_ids=[250252535699341312],
+    )
 
     @console.command(name="print")
     async def _print(self, interaction: Interaction, to_print: str) -> Message:
@@ -119,10 +148,11 @@ class Admin(Cog):
         if not interaction.user.id == self.bot.owner_id:
             raise NotOwner
 
-        logging.critical(f"Print command output\n{to_print}")
+        logging.critical("Print command output\n%s", to_print)
 
-        e = Embed(colour=Colour.og_blurple(),
-                  description=f"```\n{to_print}```")
+        e = Embed(
+            colour=Colour.og_blurple(), description=f"```\n{to_print}```"
+        )
         return await self.bot.reply(interaction, embed=e)
 
     @console.command(name="clear")
@@ -133,13 +163,18 @@ class Admin(Cog):
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
 
-        system('cls')
-        _ = f'{self.bot.user}: {self.bot.initialised_at}'
-        logging.info(f'{_}\n{"-" * len(_)}\nConsole cleared at:\n'
-                     f'{datetime.datetime.utcnow().replace(microsecond=0)}')
+        system("cls")
+        _ = f"{self.bot.user}: {self.bot.initialised_at}"
+        logging.info(
+            f'{_}\n{"-" * len(_)}\nConsole cleared at:\n'
+            f"{datetime.datetime.utcnow().replace(microsecond=0)}"
+        )
 
-        e = Embed(title="Bot Console", colour=Colour.og_blurple(),
-                  description="```\nConsole Log Cleared.```")
+        e = Embed(
+            title="Bot Console",
+            colour=Colour.og_blurple(),
+            description="```\nConsole Log Cleared.```",
+        )
         return await self.bot.reply(interaction, embed=e)
 
     @command(name="quit")
@@ -148,7 +183,7 @@ class Admin(Cog):
         """Log the bot out gracefully."""
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
-        await self.bot.reply(interaction, content='Logging out.')
+        await self.bot.reply(interaction, content="Logging out.")
         return await self.bot.close()
 
     @command(name="debug")
@@ -161,8 +196,8 @@ class Admin(Cog):
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
 
-        code = code.strip('` ')
-        env = {'bot': self.bot, 'ctx': interaction, 'interaction': interaction}
+        code = code.strip("` ")
+        env = {"bot": self.bot, "ctx": interaction, "interaction": interaction}
         env.update(globals())
 
         e1: Embed = Embed(title="Input", colour=Colour.lighter_grey())
@@ -180,16 +215,18 @@ class Admin(Cog):
         if len(e2.description) > 4000:
             logger.log("DEBUG command input\n", code)
             logger.log("DEBUG command output\n", result)
-            e2.description = 'Too long for discord, output sent to logger.'
+            e2.description = "Too long for discord, output sent to logger."
         return await self.bot.reply(interaction, embeds=[e1, e2])
 
     @Cog.listener()
-    async def on_app_command_completion(self, interaction: Interaction,
-                                        cmd: Command | ContextMenu) -> None:
+    async def on_app_command_completion(
+        self, interaction: Interaction, cmd: Command | ContextMenu
+    ) -> None:
         """Log commands as they are run"""
-        guild = interaction.guild.name if interaction.guild else 'DM'
-        logger.info(f'Command Ran [{interaction.user} {guild}]'
-                    '/{cmd.qualified_name}')
+        guild = interaction.guild.name if interaction.guild else "DM"
+        logger.info(
+            f"Command Ran [{interaction.user} {guild}]" "/{cmd.qualified_name}"
+        )
         return
 
 

@@ -16,8 +16,10 @@ if TYPE_CHECKING:
     from core import Bot
     from discord import Interaction, Message, ButtonStyle
 
-COIN = ("https://www.iconpacks.net/icons/1/"
-        "free-heads-or-tails-icon-456-thumb.png")
+COIN = (
+    "https://www.iconpacks.net/icons/1/"
+    "free-heads-or-tails-icon-456-thumb.png"
+)
 
 
 # TODO: Upgrade roll command into dice roller box.
@@ -54,11 +56,13 @@ class DiceBox(BaseView):
 
 class DiceButton(Button):
     """A Generic Button for a die"""
+
     view: DiceBox
 
     def __init__(self, sides: int = 6, row: int = 0):
         super().__init__(
-            label=f"Roll D{sides}", row=row, style=ButtonStyle.blurple)
+            label=f"Roll D{sides}", row=row, style=ButtonStyle.blurple
+        )
 
         self.sides: int = sides
 
@@ -83,7 +87,7 @@ class CoinView(BaseView):
         super().__init__(interaction)
         self.flip_results: list[str] = []
         for x in range(count):
-            self.flip_results.append(choice(['H', 'T']))
+            self.flip_results.append(choice(["H", "T"]))
 
     async def update(self, content: str = None) -> Message:
         """Update embed and push to view"""
@@ -111,7 +115,7 @@ class FlipButton(Button):
 
         await interaction.response.defer()
         for x in range(self.count):
-            self.view.flip_results.append(choice(['H', 'T']))
+            self.view.flip_results.append(choice(["H", "T"]))
         return await self.view.update()
 
 
@@ -119,12 +123,14 @@ class ChoiceModal(Modal):
     """Send a Modal to the User to enter their options in."""
 
     question = TextInput(
-        label="Enter a question", placeholder="What should I do?")
+        label="Enter a question", placeholder="What should I do?"
+    )
 
     answers = TextInput(
         label="Answers (one per line)",
         style=TextStyle.paragraph,
-        placeholder="Sleep\nPlay FIFA")
+        placeholder="Sleep\nPlay FIFA",
+    )
 
     def __init__(self) -> None:
         super().__init__(title="Make a Decision")
@@ -135,19 +141,19 @@ class ChoiceModal(Modal):
         u = interaction.user
 
         e: Embed = Embed(colour=u.colour, title=self.question)
-        e.set_author(icon_url=u.display_avatar.url, name='Choose')
+        e.set_author(icon_url=u.display_avatar.url, name="Choose")
 
         choices = str(self.answers).split("\n")
         shuffle(choices)
 
-        output, medals = [], ['🥇', '🥈', '🥉']
+        output, medals = [], ["🥇", "🥈", "🥉"]
         for x in range(min(len(choices), 3)):
             output.append(f"{medals.pop()} **{choices.pop()}**")
 
         if choices:
-            output.append(', '.join(f"*{i}*" for i in choices))
+            output.append(", ".join(f"*{i}*" for i in choices))
 
-        e.description = '\n'.join(output)
+        e.description = "\n".join(output)
         bot: Bot = interaction.client
         return await bot.reply(interaction, embed=e)
 
@@ -169,7 +175,7 @@ class Random(Cog):
     async def coin(self, interaction: Interaction, count: int = 1) -> Message:
         """Flip a coin"""
         if count > 10000:
-            return await self.bot.error(interaction, content='Too many coins.')
+            return await self.bot.error(interaction, content="Too many coins.")
 
         v = CoinView(interaction, count=count)
         v.add_item(FlipButton())
@@ -181,33 +187,56 @@ class Random(Cog):
 
     @command(name="8ball")
     @describe(question="enter a question")
-    async def eight_ball(self, interaction: Interaction,
-                         question: str) -> Message:
+    async def eight_ball(
+        self, interaction: Interaction, question: str
+    ) -> Message:
         """Magic Geordie 8ball"""
-        res = ["probably", "Aye", "aye mate", "wey aye.", "aye trust is pal.",
-               "Deffo m8", "fuckin aye.", "fucking rights", "think so",
-               "absofuckinlutely",
-               # Negative
-               "me pal says nar.", "divn't think so", "probs not like.",
-               "nar pal soz", "fuck no", "deffo not.", "nar", "wey nar",
-               "fuck off ya daftie", "absofuckinlutely not",
-               # later
-               "am not sure av just had a bucket", "al tel you later",
-               "giz a minute to figure it out", "mebbe like",
-               "dain't bet on it like"
-               ]
+        res = [
+            "probably",
+            "Aye",
+            "aye mate",
+            "wey aye.",
+            "aye trust is pal.",
+            "Deffo m8",
+            "fuckin aye.",
+            "fucking rights",
+            "think so",
+            "absofuckinlutely",
+            # Negative
+            "me pal says nar.",
+            "divn't think so",
+            "probs not like.",
+            "nar pal soz",
+            "fuck no",
+            "deffo not.",
+            "nar",
+            "wey nar",
+            "fuck off ya daftie",
+            "absofuckinlutely not",
+            # later
+            "am not sure av just had a bucket",
+            "al tel you later",
+            "giz a minute to figure it out",
+            "mebbe like",
+            "dain't bet on it like",
+        ]
 
-        e = Embed(title='8 Ball', colour=0x000001,
-                  description=f"**{question}**\n{choice(res)}")
+        e = Embed(
+            title="8 Ball",
+            colour=0x000001,
+            description=f"**{question}**\n{choice(res)}",
+        )
 
-        e.set_author(icon_url=interaction.user.display_avatar.url,
-                     name=interaction.user)
+        e.set_author(
+            icon_url=interaction.user.display_avatar.url, name=interaction.user
+        )
         return await self.bot.reply(interaction, embed=e)
 
     @command()
     @describe(dice="enter a roll (format: 1d20+3)")
-    async def roll(self, interaction: Interaction,
-                   dice: str = "d20") -> Message:
+    async def roll(
+        self, interaction: Interaction, dice: str = "d20"
+    ) -> Message:
         """Roll a set of dice in the format XdY+Z.
         Use 'adv' or 'dis' for (dis)advantage"""
 
@@ -225,7 +254,7 @@ class Random(Cog):
 
         e.description = ""
 
-        roll_list = dice.split(' ')
+        roll_list = dice.split(" ")
         if len(roll_list) == 1:
             roll_list = [dice]
 
@@ -247,7 +276,7 @@ class Random(Cog):
 
             try:
                 if "+" in r:
-                    r, b = r.split('+')
+                    r, b = r.split("+")
                     bonus += int(b)
                 elif "-" in r:
                     r, b = r.split("-")
@@ -260,23 +289,23 @@ class Random(Cog):
                 dice = 1
             else:
                 try:
-                    dice, sides = r.split('d')
+                    dice, sides = r.split("d")
                     dice = int(dice)
                 except ValueError:
                     dice = 1
                     try:
-                        sides = int(''.join([i for i in r if i.isdigit()]))
+                        sides = int("".join([i for i in r if i.isdigit()]))
                     except ValueError:
                         sides = 20
                 else:
                     sides = int(sides)
 
                 if dice > 1000:
-                    return await self.bot.error(interaction, 'Too many dice')
+                    return await self.bot.error(interaction, "Too many dice")
                 if sides > 1000000:
-                    return await self.bot.error(interaction, 'Too many sides')
+                    return await self.bot.error(interaction, "Too many sides")
                 if sides < 2:
-                    err = 'Not enough sides'
+                    err = "Not enough sides"
                     return await self.bot.error(interaction, err)
 
             e.description += f"{r}: "
@@ -290,8 +319,8 @@ class Random(Cog):
                 if dice in ["adv", "dis"]:
                     second_roll = randrange(1, 1 + sides)
 
-                    bool_a = (advantage and second_roll > first_roll)
-                    bool_b = (disadvantage and second_roll < first_roll)
+                    bool_a = advantage and second_roll > first_roll
+                    bool_b = disadvantage and second_roll < first_roll
 
                     if bool_a or bool_b:
                         roll_outcome = second_roll

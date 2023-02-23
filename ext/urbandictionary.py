@@ -19,19 +19,30 @@ if TYPE_CHECKING:
     from core import Bot
     from discord import Interaction, Message
 
-THUMBNAIL = "http://d2gatte9o95jao.cloudfront.net/assets/apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
+THUMBNAIL = (
+    "http://d2gatte9o95jao.cloudfront.net/assets/"
+    "apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
+)
 
 
 async def ud_ac(interaction: Interaction, current: str) -> list[Choice]:
     """Autocomplete from list of cogs"""
-    url = f"https://api.urbandictionary.com/v0/autocomplete-extra?term={current}"
+    url = (
+        "https://api.urbandictionary.com/v0/"
+        f"autocomplete-extra?term={current}"
+    )
     async with interaction.client.session.get(url) as resp:
         match resp.status:
             case 200:
                 results = await resp.json()
-                return [Choice(name=f"{r['term']}: {r['preview']}"[:100], value=r['term']) for r in results['results']]
             case _:
                 raise ConnectionError(f"{resp.status} Error accessing {url}")
+
+    res = results["results"]
+    return [
+        Choice(name=f"{r['term']}: {r['preview']}"[:100], value=r["term"])
+        for r in res
+    ]
 
 
 class UrbanView(BaseView):
@@ -55,7 +66,9 @@ class UrbanView(BaseView):
             self.add_item(view_utils.Jump(view=self))
         self.add_item(view_utils.Next(self))
         self.add_item(view_utils.Stop(row=0))
-        return await self.interaction.edit_original_response(embed=self.pages[self.index], view=self)
+        return await self.interaction.edit_original_response(
+            embed=self.pages[self.index], view=self
+        )
 
 
 def parse(results: dict) -> list[Embed]:
@@ -65,25 +78,30 @@ def parse(results: dict) -> list[Embed]:
         e = Embed(color=0xFE3511)
         e.set_author(name=i["word"], url=i["permalink"], icon_url=THUMBNAIL)
         de = i["definition"]
-        for z in finditer(r'\[(.*?)]', de):
-            z1 = z.group(1).replace(' ', "%20")
+        for z in finditer(r"\[(.*?)]", de):
+            z1 = z.group(1).replace(" ", "%20")
             z = z.group()
-            de = de.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
+            de = de.replace(
+                z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})"
+            )
 
         e.description = f"{de[:2046]} …" if len(de) > 2048 else de
 
+        targ = "https://www.urbandictionary.com/define.php?term="
         if i["example"]:
-            ex = i['example']
-            for z in finditer(r'\[(.*?)]', ex):
-                z1 = z.group(1).replace(' ', "%20")
+            ex = i["example"]
+            for z in finditer(r"\[(.*?)]", ex):
+                z1 = z.group(1).replace(" ", "%20")
                 z = z.group()
-                ex = ex.replace(z, f"{z}(https://www.urbandictionary.com/define.php?term={z1})")
+                ex = ex.replace(z, f"{z}({targ + z1})")
 
             ex = f"{ex[:1023]}…" if len(ex) > 1024 else ex
             e.add_field(name="Usage", value=ex)
 
-        e.set_footer(text=f"👍{i['thumbs_up']} 👎{i['thumbs_down']} - {i['author']}")
-        e.timestamp = datetime.datetime.fromisoformat(i['written_on'])
+        e.set_footer(
+            text=f"👍{i['thumbs_up']} 👎{i['thumbs_down']} - {i['author']}"
+        )
+        e.timestamp = datetime.datetime.fromisoformat(i["written_on"])
         embeds.append(e)
     return embeds
 
@@ -95,47 +113,71 @@ class UrbanDictionary(Cog):
         self.bot: Bot = bot
         reload(view_utils)
 
-    ud = Group(name="urban", description="Get definitions from Urban Dictionary")
+    ud = Group(
+        name="urban", description="Get definitions from Urban Dictionary"
+    )
 
     @ud.command()
     @describe(term="enter a search term")
     @autocomplete(term=ud_ac)
-    async def search(self, interaction: Interaction, term: str) -> UrbanView | Message:
+    async def search(
+        self, interaction: Interaction, term: str
+    ) -> UrbanView | Message:
         """Lookup a definition from Urban Dictionary"""
 
         await interaction.response.defer(thinking=True)
-        async with self.bot.session.get(f"http://api.urbandictionary.com/v0/define?term={term}") as resp:
+        async with self.bot.session.get(
+            f"http://api.urbandictionary.com/v0/define?term={term}"
+        ) as resp:
             match resp.status:
                 case 200:
                     if not (embeds := parse(await resp.json())):
-                        return await self.bot.error(interaction, f"🚫 No results found for {term}.")
+                        return await self.bot.error(
+                            interaction, f"🚫 No results found for {term}."
+                        )
                     return await UrbanView(interaction, embeds).update()
                 case _:
-                    return await self.bot.error(interaction, f"🚫 HTTP Error, code: {resp.status}")
+                    return await self.bot.error(
+                        interaction, f"🚫 HTTP Error, code: {resp.status}"
+                    )
 
     @ud.command()
     async def random(self, interaction: Interaction) -> UrbanView | Message:
         """Get some random definitions from Urban Dictionary"""
 
         await interaction.response.defer(thinking=True)
-        async with self.bot.session.get("https://api.urbandictionary.com/v0/random") as resp:
+        async with self.bot.session.get(
+            "https://api.urbandictionary.com/v0/random"
+        ) as resp:
             match resp.status:
                 case 200:
-                    return await UrbanView(interaction, parse(await resp.json())).update()
+                    return await UrbanView(
+                        interaction, parse(await resp.json())
+                    ).update()
                 case _:
-                    return await self.bot.error(interaction, f"🚫 HTTP Error, code: {resp.status}")
+                    return await self.bot.error(
+                        interaction, f"🚫 HTTP Error, code: {resp.status}"
+                    )
 
     @ud.command()
-    async def word_of_the_day(self, interaction: Interaction) -> UrbanView | Message:
+    async def word_of_the_day(
+        self, interaction: Interaction
+    ) -> UrbanView | Message:
         """Get the Word of the Day from Urban Dictionary"""
 
         await interaction.response.defer(thinking=True)
-        async with self.bot.session.get("https://api.urbandictionary.com/v0/words_of_the_day") as resp:
+        async with self.bot.session.get(
+            "https://api.urbandictionary.com/v0/words_of_the_day"
+        ) as resp:
             match resp.status:
                 case 200:
-                    return await UrbanView(interaction, parse(await resp.json())).update()
+                    return await UrbanView(
+                        interaction, parse(await resp.json())
+                    ).update()
                 case _:
-                    return await self.bot.error(interaction, f"🚫 HTTP Error, code: {resp.status}")
+                    return await self.bot.error(
+                        interaction, f"🚫 HTTP Error, code: {resp.status}"
+                    )
 
 
 async def setup(bot: Bot) -> None:

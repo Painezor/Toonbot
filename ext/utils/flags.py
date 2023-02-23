@@ -61,61 +61,83 @@ country_dict = {
     "Turks- and Caicosinseln": "tc",
     "USA": "us",
     "Venezuela": "ve",
-    "Vietnam": "vn"}
+    "Vietnam": "vn",
+}
 
 UNI_DICT = {
-    "a": "🇦", "b": "🇧", "c": "🇨", "d": "🇩", "e": "🇪",
-    "f": "🇫", "g": "🇬", "h": "🇭", "i": "🇮", "j": "🇯",
-    "k": "🇰", "l": "🇱", "m": "🇲", "n": "🇳", "o": "🇴",
-    "p": "🇵", "q": "🇶", "r": "🇷", "s": "🇸", "t": "🇹",
-    "u": "🇺", "v": "🇻", "w": "🇼", "x": "🇽", "y": "🇾", "z": "🇿"
+    "a": "🇦",
+    "b": "🇧",
+    "c": "🇨",
+    "d": "🇩",
+    "e": "🇪",
+    "f": "🇫",
+    "g": "🇬",
+    "h": "🇭",
+    "i": "🇮",
+    "j": "🇯",
+    "k": "🇰",
+    "l": "🇱",
+    "m": "🇲",
+    "n": "🇳",
+    "o": "🇴",
+    "p": "🇵",
+    "q": "🇶",
+    "r": "🇷",
+    "s": "🇸",
+    "t": "🇹",
+    "u": "🇺",
+    "v": "🇻",
+    "w": "🇼",
+    "x": "🇽",
+    "y": "🇾",
+    "z": "🇿",
 }
 
 
 def get_flag(country: str) -> str | None:
     """Get a flag emoji from a string representing a country"""
-    for x in ['Retired', 'Without Club']:
-        country = country.strip().replace(x, '')
+    for x in ["Retired", "Without Club"]:
+        country = country.strip().replace(x, "")
 
     if not country.strip():
-        return ''
+        return ""
 
     if (country := country.strip()) in country_dict:
         country = country_dict.get(country)
 
     match country.lower():
-        case "england" | 'en':
-            return '🏴󠁧󠁢󠁥󠁮󠁧󠁿'
+        case "england" | "en":
+            return "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
         case "scotland":
-            return '🏴󠁧󠁢󠁳󠁣󠁴󠁿'
+            return "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
         case "wales":
-            return '🏴󠁧󠁢󠁷󠁬󠁳󠁿'
-        case 'uk':
-            return '🇬🇧'
+            return "🏴󠁧󠁢󠁷󠁬󠁳󠁿"
+        case "uk":
+            return "🇬🇧"
         case "world":
-            return '🌍'
-        case 'cs':
-            return '🇨🇿'
-        case 'da':
-            return '🇩🇰'
-        case 'ko':
-            return '🇰🇷'
-        case 'zh':
-            return '🇨🇳'
-        case 'ja':
-            return '🇯🇵'
-        case 'usa':
-            return '🇺🇸'
-        case 'pan_america':
+            return "🌍"
+        case "cs":
+            return "🇨🇿"
+        case "da":
+            return "🇩🇰"
+        case "ko":
+            return "🇰🇷"
+        case "zh":
+            return "🇨🇳"
+        case "ja":
+            return "🇯🇵"
+        case "usa":
+            return "🇺🇸"
+        case "pan_america":
             return "<:PanAmerica:991330048390991933>"
         case "commonwealth":
             return "<:Commonwealth:991329664591212554>"
         case "ussr":
             return "<:USSR:991330483445186580>"
-        case 'europe':
+        case "europe":
             return "🇪🇺"
         case "other":
-            return '🌍'
+            return "🌍"
 
     # Check if py country has country
     try:
@@ -124,7 +146,7 @@ def get_flag(country: str) -> str | None:
         pass
 
     if len(country) != 2:
-        logging.info(f'No flag country found for {country}')
-        return ''
+        logging.info(f"No flag country found for {country}")
+        return ""
 
-    return ''.join(UNI_DICT[c] for c in country.lower() if c)
+    return "".join(UNI_DICT[c] for c in country.lower() if c)

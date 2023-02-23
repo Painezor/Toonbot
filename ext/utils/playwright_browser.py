@@ -1,9 +1,9 @@
 """Use Playwright to control a header-less Browser"""
 from __future__ import annotations
-from playwright.async_api import async_playwright, Browser, ViewportSize
+from playwright.async_api import async_playwright, BrowserContext, ViewportSize
 
 
-async def make_browser() -> Browser:
+async def make_browser() -> BrowserContext:
     """Spawn an instance of Chromium to act as the headerless browser"""
     pw = await async_playwright().start()
     browser = await pw.chromium.launch(headless=True)

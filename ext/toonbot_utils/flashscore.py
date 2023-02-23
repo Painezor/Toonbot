@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, Optional, ClassVar
 from discord import Embed, Interaction, Colour
 from discord.app_commands import Choice
 from lxml import html
-from playwright.async_api import Page, TimeoutError
+from playwright.async_api import Page
 
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import EventType
@@ -25,26 +25,27 @@ if TYPE_CHECKING:
 
 # TODO: Figure out caching system for high intensity lookups
 
-logger = logging.getLogger('flashscore')
+logger = logging.getLogger("flashscore")
 
-ADS = ('.ads-envelope, '
-       '.bannerEnvelope, '
-       '.banner--sticky, '
-       '.extraContent, '
-       '.seoAdWrapper, '
-       '.isSticky, '
-       '.ot-sdk-container, '
-       '.otPlaceholder, '
-       '.onetrust-consent-sdk, '
-       '.rollbar, '
-       '.selfPromo, '
-       '#box-over-content, '
-       '#box-over-content-detail, '
-       '#box-over-content-a,'
-       '#lsid-window-mask'
-       )
+ADS = (
+    ".ads-envelope, "
+    ".bannerEnvelope, "
+    ".banner--sticky, "
+    ".extraContent, "
+    ".seoAdWrapper, "
+    ".isSticky, "
+    ".ot-sdk-container, "
+    ".otPlaceholder, "
+    ".onetrust-consent-sdk, "
+    ".rollbar, "
+    ".selfPromo, "
+    "#box-over-content, "
+    "#box-over-content-detail, "
+    "#box-over-content-a,"
+    "#lsid-window-mask"
+)
 
-FLASHSCORE = 'https://www.flashscore.com'
+FLASHSCORE = "https://www.flashscore.com"
 LOGO_URL = FLASHSCORE + "/res/image/data/"
 INJURY_EMOJI = "<:injury:682714608972464187>"
 DEFAULT_LEAGUES = [
@@ -66,14 +67,14 @@ DEFAULT_LEAGUES = [
     "SCOTLAND: Premiership",
     "SPAIN: Copa del Rey",
     "SPAIN: LaLiga",
-    "USA: MLS"
+    "USA: MLS",
 ]
 WORLD_CUP_LEAGUES = [
     "EUROPE: World Cup",
     "ASIA: World Cup",
     "AFRICA: World Cup",
     "NORTH & CENTRAL AMERICA: World Cup",
-    "SOUTH AMERICA: World Cup"
+    "SOUTH AMERICA: World Cup",
 ]
 
 semaphore = Semaphore(5)
@@ -83,19 +84,24 @@ semaphore = Semaphore(5)
 async def lg_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete from list of stored leagues"""
     bot: Bot = interaction.client
-    matches = [i for i in bot.competitions
-               if current.lower() in i.title.lower() and i.id is not None]
+    matches = [
+        i
+        for i in bot.competitions
+        if current.lower() in i.title.lower() and i.id is not None
+    ]
     return [Choice(name=i.title[:100], value=i.id) for i in list(matches)[:25]]
 
 
 class FlashScoreItem:
     """A generic object representing the result of a Flashscore search"""
+
     bot: ClassVar[Bot]
 
-    __slots__ = ['id', 'url', 'name', 'embed_colour', 'logo_url']
+    __slots__ = ["id", "url", "name", "embed_colour", "logo_url"]
 
-    def __init__(self, fsid: str = None, name: str = None,
-                 link: str = None) -> None:
+    def __init__(
+        self, fsid: str = None, name: str = None, link: str = None
+    ) -> None:
         self.id: Optional[str] = fsid
         self.url: Optional[str] = link
         self.name: Optional[str] = name
@@ -115,13 +121,13 @@ class FlashScoreItem:
         if None not in [self.link, other]:
             return self.link == other.link
 
-        if hasattr(self, 'title') and hasattr(other, 'title'):
+        if hasattr(self, "title") and hasattr(other, "title"):
             return self.title == other.title
 
     @property
     def markdown(self) -> str:
         """Shorthand for FSR mark-down link"""
-        name = 'Unknown' if self.name is None else self.name
+        name = "Unknown" if self.name is None else self.name
         if self.link is not None:
             return f"[{name}]({self.link})"
         return name
@@ -134,7 +140,7 @@ class FlashScoreItem:
     async def base_embed(self) -> Embed:
         """A discord Embed representing the flashscore search result"""
 
-        title = self.title if hasattr(self, 'title') else self.name
+        title = self.title if hasattr(self, "title") else self.name
         e: Embed = Embed(title=title, url=self.link)
         e.description = ""
         if self.logo_url is not None:
@@ -157,7 +163,7 @@ class FlashScoreItem:
             page: Page = await self.bot.browser.new_page()
             try:
                 await page.goto(link, timeout=5000)
-                await page.wait_for_selector('.sportName.soccer', timeout=5000)
+                await page.wait_for_selector(".sportName.soccer", timeout=5000)
                 tree = html.fromstring(await page.content())
             finally:
                 await page.close()
@@ -167,7 +173,7 @@ class FlashScoreItem:
 
         xp = '..//div[contains(@class, "sportName soccer")]/div'
         if not (games := tree.xpath(xp)):
-            raise LookupError(f'No fixtures found on {link}')
+            raise LookupError(f"No fixtures found on {link}")
 
         for i in games:
             try:
@@ -178,12 +184,12 @@ class FlashScoreItem:
                 if "event__header" in i.classes:
                     xp = './/div[contains(@class, "event__title")]//text()'
                     country, league = i.xpath(xp)
-                    league = league.split(' - ')[0]
+                    league = league.split(" - ")[0]
 
                     for x in self.bot.competitions:
-                        lg = league.lower().split(' -')[0]
-                        ct = country.lower()
-                        if x.name.lower() == lg and x.country.lower() == ct:
+                        lg = league.lower().split(" -")[0]
+                        ctr = country.lower()
+                        if x.name.lower() == lg and x.country.lower() == ctr:
                             comp = x
                             break
                     else:
@@ -213,26 +219,39 @@ class FlashScoreItem:
             state = None
 
             # State Corrections
-            parsed = ''.join(i.xpath('.//div[@class="event__time"]//text()'))
+            parsed = "".join(i.xpath('.//div[@class="event__time"]//text()'))
             override = "".join([i for i in parsed if i.isalpha()])
-            parsed = parsed.replace(override, '')
+            parsed = parsed.replace(override, "")
             match override:
-                case '': pass
-                case 'AET': state = GameState.AFTER_EXTRA_TIME
-                case 'Pen': state = GameState.AFTER_PENS
-                case 'Postp': state = GameState.POSTPONED
-                case 'FRO': state = GameState.FINAL_RESULT_ONLY
-                case 'WO': state = GameState.WALKOVER
-                case 'Awrd': state = GameState.AWARDED
-                case 'Postp': state = GameState.POSTPONED
-                case 'Abn': state = GameState.ABANDONED
+                case "":
+                    pass
+                case "AET":
+                    state = GameState.AFTER_EXTRA_TIME
+                case "Pen":
+                    state = GameState.AFTER_PENS
+                case "Postp":
+                    state = GameState.POSTPONED
+                case "FRO":
+                    state = GameState.FINAL_RESULT_ONLY
+                case "WO":
+                    state = GameState.WALKOVER
+                case "Awrd":
+                    state = GameState.AWARDED
+                case "Postp":
+                    state = GameState.POSTPONED
+                case "Abn":
+                    state = GameState.ABANDONED
 
             dtn = datetime.now(tz=timezone.utc)
-            for string, fmt in [(parsed, '%d.%m.%Y.'),
-                                (parsed, '%d.%m.%Y'),
-                                (f"{dtn.year}.{parsed}", '%Y.%d.%m. %H:%M'),
-                                (f"{dtn.year}.{dtn.day}.{dtn.month}.{parsed}",
-                                 '%Y.%d.%m.%H:%M')]:
+            for string, fmt in [
+                (parsed, "%d.%m.%Y."),
+                (parsed, "%d.%m.%Y"),
+                (f"{dtn.year}.{parsed}", "%Y.%d.%m. %H:%M"),
+                (
+                    f"{dtn.year}.{dtn.day}.{dtn.month}.{parsed}",
+                    "%Y.%d.%m.%H:%M",
+                ),
+            ]:
                 try:
                     ko = datetime.strptime(string, fmt)
                     fixture.kickoff = ko.astimezone()
@@ -240,7 +259,7 @@ class FlashScoreItem:
                 except ValueError:
                     continue
             else:
-                logger.error(f'Failed to convert {parsed} to datetime.')
+                logger.error(f"Failed to convert {parsed} to datetime.")
 
             if state is None:
                 if fixture.kickoff > datetime.now(tz=timezone.utc):
@@ -266,26 +285,30 @@ class FlashScoreItem:
 
     async def fixtures(self) -> list[Fixture]:
         """Get all upcoming fixtures related to the FlashScoreItem"""
-        return await self.parse_games(self.link + '/fixtures/')
+        return await self.parse_games(self.link + "/fixtures/")
 
     async def results(self) -> list[Fixture]:
         """Get recent results for the FlashScore Item"""
-        return await self.parse_games(self.link + '/results/')
+        return await self.parse_games(self.link + "/results/")
 
 
 class Team(FlashScoreItem):
     """An object representing a Team from Flashscore"""
-    __slots__ = {'competition': 'The competition the team belongs to',
-                 'logo_url': "A link to a logo representing the competition"}
+
+    __slots__ = {
+        "competition": "The competition the team belongs to",
+        "logo_url": "A link to a logo representing the competition",
+    }
 
     # Constant
-    emoji: ClassVar[str] = '👕'
+    emoji: ClassVar[str] = "👕"
 
-    def __init__(self, fs_id: str = None, name: str = None,
-                 link: str = None, **kwargs) -> None:
+    def __init__(
+        self, fs_id: str = None, name: str = None, link: str = None, **kwargs
+    ) -> None:
 
         super().__init__(fs_id, name, link)
-        self.competition: Competition | None = kwargs.pop('competition', None)
+        self.competition: Competition | None = kwargs.pop("competition", None)
 
     def __str__(self) -> str:
         output = self.name
@@ -298,7 +321,7 @@ class Team(FlashScoreItem):
     @property
     def tag(self) -> str:
         """Generate a 3 letter tag for the team"""
-        match len(self.name.split(' ')):
+        match len(self.name.split(" ")):
             case 1:
                 return "".join(self.name[:3]).upper()
             case _:
@@ -318,31 +341,21 @@ class Team(FlashScoreItem):
 
     async def save_to_db(self) -> None:
         """Save the Team to the Bot Database"""
-        async with self.bot.db.acquire(timeout=60) as c:
-            async with c.transaction():
-                q = """INSERT INTO fs_teams (id, name, logo_url, url)
+        async with self.bot.database.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                sql = """INSERT INTO fs_teams (id, name, logo_url, url)
                        VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
-                await c.execute(q, self.id, self.name, self.logo_url, self.url)
+                await connection.execute(
+                    sql, self.id, self.name, self.logo_url, self.url
+                )
         self.bot.teams.append(self)
 
     async def news(self) -> list[Embed]:
         """Get a list of news articles related to a team in embed format"""
         page = await self.bot.browser.new_page()
         try:
-            for x in range(3):
-                try:
-                    await page.goto(f"{self.link}/news", timeout=5000)
-                    break
-                except TimeoutError:
-                    continue
-            else:
-                return []
-
-            try:
-                await page.wait_for_selector('.matchBox', timeout=5000)
-            except TimeoutError:
-                return []
-
+            await page.goto(f"{self.link}/news", timeout=5000)
+            await page.locator(".matchBox").wait_for()
             tree = html.fromstring(await page.content())
         finally:
             await page.close()
@@ -352,18 +365,18 @@ class Team(FlashScoreItem):
         for i in tree.xpath('.//div[@id="tab-match-newsfeed"]'):
             article = NewsItem(team_embed=base_embed.copy())
 
-            xp = './/div[@class="rssNews__title"]/text()'
-            article.title = "".join(i.xpath(xp))
-            article.image_url = "".join(i.xpath('.//img/@src'))
+            xpath = './/div[@class="rssNews__title"]/text()'
+            article.title = "".join(i.xpath(xpath))
+            article.image_url = "".join(i.xpath(".//img/@src"))
 
-            xp = './/a[@class="rssNews__titleAndPerex"]/@href'
-            article.url = FLASHSCORE + "".join(i.xpath(xp))
+            xpath = './/a[@class="rssNews__titleAndPerex"]/@href'
+            article.url = FLASHSCORE + "".join(i.xpath(xpath))
 
-            xp = './/div[@class="rssNews__perex"]/text()'
-            article.blurb = "".join(i.xpath(xp))
+            xpath = './/div[@class="rssNews__perex"]/text()'
+            article.blurb = "".join(i.xpath(xpath))
 
-            xp = './/div[@class="rssNews__provider"]/text()'
-            provider = "".join(i.xpath(xp)).split(',')
+            xpath = './/div[@class="rssNews__provider"]/text()'
+            provider = "".join(i.xpath(xpath)).split(",")
 
             article.time = datetime.strptime(provider[0], "%d.%m.%Y %H:%M")
             article.source = provider[-1].strip()
@@ -386,7 +399,7 @@ class Team(FlashScoreItem):
                     return []
 
                 try:
-                    sel = '.squad-table.profileTable'
+                    sel = ".squad-table.profileTable"
                     await page.wait_for_selector(sel, timeout=5000)
                 except TimeoutError:
                     return []
@@ -399,18 +412,20 @@ class Team(FlashScoreItem):
                 await page.close()
 
         # tab += 1  # tab is Indexed at 0 but xpath indexes from [1]
-        rows = tree.xpath('.//div[contains(@class, "squad-table")]'
-                          '[contains(@id, "overall-all-table")]'
-                          '//div[contains(@class,"profileTable__row")]')
+        rows = tree.xpath(
+            './/div[contains(@class, "squad-table")]'
+            '[contains(@id, "overall-all-table")]'
+            '//div[contains(@class,"profileTable__row")]'
+        )
 
         players = []
         position: str = None
 
         for i in rows:
             # A header row with the player's position.
-            if pos := ''.join(i.xpath('./div/text()')).strip():
+            if pos := "".join(i.xpath("./div/text()")).strip():
                 try:
-                    position = pos.strip('s')
+                    position = pos.strip("s")
                 except IndexError:
                     position = pos
                 continue  # There will not be additional data.
@@ -419,61 +434,65 @@ class Team(FlashScoreItem):
             player.team = self
             player.position = position
 
-            xp = './/div[contains(@class, "cell--name")]/a/text()'
-            name = ''.join(i.xpath(xp))
+            xpath = './/div[contains(@class, "cell--name")]/a/text()'
+            name = "".join(i.xpath(xpath))
             try:  # Name comes in reverse order.
-                surname, forename = name.split(' ', 1)
+                surname, forename = name.split(" ", 1)
                 name = f"{forename} {surname}"
             except ValueError:
                 pass
             player.name = name
 
             # Set ID & 'url' from returned href.
-            xp = './/div[contains(@class, "cell--name")]/a/@href'
-            if href := ''.join(i.xpath(xp)).split('/'):
+            xpath = './/div[contains(@class, "cell--name")]/a/@href'
+            if href := "".join(i.xpath(xpath)).split("/"):
                 player.id = href[-1]
                 player.url = href[-2]
 
-            xp = './/span[contains(@class,"flag")]/@title'
-            player.country = "".join(i.xpath(xp))
+            xpath = './/span[contains(@class,"flag")]/@title'
+            player.country = "".join(i.xpath(xpath))
 
-            xp = './/span[contains(@class,"jersey")]/text()'
-            player.number = ''.join(i.xpath(xp))
+            xpath = './/span[contains(@class,"jersey")]/text()'
+            player.number = "".join(i.xpath(xpath))
 
-            xp = './/span[contains(@class,"cell--age")]/text()'
-            player.age = ''.join(i.xpath(xp))
+            xpath = './/span[contains(@class,"cell--age")]/text()'
+            player.age = "".join(i.xpath(xpath))
 
-            xp = './/span[contains(@class,"cell--goal")]/text()'
-            player.goals = ''.join(i.xpath(xp))
+            xpath = './/span[contains(@class,"cell--goal")]/text()'
+            player.goals = "".join(i.xpath(xpath))
 
-            xp = './/span[contains(@class,"matchesPlayed")]/text()'
-            player.apps = ''.join(i.xpath(xp))
+            xpath = './/span[contains(@class,"matchesPlayed")]/text()'
+            player.apps = "".join(i.xpath(xpath))
 
-            xp = './/span[contains(@class,"yellowCard")]/text()'
-            player.yellows = ''.join(i.xpath(xp))
+            xpath = './/span[contains(@class,"yellowCard")]/text()'
+            player.yellows = "".join(i.xpath(xpath))
 
-            xp = './/span[contains(@class,"redCard")]/text()'
-            player.reds = ''.join(i.xpath(xp))
+            xpath = './/span[contains(@class,"redCard")]/text()'
+            player.reds = "".join(i.xpath(xpath))
 
-            xp = './/span[contains(@title,"Injury")]/@title'
-            player.injury = ''.join(i.xpath(xp))
+            xpath = './/span[contains(@title,"Injury")]/@title'
+            player.injury = "".join(i.xpath(xpath))
             players.append(player)
         return players
 
 
 class Competition(FlashScoreItem):
     """An object representing a Competition on Flashscore"""
-    __slots__ = {'country': "The country or region of the Competition",
-                 'score_embeds': "list of embeds of competition's score data",
-                 '_table': 'A link to the table image.'}
-    # Constant
-    emoji: ClassVar[str] = '🏆'
 
-    def __init__(self, fsid: str = None, link: str = None,
-                 name: str = None, **kwargs) -> None:
+    __slots__ = {
+        "country": "The country or region of the Competition",
+        "score_embeds": "list of embeds of competition's score data",
+        "_table": "A link to the table image.",
+    }
+    # Constant
+    emoji: ClassVar[str] = "🏆"
+
+    def __init__(
+        self, fsid: str = None, link: str = None, name: str = None, **kwargs
+    ) -> None:
         super().__init__(fsid=fsid, link=link, name=name)
-        self.country: Optional[str] = kwargs.pop('country', None)
-        self.logo_url: Optional[str] = kwargs.pop('logo_url', None)
+        self.country: Optional[str] = kwargs.pop("country", None)
+        self.logo_url: Optional[str] = kwargs.pop("logo_url", None)
         self.score_embeds: list[Embed] = []
 
         # Table Imagee
@@ -514,7 +533,7 @@ class Competition(FlashScoreItem):
         logo = tree.xpath('.//div[contains(@class,"__logo")]/@style')
 
         try:
-            comp.logo_url = logo[0].split("(")[1].strip(')')
+            comp.logo_url = logo[0].split("(")[1].strip(")")
         except IndexError:
             if ".png" in logo:
                 comp.logo_url = logo
@@ -538,14 +557,14 @@ class Competition(FlashScoreItem):
         def fmt(string: str) -> str:
             """Format team/league into flashscore naming conventions."""
             string = string.lower()
-            string = string.replace(' ', '-')
-            string = string.replace('.', '')
+            string = string.replace(" ", "-")
+            string = string.replace(".", "")
             return string
 
         if not self.url:
             if self.country:
-                nm = fmt(self.name)
-                return FLASHSCORE + f"football/{fmt(self.country)}/{nm}"
+                name = fmt(self.name)
+                return FLASHSCORE + f"football/{fmt(self.country)}/{name}"
         elif "://" not in self.url:
             if self.country:
                 return FLASHSCORE + f"/football/{fmt(self.country)}/{self.url}"
@@ -555,26 +574,32 @@ class Competition(FlashScoreItem):
 
     async def save_to_db(self) -> None:
         """Save the competition to the bot database"""
-        async with self.bot.db.acquire(timeout=60) as c:
+        async with self.bot.database.acquire(timeout=60) as c:
             async with c.transaction():
                 q = """INSERT INTO fs_competitions
                        (id, country, name, logo_url, url)
                        VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"""
-                await c.execute(q, self.id, self.country, self.name,
-                                self.logo_url, self.url)
+                await c.execute(
+                    q,
+                    self.id,
+                    self.country,
+                    self.name,
+                    self.logo_url,
+                    self.url,
+                )
         self.bot.competitions.append(self)
 
     async def table(self) -> Optional[str]:
         """Fetch the table from a flashscore Competition and return it as
-           a BytesIO object"""
+        a BytesIO object"""
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
                 await page.goto(f"{self.link}/standings/", timeout=5000)
-                if await (btn := page.locator('text=I Accept')).count():
+                if await (btn := page.locator("text=I Accept")).count():
                     await btn.click()
 
-                loc = '#tournament-table-tabs-and-content > div:last-of-type'
+                loc = "#tournament-table-tabs-and-content > div:last-of-type"
                 if not await (tbl := page.locator(loc)).count():
                     return None
 
@@ -589,18 +614,18 @@ class Competition(FlashScoreItem):
 
     async def scorers(self) -> list[Player]:
         """Fetch a list of scorers from a Flashscore Competition page
-           returned as a list of Player Objects"""
+        returned as a list of Player Objects"""
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
                 await page.goto(f"{self.link}/standings/", timeout=5000)
 
-                await page.wait_for_selector('.tabs__group', timeout=5000)
-                top_scorers_button = page.locator('a.top_scorers')
+                await page.wait_for_selector(".tabs__group", timeout=5000)
+                top_scorers_button = page.locator("a.top_scorers")
                 await top_scorers_button.wait_for(timeout=5000)
                 await top_scorers_button.click()
 
-                btn = page.locator('.showMore')
+                btn = page.locator(".showMore")
                 for x in range(await (btn).count()):
                     await btn.nth(x).click()
                 tree = html.fromstring(await page.content())
@@ -612,14 +637,14 @@ class Competition(FlashScoreItem):
 
             xp = './/span[contains(@class, "--sorting")]/text()'
             try:
-                rank = int("".join(i.xpath(xp)).strip('.'))
+                rank = int("".join(i.xpath(xp)).strip("."))
             except ValueError:
                 continue
 
             player = Player(competition=self, rank=rank)
 
             xp = './/span[contains(@class,"flag")]/@title'
-            player.country = ''.join(i.xpath(xp)).strip()
+            player.country = "".join(i.xpath(xp)).strip()
 
             xp = './/div[contains(@class, "--player")]//text()'
             player.name = "".join(i.xpath(xp))
@@ -639,12 +664,12 @@ class Competition(FlashScoreItem):
             except ValueError:
                 pass
 
-            team_url = FLASHSCORE + "".join(i.xpath('./a/@href'))
-            team_id = team_url.split('/')[-2]
+            team_url = FLASHSCORE + "".join(i.xpath("./a/@href"))
+            team_id = team_url.split("/")[-2]
 
             if (team := self.bot.get_team(team_id)) is None:
                 team = Team(self.bot, fs_id=team_id, competition=self)
-                team.name = "".join(i.xpath('.//a/text()'))
+                team.name = "".join(i.xpath(".//a/text()"))
 
             player.team = team
 
@@ -654,18 +679,36 @@ class Competition(FlashScoreItem):
     @property
     def table_link(self) -> str:
         """Return [Click To View Table](url) or empty string if not found"""
-        return f"\n[View Table]({self._table})" if self._table else ''
+        return f"\n[View Table]({self._table})" if self._table else ""
 
 
 class Fixture(FlashScoreItem):
     """An object representing a Fixture from the Flashscore Website"""
-    __slots__ = ['kickoff', 'competition', 'referee', 'stadium', 'home',
-                 'away', 'periods', 'breaks', '_score_home', '_score_away',
-                 '_cards_home', '_cards_away', 'events', 'penalties_home',
-                 'penalties_away', 'attendance', 'infobox', '_time', 'images',
-                 'ordinal']
 
-    emoji: ClassVar[str] = '⚽'
+    __slots__ = [
+        "kickoff",
+        "competition",
+        "referee",
+        "stadium",
+        "home",
+        "away",
+        "periods",
+        "breaks",
+        "_score_home",
+        "_score_away",
+        "_cards_home",
+        "_cards_away",
+        "events",
+        "penalties_home",
+        "penalties_away",
+        "attendance",
+        "infobox",
+        "_time",
+        "images",
+        "ordinal",
+    ]
+
+    emoji: ClassVar[str] = "⚽"
 
     def __init__(self, fs_id: str = None) -> None:
         super().__init__(fs_id)
@@ -696,8 +739,9 @@ class Fixture(FlashScoreItem):
 
     def __str__(self) -> str:
         match self.time:
-            case (GameState.LIVE | GameState.STOPPAGE_TIME |
-                  GameState.EXTRA_TIME):
+            case (
+                GameState.LIVE | GameState.STOPPAGE_TIME | GameState.EXTRA_TIME
+            ):
                 time = self.state.name
             case GameState():
                 time = self.ko_relative
@@ -724,7 +768,7 @@ class Fixture(FlashScoreItem):
     def state(self) -> GameState:
         """Get a GameState value from stored _time"""
         if isinstance(self._time, str):
-            if '+' in self._time:
+            if "+" in self._time:
                 return GameState.STOPPAGE_TIME
             else:
                 return GameState.LIVE
@@ -819,9 +863,9 @@ class Fixture(FlashScoreItem):
                 case 0 | None:
                     return ""
                 case 1:
-                    return '`🟥` '
+                    return "`🟥` "
                 case _:
-                    return f'`🟥 x{cards}` '
+                    return f"`🟥 x{cards}` "
 
         sh, sa = self.score_home, self.score_away
         hc = parse_cards(self.cards_home)
@@ -831,14 +875,17 @@ class Fixture(FlashScoreItem):
     @property
     def live_score_text(self) -> str:
         """Text for livescores output:
-           home [cards] [score - score or vs] [cards] away"""
+        home [cards] [score - score or vs] [cards] away"""
         output = []
         if self._time is not None:
             output.append(f"`{self.state.emote}")
 
             match self.time:
-                case (GameState.STOPPAGE_TIME | GameState.EXTRA_TIME |
-                      GameState.LIVE):
+                case (
+                    GameState.STOPPAGE_TIME
+                    | GameState.EXTRA_TIME
+                    | GameState.LIVE
+                ):
                     output.append(f"{self.state.value}`")
                 case _:
                     output.append(f"{self.state.shorthand}`")
@@ -852,25 +899,24 @@ class Fixture(FlashScoreItem):
             s = min(self.score_home, self.score_away)
 
             output.append(f"{h} [{s} - {s}]({self.link}) (p: {ph} - {pa}) {a}")
-            return ' '.join(output)
+            return " ".join(output)
 
         if self._score_home is None:
-            ts = Timestamp(self.kickoff).time_hour
-            output.append(f"{ts} [{h} v {a}]({self.link})")
+            time = Timestamp(self.kickoff).time_hour
+            output.append(f"{time} [{h} v {a}]({self.link})")
         else:
             output.append(self.bold_markdown)
-        return ' '.join(output)
+        return " ".join(output)
 
     @property
     def autocomplete(self) -> str:
         """Get team names and comp name for autocomplete searches"""
-        t = self.competition.title
-        return f"⚽ {self.home.name} {self.score} {self.away.name} ({t})"
+        title = self.competition.title
+        return f"⚽ {self.home.name} {self.score} {self.away.name} ({title})"
 
     def _update_score(
-            self,
-            variable: Literal['_score_home', '_score_away'],
-            value: int):
+        self, variable: Literal["_score_home", "_score_away"], value: int
+    ):
         """Set a score value."""
         if value is None:
             return
@@ -882,7 +928,7 @@ class Fixture(FlashScoreItem):
 
         event = EventType.GOAL if value > old_value else EventType.VAR_GOAL
 
-        is_home = bool(variable == '_score_home')
+        is_home = bool(variable == "_score_home")
         self.bot.dispatch("fixture_event", event, self, home=is_home)
 
     @property
@@ -920,7 +966,7 @@ class Fixture(FlashScoreItem):
         else:
             event = EventType.VAR_RED_CARD
 
-        home = bool(variable == '_cards_home')
+        home = bool(variable == "_cards_home")
         self.bot.dispatch("fixture_event", event, self, home=home)
         return
 
@@ -961,8 +1007,8 @@ class Fixture(FlashScoreItem):
 
         match self.time:
             case GameState.SCHEDULED:
-                ts = Timestamp(self.kickoff).time_relative
-                e.description = f"Kickoff: {ts}"
+                time = Timestamp(self.kickoff).time_relative
+                e.description = f"Kickoff: {time}"
             case GameState.POSTPONED:
                 e.description = "This match has been postponed."
         e.set_footer(text=f"{self.time} - {self.competition.title}")
@@ -971,69 +1017,74 @@ class Fixture(FlashScoreItem):
     # Dispatcher
     def dispatch_events(self, old: GameState, new: GameState) -> None:
         """Dispatch events to the ticker"""
-        f = "fixture_event"
-        d = self.bot.dispatch
+        fix = "fixture_event"
+        dispatch = self.bot.dispatch
         match new:
-            case GameState.ABANDONED: return d(f, EventType.ABANDONED, self)
+            case GameState.ABANDONED:
+                return dispatch(fix, EventType.ABANDONED, self)
             case GameState.AFTER_EXTRA_TIME:
-                return d(f, EventType.SCORE_AFTER_EXTRA_TIME, self)
+                return dispatch(fix, EventType.SCORE_AFTER_EXTRA_TIME, self)
             case GameState.AFTER_PENS:
-                return d(f, EventType.PENALTY_RESULTS, self)
+                return dispatch(fix, EventType.PENALTY_RESULTS, self)
             case GameState.BREAK_TIME:
                 match old:
                     # Break Time = after regular time & before penalties
                     case GameState.EXTRA_TIME:
-                        return d(f, EventType.EXTRA_TIME_END, self)
+                        return dispatch(fix, EventType.EXTRA_TIME_END, self)
                     case _:
                         self.breaks += 1
                         if self.periods is not None:
                             event = EventType.PERIOD_END
                         else:
                             event = EventType.NORMAL_TIME_END
-                        return d(f, event, self)
-            case GameState.CANCELLED: return d(f, EventType.CANCELLED, self)
-            case GameState.DELAYED: return d(f, EventType.DELAYED, self)
+                        return dispatch(fix, event, self)
+            case GameState.CANCELLED:
+                return dispatch(fix, EventType.CANCELLED, self)
+            case GameState.DELAYED:
+                return dispatch(fix, EventType.DELAYED, self)
             case GameState.EXTRA_TIME:
                 match old:
                     case GameState.HALF_TIME:
-                        return d(f, EventType.HALF_TIME_ET_END, self)
+                        return dispatch(fix, EventType.HALF_TIME_ET_END, self)
                     case _:
-                        return d(f, EventType.EXTRA_TIME_BEGIN, self)
+                        return dispatch(fix, EventType.EXTRA_TIME_BEGIN, self)
             case GameState.FULL_TIME:
                 match old:
                     case GameState.EXTRA_TIME:
-                        return d(f, EventType.SCORE_AFTER_EXTRA_TIME, self)
+                        return dispatch(
+                            fix, EventType.SCORE_AFTER_EXTRA_TIME, self
+                        )
                     case GameState.SCHEDULED | GameState.HALF_TIME:
-                        return d(f, EventType.FINAL_RESULT_ONLY, self)
+                        return dispatch(fix, EventType.FINAL_RESULT_ONLY, self)
                     case _:
-                        return d(f, EventType.FULL_TIME, self)
+                        return dispatch(fix, EventType.FULL_TIME, self)
             case GameState.HALF_TIME:
                 # Half Time is fired at regular Half time & ET Half time.
                 if old == GameState.EXTRA_TIME:
-                    return d(f, EventType.HALF_TIME_ET_BEGIN, self)
+                    return dispatch(fix, EventType.HALF_TIME_ET_BEGIN, self)
                 else:
-                    return d(f, EventType.HALF_TIME, self)
+                    return dispatch(fix, EventType.HALF_TIME, self)
             case GameState.INTERRUPTED:
-                return d(f, EventType.INTERRUPTED, self)
+                return dispatch(fix, EventType.INTERRUPTED, self)
             case GameState.LIVE:
                 match old:
                     case GameState.SCHEDULED | GameState.DELAYED:
                         # Match has resumed
-                        return d(f, EventType.KICK_OFF, self)
+                        return dispatch(fix, EventType.KICK_OFF, self)
                     case GameState.INTERRUPTED:
-                        return d(f, EventType.RESUMED, self)
+                        return dispatch(fix, EventType.RESUMED, self)
                     case GameState.HALF_TIME:
-                        return d(f, EventType.SECOND_HALF_BEGIN, self)
+                        return dispatch(fix, EventType.SECOND_HALF_BEGIN, self)
                     case GameState.BREAK_TIME:
-                        return d(f, EventType.PERIOD_BEGIN, self)
+                        return dispatch(fix, EventType.PERIOD_BEGIN, self)
             case GameState.PENALTIES:
-                return d(f, EventType.PENALTIES_BEGIN, self)
+                return dispatch(fix, EventType.PENALTIES_BEGIN, self)
             case GameState.POSTPONED:
-                return d(f, EventType.POSTPONED, self)
+                return dispatch(fix, EventType.POSTPONED, self)
             case GameState.STOPPAGE_TIME:
                 return
 
-        logger.error(f'Handle State: {old} -> {new} {self.url} @ {self.time}')
+        logger.error(f"Handle State: {old} -> {new} {self.url} @ {self.time}")
 
     # High Cost lookups.
     async def refresh(self) -> None:
@@ -1051,29 +1102,29 @@ class Fixture(FlashScoreItem):
 
         # Some of these will only need updating once per match
         if self.kickoff is None:
-            xp = ".//div[contains(@class, 'startTime')]/div/text()"
-            ko = ''.join(tree.xpath(xp))
+            xpath = ".//div[contains(@class, 'startTime')]/div/text()"
+            ko = "".join(tree.xpath(xpath))
             self.kickoff = datetime.strptime(ko, "%d.%m.%Y %H:%M").astimezone()
 
         if None in [self.referee, self.stadium]:
             text = tree.xpath('.//div[@class="mi__data"]/span/text()')
-            if ref := ''.join([i for i in text if "referee" in i.lower()]):
-                self.referee = ref.strip().replace('Referee:', '')
-            if venue := ''.join([i for i in text if "venue" in i.lower()]):
-                self.stadium = venue.strip().replace('Venue:', '')
+            if ref := "".join([i for i in text if "referee" in i.lower()]):
+                self.referee = ref.strip().replace("Referee:", "")
+            if venue := "".join([i for i in text if "venue" in i.lower()]):
+                self.stadium = venue.strip().replace("Venue:", "")
 
         if None in [self.competition, self.competition.url]:
-            xp = './/span[contains(@class, "__country")]//a/@href'
-            href = ''.join(tree.xpath(xp))
+            xpath = './/span[contains(@class, "__country")]//a/@href'
+            href = "".join(tree.xpath(xpath))
 
-            xp = './/span[contains(@class, "__country")]/text()'
-            country = ''.join(tree.xpath(xp)).strip()
+            xpath = './/span[contains(@class, "__country")]/text()'
+            country = "".join(tree.xpath(xpath)).strip()
 
-            xp = './/span[contains(@class, "__country")]/a/text()'
-            name = ''.join(tree.xpath(xp)).strip()
+            xpath = './/span[contains(@class, "__country")]/a/text()'
+            name = "".join(tree.xpath(xpath)).strip()
 
             if href:
-                comp_id = href.split('/')[-1]
+                comp_id = href.split("/")[-1]
                 comp = self.bot.get_competition(comp_id)
             else:
                 for c in self.bot.competitions:
@@ -1093,12 +1144,14 @@ class Fixture(FlashScoreItem):
             self.competition = comp
 
         # Grab infobox
-        xp = ('.//div[contains(@class, "infoBoxModule")]'
-              '/div[contains(@class, "info__")]/text()')
-        if ib := tree.xpath(xp):
-            self.infobox = ''.join(ib)
-            if self.infobox.startswith('Format:'):
-                self.periods = int(self.infobox.split(': ')[-1].split('x')[0])
+        xpath = (
+            './/div[contains(@class, "infoBoxModule")]'
+            '/div[contains(@class, "info__")]/text()'
+        )
+        if infobox := tree.xpath(xpath):
+            self.infobox = "".join(infobox)
+            if self.infobox.startswith("Format:"):
+                self.periods = int(self.infobox.split(": ")[-1].split("x")[0])
 
         self.events = parse_events(self, tree)
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
@@ -1106,28 +1159,42 @@ class Fixture(FlashScoreItem):
 
 class Player(FlashScoreItem):
     """An object representing a player from flashscore."""
-    __slots__ = ('number', 'position', 'country', 'team', 'competition', 'age',
-                 'apps', 'goals', 'assists', 'rank', 'yellows', 'reds',
-                 'injury')
 
-    def __init__(self, fs_id: str = None, name: str = None,
-                 link: str = None, **kwargs) -> None:
+    __slots__ = (
+        "number",
+        "position",
+        "country",
+        "team",
+        "competition",
+        "age",
+        "apps",
+        "goals",
+        "assists",
+        "rank",
+        "yellows",
+        "reds",
+        "injury",
+    )
 
-        super().__init__(fs_id=fs_id, link=link, name=name)
+    def __init__(
+        self, fs_id: str = None, name: str = None, link: str = None, **kwargs
+    ) -> None:
 
-        self.number: int | None = kwargs.pop('number', None)
-        self.position: str | None = kwargs.pop('position', None)
-        self.country: list[str] | None = kwargs.pop('country', None)
-        self.team: Team | None = kwargs.pop('team', None)
-        self.competition: Competition | None = kwargs.pop('competition', None)
-        self.age: int | None = kwargs.pop('age', None)
-        self.apps: int | None = kwargs.pop('apps', None)
-        self.goals: int | None = kwargs.pop('goals', None)
-        self.assists: int | None = kwargs.pop('assists', None)
-        self.rank: int | None = kwargs.pop('rank', None)
-        self.yellows: int | None = kwargs.pop('yellows', None)
-        self.reds: int | None = kwargs.pop('reds', None)
-        self.injury: str | None = kwargs.pop('injury', None)
+        super().__init__(fs_id, link=link, name=name)
+
+        self.number: int | None = kwargs.pop("number", None)
+        self.position: str | None = kwargs.pop("position", None)
+        self.country: list[str] | None = kwargs.pop("country", None)
+        self.team: Team | None = kwargs.pop("team", None)
+        self.competition: Competition | None = kwargs.pop("competition", None)
+        self.age: int | None = kwargs.pop("age", None)
+        self.apps: int | None = kwargs.pop("apps", None)
+        self.goals: int | None = kwargs.pop("goals", None)
+        self.assists: int | None = kwargs.pop("assists", None)
+        self.rank: int | None = kwargs.pop("rank", None)
+        self.yellows: int | None = kwargs.pop("yellows", None)
+        self.reds: int | None = kwargs.pop("reds", None)
+        self.injury: str | None = kwargs.pop("injury", None)
 
     @property
     def flag(self) -> str:
@@ -1162,18 +1229,18 @@ class Player(FlashScoreItem):
             output.append(INJURY_EMOJI)
             output.append(self.injury)
 
-        return ' '.join(output)
+        return " ".join(output)
 
     @property
     def scorer_row(self) -> str:
         """Return a preformatted string showing information about
-           Player's Goals & Assists"""
-        r = '' if self.rank is None else (str(self.rank).rjust(3, ' '))
-        tm = '' if self.team is None else self.team.markdown + ' '
+        Player's Goals & Assists"""
+        rank = "" if self.rank is None else (str(self.rank).rjust(3, " "))
+        team = "" if self.team is None else self.team.markdown + " "
 
         match self.goals:
             case None:
-                gol = ''
+                gol = ""
             case 1:
                 gol = "1 Goal "
             case _:
@@ -1181,27 +1248,33 @@ class Player(FlashScoreItem):
 
         match self.assists:
             case None:
-                ass = ''
+                ass = ""
             case 1:
                 ass = "1 Assist"
             case _:
                 ass = f"{self.assists} Assists"
-        return f"{r} {self.flag} **{self.markdown}** {tm}{gol}{ass}"
+        return f"{rank} {self.flag} **{self.markdown}** {team}{gol}{ass}"
 
     @property
     def assist_row(self) -> str:
         """Return a preformatted string showing information about
-           Player's Goals & Assists"""
-        tm = '' if self.team is None else self.team.markdown + ' '
+        Player's Goals & Assists"""
+        tm = "" if self.team is None else self.team.markdown + " "
         match self.goals:
-            case None: gol = ''
-            case 1: gol = "1 Goal "
-            case _: gol = f"{self.goals} Goals "
+            case None:
+                gol = ""
+            case 1:
+                gol = "1 Goal "
+            case _:
+                gol = f"{self.goals} Goals "
 
         match self.assists:
-            case None: ass = ''
-            case 1: ass = "1 Assist"
-            case _: ass = f"{self.assists} Assists"
+            case None:
+                ass = ""
+            case 1:
+                ass = "1 Assist"
+            case _:
+                ass = f"{self.assists} Assists"
         return f"{self.flag} **{self.markdown}** {tm}{ass}{gol}"
 
     @property
@@ -1222,17 +1295,25 @@ class Player(FlashScoreItem):
 
 class NewsItem:
     """A generic item representing a News Article for a team."""
-    __slots__ = ['title', 'url', 'blurb', 'source', 'image_url', 'team_embed',
-                 'time']
+
+    __slots__ = [
+        "title",
+        "url",
+        "blurb",
+        "source",
+        "image_url",
+        "team_embed",
+        "time",
+    ]
 
     def __init__(self, **kwargs) -> None:
-        self.title: Optional[str] = kwargs.pop('title', None)
-        self.url: Optional[str] = kwargs.pop('url', None)
-        self.blurb: Optional[str] = kwargs.pop('blurb', None)
-        self.source: Optional[str] = kwargs.pop('source', None)
-        self.time: Optional[datetime] = kwargs.pop('time', None)
-        self.image_url: Optional[str] = kwargs.pop('image_url', None)
-        self.team_embed: Optional[Embed] = kwargs.pop('team_embed', None)
+        self.title: Optional[str] = kwargs.pop("title", None)
+        self.url: Optional[str] = kwargs.pop("url", None)
+        self.blurb: Optional[str] = kwargs.pop("blurb", None)
+        self.source: Optional[str] = kwargs.pop("source", None)
+        self.time: Optional[datetime] = kwargs.pop("time", None)
+        self.image_url: Optional[str] = kwargs.pop("image_url", None)
+        self.team_embed: Optional[Embed] = kwargs.pop("team_embed", None)
 
     @property
     def embed(self) -> Embed:

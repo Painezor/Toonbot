@@ -14,7 +14,6 @@ from discord.ext.commands import AutoShardedBot, when_mentioned
 
 from ext.painezbot_utils.clan import ClanBuilding, Clan
 from ext.utils.playwright_browser import make_browser
-from ext.utils.reply import reply, error
 
 if TYPE_CHECKING:
     from ext.painezbot_utils.player import Map, GameMode, Player
@@ -29,15 +28,26 @@ if TYPE_CHECKING:
 
 discord.utils.setup_logging()
 
-with open('credentials.json') as f:
+with open("credentials.json") as f:
     credentials = load(f)
 
 COGS = [
     # Utility Cogs
-    'reply', 'metapainezbot',
+    "reply",
+    "metapainezbot",
     # Slash commands.
-    'admin', 'bans', 'devblog', 'images', 'info', 'logs', 'mod', 'reminders',
-    'news_tracker', 'translations', 'twitch', 'warships'
+    "admin",
+    "bans",
+    "devblog",
+    "images",
+    "info",
+    "logs",
+    "mod",
+    "reminders",
+    "news_tracker",
+    "translations",
+    "twitch",
+    "warships",
 ]
 
 
@@ -52,12 +62,12 @@ class PBot(AutoShardedBot):
             owner_id=210582977493598208,
             activity=discord.Game(name="World of Warships"),
             intents=discord.Intents.all(),
-            help_command=None
+            help_command=None,
         )
 
         # Reply Handling
-        self.reply: Callable = reply
-        self.error: Callable = error
+        self.reply: Callable = None
+        self.error: Callable = None
 
         # Admin
         self.COGS: list[str] = COGS
@@ -92,7 +102,7 @@ class PBot(AutoShardedBot):
         self.tracker_channels: list[TrackerChannel] = []
 
         # Wargaming API
-        self.WG_ID: str = kwargs.pop("wg_id")
+        self.wg_id: str = kwargs.pop("wg_id")
 
         self.contributors: list[Contributor] = []
         self.clans: list[Clan] = []
@@ -110,7 +120,7 @@ class PBot(AutoShardedBot):
         # Callables
         self.get_ship: Callable = None
         fm = "%d-%m-%Y %H:%M:%S"
-        strt = f'Bot started: {datetime.now().strftime(fm)}'
+        strt = f"Bot started: {datetime.now().strftime(fm)}"
         logging.info(f"{strt}\n{'=' * len(strt)}")
 
     def get_clan(self, clan_id: int) -> Clan:
@@ -143,20 +153,20 @@ class PBot(AutoShardedBot):
 
         for c in COGS:
             try:
-                await self.load_extension('ext.' + c)
+                await self.load_extension("ext." + c)
                 logging.info(f"Loaded extension {c}")
             except Exception as e:
-                logging.info(f'Cog Load Failed: {c}\n{type(e).__name__}: {e}')
+                logging.info(f"Cog Load Failed: {c}\n{type(e).__name__}: {e}")
 
 
 async def run():
     """Start the bot running, loading all credentials and the database."""
-    db = await create_pool(**credentials['painezBotDB'])
+    db = await create_pool(**credentials["painezBotDB"])
 
-    bot = PBot(database=db, wg_id=credentials['Wargaming']['client_id'])
+    bot = PBot(database=db, wg_id=credentials["Wargaming"]["client_id"])
 
     try:
-        await bot.start(credentials['painezbot']['token'])
+        await bot.start(credentials["painezbot"]["token"])
     except KeyboardInterrupt:
         for i in bot.cogs:
             await bot.unload_extension(i)

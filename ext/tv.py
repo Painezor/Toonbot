@@ -20,15 +20,24 @@ if TYPE_CHECKING:
     from core import Bot
 
 # aiohttp useragent.
-HEADERS = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) AppleWebKit/537.36 (KHTML, like Gecko) '
-                         'Chrome/75.0.3770.100 Safari/537.36'}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4)"
+    " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 "
+    " Safari/537.36"
+}
 
+logger = logging.getLogger("tv")
+
+LST = "http://www.livesoccertv.com/"
 
 # TODO: Team / League Split
-# TODO: Initial Passover of fixture upon view creation to get all available buttons.
+# TODO: Initial Passover of fixture upon view creation
+# to get all available buttons in the style of Fixtures rewrite.
 # TODO: Make functions for all buttons.
 
 # TODO: New Version of Select View
+
+
 class TVSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
@@ -40,7 +49,9 @@ class TVSelect(view_utils.BaseView):
 
         # Pagination
         self.index: int = 0
-        self.pages: list[list] = [self.teams[i:i + 25] for i in range(0, len(self.teams), 25)]
+        self.pages: list[list] = [
+            self.teams[i : i + 25] for i in range(0, len(self.teams), 25)
+        ]
 
         # Final result
         self.value: Any = None  # As Yet Unset
@@ -49,10 +60,10 @@ class TVSelect(view_utils.BaseView):
         """Handle Pagination"""
         targets: list = self.pages[self.index]
         d = view_utils.ItemSelect(placeholder="Please choose a Team")
-        e = Embed(title='Choose a Team', description="")
+        e = Embed(title="Choose a Team", description="")
 
         for team in targets:
-            d.add_option(emoji='📺', label=team, value=self.bot.tv[team])
+            d.add_option(emoji="📺", label=team, value=self.bot.tv_dict[team])
             e.description += f"{team}\n"
         self.add_item(d)
         view_utils.add_page_buttons(self, 1)
@@ -61,7 +72,9 @@ class TVSelect(view_utils.BaseView):
 
 async def tv_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Return list of live teams"""
-    return [Choice(name=x[:100], value=x) for x in interaction.client.tv.keys() if current.lower() in x.lower()][:25]
+    dct = interaction.client.tv.keys()
+    cr = current.lower()
+    return [Choice(name=x[:100], value=x) for x in dct if cr in x.lower()][:25]
 
 
 class Tv(commands.Cog):
@@ -69,8 +82,8 @@ class Tv(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        with open('tv.json') as f:
-            self.bot.tv = load(f)
+        with open("tv.json") as f:
+            self.bot.tv_dict = load(f)
 
     @command()
     @describe(team="Search for a team")
@@ -80,65 +93,78 @@ class Tv(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        e: Embed = Embed(colour=0x034f76)
+        e: Embed = Embed(colour=0x034F76)
         e.set_author(name="LiveSoccerTV.com")
 
         # Selection View if team is passed
         if team:
-            if team in self.bot.tv:
-                e.url = self.bot.tv[team]
+            if team in self.bot.tv_dict:
+                e.url = self.bot.tv_dict[team]
                 e.title = f"Televised Fixtures for {team}"
 
             else:
-                if not (matches := [i for i in self.bot.tv if team.lower() in i.lower()]):
-                    return await self.bot.error(interaction, f"Could not find a matching team for {team}.")
+                dct = self.bot.tv_dict
+                matches = [i for i in dct if team.lower() in i.lower()]
+
+                if not matches:
+                    err = f"Could not find a matching team for {team}."
+                    return await self.bot.error(interaction, err)
 
                 await (view := TVSelect(interaction, matches)).update()
                 await view.wait()
-                e.url = self.bot.tv[view.value[0]]
+                e.url = self.bot.tv_dict[view.value[0]]
                 e.title = f"Televised Fixtures for {view.value[0]}"
         else:
-            e.url = "http://www.livesoccertv.com/schedules/"
-            e.title = f"Today's Televised Matches"
+            e.url = LST + "schedules/"
+            e.title = "Today's Televised Matches"
 
         async with self.bot.session.get(e.url, headers=HEADERS) as resp:
             match resp.status:
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    raise ConnectionError(f"{e.url} returned a HTTP {resp.status} error.")
+                    err = f"{e.url} returned a HTTP {resp.status} error."
+                    return await self.bot.error(interaction, err)
 
         # match_column = 3 if not team else 5
         match_column = 3
         rows = []
         for i in tree.xpath(".//table[@class='schedules'][1]//tr"):
             # Discard finished games.
-            if ''.join(i.xpath('.//td[@class="livecell"]//span/@class')).strip() in ["narrow ft", "narrow repeat"]:
+            xp = './/td[@class="livecell"]//span/@class'
+            if "".join(i.xpath(xp)).strip() in ["narrow ft", "narrow repeat"]:
                 continue
 
-            if not (match := ''.join(i.xpath(f'.//td[{match_column}]//text()')).strip):
+            xp = f".//td[{match_column}]//text()"
+            if not (match := "".join(i.xpath(xp)).strip()):
                 continue
 
+            xp = f".//td[{match_column + 1}]//a/@href"
             try:
-                link = f"http://www.livesoccertv.com/{i.xpath(f'.//td[{match_column + 1}]//a/@href')[-1]}"
+                link = LST + f"{i.xpath(xp)[-1]}"
             except IndexError:
                 link = ""
 
             try:
-                timestamp = int(i.xpath('.//@dv')[0])
-
+                timestamp = int(i.xpath(".//@dv")[0])
+                timestamp = datetime.fromtimestamp(timestamp / 1000)
                 if match_column == 3:
-                    ts = Timestamp(datetime.fromtimestamp(timestamp / 1000)).datetime
+                    ts = Timestamp(timestamp).date
                 else:
-                    ts = str(Timestamp(datetime.fromtimestamp(timestamp / 1000)))
+                    ts = Timestamp(timestamp).time_hour
 
             except (ValueError, IndexError):
-                date = ''.join(i.xpath('.//td[@class="datecell"]//span/text()')).strip()
-                if (time := ''.join(i.xpath('.//td[@class="timecell"]//span/text()')).strip()) not in ["Postp.", "TBA"]:
-                    logging.warning(f"TV.py - invalid timestamp.\nDate [{date}] Time [{time}]")
+                xp = './/td[@class="datecell"]//span/text()'
+                date = "".join(i.xpath(xp)).strip()
+
+                xp = './/td[@class="timecell"]//span/text()'
+                time = "".join(i.xpath(xp)).strip()
+                if time not in ["Postp.", "TBA"]:
+                    txt = "invalid timestamp.\nDate [%s] Time [%s]"
+                    logger.warning(txt, date, time)
                 ts = time
 
-            rows.append(f'{ts}: [{match}]({link})')
+            rows.append(f"{ts}: [{match}]({link})")
 
         if not rows:
             rows = [f"No televised matches found, check online at {e.url}"]

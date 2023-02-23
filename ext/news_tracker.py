@@ -6,10 +6,23 @@ from typing import TYPE_CHECKING, Optional
 
 import discord
 from asyncpg import Record
-from discord import (Embed, Interaction, Message, Colour, TextChannel,
-                     ButtonStyle, HTTPException)
+from discord import (
+    Embed,
+    Interaction,
+    Message,
+    Colour,
+    TextChannel,
+    ButtonStyle,
+    HTTPException,
+)
 from discord.app_commands import (
-    command, describe, guild_only, default_permissions, autocomplete, Choice)
+    command,
+    describe,
+    guild_only,
+    default_permissions,
+    autocomplete,
+    Choice,
+)
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import Button
@@ -26,6 +39,7 @@ if TYPE_CHECKING:
 
 class ToggleButton(Button):
     """A Button to toggle the notifications settings."""
+
     view: NewsConfig
 
     def __init__(self, bot: PBot, region: Region, value: bool) -> None:
@@ -52,11 +66,12 @@ class ToggleButton(Button):
         on = "Enabled" if new_value else "Disabled"
         r = self.region.name
         c = self.view.channel.mention
-        return await self.view.update(f'{on} {r} articles in {c}')
+        return await self.view.update(f"{on} {r} articles in {c}")
 
 
 class Article:
     """An Object representing a World of Warships News Article"""
+
     bot: PBot
     embed: Embed
     view: BaseView
@@ -94,9 +109,19 @@ class Article:
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(
-                    sql, self.title, self.description, self.partial, self.link,
-                    self.image, self.category, self.date, self.eu, self.na,
-                    self.cis, self.sea)
+                    sql,
+                    self.title,
+                    self.description,
+                    self.partial,
+                    self.link,
+                    self.image,
+                    self.category,
+                    self.date,
+                    self.eu,
+                    self.na,
+                    self.cis,
+                    self.sea,
+                )
 
     async def generate_embed(self) -> Embed:
         """Handle dispatching of news article."""
@@ -117,7 +142,7 @@ class Article:
                 self.title = tree.xpath('.//div[@class="title"]/text()')[0]
 
             if not self.category:
-                self.category = tree.xpath('.//nav/div/a/span/text()')[-1]
+                self.category = tree.xpath(".//nav/div/a/span/text()")[-1]
 
             if not self.description:
                 xp = './/span[@class="text__intro"]/text()'
@@ -125,12 +150,16 @@ class Article:
 
             xp = './/div[@class="header__background"]/@style'
             try:
-                self.image = ''.join(tree.xpath()).split('"')[1]
+                self.image = "".join(tree.xpath(xp)).split('"')[1]
             except IndexError:
                 pass
 
-        e: Embed = Embed(url=self.link, colour=0x064273, title=self.title,
-                         description=self.description)
+        e: Embed = Embed(
+            url=self.link,
+            colour=0x064273,
+            title=self.title,
+            description=self.description,
+        )
         e.set_author(name=self.category, url=self.link)
         e.timestamp = self.date
         e.set_footer(text="World of Warships Portal News")
@@ -150,8 +179,12 @@ class Article:
                 d = region.domain
                 r = region.name
                 url = f"https://worldofwarships.{d}/en/{self.partial}"
-                b = Button(style=ButtonStyle.url, label=f"{r} article",
-                           emoji=region.emote, url=url)
+                b = Button(
+                    style=ButtonStyle.url,
+                    label=f"{r} article",
+                    emoji=region.emote,
+                    url=url,
+                )
                 v.add_item(b)
 
         self.embed = e
@@ -162,8 +195,15 @@ class Article:
 class NewsChannel:
     """An Object representing a NewsChannel"""
 
-    def __init__(self, bot: PBot, channel: TextChannel, eu=False, na=False,
-                 sea=False, cis=False) -> None:
+    def __init__(
+        self,
+        bot: PBot,
+        channel: TextChannel,
+        eu=False,
+        na=False,
+        sea=False,
+        cis=False,
+    ) -> None:
         self.channel: TextChannel = channel
         self.bot: PBot = bot
 
@@ -178,8 +218,9 @@ class NewsChannel:
         # Article, message_id
         self.sent_articles: dict[Article, Message] = dict()
 
-    async def dispatch(self, region: Region,
-                       article: Article) -> Optional[Message]:
+    async def dispatch(
+        self, region: Region, article: Article
+    ) -> Optional[Message]:
         """
 
         Check if the article has already been submitted to the channel,
@@ -199,8 +240,9 @@ class NewsChannel:
         if message is not None:
             await message.edit(embed=article.embed, view=article.view)
         else:
-            message = await self.channel.send(embed=article.embed,
-                                              view=article.view)
+            message = await self.channel.send(
+                embed=article.embed, view=article.view
+            )
 
         self.sent_articles[article] = message
         return message
@@ -226,27 +268,30 @@ class NewsConfig(BaseView):
     def base_embed(self) -> Embed:
         """Generic Embed for Config Views"""
         return Embed(
-            colour=Colour.dark_teal(), title="World of Warships News Tracker")
+            colour=Colour.dark_teal(), title="World of Warships News Tracker"
+        )
 
     async def update(self, content: str = None) -> None:
         """Regenerate view and push to message"""
         self.clear_items()
 
         sql = """SELECT * FROM news_trackers WHERE channel_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
+        async with self.bot.database.acquire(timeout=60) as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(sql, self.channel.id)
 
         e: Embed = Embed(colour=Colour.dark_teal())
         e.title = "World of Warships News Tracker config"
-        e.description = ("```yaml\nClick on the buttons below to enable "
-                         "tracking for a region.\n\nDuplicate articles from"
-                         " different regions will not be output multiple times"
-                         ".```")
+        e.description = (
+            "```yaml\nClick on the buttons below to enable "
+            "tracking for a region.\n\nDuplicate articles from"
+            " different regions will not be output multiple times"
+            ".```"
+        )
         e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
 
         for k, v in sorted(record.items()):
-            if k != 'channel_id':
+            if k != "channel_id":
                 region = next(i for i in Region if k == i.db_key)
 
                 re = f"{region.emote} {region.name}"
@@ -262,14 +307,20 @@ class NewsConfig(BaseView):
 
 async def news_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
-    matches = [i for i in interaction.client.news_cache
-               if current.lower() in f"{i.title}: {i.description}".lower()]
+    matches = [
+        i
+        for i in interaction.client.news_cache
+        if current.lower() in f"{i.title}: {i.description}".lower()
+    ]
 
     now = datetime.now()
-    matches = sorted(matches, key=lambda x: now if x.date is None else x.date,
-                     reverse=True)
-    return [Choice(name=f"{i.title}: {i.description}"[:100], value=i.link)
-            for i in matches][:25]
+    matches = sorted(
+        matches, key=lambda x: now if x.date is None else x.date, reverse=True
+    )
+    return [
+        Choice(name=f"{i.title}: {i.description}"[:100], value=i.link)
+        for i in matches
+    ][:25]
 
 
 class NewsTracker(Cog):
@@ -291,15 +342,15 @@ class NewsTracker(Cog):
 
         for region in Region:
 
-            url = f'https://worldofwarships.{region.domain}/en/rss/news/'
+            url = f"https://worldofwarships.{region.domain}/en/rss/news/"
 
             async with self.bot.session.get(url) as r:
 
-                tree = html.fromstring(bytes(await r.text(), encoding='utf8'))
+                tree = html.fromstring(bytes(await r.text(), encoding="utf8"))
 
-            for i in tree.xpath('.//item'):
-                link = ''.join(i.xpath('.//guid/text()'))
-                partial = link.split('/en/')[-1]
+            for i in tree.xpath(".//item"):
+                link = "".join(i.xpath(".//guid/text()"))
+                partial = link.split("/en/")[-1]
 
                 c = self.bot.news_cache
                 try:
@@ -321,7 +372,7 @@ class NewsTracker(Cog):
                     article.link = link  # Original Link
 
                 if article.date is None:
-                    date = ''.join(i.xpath('.//pubdate/text()'))
+                    date = "".join(i.xpath(".//pubdate/text()"))
                     if date:
                         fmt = "%a, %d %b %Y %H:%M:%S %Z"
                         article.date = datetime.strptime(date, fmt)
@@ -329,21 +380,21 @@ class NewsTracker(Cog):
                         article.date = utcnow()
 
                 if not article.category:
-                    category = ''.join(i.xpath('.//category//text()'))
+                    category = "".join(i.xpath(".//category//text()"))
                     if category:
                         article.category = category
 
                 if not article.description:
                     # Extract article description
-                    desc = ''.join(i.xpath('.//description/text()'))
+                    desc = "".join(i.xpath(".//description/text()"))
                     # Sanitise it
-                    desc = " ".join(desc.split()).replace(' ]]>', '')
+                    desc = " ".join(desc.split()).replace(" ]]>", "")
 
                     if desc:
                         article.description = desc
 
                 if article.title is None:
-                    title = ''.join(i.xpath('.//title/text()'))
+                    title = "".join(i.xpath(".//title/text()"))
                     if title:
                         article.title = title
 
@@ -375,10 +426,10 @@ class NewsTracker(Cog):
 
         r: Record
         for r in articles:
-            if r['partial'] in partials:
+            if r["partial"] in partials:
                 continue
             else:
-                article = Article(self.bot, partial=r['partial'])
+                article = Article(self.bot, partial=r["partial"])
                 for k, v in r.items():
                     if k == "partial":
                         continue
@@ -389,12 +440,18 @@ class NewsTracker(Cog):
         # Append new ones.
         cached_ids = [x.channel.id for x in self.bot.news_channels]
         for r in channels:
-            if r['channel_id'] not in cached_ids:
-                if (channel := self.bot.get_channel(r['channel_id'])) is None:
+            if r["channel_id"] not in cached_ids:
+                if (channel := self.bot.get_channel(r["channel_id"])) is None:
                     continue
 
-                c = NewsChannel(self.bot, channel=channel, eu=r['eu'],
-                                na=r['na'], sea=r['sea'], cis=r['cis'])
+                c = NewsChannel(
+                    self.bot,
+                    channel=channel,
+                    eu=r["eu"],
+                    na=r["na"],
+                    sea=r["sea"],
+                    cis=r["cis"],
+                )
                 self.bot.news_channels.append(c)
 
     @command()
@@ -412,18 +469,20 @@ class NewsTracker(Cog):
             return await self.bot.error(interaction, err)
 
         await article.generate_embed()
-        await self.bot.reply(interaction, view=article.view,
-                             embed=article.embed)
+        await self.bot.reply(
+            interaction, view=article.view, embed=article.embed
+        )
 
     # Command for tracker management.
     @command()
     @guild_only()
     @default_permissions(manage_channels=True)
     @describe(channel="Select a channel to edit")
-    async def news_tracker(self, interaction: Interaction,
-                           channel: TextChannel = None) -> Message:
+    async def news_tracker(
+        self, interaction: Interaction, channel: TextChannel = None
+    ) -> Message:
         """Enable/Disable the World of Warships dev blog tracker
-           in this channel."""
+        in this channel."""
 
         await interaction.response.defer(thinking=True)
         if channel is None:

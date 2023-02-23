@@ -5,8 +5,16 @@ from asyncio import sleep
 from datetime import timedelta
 
 
-from discord import (ButtonStyle, Embed, Colour, TextStyle, Interaction,
-                     Message, HTTPException, SelectOption)
+from discord import (
+    ButtonStyle,
+    Embed,
+    Colour,
+    TextStyle,
+    Interaction,
+    Message,
+    HTTPException,
+    SelectOption,
+)
 from discord.app_commands import command
 from discord.ext.commands import Cog
 from discord.ui import Button, Modal, TextInput, Select
@@ -28,17 +36,22 @@ _active_polls: set[Task] = set()
 class PollButton(Button):
     """A Voting Button"""
 
-    def __init__(self, custom_id: str, emoji: str = None,
-                 label: str = None) -> None:
+    def __init__(
+        self, custom_id: str, emoji: str = None, label: str = None
+    ) -> None:
 
-        super().__init__(emoji=emoji, label=label, style=ButtonStyle.primary,
-                         custom_id=custom_id)
+        super().__init__(
+            emoji=emoji,
+            label=label,
+            style=ButtonStyle.primary,
+            custom_id=custom_id,
+        )
 
     async def callback(self, interaction: Interaction) -> Message:
         """Reply to user to let them know their vote has changed."""
         ej = f"{self.emoji} " if self.emoji is not None else ""
 
-        e = f'Vote set to {ej}{self.label}'
+        e = f"Vote set to {ej}{self.label}"
         await interaction.response.send_message(e, ephemeral=True)
 
         votes: dict[str, list] = self.view.votes
@@ -65,7 +78,9 @@ class PollSelect(Select):
         super().__init__(
             max_values=min(votes, len(options)),
             options=[SelectOption(label=x, value=x) for x in options],
-            placeholder=ph, custom_id=custom_id)
+            placeholder=ph,
+            custom_id=custom_id,
+        )
 
     async def callback(self, interaction: Interaction) -> None:
         """Remove old votes and add new ones."""
@@ -73,9 +88,9 @@ class PollSelect(Select):
         bot: Bot = interaction.client
 
         if interaction.user.id in self.view.votes:
-            rep = f'Your vote has been changed to {self.values}'
+            rep = f"Your vote has been changed to {self.values}"
         else:
-            rep = f'You have voted for {self.values}'
+            rep = f"You have voted for {self.values}"
 
         await bot.reply(interaction, rep, ephemeral=True)
 
@@ -94,8 +109,14 @@ class PollSelect(Select):
 class PollView(BaseView):
     """View for a poll commands"""
 
-    def __init__(self, interaction: Interaction, question: str,
-                 answers: list[str], minutes: int, votes: int) -> None:
+    def __init__(
+        self,
+        interaction: Interaction,
+        question: str,
+        answers: list[str],
+        minutes: int,
+        votes: int,
+    ) -> None:
         self.question: str = question
         self.votes: dict[str, list[int]] = {k: [] for k in answers}
         self.ends_at = Timestamp(utcnow() + timedelta(minutes=minutes))
@@ -112,7 +133,8 @@ class PollView(BaseView):
                 self.add_item(PollButton(label=label, custom_id=cid))
 
         task = interaction.client.loop.create_task(
-            self.destruct(minutes), name=f"Poll - {question}")
+            self.destruct(minutes), name=f"Poll - {question}"
+        )
         _active_polls.add(task)
         task.add_done_callback(_active_polls.discard)
 
@@ -121,19 +143,22 @@ class PollView(BaseView):
         await sleep(60 * minutes)
 
         e = Embed(colour=Colour.green(), title=self.question)
-        e.set_author(name=f"{self.interaction.user.name} asked…",
-                     icon_url=self.interaction.user.display_avatar.url)
+        e.set_author(
+            name=f"{self.interaction.user.name} asked…",
+            icon_url=self.interaction.user.display_avatar.url,
+        )
 
-        srt = sorted(self.votes, key=lambda x: len(self.votes[x]),
-                     reverse=True)
+        srt = sorted(
+            self.votes, key=lambda x: len(self.votes[x]), reverse=True
+        )
 
         if list(srt):
             winning = self.votes[key := srt.pop(0)]
-            voters = ', '.join([f"<@{i}>" for i in winning])
+            voters = ", ".join([f"<@{i}>" for i in winning])
             e.description = f"🥇 **{key}**: {len(winning)} votes\n{voters}\n\n"
 
             for k in srt:
-                voters = ', '.join([f"<@{i}>" for i in self.votes[k]])
+                voters = ", ".join([f"<@{i}>" for i in self.votes[k]])
                 votes = len(self.votes[k])
                 e.description += f"**{k}**: {votes} votes\n{voters}\n\n"
         else:
@@ -159,20 +184,25 @@ class PollView(BaseView):
 
         e: Embed = Embed(colour=Colour.og_blurple(), title=self.question + "?")
 
-        e.set_author(name=f"{self.interaction.user.name} asks…",
-                     icon_url=self.interaction.user.display_avatar.url)
+        e.set_author(
+            name=f"{self.interaction.user.name} asks…",
+            icon_url=self.interaction.user.display_avatar.url,
+        )
 
-        srt = sorted(self.votes, key=lambda x: len(self.votes[x]),
-                     reverse=True)
+        srt = sorted(
+            self.votes, key=lambda x: len(self.votes[x]), reverse=True
+        )
 
         if list(srt):
             winning = self.votes[key := srt.pop(0)]
-            voters = ', '.join([f"<@{i}>" for i in winning])
-            e.description = (f"Poll Ends at {self.ends_at.time_relative}\n"
-                             f"🥇 **{key}: {len(winning)} votes**\n{voters}\n")
+            voters = ", ".join([f"<@{i}>" for i in winning])
+            e.description = (
+                f"Poll Ends at {self.ends_at.time_relative}\n"
+                f"🥇 **{key}: {len(winning)} votes**\n{voters}\n"
+            )
 
             for k in srt:
-                voters = ', '.join([f"<@{i}>" for i in self.votes[k]])
+                voters = ", ".join([f"<@{i}>" for i in self.votes[k]])
                 votes = len(self.votes[k])
 
                 e.description += f"**{k}: {votes} votes**\n{voters}\n"
@@ -188,19 +218,25 @@ class PollModal(Modal, title="Create a poll"):
     """UI Sent to user to ask them to create a poll."""
 
     minutes = TextInput(
-        label="Enter Poll Duration in Minutes", default="60",
-        placeholder="60", max_length=4)
+        label="Enter Poll Duration in Minutes",
+        default="60",
+        placeholder="60",
+        max_length=4,
+    )
 
     question = TextInput(
-        label="Question", placeholder="Enter your question here")
+        label="Question", placeholder="Enter your question here"
+    )
 
     answers = TextInput(
-        label="Answers (one per line)", style=TextStyle.paragraph,
-        placeholder="Red\nBlue\nYellow")
+        label="Answers (one per line)",
+        style=TextStyle.paragraph,
+        placeholder="Red\nBlue\nYellow",
+    )
 
     votes = TextInput(
-        label="Max votes per user", default="1",
-        placeholder="1", max_length=2)
+        label="Max votes per user", default="1", placeholder="1", max_length=2
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -208,7 +244,7 @@ class PollModal(Modal, title="Create a poll"):
     async def on_submit(self, interaction: Interaction) -> Message:
         """When the Modal is submitted, pick at random and send back"""
         q = self.question.value
-        answers = self.answers.value.split('\n')[:25]
+        answers = self.answers.value.split("\n")[:25]
 
         # Discard null
         answers = [i.strip() for i in answers if i.strip()]
@@ -228,7 +264,9 @@ class PollModal(Modal, title="Create a poll"):
         except ValueError:
             time = 60
             err = "Invalid number of minutes provided, defaulting to 60"
-            await interaction.client.error(interaction, )
+            await interaction.client.error(
+                interaction,
+            )
 
         await PollView(interaction, q, answers, time, max_votes).update()
 
@@ -242,7 +280,7 @@ class Poll(Cog):
     @command()
     async def poll(self, interaction: Interaction) -> PollModal:
         """Create a poll with multiple answers.
-           Use the UI to set your options."""
+        Use the UI to set your options."""
         return await interaction.response.send_modal(PollModal())
 
 

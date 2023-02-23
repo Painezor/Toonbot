@@ -9,15 +9,17 @@ from colorthief import ColorThief
 from discord import Message, File, Colour, Embed, Interaction
 
 
-async def embed_image(interaction: Interaction,
-                      e: Embed,
-                      image: BytesIO | bytes,
-                      filename: str = None) -> Message:
+async def embed_image(
+    interaction: Interaction,
+    embed: Embed,
+    image: BytesIO | bytes,
+    filename: str = None,
+) -> Message:
     """Utility / Shortcut to upload image & set it within an embed."""
-    filename = filename.replace('_', '').replace(' ', '').replace(':', '')
-    e.set_image(url=f"attachment://{filename}")
+    filename = filename.replace("_", "").replace(" ", "").replace(":", "")
+    embed.set_image(url=f"attachment://{filename}")
     file = File(fp=image, filename=filename)
-    return await interaction.client.reply(interaction, file=file, embed=e)
+    return await interaction.client.reply(interaction, file=file, embed=embed)
 
 
 async def get_colour(url: str) -> Colour | int:
@@ -26,19 +28,24 @@ async def get_colour(url: str) -> Colour | int:
         return Colour.og_blurple()
     async with ClientSession() as cs:
         async with cs.get(url) as resp:
-            r = await resp.read()
+            raw = await resp.read()
 
     try:
-        f = BytesIO(r)
-        c = await to_thread(ColorThief(f).get_color)
+        container = BytesIO(raw)
+        c = await to_thread(ColorThief(container).get_color)
         # Convert to base 16 int.
-        return int('%02x%02x%02x' % c, 16)
-    finally:
+        return int("%02x%02x%02x" % c, 16)
+    except ValueError:
         return Colour.og_blurple()
 
 
-def rows_to_embeds(e: Embed, items: list[str], rows: int = 10,
-                   header: str = None, footer: str = None) -> list[Embed]:
+def rows_to_embeds(
+    e: Embed,
+    items: list[str],
+    rows: int = 10,
+    header: str = None,
+    footer: str = None,
+) -> list[Embed]:
     """Create evenly distributed rows of text from a list of data"""
     desc: str = f"{header}\n" if header else ""
     count: int = 0
