@@ -6,11 +6,13 @@ import io
 import logging
 from datetime import datetime
 from importlib import reload
-from typing import TYPE_CHECKING, Literal, Callable, Any
+from typing import TYPE_CHECKING, Literal, Callable, Any, Optional
+import typing
+from urllib.parse import quote_plus
 
 # D.py
 import discord
-from discord import Embed, Colour, Interaction, Message, Permissions
+from discord import Embed, Colour, Guild, Interaction, Message, Permissions
 from discord.app_commands import Choice, command, describe, autocomplete, Group
 from discord.ext.commands import Cog
 from discord.ui import Select
@@ -20,9 +22,8 @@ from lxml import html
 from playwright.async_api import Page
 
 import ext.toonbot_utils.flashscore as fs
-from ext.toonbot_utils import stadiums
 from ext.toonbot_utils.flashscore_search import fs_search
-from ext.toonbot_utils.stadiums import Stadium, get_stadiums
+from ext.toonbot_utils.stadiums import Stadium
 from ext.utils import view_utils, embed_utils, image_utils
 from ext.utils.timed_events import Timestamp
 
@@ -36,11 +37,13 @@ JS = "ads => ads.forEach(x => x.remove());"
 
 
 async def set_default(
-    interaction: Interaction, param: Literal["default_league", "default_team"]
+    interaction: Interaction[Bot],
+    param: Literal["default_league", "default_team"],
 ):
     """Fetch the default team or default league for this server"""
 
     q = f"""SELECT {param} FROM fixtures_defaults WHERE (guild_id) = $1"""
+
     if interaction.guild is None:
         interaction.extras["default"] = None
         return
@@ -53,33 +56,36 @@ async def set_default(
         interaction.extras["default"] = None
         return
 
-    if param == "default_teaam":
+    if param == "default_team":
         default = interaction.client.get_team(r[param])
     else:
         default = interaction.client.get_competition(r[param])
 
+    if default is None:
+        interaction.extras["default"] = None
+        return
+
+    assert default.id is not None
+
     name = rf"\⭐Server default: {default.name}"[:100]
     default = Choice(name=name, value=default.id)
     interaction.extras["default"] = default
-    print("Returning.")
     return
 
 
 # Autocompletes
-async def team_ac(interaction: Interaction, current: str) -> list[Choice]:
+async def team_ac(interaction: Interaction[Bot], current: str) -> list[Choice]:
     """Autocomplete from list of stored teams"""
     bot: Bot = interaction.client
     teams: list[fs.Team] = sorted(bot.teams, key=lambda x: x.name)
 
-    print("Team AC is active.")
     # Run Once - Set Default for interaction.
     if "default" not in interaction.extras:
         await set_default(interaction, "default_team")
-    print("set_default finished.")
     opts = []
     curr = current.lower()
     for t in teams:
-        if curr in t.name.lower():
+        if curr in t.name.lower() and t.id is not None:
             opts.append(Choice(name=t.name[:100], value=t.id))
     if interaction.extras["default"] is not None:
         opts = [interaction.extras["default"]] + opts
@@ -87,7 +93,9 @@ async def team_ac(interaction: Interaction, current: str) -> list[Choice]:
     return opts[:25]
 
 
-async def comp_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def comp_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Autocomplete from list of stored competitions"""
     bot: Bot = interaction.client
     lgs: list[fs.Competition] = sorted(bot.competitions, key=lambda x: x.title)
@@ -98,7 +106,7 @@ async def comp_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     opts = []
     curr = current.lower()
     for lg in lgs:
-        if curr in lg.title.lower():
+        if curr in lg.title.lower() and lg.id is not None:
             opts.append(Choice(name=lg.title[:100], value=lg.id))
 
     if interaction.extras["default"] is not None:
@@ -106,19 +114,24 @@ async def comp_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     return list(opts[:25])
 
 
-async def fx_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def fx_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Check if user's typing is in list of live games"""
-    games = [i for i in interaction.client.games if i.id is not None]
-    games = [i for i in games if current.lower() in i.autocomplete.lower()]
-    games = [Choice(name=i.autocomplete[:100], value=i.id) for i in games[:25]]
+    cur = current.lower()
+    games = interaction.client.games
+    games = [i for i in games if cur in i.autocomplete.lower()]
+    games = [i for i in games if i.fs_id is not None]
+
+    choices = []
+    for i in games:
+        if i.fs_id is not None:
+            choices.append(Choice(name=i.autocomplete[:100], value=i.fs_id))
 
     if current:
         v = f"🔎 Search for '{current}'"
-        if len(games) == 25:  # Replace Item #25
-            games[-1] = [Choice(name=v, value=current)]
-        else:  # Or Add
-            games.append(Choice(name=v, value=current))
-    return games
+        choices = choices[:24] + [Choice(name=v, value=current)]
+    return choices
 
 
 class CompetitionView(view_utils.BaseView):
@@ -127,9 +140,9 @@ class CompetitionView(view_utils.BaseView):
     # TODO: Team dropdown
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         competition: fs.Competition,
-        parent: discord.ui.View = None,
+        parent: Optional[view_utils.BaseView] = None,
     ) -> None:
         super().__init__(interaction)
         self.competition: fs.Competition = competition
@@ -137,34 +150,27 @@ class CompetitionView(view_utils.BaseView):
         # Embed and internal index.
         self.pages: list[Embed] = []
         self.index: int = 0
-        self.parent: view_utils.BaseView = parent
-
-        # Button Disabling
-        self._disabled: str = None
+        self.parent: Optional[view_utils.BaseView] = parent
 
         # Player Filtering
         self._nationality_filter: list[str] = []
         self._team_filter: list[str] = []
-        self._filter_mode: str = "goals"
 
-    async def update(self, content: str = None) -> None:
+    async def update(self, content: Optional[str] = None) -> Message:
         """Send the latest version of the CompetitionView to the user"""
         self.clear_items()
 
         # TODO: Funcable.
-        for button in [
-            view_utils.FuncButton("Table", self.push_table, emoji="🥇", row=4),
-            view_utils.FuncButton(
-                "Scorers", self.push_scorers, emoji="⚽", row=4
-            ),
-            view_utils.FuncButton(
-                "Fixtures", self.push_fixtures, emoji="📆", row=4
+
+        buttons = [
+            view_utils.Funcable("Table", self.push_table, emoji="🥇"),
+            view_utils.Funcable("Scorers", self.push_scorers, emoji="⚽"),
+            view_utils.Funcable("Fixtures", self.push_fixtures, emoji="📆")
             ),
             view_utils.FuncButton(
                 "Results", self.push_results, emoji="⚽", row=4
             ),
         ]:
-            button.disabled = True if self._disabled == button.label else False
             self.add_item(button)
 
         try:
@@ -172,57 +178,15 @@ class CompetitionView(view_utils.BaseView):
         except IndexError:
             embed = next(iter(self.pages), None)
 
-        await self.bot.reply(self.interaction, content, view=self, embed=embed)
-
-    async def filter_players(self) -> list[fs.Player]:
-        """Filter player list according to dropdowns."""
-        embed = await self.competition.base_embed()
-        players = await self.competition.scorers()
-        all_players = players.copy()
-
-        if nat := self._nationality_filter:
-            players = [i for i in players if i.country in nat]
-
-        if tm := self._team_filter:
-            players = [x for x in players if x.team.name in tm]
-
-        match self._filter_mode:
-            case "goals":
-                srt = sorted(
-                    [i for i in players if i.goals > 0],
-                    key=lambda p: p.goals,
-                    reverse=True,
-                )
-                embed.title = f"≡ Top Scorers for {embed.title}"
-                rows = [i.scorer_row for i in srt]
-            case "assists":
-                s = sorted(
-                    [i for i in players if i.assists > 0],
-                    key=lambda p: p.assists,
-                    reverse=True,
-                )
-                embed.title = f"≡ Top Assists for {embed.title}"
-                rows = [i.assist_row for i in s]
-            case _:
-                logger.error(f"INVALID _filter_mode {self._filter_mode}")
-                rows = [str(i) for i in players]
-
-        if not rows:
-            rows = [
-                "```yaml\n"
-                "No Top Scorer Data Available matching your filters```"
-            ]
-
-        embeds = embed_utils.rows_to_embeds(embed, rows)
-        self.pages = embeds
-        return all_players
+        i = self.interaction
+        return await self.bot.reply(i, content, view=self, embed=embed)
 
     async def push_table(self) -> Message:
         """Push Team's Table for a Competition to View"""
         embed = await self.competition.base_embed()
         embed.clear_fields()
         embed.title = f"≡ Table for {self.competition}"
-        if img := await self.competition.table():
+        if img := await self.competition.get_table():
             embed.set_image(url=img)
             embed.description = Timestamp().long
         else:
@@ -230,26 +194,16 @@ class CompetitionView(view_utils.BaseView):
 
         self.index = 0
         self.pages = [embed]
-        self._filter_mode = None
-        self._disabled = "Table"
         return await self.update()
 
     async def push_scorers(self) -> Message:
         """PUsh the Scorers Embed to Competition View"""
         self.index = 0
-        self._filter_mode = "goals"
-        self._disabled = "Scorers"
-        self._nationality_filter = None
-        self._team_filter = None
         return await self.update()
 
     async def push_assists(self) -> Message:
         """PUsh the Scorers Embed to View"""
         self.index = 0
-        self._filter_mode = "assists"
-        self._disabled = "Assists"
-        self._nationality_filter = []
-        self._team_filter = []
         return await self.update()
 
     async def push_fixtures(self) -> Message:
@@ -261,8 +215,6 @@ class CompetitionView(view_utils.BaseView):
 
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, rows)
-        self._disabled = "Fixtures"
-        self._filter_mode = None
         return await self.update()
 
     async def push_results(self) -> Message:
@@ -274,8 +226,6 @@ class CompetitionView(view_utils.BaseView):
 
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, rows)
-        self._disabled = "Results"
-        self._filter_mode = None
         return await self.update()
 
 
@@ -284,33 +234,25 @@ class TeamView(view_utils.BaseView):
 
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         team: fs.Team,
-        parent: view_utils.BaseView = None,
+        parent: Optional[view_utils.BaseView] = None,
     ) -> None:
         super().__init__(interaction)
         self.team: fs.Team = team
-        self.parent: view_utils.BaseView = parent
-
-        # Pagination
-        self.pages = []
-        self.index = 0
+        self.parent: Optional[view_utils.BaseView] = parent
 
         # Specific Selection
         self.league_select: list[fs.Competition] = []
 
-        # Disable buttons when changing pages.
-        # Page buttons have their own callbacks
-        self._disabled: str = None
-
-    async def update(self, content: str = None) -> Message:
+    async def update(self, content: Optional[str] = None) -> Message:
         """Push the latest version of the TeamView to the user"""
         self.clear_items()
         if self.league_select:
             self.add_item(LeagueTableSelect(leagues=self.league_select))
             self.league_select.clear()
         else:
-            view_utils.add_page_buttons(self, row=4)
+            self.add_page_buttons(row=4)
             opts = [
                 view_utils.Funcable("Squad", self.squad, emoji="🏃"),
                 view_utils.Funcable(
@@ -323,27 +265,28 @@ class TeamView(view_utils.BaseView):
                 view_utils.Funcable("News", self.news, emoji="📰"),
             ]
             lbl = ", ".join(i.label for i in opts)
-            view_utils.generate_function_row(opts, lbl)
-        embed = self.pages[self.index] if self.pages else None
-        await self.bot.reply(self.interaction, content, view=self, embed=embed)
+            view_utils.generate_function_row(self, opts, 1, lbl)
+        embed = self.pages[self.index] or None
+        return await self.bot.reply(
+            self.interaction, content, view=self, embed=embed
+        )
 
     async def news(self) -> Message:
         """Push News to View"""
         self.pages = await self.team.news()
         self.index = 0
-        self._disabled = "News"
         return await self.update()
 
     async def squad(self) -> Message:
         """Push the Squad Embed to the team View"""
         players = await self.team.players()
-        p = [i.squad_row for i in sorted(players, key=lambda x: x.number)]
+        srt = sorted(players, key=lambda x: x.squad_number or 99)
+        p = [i.squad_row for i in srt]
 
         # Data must be fetched before embed url is updated.
         embed = await self.team.base_embed()
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, p)
-        self._disabled = "Squad"
         return await self.update()
 
     async def injuries(self) -> Message:
@@ -352,31 +295,24 @@ class TeamView(view_utils.BaseView):
         players = await self.team.players()
 
         if players:
-            players = [i.injury_row for i in players if i.injury is not None]
+            txt = [i.injury_row for i in players if i.injury is not None]
         else:
-            players = ["No injuries found"]
+            txt = ["No injuries found"]
 
-        embed.description = "\n".join(players)
+        embed.description = "\n".join(txt)
         self.index = 0
         self.pages = [embed]
-        self._disabled = "Injuries"
         return await self.update()
 
     async def scorers(self) -> Message:
         """Push the Scorers Embed to the team View"""
         embed = await self.team.base_embed()
         players = await self.team.players()
-
-        p = sorted(
-            [i for i in players if i.goals > 0],
-            key=lambda x: x.goals,
-            reverse=True,
-        )
-        rows = [i.scorer_row for i in p]
+        p = sorted(players, key=lambda x: x.goals or -1, reverse=True)
+        rows = [i.scorer_row for i in p if i.goals]
 
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, rows)
-        self._disabled = "Scorers"
         return await self.update()
 
     async def table(self) -> Message:
@@ -384,9 +320,9 @@ class TeamView(view_utils.BaseView):
         self.index = 0
         fixtures = await self.team.fixtures()
 
-        unique = set(x.competition for x in fixtures)
+        unique = set(x.competition for x in fixtures if x.competition)
         if len(comps := [i for i in unique if i.name != "Club Friendly"]) == 1:
-            return await self.push_table(next(comps))
+            return await self.push_table(comps[0])
 
         self.league_select = comps
         leagues = [f"• {x.flag} {x.markdown}" for x in comps]
@@ -402,7 +338,7 @@ class TeamView(view_utils.BaseView):
         """Fetch All Comps, Confirm Result, Get Table Image, Send"""
         embed = await self.team.base_embed()
         embed.title = f"≡ Table for {res.title}"
-        if img := await res.table():
+        if img := await res.get_table():
             embed.set_image(url=img)
             embed.description = Timestamp().long
         else:
@@ -422,7 +358,6 @@ class TeamView(view_utils.BaseView):
 
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, rows)
-        self._disabled = "Fixtures"
         return await self.update()
 
     async def results(self) -> Message:  # Team
@@ -441,23 +376,27 @@ class TeamView(view_utils.BaseView):
                     f"[AWAY: {i.away.url}] [TARGET: {self.team.url}]"
                 )
 
-            if home is None:
+            if None in [home, i.score_home, i.score_away]:
                 emoji = ""
             else:
-                if i.score_home > i.score_away:
-                    emoji = "🇼" if home else "🇱"
-                elif i.score_home < i.score_away:
-                    emoji = "🇱" if home else "🇼"
-                else:
-                    if i.penalties_home is None:
-                        emoji = "🇩"
-                    else:
+                if i.score_home is not None and i.score_away is not None:
+                    if (
+                        i.penalties_home is not None
+                        and i.penalties_away is not None
+                    ):
                         if i.penalties_home > i.penalties_away:
                             emoji = "🇼" if home else "🇱"
-                        elif i.penalties_home < i.penalties_away:
+                        else:
+                            emoji = "🇱" if home else "🇼"
+                    else:
+                        if i.score_home > i.score_away:
+                            emoji = "🇼" if home else "🇱"
+                        elif i.score_home < i.score_away:
                             emoji = "🇱" if home else "🇼"
                         else:
-                            emoji = ""
+                            emoji = "🇩"
+                else:
+                    emoji = ""
 
             output.append(f"{emoji} {i.ko_relative}: {i.bold_markdown} ")
 
@@ -476,20 +415,22 @@ class TeamView(view_utils.BaseView):
 class FixtureView(view_utils.BaseView):
     """The View sent to users about a fixture."""
 
-    def __init__(self, interaction: Interaction, fixture: fs.Fixture) -> None:
+    def __init__(
+        self, interaction: Interaction[Bot], fixture: fs.Fixture
+    ) -> None:
         self.fixture: fs.Fixture = fixture
         super().__init__(interaction)
 
-    async def send(self, embed, file=None):
+    async def send(self, embed, file=None) -> Message:
         """Handle refreshing of file more gracefully."""
         i = self.interaction
-        await self.bot.reply(i, embed=embed, file=file, view=self)
+        return await self.bot.reply(i, embed=embed, file=file, view=self)
 
     async def handle_tabs(self, page: Page, current_function: Callable) -> int:
         """Generate our buttons"""
         self.clear_items()
 
-        if self.fixture.competition.id:
+        if self.fixture.competition is not None:
             func = CompetitionView(
                 self.interaction, self.fixture.competition, parent=self
             ).update
@@ -526,6 +467,10 @@ class FixtureView(view_utils.BaseView):
             rows[row] = []
             for o in range(await (sub_loc := loc.nth(i).locator("a")).count()):
                 text = await sub_loc.nth(o).text_content()
+
+                if not text:
+                    continue
+
                 f = view_utils.Funcable(text, current_function)
 
                 active = "aria-current"
@@ -563,16 +508,16 @@ class FixtureView(view_utils.BaseView):
                     case "News":
                         f.function = self.news
                         f.emoji = "📰"
-                        f.desc = f"News for {sl}"
+                        f.description = f"News for {sl}"
                     case "Photos":
                         f.function = self.photos
                         f.emoji = "📷"
                         f.style = discord.ButtonStyle.red
-                        f.desc = f"Photos from {sl}"
+                        f.description = f"Photos from {sl}"
                     case "Video":
                         f.function = self.video
                         f.emoji = "📹"
-                        f.desc = "Videos and Highlights"
+                        f.description = "Videos and Highlights"
                     case "Odds":
                         # TODO: Figure out if we want to encourage Gambling
                         continue
@@ -592,10 +537,11 @@ class FixtureView(view_utils.BaseView):
         return row
 
     async def h2h(
-        self, team: Literal["overall", "home", "away"] = None
-    ) -> dict[str, fs.Fixture]:
+        self, team: Literal["overall", "home", "away"] = "overall"
+    ) -> Message:
         """Get results of recent games for each team in the fixture"""
         e: Embed = await self.fixture.base_embed()
+        e.description = e.description or ""
 
         match team:
             case None | "overall":
@@ -608,7 +554,7 @@ class FixtureView(view_utils.BaseView):
         async with semaphore:
             page = await self.bot.browser.new_page()
             try:
-                e.url = f"{self.fixture.link}/#/h2h/{team}"
+                e.url = f"{self.fixture.url}/#/h2h/{team}"
                 await page.goto(e.url, timeout=5000)
                 await page.wait_for_selector(".h2h", timeout=5000)
                 row = await self.handle_tabs(page, self.h2h)
@@ -624,6 +570,8 @@ class FixtureView(view_utils.BaseView):
                     for o in range(await sub_loc.count()):
 
                         text = await sub_loc.nth(o).text_content()
+                        if not text:
+                            continue
 
                         a = "aria-current"
                         b = await sub_loc.nth(o).get_attribute(a) is not None
@@ -637,7 +585,9 @@ class FixtureView(view_utils.BaseView):
                             case 2:
                                 f.args = ["away"]
                             case _:
-                                logger.info(f"Extra Buttons Found: H2H{text}")
+                                logger.info(
+                                    "Extra Buttons Found: H2H %s", text
+                                )
                         rows[row].append(f)
                     row += 1
 
@@ -690,7 +640,7 @@ class FixtureView(view_utils.BaseView):
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
-                e.url = f"{self.fixture.link}#/match-summary/lineups"
+                e.url = f"{self.fixture.url}#/match-summary/lineups"
                 await page.goto(e.url, timeout=5000)
                 await page.eval_on_selector_all(fs.ADS, JS)
                 await self.handle_tabs(page, self.table)
@@ -731,7 +681,7 @@ class FixtureView(view_utils.BaseView):
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
-                lnk = self.fixturee.link
+                lnk = self.fixture.url
                 e.url = f"{lnk}#/match-summary/match-statistics/{half}"
                 await page.goto(e.url, timeout=5000)
                 await page.wait_for_selector(".section", timeout=5000)
@@ -748,6 +698,9 @@ class FixtureView(view_utils.BaseView):
                     for o in range(await sub.count()):
 
                         text = await sub.nth(o).text_content()
+                        if not text:
+                            continue
+
                         f = view_utils.Funcable(text, self.stats)
 
                         a = "aria-current"
@@ -793,7 +746,7 @@ class FixtureView(view_utils.BaseView):
         self,
         main_table: str = "table",
         sub_table: str = "overall",
-        sub_sub_table: str = None,
+        sub_sub_table: Optional[str] = None,
     ) -> Message:
         """Send Specified Table to view"""
         e = await self.fixture.base_embed()
@@ -801,7 +754,7 @@ class FixtureView(view_utils.BaseView):
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
-                e.url = f"{self.fixture.link}#/standings/{main_table}"
+                e.url = f"{self.fixture.url}#/standings/{main_table}"
                 e.title = f"{main_table.title().replace('_', '/')}"
                 if sub_table is not None:
                     e.title += f" ({sub_table.title()}"
@@ -830,6 +783,10 @@ class FixtureView(view_utils.BaseView):
                     for o in range(await sub.count()):
 
                         text = await sub.nth(o).text_content()
+
+                        if not text:
+                            continue
+
                         f = view_utils.Funcable(text, self.table)
                         a = "aria-current"
                         b = await sub.nth(o).get_attribute(a) is not None
@@ -862,12 +819,12 @@ class FixtureView(view_utils.BaseView):
     async def video(self) -> Message:
         """Highlights and other shit."""
         # e = await self.fixture.base_embed()
-
+        i = self.interaction
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
                 # e.url = f"{self.fixture.link}#/video"
-                url = f"{self.fixture.link}#/video"
+                url = f"{self.fixture.url}#/video"
                 await page.goto(url, timeout=5000)
                 await self.handle_tabs(page, self.video)
 
@@ -877,17 +834,17 @@ class FixtureView(view_utils.BaseView):
                 video_url = await page.locator("object").get_attribute("data")
                 # OLD: https://www.youtube.com/embed/GUH3NIIGbpo
                 # NEW: https://www.youtube.com/watch?v=GUH3NIIGbpo
+                if video_url is None:
+                    return await self.bot.error(i, "Error fetching video.")
                 video_url = video_url.replace("embed/", "watch?v=")
             finally:
                 await page.close()
         # e.description = f"[{video}]({video_url})"
-
-        i = self.interaction
-        await self.bot.reply(i, video_url, view=self, embed=None)
+        return await self.bot.reply(i, video_url, view=self, embed=None)
 
     async def summary(self) -> Message:
         """Fetch the summary of a Fixture as a link to an image"""
-        await self.fixture.refresh()
+        await self.fixture.refresh(self.bot)
         e = await self.fixture.base_embed()
 
         e.description = "\n".join(str(i) for i in self.fixture.events)
@@ -901,7 +858,7 @@ class FixtureView(view_utils.BaseView):
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
-                e.url = f"{self.fixture.link}#/match-summary/"
+                e.url = f"{self.fixture.url}#/match-summary/"
                 await page.goto(e.url, timeout=5000)
                 await self.handle_tabs(page, self.summary)
             finally:
@@ -912,10 +869,11 @@ class FixtureView(view_utils.BaseView):
         """Push News to view"""
         e = await self.fixture.base_embed()
         e.title = "News"
+        e.description = ""
         async with semaphore:
             page: Page = await self.bot.browser.new_page()
             try:
-                e.url = f"{self.fixture.link}#/news"
+                e.url = f"{self.fixture.url}#/news"
                 await page.goto(e.url, timeout=5000)
                 await self.handle_tabs(page, self.news)
                 loc = "section.newsTab__section"
@@ -964,11 +922,13 @@ class FixtureView(view_utils.BaseView):
 class LeagueTableSelect(Select):
     """Push a Specific League Table"""
 
+    view: TeamView
+
     def __init__(self, leagues: list[fs.Competition]) -> None:
         self.objects = leagues
         super().__init__(placeholder="Select a league")
         for num, league in enumerate(leagues):
-            desc = league.link
+            desc = league.url
             label = league.title
             self.add_option(
                 label=label, emoji="🏆", description=desc, value=str(num)
@@ -988,46 +948,53 @@ class LeagueTableSelect(Select):
 class FixtureSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
-    def __init__(self, interaction: Interaction, fixtures: list[fs.Fixture]):
+    def __init__(
+        self, interaction: Interaction[Bot], fixtures: list[fs.Fixture]
+    ):
         super().__init__(interaction)
 
-        self.interaction: Interaction = interaction
-        self.fixtures: list[fs.Fixture] = fixtures
-
         # Pagination
+        self.fixtures: list[fs.Fixture] = fixtures
         self.index: int = 0
 
-        p = [
-            self.fixtures[i : i + 25] for i in range(0, len(self.fixtures), 25)
-        ]
+        p = [fixtures[i : i + 25] for i in range(0, len(fixtures), 25)]
         self.pages: list[list[fs.Fixture]] = p
 
         # Final result
         self.value: Any = None  # As Yet Unset
 
-    async def update(self):
+    async def update(self) -> None:
         """Handle Pagination"""
         targets: list[fs.Fixture] = self.pages[self.index]
         d = view_utils.ItemSelect(placeholder="Please choose a Fixture")
         e = Embed(title="Choose a Fixture", description="")
+        e.description = ""
 
         for f in targets:
-            d.add_option(f.score_line, f.score_line, f.competition)
+            if f.competition:
+                desc = f.competition.title
+            else:
+                desc = None
+
+            if f.fs_id is not None:
+                d.add_option(
+                    label=f.score_line,
+                    value=f.fs_id,
+                    description=desc,
+                )
             e.description += f"{f.bold_markdown}\n"
+
         self.add_item(d)
         view_utils.add_page_buttons(self, 1)
-        return await self.interaction.client.reply(
-            self.interaction, embed=e, view=self
-        )
+        await self.interaction.edit_original_response(embed=e, view=self)
 
 
 class TeamSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
-    def __init__(self, interaction: Interaction, teams: list[fs.Team]):
+    def __init__(self, interaction: Interaction[Bot], teams: list[fs.Team]):
         super().__init__(interaction)
 
-        self.interaction: Interaction = interaction
         self.teams: list[fs.Team] = teams
 
         # Pagination
@@ -1043,30 +1010,27 @@ class TeamSelect(view_utils.BaseView):
         """Handle Pagination"""
         targets: list[fs.Team] = self.pages[self.index]
         d = view_utils.ItemSelect(placeholder="Please choose a team")
-        e = Embed(title="Choose a Team", description="")
-        logger.info("embed created")
+        e = Embed(title="Choose a Team")
+        e.description = ""
 
         em = fs.Team.emoji
-        logger.info(f"got emoji {em}")
         for team in targets:
             n = team.name
-            dsc = team.link
-            d.add_option(label=n, description=dsc, emoji=em, value=team.url)
+            dsc = team.url
+            d.add_option(label=n, description=dsc, emoji=em, value=team.id)
             e.description += f"`{team.id}` {team.markdown}\n"
         self.add_item(d)
         view_utils.add_page_buttons(self, 1)
-        i = self.interaction
-        return await i.client.reply(i, embed=e, view=self)
+        await self.interaction.edit_original_response(embed=e, view=self)
 
 
 class StadiumSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
-    def __init__(self, interaction: Interaction, stadiums: list[Stadium]):
+    def __init__(self, interaction: Interaction[Bot], stadiums: list[Stadium]):
         super().__init__(interaction)
 
-        self.interaction: Interaction = interaction
-        self.stadiums: list[stadiums.Stadium] = stadiums
+        self.stadiums: list[Stadium] = stadiums
 
         # Pagination
         self.index: int = 0
@@ -1079,10 +1043,11 @@ class StadiumSelect(view_utils.BaseView):
 
     async def update(self):
         """Handle Pagination"""
-        targets: list[stadiums.Stadium] = self.pages[self.index]
+        targets: list[Stadium] = self.pages[self.index]
 
         d = view_utils.ItemSelect(placeholder="Please choose a Stadium")
-        e = Embed(title="Choose a Stadium", description="")
+        e = Embed(title="Choose a Stadium")
+        e.description = ""
 
         for i in targets:
             desc = f"{i.team} ({i.country.upper()}: {i.name})"
@@ -1090,19 +1055,58 @@ class StadiumSelect(view_utils.BaseView):
             e.description += f"[{desc}]({i.url})\n"
         self.add_item(d)
         view_utils.add_page_buttons(self, 1)
-
-        i = self.interaction
-        return await i.client.reply(i, embed=e, view=self)
+        await self.interaction.edit_original_response(embed=e, view=self)
 
 
 async def choose_recent_fixture(
-    interaction: Interaction, fsr: fs.Competition | fs.Team
+    interaction: Interaction[Bot], fsr: fs.Competition | fs.Team
 ):
     """Allow the user to choose from the most recent games of a fixture"""
     fixtures = await fsr.fixtures()
     await (v := FixtureSelect(interaction, fixtures)).update()
     await v.wait()
     return next(i for i in fixtures if i.score_line == v.value)
+
+
+async def get_stadiums(
+    interaction: Interaction[Bot], query: str
+) -> list[Stadium]:
+    """Fetch a list of Stadium objects matching a user query"""
+    uri = f"https://www.footballgroundmap.com/search/{quote_plus(query)}"
+
+    async with interaction.client.session.get(uri) as resp:
+        tree = html.fromstring(await resp.text())
+
+    stadiums: list[Stadium] = []
+
+    xp = ".//div[@class='using-grid'][1]/div[@class='grid']/div"
+    for i in tree.xpath(xp):
+
+        xp = ".//small/preceding-sibling::a//text()"
+        team = "".join(i.xpath(xp)).title()
+        badge = i.xpath(".//img/@src")[0]
+
+        if not (comp_info := i.xpath(".//small/a//text()")):
+            continue
+
+        country = comp_info.pop(0)
+        league = comp_info[0] if comp_info else None
+
+        for s in i.xpath(".//small/following-sibling::a"):
+            name = "".join(s.xpath(".//text()")).title()
+            if query.lower() not in name.lower() + team.lower():
+                continue  # Filtering.
+
+            stadium = Stadium()
+            stadium.name = name
+            stadium.url = "".join(s.xpath("./@href"))
+            stadium.team = team
+            stadium.team_badge = badge
+            stadium.country = country
+            stadium.league = league
+
+            stadiums.append(stadium)
+    return stadiums
 
 
 class Fixtures(Cog):
@@ -1125,52 +1129,43 @@ class Fixtures(Cog):
     @default.command(name="team")
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def default_team(
-        self, interaction: Interaction, team: str
-    ) -> Message:
+    async def default_team(self, ctx: Interaction[Bot], team: str) -> Message:
         """Set the default team for your flashscore lookups"""
-        await interaction.response.defer(thinking=True)
+        await ctx.response.defer(thinking=True)
 
-        # Receive Autocomplete.
-        if (fsr := self.bot.get_team(team)) is None:
-            fsr = await fs_search(interaction, team, mode="team")
-            if isinstance(fsr, Message):
-                return fsr  # Not Found
+        g = typing.cast(Guild, ctx.guild)
+
+        fsr = await self.fetch_team(ctx, team)
+
+        e = await fsr.base_embed()
+        e.description = f"Commands will use {fsr.markdown} as default team"
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO guild_settings (guild_id)
                          VALUES ($1) ON CONFLICT DO NOTHING"""
-                await connection.execute(sql, interaction.guild.id)
+                await connection.execute(sql, g.id)
 
                 q = """INSERT INTO fixtures_defaults (guild_id, default_team)
                        VALUES ($1,$2) ON CONFLICT (guild_id)
                        DO UPDATE SET default_team = $2
                        WHERE excluded.guild_id = $1"""
-                await connection.execute(q, interaction.guild.id, fsr.id)
-
-        e = await fsr.base_embed()
-        e.description = (
-            f"Your Fixtures commands will now use {fsr.markdown}"
-            "as a default team."
-        )
-        return await self.bot.reply(interaction, embed=e)
+                await connection.execute(q, g.id, fsr.id)
+        return await self.bot.reply(ctx, embed=e)
 
     @default.command(name="competition")
     @autocomplete(competition=comp_ac)
     @describe(competition="Enter the name of a competition to search for")
     async def default_comp(
-        self, interaction: Interaction, competition: str
+        self, interaction: Interaction[Bot], competition: str
     ) -> Message:
         """Set the default competition for your flashscore lookups"""
 
         await interaction.response.defer(thinking=True)
 
-        # TODO: Fix -- Return only 1 Competition.
-        if (fsr := self.bot.get_competition(competition)) is None:
-            fsr = await fs_search(interaction, competition, mode="comp")
-            if isinstance(fsr, Message):
-                return fsr
+        g = typing.cast(Guild, interaction.guild)
+
+        fsr = await self.fetch_competition(interaction, competition)
 
         q = """INSERT INTO fixtures_defaults (guild_id, default_league)
                 VALUES ($1,$2) ON CONFLICT (guild_id)
@@ -1178,13 +1173,13 @@ class Fixtures(Cog):
                 WHERE excluded.guild_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(q, interaction.guild.id, fsr.id)
+                await connection.execute(q, g.id, fsr.id)
 
         e = await fsr.base_embed()
         e.description = (
-            f"Your Fixtures commands will now use {fsr.markdown}"
-            "as a default competition"
+            f"Commands will use {fsr.markdown} as default competition"
         )
+
         return await self.bot.reply(interaction, embed=e)
 
     fixture = Group(
@@ -1197,39 +1192,44 @@ class Fixtures(Cog):
     @autocomplete(fixture=fx_ac)
     @describe(fixture="Search for a fixture by team name")
     async def table_fx(
-        self, interaction: Interaction, fixture: str
+        self, interaction: Interaction[Bot], fixture: str
     ) -> Message:
         """Look up the table for a fixture."""
         if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await self.fetch_team(interaction, fix)
+            team = await self.fetch_team(interaction, fixture)
             fix = await choose_recent_fixture(interaction, team)
-        fix = await choose_recent_fixture(interaction, team)
         return await FixtureView(interaction, fix).table()
 
     @fixture.command()
     @autocomplete(fixture=fx_ac)
     @describe(fixture="Search for a fixture by team name")
-    async def stats(self, interaction: Interaction, fixture: str) -> Message:
+    async def stats(
+        self, interaction: Interaction[Bot], fixture: str
+    ) -> Message:
         """Look up the stats for a fixture."""
         if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await self.fetch_team(interaction, fix)
+            team = await self.fetch_team(interaction, fixture)
             fix = await choose_recent_fixture(interaction, team)
         return await FixtureView(interaction, fix).stats()
 
     @fixture.command()
     @autocomplete(fixture=fx_ac)
     @describe(fixture="Search for a fixture by team name")
-    async def lineups(self, interaction: Interaction, fixture: str) -> Message:
+    async def lineups(
+        self, interaction: Interaction[Bot], fixture: str
+    ) -> Message:
         """Look up the lineups and/or formations for a Fixture."""
         if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await self.fetch_team(interaction, fix)
+            team = await self.fetch_team(interaction, fixture)
             fix = await choose_recent_fixture(interaction, team)
         return await FixtureView(interaction, fix).lineups()
 
     @fixture.command()
     @autocomplete(fixture=fx_ac)
     @describe(fixture="Search for a fixture by team name")
-    async def summary(self, interaction: Interaction, fixture: str) -> Message:
+    async def summary(
+        self, interaction: Interaction[Bot], fixture: str
+    ) -> Message:
         """Get a summary for a fixture"""
         if (fix := self.bot.get_fixture(fixture)) is None:
             team = await self.fetch_team(interaction, fix)
@@ -1239,66 +1239,69 @@ class Fixtures(Cog):
     @fixture.command(name="h2h")
     @autocomplete(fixture=fx_ac)
     @describe(fixture="Search for a fixture by team name")
-    async def h2h(self, interaction: Interaction, fixture: str) -> Message:
+    async def h2h(self, ctx: Interaction[Bot], fixture: str) -> Message:
         """Lookup the head-to-head details for a Fixture"""
         if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await self.fetch_team(interaction, fix)
-            fix = await choose_recent_fixture(interaction, team)
-        return await FixtureView(interaction, fix).h2h()
+            team = await self.fetch_team(ctx, fix)
+            fix = await choose_recent_fixture(ctx, team)
+        return await FixtureView(ctx, fix).h2h()
 
     league = Group(
         name="competition",
         description="Get information about a competition from flashscore",
     )
 
+    async def fetch_competition(
+        self, inter: Interaction[Bot], comp: str
+    ) -> fs.Competition:
+        await inter.response.defer(thinking=True)
+        if fsr := self.bot.get_competition(comp):
+            return fsr
+
+        teams = await fs_search(inter, comp, mode="comp")
+        teams = typing.cast(list[fs.Team], teams)
+
+        await (v := TeamSelect(inter, teams)).update()
+        await v.wait()
+
+        if not v.value:
+            raise TimeoutError
+        return next(i for i in teams if i.id == v.value[0])
+
     @league.command(name="fixtures")
     @autocomplete(competition=comp_ac)
     @describe(competition="Enter the name of a competition to search for")
-    async def fx_comp(self, interaction: Interaction, competition: str):
+    async def fx_comp(self, interaction: Interaction[Bot], competition: str):
         """Fetch upcoming fixtures for a competition."""
-
         await interaction.response.defer(thinking=True)
-
-        # TODO: Fix -- Return only 1 Competition.
-        if (fsr := self.bot.get_competition(competition)) is None:
-            fsr = await fs_search(interaction, competition, mode="comp")
-            if isinstance(fsr, Message):
-                return fsr
+        fsr = await self.fetch_competition(interaction, competition)
         return await CompetitionView(interaction, fsr).push_fixtures()
 
     @league.command(name="results")
     @autocomplete(competition=comp_ac)
     @describe(competition="Enter the name of a competition to search for")
-    async def rx_comp(self, interaction: Interaction, competition: str):
+    async def rx_comp(self, interaction: Interaction[Bot], competition: str):
         """Get recent results for a competition"""
-
         await interaction.response.defer(thinking=True)
-        # TODO: Fix -- Return only 1 Competition.
-        if (fsr := self.bot.get_competition(competition)) is None:
-            fsr = await fs_search(interaction, competition, mode="comp")
-            if isinstance(fsr, Message):
-                return fsr
+        fsr = await self.fetch_competition(interaction, competition)
         return await CompetitionView(interaction, fsr).push_results()
 
     @league.command(name="scorers")
     @autocomplete(competition=comp_ac)
     @describe(competition="Enter the name of a competition to search for")
-    async def scorers_comp(self, interaction: Interaction, competition: str):
+    async def scorers_comp(
+        self, interaction: Interaction[Bot], competition: str
+    ):
         """Get top scorers from a competition."""
-
         await interaction.response.defer(thinking=True)
-        # TODO: Fix -- Return only 1 Competition.
-        if (fsr := self.bot.get_competition(competition)) is None:
-            fsr = await fs_search(interaction, competition, mode="comp")
-            if isinstance(fsr, Message):
-                return fsr
+        fsr = await self.fetch_competition(interaction, competition)
         return await CompetitionView(interaction, fsr).push_scorers()
 
     @league.command()
     @describe(competition="Enter the name of a competition to search for")
     @autocomplete(competition=comp_ac)
     async def scores(
-        self, interaction: Interaction, competition: str = None
+        self, interaction: Interaction[Bot], competition: Optional[str]
     ) -> Message:
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""
@@ -1310,11 +1313,9 @@ class Fixtures(Cog):
 
         if competition:
             if not (res := self.bot.get_competition(competition)):
-                res = [
-                    i
-                    for i in self.bot.games
-                    if competition.lower() in i.competition.title.lower()
-                ]
+                games = self.bot.games
+                lwr = competition.lower()
+                res = [i for i in games if lwr in i.competition.title.lower()]
                 if not res:
                     err = f"No live games found for `{competition}`"
                     return await self.bot.error(interaction, err)
@@ -1328,8 +1329,8 @@ class Fixtures(Cog):
             title="Current scores",
             description=header,
         )
-
         e = base_embed.copy()
+        e.description = ""
         embeds = []
         for x, y in [(i.competition.title, i.live_score_text) for i in res]:
             if x != comp:  # We need a new header if it's a new comp.
@@ -1343,7 +1344,7 @@ class Fixtures(Cog):
             else:
                 embeds.append(e)
                 e = base_embed.copy()
-                e.description += f"\n**{x}**\n{y}\n"
+                e.description = f"\n**{x}**\n{y}\n"
         embeds.append(e)
         return await view_utils.Paginator(interaction, embeds).update()
 
@@ -1351,107 +1352,115 @@ class Fixtures(Cog):
     @autocomplete(competition=comp_ac)
     @describe(competition="Enter the name of a competition to search for")
     async def comp_table(
-        self, interaction: Interaction, competition: str
+        self, interaction: Interaction[Bot], competition: str
     ) -> Message:
         """Get the Table of a competition"""
-
         await interaction.response.defer(thinking=True)
-        if (fsr := self.bot.get_competition(competition)) is None:
-            fsr = await fs_search(interaction, competition, mode="comp")
+        fsr = await self.fetch_competition(interaction, competition)
         return await CompetitionView(interaction, fsr).push_table()
 
     team = Group(name="team", description="Get information about a team ")
 
-    async def fetch_team(self, interaction: Interaction, team: str) -> fs.Team:
-        await interaction.response.defer(thinking=True)
+    async def fetch_team(self, inter: Interaction[Bot], team: str) -> fs.Team:
+        await inter.response.defer(thinking=True)
         if fsr := self.bot.get_team(team):
             return fsr
 
-        teams = await fs_search(interaction, team, mode="team")
+        teams = await fs_search(inter, team, mode="team")
+        teams = typing.cast(list[fs.Team], teams)
 
-        await (v := TeamSelect(interaction, teams)).update()
+        await (v := TeamSelect(inter, teams)).update()
         await v.wait()
 
         if not v.value:
             raise TimeoutError
-
-        return next(i for i in teams if i.link == [v.value[0]])
+        return next(i for i in teams if i.id == v.value[0])
 
     @team.command(name="fixtures")
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def fx_team(self, interaction: Interaction, team: str) -> Message:
+    async def fx_team(
+        self, interaction: Interaction[Bot], team: str
+    ) -> Message:
         """Fetch upcoming fixtures for a team."""
-        team = await self.fetch_team(interaction, team)
-        return await team.fixtures()
+        fsr = await self.fetch_team(interaction, team)
+        return await TeamView(interaction, fsr).fixtures()
 
     @team.command(name="results")
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def rx_team(self, interaction: Interaction, team: str) -> Message:
+    async def rx_team(
+        self, interaction: Interaction[Bot], team: str
+    ) -> Message:
         """Get recent results for a Team"""
-        team = await self.fetch_team(interaction, team).results()
-        return await team.results()
+        fsr = await self.fetch_team(interaction, team)
+        return await TeamView(interaction, fsr).results()
 
     @team.command(name="scorers")
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def sc_team(self, interaction: Interaction, team: str) -> Message:
+    async def sc_team(
+        self, interaction: Interaction[Bot], team: str
+    ) -> Message:
         """Get top scorers for a team in various competitions."""
-        team = await self.fetch_team(interaction, team)
-        return await team.scorers()
+        fsr = await self.fetch_team(interaction, team)
+        return await TeamView(interaction, fsr).scorers()
 
     @team.command(name="table")
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def team_table(self, interaction: Interaction, team: str) -> Message:
+    async def team_table(
+        self, interaction: Interaction[Bot], team: str
+    ) -> Message:
         """Get the Table of one of a Team's competitions"""
-        team = await self.fetch_team(interaction, team)
-        return await team.scorers()
+        fsr = await self.fetch_team(interaction, team)
+        return await TeamView(interaction, fsr).scorers()
 
     @team.command()
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def injuries(self, interaction: Interaction, team: str) -> Message:
+    async def injuries(
+        self, interaction: Interaction[Bot], team: str
+    ) -> Message:
         """Get a team's current injuries"""
-        team = await self.fetch_team(interaction, team)
-        return await team.injuries()
+        fsr = await self.fetch_team(interaction, team)
+        return await TeamView(interaction, fsr).injuries()
 
     @team.command()
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def news(self, interaction: Interaction, team: str) -> Message:
+    async def news(self, interaction: Interaction[Bot], team: str) -> Message:
         """Get the latest news for a team"""
-        team = await self.fetch_team(interaction, team)
-        return await team.news()
+        fsr = await self.fetch_team(interaction, team)
+        return await TeamView(interaction, fsr).news()
 
     @team.command()
     @autocomplete(team=team_ac)
     @describe(team="Enter the name of a team to search for")
-    async def squad(self, interaction: Interaction, team: str) -> Message:
+    async def squad(self, interaction: Interaction[Bot], team: str) -> Message:
         """Lookup a team's squad members"""
-        team = await self.fetch_team(interaction, team)
-        return await team.squad()
+        fsr = await self.fetch_team(interaction, team)
+        return await TeamView(interaction, fsr).squad()
 
     # UNIQUE commands
     @command()
     @describe(stadium="Search for a stadium by it's name")
-    async def stadium(self, interaction: Interaction, stadium: str) -> Message:
+    async def stadium(self, ctx: Interaction[Bot], stadium: str) -> Message:
         """Lookup information about a team's stadiums"""
 
-        await interaction.response.defer(thinking=True)
+        await ctx.response.defer(thinking=True)
 
-        if not (std := await get_stadiums(self.bot, stadium)):
+        if not (std := await get_stadiums(ctx, stadium)):
             err = f"No stadiums found matching `{stadium}`"
-            return await self.bot.error(interaction, err)
+            return await self.bot.error(ctx, err)
 
-        await (view := StadiumSelect(interaction, std)).update()
+        await (view := StadiumSelect(ctx, std)).update()
         await view.wait()
         if view.value is None:
             err = "Timed out waiting for you to reply"
-            return await self.bot.error(interaction, err, followup=False)
+            return await self.bot.error(ctx, err, followup=False)
         target = next(i for i in std if i.url == view.value[0])
-        return await self.bot.reply(interaction, embed=await target.to_embed())
+        return await self.bot.reply(ctx, embed=await target.to_embed())
 
 
 async def setup(bot: Bot):
