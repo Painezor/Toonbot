@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from random import choice, randint, randrange, shuffle
-from typing import TYPE_CHECKING, Text
+from typing import TYPE_CHECKING, Optional
 
 from discord import Embed, Colour, TextStyle
 import discord
@@ -32,7 +32,7 @@ COIN = (
 class DiceBox(BaseView):
     """A View with buttons for various dice"""
 
-    def __init__(self, interaction: Interaction) -> None:
+    def __init__(self, interaction: Interaction[Bot]) -> None:
         super().__init__(interaction)
         self.rolls: list[list[int]] = []
 
@@ -40,6 +40,8 @@ class DiceBox(BaseView):
         """Update embed and push to view"""
         e: Embed = Embed(colour=Colour.og_blurple(), description="")
         e.set_author(name="Dice Tray")
+
+        e.description = ""
 
         self.clear_items()
         self.add_item(DiceButton(4))
@@ -50,7 +52,9 @@ class DiceBox(BaseView):
         self.add_item(DiceButton(20, row=1))
 
         for row in self.rolls:
-            e.description += f"{', '.join(row)} (Sum: {sum(row)})\n"
+            e.description += (
+                f"{', '.join(str(i) for i in row)} (Sum: {sum(row)})\n"
+            )
 
         return await self.bot.reply(self.interaction, view=self, embed=e)
 
@@ -65,7 +69,7 @@ class DiceButton(Button):
         super().__init__(label=f"Roll D{sides}", row=row, style=s)
         self.sides: int = sides
 
-    async def callback(self, interaction: Interaction) -> BaseView:
+    async def callback(self, interaction: Interaction) -> Message:
         """When clicked roll"""
 
         await interaction.response.defer()
@@ -88,7 +92,7 @@ class CoinView(BaseView):
         for x in range(count):
             self.flip_results.append(choice(["H", "T"]))
 
-    async def update(self, content: str = None) -> Message:
+    async def update(self, content: Optional[str] = None) -> Message:
         """Update embed and push to view"""
         e = Embed(colour=Colour.og_blurple(), title=self.flip_results[-1])
         e.set_thumbnail(url=COIN)
@@ -99,11 +103,14 @@ class CoinView(BaseView):
         for c in counter.most_common():
             e.description += f"\n**Total {c[0]}**: {c[1]}"
 
-        await self.bot.reply(self.interaction, content, view=self, embed=e)
+        i = self.interaction
+        return await self.bot.reply(i, content, view=self, embed=e)
 
 
 class FlipButton(Button):
     """Flip a coin and pass the result to the view"""
+
+    view: CoinView
 
     def __init__(self, label="Flip a Coin", count=1) -> None:
 
@@ -111,7 +118,7 @@ class FlipButton(Button):
         super().__init__(label=label, emoji="🪙", style=s)
         self.count: int = count
 
-    async def callback(self, interaction: Interaction) -> BaseView:
+    async def callback(self, interaction: Interaction) -> Message:
         """When clicked roll"""
 
         await interaction.response.defer()
@@ -136,7 +143,7 @@ class ChoiceModal(Modal):
     def __init__(self) -> None:
         super().__init__(title="Make a Decision")
 
-    async def on_submit(self, interaction: Interaction) -> Message:
+    async def on_submit(self, interaction: Interaction[Bot]) -> Message:
         """When the Modal is submitted, send a random choice back"""
 
         u = interaction.user
@@ -166,9 +173,8 @@ class Random(Cog):
         self.bot = bot
 
     @command()
-    async def choose(self, interaction: Interaction) -> ChoiceModal:
+    async def choose(self, interaction: Interaction) -> None:
         """Make a decision for you (separate choices with new lines)"""
-
         return await interaction.response.send_modal(ChoiceModal())
 
     @command()
@@ -289,13 +295,13 @@ class Random(Cog):
 
             if r in ["adv", "dis"]:
                 sides = 20
-                dice = 1
+                die = 1
             else:
                 try:
-                    dice, sides = r.split("d")
-                    dice = int(dice)
+                    die, sides = r.split("d")
+                    die = int(dice)
                 except ValueError:
-                    dice = 1
+                    die = 1
                     try:
                         sides = int("".join([i for i in r if i.isdigit()]))
                     except ValueError:
@@ -303,7 +309,7 @@ class Random(Cog):
                 else:
                     sides = int(sides)
 
-                if dice > 1000:
+                if die > 1000:
                     return await self.bot.error(interaction, "Too many dice")
                 if sides > 1000000:
                     return await self.bot.error(interaction, "Too many sides")
@@ -315,7 +321,7 @@ class Random(Cog):
             total_roll = 0
             roll_info = ""
             curr_rolls = []
-            for i in range(dice):
+            for i in range(die):
                 first_roll = randrange(1, 1 + sides)
                 roll_outcome = first_roll
 

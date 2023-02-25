@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-translations: dict = {}
+translations: dict[Locale, dict] = {}
 
 for x in Locale:
     try:
@@ -49,7 +49,7 @@ class TL(Translator):
         """
 
         try:
-            return translations.get(locale)[string.message]
+            return translations[locale][string.message]
         except KeyError:
             return None
 

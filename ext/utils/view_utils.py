@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Callable, TYPE_CHECKING, ClassVar, Any, Optional
+from typing import Callable, TYPE_CHECKING, Any, Optional
 from discord import ButtonStyle, NotFound, Embed, SelectOption
 from discord.ui import Button, Select, Modal, View, TextInput
 
@@ -19,11 +19,9 @@ logger = logging.getLogger("view_utils")
 class BaseView(View):
     """Error Handler."""
 
-    bot: ClassVar
-
     def __init__(self, interaction: Interaction[Bot | PBot], *args, **kwargs):
 
-        self.__class__.bot = interaction.client
+        self.bot = interaction.client
         self.interaction: Interaction[Bot | PBot] = interaction
 
         self.index: int = 0
@@ -304,7 +302,10 @@ class FuncSelect(Select):
     """A Select that ties to individually passed functions"""
 
     def __init__(
-        self, items: list[Funcable], row: int, placeholder: str = None
+        self,
+        items: list[Funcable],
+        row: int,
+        placeholder: Optional[str] = None,
     ):
 
         self.items: dict[str, Funcable] = {}
@@ -335,16 +336,16 @@ class FuncButton(Button):
         self,
         label: str,
         func: Callable,
-        args: list = None,
-        kw: dict = None,
+        args: list = [],
+        kw: dict = {},
         **kwargs,
     ) -> None:
 
         super().__init__(label=label, **kwargs)
 
         self.func: Callable = func
-        self.args: list = [] if args is None else args
-        self.kwargs: dict = {} if kw is None else kw
+        self.args: list = args
+        self.kwargs: dict = kw
 
     async def callback(self, interaction: Interaction) -> None:
         """The Callback performs the passed function with any passed
@@ -363,7 +364,7 @@ class FuncDropdown(Select):
     def __init__(
         self,
         options: list[tuple[SelectOption, dict, Callable]],
-        placeholder: str = None,
+        placeholder: Optional[str] = None,
         row: int = 3,
     ) -> None:
 
@@ -388,18 +389,18 @@ class Paginator(BaseView):
     """Generic Paginator that returns nothing."""
 
     def __init__(
-        self, interaction: Interaction[Bot], embeds: list[Embed]
+        self, interaction: Interaction[Bot | PBot], embeds: list[Embed]
     ) -> None:
         super().__init__(interaction)
-        self.pages: list[Embed] = embeds
-        self.index: int = 0
 
-    async def update(self, content: str = None) -> Message:
+    async def update(self, content: Optional[str] = None) -> Message:
         """Refresh the view and send to user"""
         self.clear_items()
-        add_page_buttons(self)
+        self.add_page_buttons()
         e = self.pages[self.index]
-        await self.bot.reply(self.interaction, content, embed=e, view=self)
+        return await self.bot.reply(
+            self.interaction, content, embed=e, view=self
+        )
 
 
 class Confirmation(BaseView):
@@ -407,27 +408,30 @@ class Confirmation(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[Bot | PBot],
         label_a: str = "Yes",
         label_b: str = "No",
-        style_a: ButtonStyle = None,
-        style_b: ButtonStyle = None,
+        style_a: ButtonStyle = ButtonStyle.grey,
+        style_b: ButtonStyle = ButtonStyle.grey,
     ) -> None:
 
         super().__init__(interaction)
 
         self.add_item(BoolButton(label_a, style_a))
         self.add_item(BoolButton(label_b, style_b, value=False))
-        self.value = None
+
+        self.value: bool
 
 
 class BoolButton(Button):
     """Set View value"""
 
+    view: Confirmation
+
     def __init__(
         self,
-        label="Yes",
-        style: ButtonStyle = ButtonStyle.secondary,
+        label: str = "Yes",
+        style: ButtonStyle = ButtonStyle.gray,
         value: bool = True,
     ) -> None:
 

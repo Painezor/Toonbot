@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import typing
 
-from discord import Embed, Interaction, Message, ButtonStyle
+from discord import Embed, Interaction, Member, Message, ButtonStyle
 from discord.app_commands import command
 from discord.ext.commands import Cog
 from discord.ui import View, Button
@@ -42,17 +43,15 @@ class MetaToonbot(Cog):
     @command()
     async def about(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
-        e: Embed = Embed(colour=0x2ECC71, timestamp=self.bot.user.created_at)
-        e.set_footer(
-            text=f"{self.bot.user.name} is coded by Painezor and was created "
-        )
+        u = typing.cast(Member, self.bot.user)
+        e: Embed = Embed(colour=0x2ECC71, timestamp=u.created_at)
+        e.set_footer(text=f"{u.name} is coded by Painezor and was created ")
 
-        me = self.bot.user
-        e.set_thumbnail(url=me.display_avatar.url)
-        e.title = f"About {self.bot.user.name}"
+        e.set_thumbnail(url=u.display_avatar.url)
+        e.title = f"About {u.name}"
 
         # statistics
-        total_members = sum(len(s.members) for s in self.bot.guilds)
+        total_members = sum(len(g.members) for g in self.bot.guilds)
 
         g = format(len(self.bot.guilds), ",")
         members = f"{format(total_members, ',')} users across {g} servers."

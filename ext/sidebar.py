@@ -21,7 +21,7 @@ from lxml import html
 
 if TYPE_CHECKING:
     from core import Bot
-    from ext.toonbot_utils.flashscore import Fixture, Team
+    from ext.toonbot_utils.flashscore import Fixture
 NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
 REDDIT_THUMBNAIL = (
@@ -105,7 +105,9 @@ class NUFCSidebar(Cog):
 
         wiki_content = wiki.content_md
 
-        fsr: Team = self.bot.get_team(team_id)
+        fsr = self.bot.get_team(team_id)
+        if fsr is None:
+            raise ValueError(f"Team with ID {team_id} not found in db")
 
         fixtures: list[Fixture] = await fsr.fixtures()
         results: list[Fixture] = await fsr.results()
@@ -141,10 +143,11 @@ class NUFCSidebar(Cog):
             # Insert subreddit link from db
 
             try:
-                team = next(i for i in self.bot.teams if i["name"] == team)
+                team = next(i for i in self.bot.reddit_teams if i.name == team)
                 team = f"{team['name']}]({team['subreddit']}"
             except StopIteration:
                 pass
+
             cols = [team] + p[3:7] + p[9:11]  # [t] [p, w, d, l] [gd, pts]
 
             q = qry.lower()
@@ -223,9 +226,12 @@ class NUFCSidebar(Cog):
                 return team_.logo_url
 
             # Else pull up the page and grab it manually.
+            if fixture.url is None:
+                raise ValueError("Cannot fetch None Sidebar URL")
+
             page = await self.bot.browser.new_page()
             try:
-                await page.goto(fixture.link, timeout=5000)
+                await page.goto(fixture.url, timeout=5000)
                 await page.wait_for_selector(
                     f'.//div[contains(@class, "tlogo-{attr}")]//img',
                     timeout=5000,
@@ -301,7 +307,7 @@ class NUFCSidebar(Cog):
                 except StopIteration:
                     h_ico = "#temp"
 
-                a = f.away.name
+                a = r.away.name
                 try:
                     away = next(i for i in pool if i["name"] == a)
                     a_ico = away["icon"]

@@ -123,6 +123,7 @@ async def fs_search(
     return results
 
 
+# DB Management
 async def save_team(interaction: Interaction[Bot], t: fs.Team) -> None:
     """Save the Team to the Bot Database"""
     sql = """INSERT INTO fs_teams (id, name, logo_url, url)

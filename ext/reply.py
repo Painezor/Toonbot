@@ -5,14 +5,9 @@ import logging
 
 import discord
 from discord import Embed, Interaction, Message, Colour, InteractionResponse
-from discord.app_commands import (
-    AppCommandError,
-    BotMissingPermissions,
-    MissingPermissions,
-)
-from discord.ext.commands import Cog, NotOwner
+from discord.app_commands import AppCommandError
+from discord.ext.commands import Cog
 
-from ext.quotes import TargetOptedOutError, OptedOutError
 from ext.utils import view_utils
 
 from typing import TYPE_CHECKING
@@ -28,12 +23,11 @@ logger = logging.getLogger("reply")
 
 
 async def error(
-    i: Interaction[Bot],
+    i: Interaction[Bot | PBot],
     content: str,
-    message: Message = None,
     followup: bool = True,
     **kwargs,
-) -> Message:
+) -> Message | None:
     """Send a Generic Error Embed"""
     e: Embed = Embed(colour=Colour.red(), description=content)
 
@@ -42,44 +36,35 @@ async def error(
     v = BaseView(i)
     v.add_item(view_utils.Stop())
     return await reply(
-        i,
-        message=message,
-        embed=e,
-        ephemeral=True,
-        followup=followup,
-        view=v,
-        **kwargs,
+        i, embed=e, ephemeral=True, followup=followup, view=v, **kwargs
     )
 
 
 async def reply(
-    i: Interaction[Bot],
-    message: Message = None,
-    followup: bool = True,
-    **kwargs,
-) -> Message:
+    i: Interaction[Bot | PBot], followup: bool = True, **kwargs
+) -> Message | None:
     """Generic reply handler."""
-    r: InteractionResponse = i.response
-    if message is None and not r.is_done():
+    r: InteractionResponse[Bot | PBot] = i.response
+    if not r.is_done():
         await r.send_message(**kwargs)
         return await i.original_response()
 
+    att = kwargs.copy()
+    if "file" in kwargs:
+        att["attachments"] = [att.pop("file")]
+    elif "files" in kwargs:
+        att["attachments"] = att.pop("files")
+    att.pop("ephemeral", None)
+
     try:
-        att = kwargs.copy()
-        if "file" in kwargs:
-            att["attachments"] = [att.pop("file")]
-        elif "files" in kwargs:
-            att["attachments"] = att.pop("files")
-        att.pop("ephemeral", None)
         return await i.edit_original_response(**att)
     except discord.HTTPException:
         if not followup:
-            return
-        followup: discord.Webhook = i.followup
+            return  # We Tried
+
+        fl: discord.Webhook = i.followup
         try:
-            return await followup.send(
-                **kwargs, wait=True
-            )  # Return the message.
+            return await fl.send(**kwargs, wait=True)  # Return the message.
         except discord.HTTPException:
             try:
                 return await i.user.send(**kwargs)
@@ -104,10 +89,17 @@ class Reply(Cog):
         msg = f"An Internal error occurred.\n{err.args}"
         await self.bot.error(interaction, msg)
 
-        i1 = interaction.command.qualified_name
-        i2 = interaction.data.items()
+        if interaction.command:
+            i1 = interaction.command.qualified_name
+        else:
+            i1 = "No Command."
+
+        if interaction.data:
+            i2 = interaction.data.items()
+        else:
+            i2 = "{}"
         logger.error("Error from %s\n%s", i1, i2)
-        raise err.with_traceback
+        raise err
 
 
 async def setup(bot: Bot | PBot):

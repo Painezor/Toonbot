@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal, Optional
+import typing
 
 from asyncpg import Record
 from discord import (
@@ -27,7 +28,7 @@ from lxml import html
 from lxml.html import HtmlElement
 
 from ext.utils.flags import get_flag
-from ext.utils.view_utils import add_page_buttons, BaseView
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -35,6 +36,8 @@ if TYPE_CHECKING:
 import yatg
 
 logger = logging.getLogger("Devblog")
+
+RSS = "https://blog.worldofwarships.com/rss-en.xml"
 
 SHIP_EMOTES = {
     "aircarrier": {
@@ -84,10 +87,12 @@ class Blog:
 
     bot: ClassVar[PBot]
 
-    def __init__(self, _id: int, title: str, text: str):
+    def __init__(
+        self, _id: int, title: Optional[str] = None, text: Optional[str] = None
+    ):
         self.id: int = _id
-        self.title: str = title
-        self.text: str = text
+        self.title: Optional[str] = title
+        self.text: Optional[str] = text
 
     @property
     def ac_row(self) -> str:
@@ -167,7 +172,7 @@ class Blog:
 
             match node.tag:
                 case "table" | "tr":
-                    for sub_node in node.iterdescendants():
+                    for sub_node in node.iterdescendants(None):
                         sub_node.text = (
                             None
                             if sub_node.text is None
@@ -176,7 +181,7 @@ class Blog:
 
                     string = html.tostring(node, encoding="unicode")
                     out.append(yatg.html_2_ascii_table(string))
-                    for sub_node in node.iterdescendants():
+                    for sub_node in node.iterdescendants(None):
                         sub_node.text = None
                 case "tbody" | "tr" | "td":
                     pass
@@ -213,14 +218,13 @@ class Blog:
                     # Handle Bold.
                     # Force line break if this is a standalone bold.
                     if not node.getparent().text:
-                        output.append("\n")
+                        out.append("\n")
 
                     if txt:
                         out.append(f"**{txt}** ")
 
                     if node.tail == ":":
                         out.append(":")
-                        node.tail = None
 
                     if node.getnext() is None:
                         out.append("\n")
@@ -276,7 +280,7 @@ class Blog:
                         )
                         out.append(txt)
 
-            for sub_node in node.iterchildren():
+            for sub_node in node.iterchildren(None):
                 if node.tag != "table":
                     out.append(parse(sub_node))
 
@@ -313,7 +317,7 @@ class DevBlogView(BaseView):
     """Browse Dev Blogs"""
 
     def __init__(
-        self, interaction: Interaction[Bot], pages: list[Record]
+        self, interaction: Interaction[PBot], pages: list[Record]
     ) -> None:
         super().__init__(interaction)
         self.pages: list[Blog] = pages
@@ -322,7 +326,7 @@ class DevBlogView(BaseView):
     async def update(self) -> Message:
         """Push the latest version of the view to discord."""
         self.clear_items()
-        add_page_buttons(self)
+        self.add_page_buttons()
         e = await self.pages[self.index].parse()
         return await self.interaction.client.reply(
             self.interaction, embed=e, ephemeral=True
@@ -369,9 +373,7 @@ class DevBlog(Cog):
         if self.bot.session is None or not self.bot.dev_blog_cache:
             return
 
-        async with self.bot.session.get(
-            "https://blog.worldofwarships.com/rss-en.xml"
-        ) as resp:
+        async with self.bot.session.get(RSS) as resp:
             tree = html.fromstring(bytes(await resp.text(), encoding="utf8"))
 
         articles = tree.xpath(".//item")
@@ -403,7 +405,8 @@ class DevBlog(Cog):
 
             for x in self.bot.dev_blog_channels:
                 try:
-                    ch = self.bot.get_channel(x)
+                    ch = typing.cast(TextChannel, self.bot.get_channel(x))
+
                     await ch.send(embed=e)
                 except (AttributeError, HTTPException):
                     continue
@@ -431,42 +434,49 @@ class DevBlog(Cog):
     @command()
     @default_permissions(manage_channels=True)
     async def blog_tracker(
-        self, interaction: Interaction[Bot], enabled: Literal["on", "off"]
+        self, interaction: Interaction[PBot], enabled: Literal["on", "off"]
     ) -> Message:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
 
+        if (channel := interaction.channel) is None:
+            raise
+
+        if (guild := interaction.guild) is None:
+            raise
+
         await interaction.response.defer(thinking=True)
 
         if enabled:
-            q = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""
-            args = [interaction.channel.id]
+            sql = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""
+            async with self.bot.db.acquire(timeout=60) as connection:
+                async with connection.transaction():
+                    await connection.execute(sql, channel.id)
             output = "New Dev Blogs will no longer be sent to this channel."
             colour = Colour.red()
         else:
-            q = """INSERT INTO dev_blog_channels (channel_id, guild_id)
+            sql = """INSERT INTO dev_blog_channels (channel_id, guild_id)
                    VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-            args = [interaction.channel.id, interaction.guild.id]
+            async with self.bot.db.acquire(timeout=60) as connection:
+                async with connection.transaction():
+                    await connection.execute(sql, channel.id, guild.id)
             output = "new Dev Blogs will now be sent to this channel."
             colour = Colour.green()
-
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.execute(q, *args)
 
         await self.update_cache()
 
         e = Embed(colour=colour, title="Dev Blog Tracker", description=output)
 
         u = self.bot.user
-        e.set_author(icon_url=u.display_avatar.url, name=u.name)
+        if u is not None:
+            e.set_author(icon_url=u.display_avatar.url, name=u.name)
         return await self.bot.reply(interaction, embed=e)
 
     @command()
     @autocomplete(search=db_ac)
     @describe(search="Search for a dev blog by text content")
     async def devblog(
-        self, interaction: Interaction[Bot], search: str
+        self, interaction: Interaction[PBot], search: str
     ) -> Message:
         """Fetch a World of Warships dev blog, either search for text or
         leave blank to get latest."""

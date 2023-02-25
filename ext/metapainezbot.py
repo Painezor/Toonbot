@@ -35,15 +35,18 @@ class MetaPainezbot(Cog):
     @command()
     async def about(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
-        e: Embed = Embed(colour=0x2ECC71, timestamp=self.bot.user.created_at)
+
+        e: Embed = Embed(colour=0x2ECC71)
         e.set_footer(text="painezBot is coded by Painezor | Created on")
 
         me = self.bot.user
-        e.set_thumbnail(url=me.display_avatar.url)
+        if me is not None:
+            e.set_thumbnail(url=me.display_avatar.url)
+            e.timestamp = me.created_at
         e.title = "About painezBot"
 
         # statistics
-        total_members = sum(len(s.members) for s in self.bot.guilds)
+        total_members = sum(len(g.members) for g in self.bot.guilds)
         e.description = (
             f"I do World of Warships lookups, including dev blogs"
             f", news, ships, and players.\nI have {total_members}"
@@ -51,13 +54,9 @@ class MetaPainezbot(Cog):
         )
 
         view = View()
-        view.add_item(
-            Button(
-                url=INV,
-                label="Invite me to your server",
-                emoji="<:painezBot:928654001279471697>",
-            )
-        )
+        em = "<:painezBot:928654001279471697>"
+        btn = Button(url=INV, label="Invite me to your server", emoji=em)
+        view.add_item(btn)
         return await self.bot.reply(interaction, embed=e, view=view)
 
 

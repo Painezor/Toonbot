@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from json import load
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from discord import Embed, Interaction, Message
 from discord.app_commands import command, describe, autocomplete, Choice
@@ -41,6 +41,8 @@ LST = "http://www.livesoccertv.com/"
 class TVSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
+    bot: Bot
+
     def __init__(self, interaction: Interaction[Bot], teams: list):
         super().__init__(interaction)
 
@@ -61,11 +63,13 @@ class TVSelect(view_utils.BaseView):
         d = view_utils.ItemSelect(placeholder="Please choose a Team")
         e = Embed(title="Choose a Team", description="")
 
+        e.description = ""
+
         for team in targets:
             d.add_option(emoji="📺", label=team, value=self.bot.tv_dict[team])
             e.description += f"{team}\n"
         self.add_item(d)
-        view_utils.add_page_buttons(self, 1)
+        self.add_page_buttons(1)
         return await self.interaction.client.reply(embed=e, view=self)
 
 
@@ -73,7 +77,7 @@ async def tv_ac(
     interaction: Interaction[Bot], current: str
 ) -> list[Choice[str]]:
     """Return list of live teams"""
-    dct = interaction.client.tv.keys()
+    dct = interaction.client.tv_dict.keys()
     cr = current.lower()
     return [Choice(name=x[:100], value=x) for x in dct if cr in x.lower()][:25]
 
@@ -90,7 +94,7 @@ class Tv(commands.Cog):
     @describe(team="Search for a team")
     @autocomplete(team=tv_ac)
     async def tv(
-        self, interaction: Interaction[Bot], team: str = None
+        self, interaction: Interaction[Bot], team: Optional[str]
     ) -> Message:
         """Lookup next televised games for a team"""
 

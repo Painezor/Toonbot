@@ -4,11 +4,13 @@ from __future__ import annotations
 from asyncio import to_thread
 from io import BytesIO
 from json import dumps
+import json
 from random import choice
 from typing import Optional, TYPE_CHECKING
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
-from discord import Embed, Member, Attachment, Interaction, User, Message, File
+from discord import Embed, Attachment, Interaction, User, Message, File
+import discord
 from discord.app_commands import describe, guild_only, Group
 from discord.ext.commands import Cog
 
@@ -29,9 +31,9 @@ class ImageView(BaseView):
     def __init__(
         self,
         interaction: Interaction[Bot],
-        user: User = None,
-        link: str = None,
-        file: Attachment = None,
+        user: Optional[User] = None,
+        link: Optional[str] = None,
+        file: Optional[Attachment] = None,
     ) -> None:
 
         if link is not None:
@@ -45,16 +47,16 @@ class ImageView(BaseView):
                 "png"
             ).url
 
-        self.image: bytes = None
+        self.image: bytes
         self.coordinates: dict = {}
 
-        self.output: bytes = None
+        self.output: BytesIO
 
         # Cache these, so if people re-click...
-        self._with_bob: bytes = None
-        self._with_eyes: bytes = None
-        self._with_knob: bytes = None
-        self._with_ruins: bytes = None
+        self._with_bob: BytesIO
+        self._with_eyes: BytesIO
+        self._with_knob: BytesIO
+        self._with_ruins: BytesIO
 
         super().__init__(interaction)
 
@@ -104,8 +106,8 @@ class ImageView(BaseView):
     async def push_ruins(self) -> Message:
         """Push the Local man ruins everything image to view"""
         if self.image is None:
-            if isinstance(await self.get_faces(), Message):
-                return
+            if isinstance(err := await self.get_faces(), Message):
+                return err
 
         def draw():
             """Generates the Image"""
@@ -132,15 +134,15 @@ class ImageView(BaseView):
     async def push_eyes(self) -> Message:
         """Draw the googly eyes"""
         if self.image is None:
-            if isinstance(await self.get_faces(), Message):
-                return
+            if isinstance(err := await self.get_faces(), Message):
+                return err
 
         def draw_eyes() -> BytesIO:
             """Draws the eyes"""
             if self._with_eyes is not None:
                 return self._with_eyes
 
-            im: Image = Image.open(BytesIO(self.image))
+            im = Image.open(BytesIO(self.image))
             for i in self.coordinates:
                 # Get eye bounds
                 lix = int(i["faceLandmarks"]["eyeLeftInner"]["x"])
@@ -285,29 +287,21 @@ class ImageView(BaseView):
         self.clear_items()
 
         self.add_item(FuncButton(label="Eyes", func=self.push_eyes, emoji="👀"))
-        self.add_item(
-            FuncButton(label="Bob Ross", func=self.push_bob, emoji="🖌️")
-        )
-        self.add_item(
-            FuncButton(label="Ruins", func=self.push_ruins, emoji="🏚️")
-        )
+        self.add_item(FuncButton("Bob Ross", self.push_bob, emoji="🖌️"))
+        self.add_item(FuncButton("Ruins", self.push_ruins, emoji="🏚️"))
 
-        if self.interaction.channel.is_nsfw():
-            self.add_item(
-                FuncButton(label="Knob", func=self.push_knob, emoji="🍆")
-            )
+        i = self.interaction
+        if not isinstance(i.channel, discord.PartialMessageable):
+            if i.channel:
+                if i.channel.is_nsfw():
+                    btn = FuncButton("Knob", self.push_knob, emoji="🍆")
+                    self.add_item(btn)
 
-        e: Embed = Embed(
-            colour=0xFFFFFF, description=self.interaction.user.mention
-        )
+        e: Embed = Embed(colour=0xFFFFFF, description=i.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
         e.set_image(url="attachment://img")
-        return await self.bot.reply(
-            self.interaction,
-            file=File(fp=self.output, filename="img"),
-            embed=e,
-            view=self,
-        )
+        file = File(fp=self.output, filename="img")
+        return await self.bot.reply(i, file=file, embed=e, view=self)
 
 
 class Images(Cog):
@@ -327,9 +321,9 @@ class Images(Cog):
     async def eyes(
         self,
         interaction: Interaction[Bot],
-        user: Member | User = None,
-        link: str = None,
-        file: Attachment = None,
+        user: Optional[User],
+        link: Optional[str],
+        file: Optional[Attachment],
     ) -> Message:
         """Draw Googly eyes on an image. Mention a user to use their avatar.
         Only works for human faces."""
@@ -339,45 +333,40 @@ class Images(Cog):
         ).push_eyes()
 
     @images.command()
-    @describe(
-        user="Select a user",
-        link="Provide a link to an image",
-        file="Upload a file",
-    )
+    @describe(user="pick a user", link="provide a link", file="upload a file")
     async def ruins(
         self,
         interaction: Interaction[Bot],
-        user: Member | User = None,
-        link: str = None,
-        file: Attachment = None,
+        user: Optional[User],
+        link: Optional[str],
+        file: Optional[Attachment],
     ) -> Message:
         """Local man ruins everything"""
         await interaction.response.defer(thinking=True)
-        return await ImageView(
-            interaction, link=link, user=user, file=file
-        ).push_ruins()
+        return await ImageView(interaction, user, link, file).push_ruins()
 
     @images.command()
     @describe(user="pick a user", link="provide a link", file="upload a file")
     async def bob_ross(
         self,
         interaction: Interaction[Bot],
-        user: User | Member = None,
-        link: str = None,
-        file: Attachment = None,
+        user: Optional[User],
+        link: Optional[str],
+        file: Optional[Attachment],
     ) -> Message:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
 
         await interaction.response.defer()
-        return await ImageView(
-            interaction, link=link, user=user, file=file
-        ).push_bob()
+        return await ImageView(interaction, user, link, file).push_bob()
 
     @images.command()
     @guild_only()
-    async def tinder(self, interaction: Interaction) -> Message:
+    async def tinder(self, interaction: Interaction[Bot]) -> Message:
         """Try to Find your next date."""
         av = await interaction.user.display_avatar.with_format("png").read()
+
+        if interaction.guild is None:
+            raise
 
         for x in range(10):
             match = choice(interaction.guild.members)
@@ -395,22 +384,22 @@ class Images(Cog):
         def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
             """Draw Images for the tinder command"""
             # Open The Tinder Image File
-            im: Image = Image.open("Images/tinder.png").convert(mode="RGBA")
+            im = Image.open("Images/tinder.png").convert(mode="RGBA")
 
             # Prepare the Mask and set size.
-            mask: Image = ImageOps.fit(
+            mask = ImageOps.fit(
                 Image.open("Images/circle mask.png").convert("L"), (185, 185)
             )
 
             # Open the User's Avatar, fit to size, apply mask.
-            avatar: Image = ImageOps.fit(
+            av = ImageOps.fit(
                 Image.open(BytesIO(avatar)).convert(mode="RGBA"), (185, 185)
             )
-            avatar.putalpha(mask)
-            im.paste(avatar, box=(100, 223, 285, 408), mask=mask)
+            av.putalpha(mask)
+            im.paste(av, box=(100, 223, 285, 408), mask=mask)
 
             # Open the second user's avatar, do same.
-            other: Image = ImageOps.fit(
+            other = ImageOps.fit(
                 Image.open(BytesIO(image)).convert(mode="RGBA"),
                 (185, 185),
                 centering=(0.5, 0.0),
@@ -420,7 +409,7 @@ class Images(Cog):
 
             # Cleanup
             mask.close()
-            avatar.close()
+            av.close()
             other.close()
 
             # Write "it's a mutual match"

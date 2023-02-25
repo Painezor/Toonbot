@@ -56,19 +56,18 @@ class XKCD(Cog):
 
     def __init__(self, bot: Bot):
         self.bot: Bot = bot
-        XKCDView.bot = bot
 
     xkcd = Group(name="xkcd", description="Get XKCD Comics")
 
     @xkcd.command()
-    async def latest(self, interaction: Interaction):
+    async def latest(self, interaction: Interaction[Bot]):
         """Get the latest XKCD Comic"""
 
         await interaction.response.defer(thinking=True)
         return await XKCDView(interaction).update()
 
     @xkcd.command()
-    async def random(self, interaction: Interaction):
+    async def random(self, interaction: Interaction[Bot]):
         """Get the latest XKCD Comic"""
 
         await interaction.response.defer(thinking=True)

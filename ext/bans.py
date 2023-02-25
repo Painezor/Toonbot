@@ -20,7 +20,7 @@ from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Select, Modal, TextInput
 
-from ext.utils.view_utils import add_page_buttons, BaseView
+from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
     from discord import Interaction, Message
@@ -80,7 +80,7 @@ class BanView(BaseView):
 
         e.description = self.add_select()
 
-        add_page_buttons(self, 1)
+        self.add_page_buttons(1)
         return await self.bot.reply(self.interaction, view=self, embed=e)
 
     async def unban(self, bans: list[str]):
@@ -108,7 +108,7 @@ class BanView(BaseView):
         self.page_bans = self.pages[self.index]
         e = self.embed.copy()
         e.description = self.add_select()
-        add_page_buttons(self, 1)
+        self.add_page_buttons(1)
         return await self.bot.reply(self.interaction, embed=e, view=self)
 
 

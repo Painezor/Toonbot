@@ -33,7 +33,7 @@ class SearchResult:
     def __init__(self, name: str, link: str, **kwargs) -> None:
         self.name: str = name
         self.link: str = link
-        self.emoji: str = None
+        self.emoji: str
         self.country: list[str] = kwargs.pop("country", [])
 
     def __repr__(self) -> str:
@@ -83,7 +83,7 @@ class Competition(SearchResult):
     def __bool__(self):
         return bool(self.name)
 
-    def view(self, interaction: Interaction) -> CompetitionView:
+    def view(self, interaction: Interaction[Bot]) -> CompetitionView:
         """Send a view of this Competition to the user."""
         return CompetitionView(interaction, self)
 
@@ -128,7 +128,7 @@ class Team(SearchResult):
         e.url = self.link
         return e
 
-    def view(self, interaction: Interaction) -> TeamView:
+    def view(self, interaction: Interaction[Bot]) -> TeamView:
         """Send a view of this Team to the user."""
         return TeamView(interaction, self)
 
@@ -203,12 +203,12 @@ class Transfer:
     def __init__(self, player: Player) -> None:
         self.player: Player = player
 
-        self.link: str = None
-        self.fee: str = None
-        self.fee_link: str = None
-        self.old_team: Team = None
-        self.new_team: Team = None
-        self.date: str = None
+        self.link: Optional[str] = None
+        self.fee: Optional[str] = None
+        self.fee_link: Optional[str] = None
+        self.old_team: Optional[Team] = None
+        self.new_team: Optional[Team] = None
+        self.date: Optional[str] = None
 
         # Typehint
         self.embed: Optional[Embed] = None
@@ -272,9 +272,6 @@ class TeamView(BaseView):
     def __init__(self, interaction: Interaction[Bot], team: Team) -> None:
         super().__init__(interaction)
         self.team: Team = team
-        self.index: int = 0
-        self.pages: list[Embed] = []
-        self.parent: BaseView = None
 
     async def update(self, content: str = None) -> None:
         """Send the latest version of the view"""
@@ -609,16 +606,11 @@ class CompetitionView(BaseView):
     ) -> None:
         super().__init__(interaction)
         self.comp: Competition = comp
-        self.index: int = 0
-        self.pages: list[Embed] = []
-        self.parent: BaseView = None
 
-    async def update(self, content: str = None) -> Message:
+    async def update(self, content: Optional[str] = None) -> Message:
         """Send the latest version of the view"""
         self.clear_items()
-        if self.parent is not None:
-            self.add_item(Parent())
-        add_page_buttons(self)
+        self.add_page_buttons()
 
         self.add_item(
             FuncButton(label="Attendances", func=self.attendance, emoji="🏟️")
@@ -757,8 +749,6 @@ class SearchView(BaseView):
     ) -> None:
 
         super().__init__(interaction)
-
-        self.index: int = 0
         self.value: Optional[Team | Competition] = None
         self.pages: list[Embed] = []
         self.query: str = query
@@ -819,10 +809,10 @@ class SearchView(BaseView):
 
         e = rows_to_embeds(e, [str(i) for i in self._results])[0]
 
-        self.pages = [None] * max(matches // 10, 1)
+        self.pages = [Embed()] * max(matches // 10, 1)
 
         self.clear_items()
-        add_page_buttons(self, row=1)
+        self.add_page_buttons(row=1)
 
         if self.fetch and self._results:
             self.add_item(SearchSelect(objects=self._results))
@@ -991,7 +981,7 @@ class StaffSearch(SearchView):
 
             xp = './/img[@class="bilderrahmen-fixed"]/@src'
             staff.picture = "".join(i.xpath(xp))
-            staff.age = "".join(i.xpath(".//td[3]/text()"))
+            staff.age = int("".join(i.xpath(".//td[3]/text()")))
             staff.job = "".join(i.xpath(".//td[5]/text()"))
             staff.country = i.xpath('.//img[@class="flaggenrahmen"]/@title')
 

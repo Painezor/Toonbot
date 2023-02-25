@@ -160,7 +160,11 @@ class FlashScoreItem:
                 await page.close()
 
         fixtures: list[Fixture] = []
-        comp = self if isinstance(self, Competition) else None
+
+        if isinstance(self, Competition):
+            comp = self
+        else:
+            comp = Competition(None, "Unknown", "Unknown", None)
 
         xp = '..//div[contains(@class, "sportName soccer")]/div'
         if not (games := tree.xpath(xp)):
@@ -590,7 +594,7 @@ class Competition(FlashScoreItem):
         self.logo_url: Optional[str]
 
         self.name: str
-        self.country: str
+        self.country: str = ""
         self.score_embeds: list[Embed] = []
 
         # Table Imagee
@@ -643,7 +647,10 @@ class Competition(FlashScoreItem):
     @property
     def title(self) -> str:
         """Return COUNTRY: league"""
-        return f"{self.country.upper()}: {self.name}"
+        if self.country:
+            return f"{self.country.upper()}: {self.name}"
+        else:
+            return self.name
 
     async def fixtures(self) -> list[Fixture]:
         """Get all upcoming fixtures related to the FlashScoreItem"""
@@ -765,6 +772,9 @@ class Fixture:
         if fs_id and not url:
             url = f"https://www.flashscore.com/?r=5:{fs_id}"
 
+        if url and FLASHSCORE not in url:
+            logger.info("Invalid url %s", url)
+
         self.url: Optional[str] = url
         self.fs_id: Optional[str] = fs_id
 
@@ -779,7 +789,7 @@ class Fixture:
         self.penalties_home: Optional[int] = None
 
         self.time: str | GameState
-        self.kickoff: datetime
+        self.kickoff: Optional[datetime] = None
         self.ordinal: Optional[int] = None
 
         self.attendance: Optional[int] = None
@@ -939,7 +949,7 @@ class Fixture:
         return " ".join(output)
 
     @property
-    def autocomplete(self) -> str:
+    def ac_row(self) -> str:
         """Get team names and comp name for autocomplete searches"""
         if self.competition:
             cmp = self.competition.title

@@ -52,12 +52,7 @@ class UrbanView(BaseView):
         self, interaction: Interaction[Bot], embeds: list[Embed]
     ) -> None:
         super().__init__(interaction)
-        self.index = 0
         self.pages: list[Embed] = embeds
-
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        """Verify correct user is using view buttons"""
-        return interaction.user.id == self.interaction.user.id
 
     async def update(self) -> Message:
         """Push the latest version of the view to the user"""
@@ -144,42 +139,33 @@ class UrbanDictionary(Cog):
                     )
 
     @ud.command()
-    async def random(self, interaction: Interaction) -> UrbanView | Message:
+    async def random(self, ctx: Interaction[Bot]) -> Message:
         """Get some random definitions from Urban Dictionary"""
+        await ctx.response.defer(thinking=True)
 
-        await interaction.response.defer(thinking=True)
-        async with self.bot.session.get(
-            "https://api.urbandictionary.com/v0/random"
-        ) as resp:
+        url = "https://api.urbandictionary.com/v0/random"
+        async with self.bot.session.get(url) as resp:
             match resp.status:
                 case 200:
-                    return await UrbanView(
-                        interaction, parse(await resp.json())
-                    ).update()
+                    js = parse(await resp.json())
+                    return await UrbanView(ctx, js).update()
                 case _:
-                    return await self.bot.error(
-                        interaction, f"🚫 HTTP Error, code: {resp.status}"
-                    )
+                    err = f"🚫 HTTP Error, code: {resp.status}"
+                    return await self.bot.error(ctx, err)
 
     @ud.command()
-    async def word_of_the_day(
-        self, interaction: Interaction
-    ) -> UrbanView | Message:
+    async def word_of_the_day(self, interaction: Interaction[Bot]) -> Message:
         """Get the Word of the Day from Urban Dictionary"""
-
         await interaction.response.defer(thinking=True)
-        async with self.bot.session.get(
-            "https://api.urbandictionary.com/v0/words_of_the_day"
-        ) as resp:
+        url = "https://api.urbandictionary.com/v0/words_of_the_day"
+        async with self.bot.session.get(url) as resp:
             match resp.status:
                 case 200:
-                    return await UrbanView(
-                        interaction, parse(await resp.json())
-                    ).update()
+                    js = parse(await resp.json())
                 case _:
-                    return await self.bot.error(
-                        interaction, f"🚫 HTTP Error, code: {resp.status}"
-                    )
+                    err = f"🚫 HTTP Error, code: {resp.status}"
+                    return await self.bot.error(interaction, err)
+        return await UrbanView(interaction, js).update()
 
 
 async def setup(bot: Bot) -> None:

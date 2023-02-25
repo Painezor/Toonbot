@@ -29,9 +29,9 @@ from discord.ext.tasks import loop
 from discord.ui import Button, Select
 from lxml.etree import ParserError, tostring
 from lxml.html import fromstring
+from ext.fixtures import fetch_competition
 
 import ext.toonbot_utils.flashscore as fs
-from ext.toonbot_utils.flashscore_search import fs_search
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import EventType
 from ext.utils.embed_utils import rows_to_embeds, stack_embeds
@@ -225,8 +225,6 @@ class ScoresConfig(BaseView):
     ) -> None:
         super().__init__(interaction)
         self.sc: ScoreChannel = channel
-        self.pages: list[Embed] = []
-        self.index: int = 0
 
     async def update(self, content: Optional[str]) -> Message:
         """Push the newest version of view to message"""
@@ -346,7 +344,6 @@ class Scores(Cog):
 
         fs.FlashScoreItem.bot = bot
         ScoreChannel.bot = bot
-        ScoresConfig.bot = bot
 
     async def cog_load(self) -> None:
         """Load our database into the bot"""
@@ -956,9 +953,7 @@ class Scores(Cog):
         if comp:
             res = comp
         elif "http" not in league:
-            res = await fs_search(interaction, league, mode="comp")
-            if isinstance(res, Message):
-                return res
+            res = await fetch_competition(interaction, league)
         else:
             if "flashscore" not in league:
                 err = "Invalid link provided."

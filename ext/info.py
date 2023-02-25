@@ -70,23 +70,20 @@ class Info(Cog):
 
     @info.command()
     @describe(channel="select a channel")
-    async def channel(
-        self, interaction: Interaction[Bot], channel: GuildChannel
-    ):
+    async def channel(self, interaction: Interaction[Bot], c: GuildChannel):
         """Get information about a channel"""
 
         await interaction.response.defer(thinking=True)
 
-        c = channel
-
         ts = c.created_at
-        base_embed = Embed(description=f"{c.mention}\n\n", timestamp=ts)
+        base_embed = Embed(timestamp=ts)
         base_embed.set_author(name=f"{c.name} ({c.id})")
 
         e = base_embed.copy()
+        e.description = f"{c.mention}\n\n"
 
-        if channel.category:
-            if channel.permissions_synced:
+        if c.category:
+            if c.permissions_synced:
                 sync = " (Perms Synced)"
             else:
                 sync = " (Perms not Synced)"
@@ -97,151 +94,144 @@ class Info(Cog):
 
         e.set_footer(text="Channel Created")
 
-        match type(c):
-            case discord.TextChannel:
-                c: discord.TextChannel
-                e.title = "Text Channel"
+        if isinstance(c, discord.TextChannel):
+            e.title = "Text Channel"
 
-                if c.topic:
-                    e.add_field(name="Topic", value=c.topic)
+            if c.topic:
+                e.add_field(name="Topic", value=c.topic)
 
-                if channel.slowmode_delay:
-                    s = logs.stringify_seconds(c.slowmode_delay)
-                    e.description += f"**Slowmode**: {s}\n"
+            if c.slowmode_delay:
+                s = logs.stringify_seconds(c.slowmode_delay)
+                e.description += f"**Slowmode**: {s}\n"
 
-                if channel.nsfw:
-                    e.description += "**NSFW**: True\n"
+            if c.nsfw:
+                e.description += "**NSFW**: True\n"
 
-                if channel.is_news():
-                    e.description += "**News**: True\n"
+            if c.is_news():
+                e.description += "**News**: True\n"
 
-                s = logs.stringify_minutes(c.default_auto_archive_duration)
-                e.description += f"**Thread Archive Time**: {s}\n"
+            s = logs.stringify_minutes(c.default_auto_archive_duration)
+            e.description += f"**Thread Archive Time**: {s}\n"
 
-                e.description += f"**Visible To**: {len(c.members)} Users\n"
+            e.description += f"**Visible To**: {len(c.members)} Users\n"
 
-                if c.threads:
-                    e.description += f"**Current Threads**: {len(c.threads)}\n"
+            if c.threads:
+                e.description += f"**Current Threads**: {len(c.threads)}\n"
+        elif isinstance(c, discord.VoiceChannel):
+            e.title = "Voice Channel"
+            e.description += f"**Bitrate**: {c.bitrate / 1000}kbps\n"
+            e.description += f"**Max Users**: {c.user_limit}\n"
 
-            case discord.VoiceChannel:
-                c: discord.VoiceChannel
-                e.title = "Voice Channel"
-                e.description += f"**Bitrate**: {c.bitrate / 1000}kbps\n"
-                e.description += f"**Max Users**: {c.user_limit}\n"
+            e.description += f"**Video Quality**: {c.video_quality_mode}\n"
+            if c.rtc_region:
+                e.description += f"**Region**: {c.rtc_region}\n"
 
-                e.description += f"**Video Quality**: {c.video_quality_mode}\n"
-                if channel.rtc_region:
-                    e.description += f"**Region**: {c.rtc_region}\n"
+            e.description += f"**Visible To**: {len(c.members)} Users\n"
 
-                e.description += f"**Visible To**: {len(c.members)} Users\n"
+            if c.nsfw:
+                e.description += "**NSFW**: True\n"
 
-                if channel.nsfw:
-                    e.description += "**NSFW**: True\n"
+            if c.slowmode_delay:
+                s = logs.stringify_seconds(c.slowmode_delay)
+                e.description += f"**Text Slowmode**: {s}\n"
 
-                if channel.slowmode_delay:
-                    s = logs.stringify_seconds(c.slowmode_delay)
-                    e.description += f"**Text Slowmode**: {s}\n"
+        elif isinstance(c, discord.CategoryChannel):
+            e.title = "Category Channel"
+            e.description += (
+                f"**Channels In Category**:"
+                f"{len(c.channels)} "
+                f"({len(c.text_channels)} Text, "
+                f"{len(c.voice_channels)} Voice, "
+                f"{len(c.stage_channels)} Stage)\n"
+            )
 
-            case discord.CategoryChannel:
-                e.title = "Category Channel"
-                c: discord.CategoryChannel
-                e.description += (
-                    f"**Channels In Category**:"
-                    f"{len(c.channels)} "
-                    f"({len(c.text_channels)} Text, "
-                    f"{len(c.voice_channels)} Voice, "
-                    f"{len(c.stage_channels)} Stage)\n"
+        elif isinstance(c, discord.StageChannel):
+            e.title = "Stage Channel"
+
+            e.description += f"**Bitrate**: {c.bitrate / 1000}kbps\n"
+            e.description += f"**Max Users**: {c.user_limit}\n"
+            e.description += f"**Video Quality**: {c.video_quality_mode}\n"
+            if c.rtc_region:
+                e.description += f"**Region**: {c.rtc_region}\n"
+
+            if c.slowmode_delay:
+                s = logs.stringify_seconds(c.slowmode_delay)
+                e.description += f"**Text Slowmode**: {s}\n"
+
+            if c.topic:
+                e.add_field(name="Topic", value=c.topic)
+
+            rts = c.requesting_to_speak
+            e.description += f"**Requests to Speak**: {len(rts)}\n"
+            e.description += f"**Speakers**: {len(c.speakers)}\n"
+            e.description += f"**Listeners**: {len(c.listeners)}\n"
+            e.description += f"**Moderators**: {len(c.moderators)}\n"
+
+            # INSTANCE
+            if ins := c.instance:
+                private = not ins.discoverable_disabled
+                val = (
+                    f"**Topic**: {ins.topic}\n\n"
+                    f"**Privacy Level**: {ins.privacy_level}\n"
+                    f"**Public Event?**: {private}\n"
                 )
 
-            case discord.StageChannel:
-                e.title = "Stage Channel"
+                if ins.scheduled_event is not None:
+                    ev: discord.ScheduledEvent = ins.scheduled_event
 
-                c: discord.StageChannel
-                e.description += f"**Bitrate**: {c.bitrate / 1000}kbps\n"
-                e.description += f"**Max Users**: {c.user_limit}\n"
-                e.description += f"**Video Quality**: {c.video_quality_mode}\n"
-                if channel.rtc_region:
-                    e.description += f"**Region**: {c.rtc_region}\n"
+                    start = Timestamp(ev.start_time)
+                    end = Timestamp(ev.end_time)
 
-                if channel.slowmode_delay:
-                    s = logs.stringify_seconds(c.slowmode_delay)
-                    e.description += f"**Text Slowmode**: {s}\n"
+                    val += f"**Event**: {ev.name} {start} - {end})"
 
-                if channel.topic:
-                    e.add_field(name="Topic", value=channel.topic)
+                    if ev.cover_image:
+                        e.set_image(url=ev.cover_image.url)
 
-                rts = c.requesting_to_speak
-                e.description += f"**Requests to Speak**: {len(rts)}\n"
-                e.description += f"**Speakers**: {len(channel.speakers)}\n"
-                e.description += f"**Listeners**: {len(channel.listeners)}\n"
-                e.description += f"**Moderators**: {len(channel.moderators)}\n"
+                e.add_field(name="Stage in Progress", value=val, inline=False)
 
-                # INSTANCE
-                if ins := channel.instance:
-                    ins: discord.StageInstance
+        elif isinstance(c, discord.ForumChannel):
+            e.title = "Forum Channel"
 
-                    private = not ins.discoverable_disabled
-                    val = (
-                        f"**Topic**: {ins.topic}\n\n"
-                        f"**Privacy Level**: {ins.privacy_level}\n"
-                        f"**Public Event?**: {private}\n"
-                    )
+            e.description += f"**Total Threads**: {len(c.threads)}\n"
+            e.description += f"**NSFW?**: {c.is_nsfw()}\n"
 
-                    if ins.scheduled_event:
-                        ev: discord.ScheduledEvent = ins.scheduled_event
+            s = logs.stringify_minutes(c.default_auto_archive_duration)
+            e.description += f"**Thread Archive Time**: {s}\n"
 
-                        start = Timestamp(ev.start_time)
-                        end = Timestamp(ev.end_time)
+            s = logs.stringify_seconds(c.default_thread_slowmode_delay)
+            e.description += f"**Default SlowMode**: {s}\n"
 
-                        val += f"**Event**: {ev.name} {start} - {end})"
+            em = c.default_reaction_emoji
+            e.description += f"**Default Emoji**: {em}\n"
+            e.description += f"**Default Layout**: {c.default_layout}\n"
 
-                        if ev.cover_image:
-                            e.set_image(url=ev.cover_image.url)
+            # flags
+            if c.flags.require_tag:
+                e.description += "**Force Tags?**: True\n"
 
-                    e.add_field(
-                        name="Stage in Progress", value=val, inline=False
-                    )
+            if c.topic:
+                e.add_field(name="Topic", value=c.topic)
 
-            case discord.ForumChannel:
-                c: discord.ForumChannel
-                e.title = "Forum Channel"
-
-                e.description += f"**Total Threads**: {len(channel.threads)}\n"
-                e.description += f"**NSFW?**: {channel.is_nsfw()}\n"
-
-                s = logs.stringify_minutes(c.default_auto_archive_duration)
-                e.description += f"**Thread Archive Time**: {s}\n"
-
-                s = logs.stringify_seconds(c.default_thread_slowmode_delay)
-                e.description += f"**Default SlowMode**: {s}\n"
-
-                em = c.default_reaction_emoji
-                e.description += f"**Default Emoji**: {em}\n"
-                e.description += f"**Default Layout**: {c.default_layout}\n"
-
-                # flags
-                if channel.flags.require_tag:
-                    e.description += "**Force Tags?**: True\n"
-
-                if channel.topic:
-                    e.add_field(name="Topic", value=channel.topic)
-
-                if tags := channel.available_tags:
-                    e.add_field(
-                        name="Available Tags",
-                        value=", ".join(f"{i.emoji} {i.name}" for i in tags),
-                    )
+            if tags := c.available_tags:
+                val = ", ".join(f"{i.emoji} {i.name}" for i in tags)
+                e.add_field(name="Available Tags", value=val)
 
         # List[Role | Member | Object]
-        if not channel.overwrites:
+        if not c.overwrites:
             return await self.bot.reply(interaction, embed=e)
 
         target: Role | Member | discord.Object
         embeds: list[Embed] = []
-        for target, overwrite in channel.overwrites.items():
+        for target, overwrite in c.overwrites.items():
             emb = base_embed.copy()
             emb.title = "Permission Overwrites"
-            emb.description = f"{target.mention} ({target.id})"
+
+            if isinstance(target, discord.Role):
+                emb.description = f"<@&{target.id}> ({target.id})"
+            elif isinstance(target, discord.Member):
+                emb.description = f"<@{target.id}> ({target.id})"
+            else:
+                emb.description = f"{target.id}"
 
             if allow := "\n".join(f"✅ {k}" for k, v in overwrite if v):
                 emb.add_field(name="Allowed", value=allow)
@@ -260,52 +250,60 @@ class Info(Cog):
         await interaction.response.defer(thinking=True)
 
         e = Embed(description=f"{role.mention}\n\n", colour=role.colour)
-        ico = role.display_icon.url if role.display_icon is not None else None
+
+        if isinstance(role.display_icon, str):
+            ico = role.display_icon
+        elif role.display_icon:
+            ico = role.display_icon.url
+        else:
+            ico = None
+
+        e.description = f"<@&{role.id}>\n\n"
         e.set_author(name=f"{role.name} ({role.id})", icon_url=ico)
 
         match len(role.members):
-
-            case role.members if role.members:
+            case 0:
                 e.description += "**This Role is Unused**\n"
-
             case role.members if len(role.members) < 15:
-                e.add_field(
-                    name="Users",
-                    value=", ".join(i.mention for i in role.members),
-                )
-
+                val = ", ".join(i.mention for i in role.members)
+                e.add_field(name="Users", value=val)
             case _:
                 e.description = f"**Total Users**: {len(role.members)}\n"
 
         e.description += f"**Show Separately?**: {role.hoist}\n"
         e.description += f"**Position**: {role.position}\n"
-        try:
-            e.description += f"**Icon**: [Link]({role.display_icon.url})\n"
-        except AttributeError:
-            pass
+        e.description += f"**Icon**: {ico}\n"
 
         c = role.colour
         e.description += f"**Colour**: {c.value} ({c.to_rgb()})\n"
         e.description += f"**Mentionable**: {role.mentionable}\n"
 
         if role.managed:
-            int_id = role.tags.integration_id
-            e.description += f"Role managed by interaction with ID {int_id}\n"
+            if role.tags:
+                int_id = role.tags.integration_id
+                if int_id:
+                    e.description += f"Role managed by interaction #{int_id}\n"
 
-        if role.is_bot_managed():
-            bot = interaction.guild.get_member(role.tags.bot_id)
-            e.description += f"Role for bot {bot.mention}\n"
+        if interaction.guild:
+            if role.is_bot_managed() and role.tags:
+                if role.tags.bot_id:
+                    bot = interaction.guild.get_member(role.tags.bot_id)
+                    if bot:
+                        e.description += f"Role for bot {bot.mention}\n"
 
-        if role.is_default():
-            g = interaction.guild.name
-            e.description += f"```This Role is the default role for {g}.```"
-        if role.is_default():
-            e.description += "```This Role is for server boosters```"
-        if role.tags.is_guild_connection():
-            txt = "```This Role is managed by an external connection```"
-            e.description += txt
-        if role.tags.is_available_for_purchase():
-            e.description += "```This Role is purchasable.```"
+            if role.is_default():
+                g = interaction.guild.name
+                e.description += f"```This is your default role for {g}.```"
+
+            if role.is_premium_subscriber():
+                e.description += "```This Role is for server boosters```"
+
+        if role.tags:
+            if role.tags.is_guild_connection():
+                txt = "```This Role is managed by an external connection```"
+                e.description += txt
+            if role.tags.is_available_for_purchase():
+                e.description += "```This Role is purchasable.```"
 
         e.set_footer(text="Role Created")
         e.timestamp = role.created_at
@@ -313,16 +311,9 @@ class Info(Cog):
         try:
             perm_embed = e.copy()
             permissions: Permissions = role.permissions
-
-            perm_embed.add_field(
-                name="✅ Allowed Perms",
-                value=", ".join([i for i in permissions if i[1]]),
-            )
-
-            perm_embed.title = "Role Permissions"
-
+            val = ", ".join([k for k, v in permissions if v])
+            perm_embed.add_field(name="✅ Allowed Perms", value=val)
         except AttributeError:
-
             perm_embed = None
 
         embeds = [i for i in [e, perm_embed] if i]
@@ -343,6 +334,8 @@ class Info(Cog):
 
         for anim, name, e_id in re.findall(regex, emoji):
             e = Embed(title=name)
+            e.description = ""
+
             if (em := self.bot.get_emoji(e_id)) is None:
                 em = PartialEmoji(name=name, animated=bool(anim), id=e_id)
 
@@ -353,7 +346,8 @@ class Info(Cog):
             e.set_footer(text=em.url)
 
             if isinstance(em, Emoji):  # Not a partial emoji
-                e.description += f"**Server**: {em.guild.name} ({em.guild.id})"
+                if (g := em.guild) is not None:
+                    e.description += f"**Server**: {g.name} ({g.id})"
                 e.timestamp = em.created_at
 
             embeds.append(e)
@@ -369,12 +363,14 @@ class Info(Cog):
 
     @info.command()
     @guild_only()
-    async def server(self, interaction: Interaction) -> Message:
+    async def server(self, interaction: Interaction[PBot | Bot]) -> Message:
         """Shows information about the server"""
 
         await interaction.response.defer(thinking=True)
 
         g = interaction.guild
+        if g is None:
+            raise
 
         base_embed: Embed = Embed(description="")
         if (ico := g.icon) is not None:
@@ -391,10 +387,8 @@ class Info(Cog):
         cover.set_footer(text="Server Created")
         cover.timestamp = g.created_at
 
-        try:
+        if g.owner:
             cover.description += f"**Owner**: {g.owner.mention}\n"
-        except AttributeError:
-            pass
 
         cover.description += f"**Members**: {len(g.members)}\n"
 
@@ -442,20 +436,14 @@ class Info(Cog):
         chs.description += f"**Bitrate Limit**: {g.bitrate_limit}\n"
         chs.description += f"**FileSize Limit**: {g.filesize_limit / 1000}kb\n"
 
-        try:
-            rc = g.rules_channel.mention
-            chs.description += f"\n**Rules Channel**: {rc}\n"
-        except AttributeError:
-            pass
+        if (rc := g.rules_channel) is not None:
+            chs.description += f"**Rules Channel**: {rc.mention}\n"
 
-        try:
-            uc = g.public_updates_channel.mention
-            chs.description += f"\n**Updates Channel**: {uc}\n"
-        except AttributeError:
-            pass
+        if (uc := g.public_updates_channel) is not None:
+            chs.description += f"**Updates Channel**: {uc.mention}\n"
 
         fl = []
-        try:
+        if g.system_channel:
             sys = g.system_channel.mention
             chs.description += f"\n**System Channel**: {sys}\n"
             f = g.system_channel_flags
@@ -483,13 +471,9 @@ class Info(Cog):
             fl.append(f"**Sub Stickers**: {o}")
 
             chs.add_field(name="System Channel Flags", value="\n".join(fl))
-        except AttributeError:
-            pass
 
-        try:
+        if g.afk_channel:
             chs.description += f"\n**AFK Channel**: {g.afk_channel.mention}\n"
-        except AttributeError:
-            pass
 
         stickers: Embed = base_embed.copy()
         stickers.title = "Emotes and Stickers"
@@ -514,11 +498,9 @@ class Info(Cog):
         r_e.description = f"**Number of Roles**: {len(g.roles)}\n"
         r_e.description += f"**Default Role**: {g.default_role.mention}\n"
 
-        try:
+        if g.premium_subscriber_role:
             nitro = g.premium_subscriber_role.mention
             r_e.description += f"**Booster Role**: {nitro}\n"
-        except AttributeError:
-            pass
 
         empty = len([i for i in g.roles if not i.members])
         r_e.description += f"**Unused Roles**: {empty}\n"
@@ -558,11 +540,12 @@ class Info(Cog):
 
         if member.voice:
             voice = member.voice.channel
-            voice_other = len(voice.members) - 1
+            if voice:
+                other = len(voice.members) - 1
 
-            others = f"with {voice_other} others" if voice_other else "alone"
-            voice = f"In voice channel {voice.mention} {others}"
-            generic.add_field(name="Voice Status", value=voice)
+                others = f"with {other} others" if other else "alone"
+                voice = f"In voice channel {voice.mention} {others}"
+                generic.add_field(name="Voice Status", value=voice)
 
         roles = [r.mention for r in reversed(member.roles) if r.position != 0]
         if roles:
@@ -623,20 +606,20 @@ class Info(Cog):
             generic.add_field(name="Flags", value=", ".join(flags))
 
         # Embed 2 - User Permissions
-        try:
+        if interaction.channel:
             perm_embed = base_embed.copy()
             permissions = interaction.channel.permissions_for(member)
 
             perm_embed.add_field(
                 name="✅ Allowed Perms",
-                value=", ".join([i for i in permissions if i[1]]),
+                value=", ".join([k for k, v in permissions if v]),
             )
 
             perm_embed.title = "Member Permissions"
 
-            c = interaction.channel.mention
-            perm_embed.description = f"Showing Permissions in {c}"
-        except AttributeError:
+            c = interaction.channel
+            perm_embed.description = f"Showing Permissions in <#{c.id}>"
+        else:
             perm_embed = None
 
         # Embed 3 - User Avatar

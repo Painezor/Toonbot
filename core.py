@@ -7,15 +7,15 @@ from collections import defaultdict
 from datetime import datetime
 from json import load
 from typing import Optional, Callable, TYPE_CHECKING, cast
-
+import typing
 
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from asyncpraw import Reddit
-from discord import Intents, Game, File
 import discord
-from discord.ext.commands import AutoShardedBot
+from discord.ext import commands
 
+from asyncpg import Record, Pool
 from ext.utils.playwright_browser import make_browser
 
 if TYPE_CHECKING:
@@ -23,10 +23,11 @@ if TYPE_CHECKING:
     from ext.ticker import TickerChannel
     from ext.transfers import TransferChannel
     from asyncio import Task
-    from asyncpg import Record, Pool
+
     from playwright.async_api import BrowserContext
     from io import BytesIO
     import ext.toonbot_utils.flashscore as fs
+    from ext.streams import Stream
 
 logger = logging.getLogger("core")
 
@@ -53,6 +54,7 @@ COGS = [
     "ext.rng",
     "ext.scores",
     "ext.sidebar",
+    "ext.stadiums",
     "ext.streams",
     "ext.ticker",
     "ext.transfers",
@@ -69,17 +71,17 @@ INVITE_URL = (
 )
 
 
-class Bot(AutoShardedBot):
+class Bot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
     def __init__(self, **kwargs) -> None:
 
         super().__init__(
             description="Football lookup bot by Painezor#8489",
-            command_prefix=".tb",
+            command_prefix=commands.when_mentioned,
             owner_id=210582977493598208,
-            activity=Game(name="with /slash_commands"),
-            intents=Intents.all(),
+            activity=discord.Game(name="with /slash_commands"),
+            intents=discord.Intents.all(),
             help_command=None,
         )
 
@@ -119,7 +121,7 @@ class Bot(AutoShardedBot):
         self.reddit = Reddit(**credentials["Reddit"])
 
         # Streams
-        self.streams: dict[int, list] = defaultdict(list)
+        self.streams: dict[int, list[Stream]] = defaultdict(list)
 
         # Ticker
         self.ticker_channels: list[TickerChannel] = []
@@ -169,7 +171,7 @@ class Bot(AutoShardedBot):
 
     async def dump_image(self, data: BytesIO) -> Optional[str]:
         """Save a stitched image"""
-        file = File(fp=data, filename="dumped_image.png")
+        file = discord.File(fp=data, filename="dumped_image.png")
         channel = self.get_channel(874655045633843240)
 
         if channel is None:
@@ -177,11 +179,8 @@ class Bot(AutoShardedBot):
 
         channel = cast(discord.TextChannel, channel)
 
-        try:
-            img_msg = await channel.send(file=file)
-            return img_msg.attachments[0].url
-        except AttributeError:
-            return
+        img_msg = await channel.send(file=file)
+        return img_msg.attachments[0].url
 
     async def cache_quotes(self) -> None:
         """Cache the QuoteDB"""
@@ -194,7 +193,7 @@ class Bot(AutoShardedBot):
 async def run() -> None:
     """Start the bot running, loading all credentials and the database."""
     database = await create_pool(**credentials["ToonbotDB"])
-    database = cast(Pool, database)
+    database = typing.cast(Pool, database)
 
     bot: Bot = Bot(database=database)
 

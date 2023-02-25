@@ -26,18 +26,18 @@ def stitch_vertical(images: list[BytesIO]) -> BytesIO:
     if len(images) == 1:
         return images[0]
 
-    images = [Image.open(i) for i in images]
+    img = [Image.open(i) for i in images]
 
-    w = images[0].width
-    canvas = Image.new("RGB", (w, sum(i.height for i in images)))
+    w = img[0].width
+    canvas = Image.new("RGB", (w, sum(i.height for i in img)))
     y = 0
-    for i in images:
+    for i in img:
         canvas.paste(i, (0, y))
         y += i.height
     canvas.save(output := BytesIO(), "PNG")
     output.seek(0)
     canvas.close()
 
-    [i.close() for i in images]
+    [i.close() for i in img]
 
     return output

@@ -14,10 +14,8 @@ from ext.painezbot_utils.player import Region, Player
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import (
-    Parent,
     FuncButton,
     FuncDropdown,
-    add_page_buttons,
     BaseView,
 )
 
@@ -139,7 +137,7 @@ class PlayerCBStats:
 class Clan:
     """A World of Warships clan."""
 
-    bot: ClassVar[PBot] = None
+    bot: ClassVar[PBot]
 
     def __init__(self, bot: PBot, clan_id: int, **kwargs):
         self.clan_id: int = clan_id
@@ -226,7 +224,7 @@ class Clan:
         self.members: list[Player] = []
 
         # Dummy Data for leaderboard
-        self.rank: int = None
+        self.rank = None
 
     @property
     def region(self) -> Region:
@@ -538,7 +536,7 @@ class Clan:
             self.longest_winning_streak = ladder.pop(
                 "longest_winning_streak", 0
             )
-            self.leading_team_number: int = ladder.pop(
+            self.leading_team_number = ladder.pop(
                 "leading_team_number", None
             )
             ts = datetime.strptime(lbt, "%Y-%m-%dT%H:%M:%S%z")
@@ -621,14 +619,13 @@ class ClanView(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         clan: Clan,
-        parent: tuple[View, str] = None,
+        parent: tuple[View, str] = ( ,),
     ) -> None:
         super().__init__(interaction)
         self.clan: Clan = clan
         self.embed: Optional[Embed] = None
-        self.index: int = 0
 
         if parent:
             self.parent: View = parent[0]

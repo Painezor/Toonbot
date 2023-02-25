@@ -1,9 +1,9 @@
 """Utility Component for fetching from footballgroundmap.com"""
 from __future__ import annotations
 
-from typing import Optional, ClassVar, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
-from discord import Embed
+from discord import Embed, Interaction
 from lxml import html
 
 from ext.utils.embed_utils import get_colour
@@ -38,13 +38,9 @@ class Stadium:
         "attendance_record": "The attendance record of this stadium",
     }
 
-    bot: ClassVar[Bot] = None
-
-    def __init__(self, bot: Bot, **kwargs):
-        self.__class__.bot = bot
-
-        self.url: Optional[str] = kwargs.pop("url", None)
-        self.name: Optional[str] = kwargs.pop("name", None)
+    def __init__(self, **kwargs):
+        self.url: str = kwargs.pop("url", None)
+        self.name: str = kwargs.pop("name", None)
         self.team: Optional[str] = kwargs.pop("team", None)
         self.league: Optional[str] = kwargs.pop("league", None)
         self.country: Optional[str] = kwargs.pop("country", None)
@@ -59,9 +55,10 @@ class Stadium:
         self.website: Optional[str] = kwargs.pop("website", None)
         self.attendance_record: int = kwargs.pop("attendance_record", 0)
 
-    async def fetch_more(self) -> None:
+    async def fetch_more(self, interaction: Interaction[Bot]) -> None:
         """Fetch more data about a target stadium"""
-        async with self.bot.session.get(self.url) as resp:
+        bot = interaction.client
+        async with bot.session.get(self.url) as resp:
             match resp.status:
                 case 200:
                     src = await resp.read()
@@ -117,7 +114,7 @@ class Stadium:
             './/tr/th[contains(text(), "Capacity")]'
             "/following-sibling::td//text()"
         )
-        self.capacity = "".join(tree.xpath(xp))
+        self.capacity = int("".join(tree.xpath(xp)))
 
         xp = './/tr/th[contains(text(), "Cost")]/following-sibling::td//text()'
         self.cost = "".join(tree.xpath(xp))
@@ -132,18 +129,18 @@ class Stadium:
             './/tr/th[contains(text(), "Record attendance")]'
             "/following-sibling::td//text()"
         )
-        self.attendance_record = "".join(tree.xpath(xp))
+        self.attendance_record = int("".join(tree.xpath(xp)))
 
     def __str__(self) -> str:
         return f"**{self.name}** ({self.country}: {self.team})"
 
-    async def to_embed(self) -> Embed:
+    async def to_embed(self, interaction: Interaction[Bot]) -> Embed:
         """Create a discord Embed object representing the information about
         a football stadium"""
         e: Embed = Embed(title=self.name, url=self.url)
         e.set_footer(text="FootballGroundMap.com")
 
-        await self.fetch_more()
+        await self.fetch_more(interaction)
         if self.team_badge:
             e.colour = await get_colour(self.team_badge)
             e.set_thumbnail(url=self.team_badge)

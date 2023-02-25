@@ -9,22 +9,21 @@ from typing import TYPE_CHECKING, Callable, cast
 
 import discord
 from aiohttp import ClientSession, TCPConnector
-from asyncpg import create_pool
-from discord.ext.commands import AutoShardedBot, when_mentioned
-
-
+from asyncpg import Pool, Record, create_pool
+from discord.ext import commands
 from ext.utils.playwright_browser import make_browser
 
 if TYPE_CHECKING:
-    from ext.painezbot_utils.player import Map, GameMode, Player
-    from ext.painezbot_utils.ship import ShipType, Module, Ship
-    from ext.painezbot_utils.clan import ClanBuilding, Clan
-    from ext.news_tracker import NewsChannel, Article
-    from ext.devblog import Blog
-    from ext.twitch import Contributor, TrackerChannel, TBot
-    from playwright.async_api import BrowserContext
-    from asyncpg import Record, Pool
     from asyncio import Task
+
+    from playwright.async_api import BrowserContext
+
+    from ext.devblog import Blog
+    from ext.news_tracker import Article, NewsChannel
+    from ext.painezbot_utils.clan import Clan, ClanBuilding
+    from ext.painezbot_utils.player import GameMode, Map, Player
+    from ext.painezbot_utils.ship import Module, Ship, ShipType
+    from ext.twitch import Contributor, TBot, TrackerChannel
 
 
 logger = logging.getLogger("painezBot")
@@ -52,14 +51,14 @@ COGS = [
 ]
 
 
-class PBot(AutoShardedBot):
+class PBot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
     def __init__(self, **kwargs) -> None:
 
         super().__init__(
             description="World of Warships bot by Painezor#8489",
-            command_prefix=when_mentioned,
+            command_prefix=commands.when_mentioned,
             owner_id=210582977493598208,
             activity=discord.Game(name="World of Warships"),
             intents=discord.Intents.all(),

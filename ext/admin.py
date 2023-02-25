@@ -8,7 +8,7 @@ from inspect import isawaitable
 from os import system
 from sys import version
 from traceback import format_exception
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from discord import Interaction, Embed, Colour, Message, Object
 from discord.app_commands import (
@@ -39,14 +39,10 @@ def error_to_codeblock(error) -> str:
     )
 
 
-async def cg_ac(
-    interaction: Interaction[Bot] | Interaction[PBot], current: str
-) -> list[Choice]:
+async def cg_ac(ctx: Interaction[Bot | PBot], current: str) -> list[Choice]:
     """Autocomplete from list of cogs"""
-    bot = interaction.client
-
     results = []
-    for i in bot.cogs.values():
+    for i in ctx.client.cogs.values():
         name = i.qualified_name
 
         if current.lower() in name.lower():
@@ -63,7 +59,7 @@ class Admin(Cog):
     @describe(guild="enter guild ID")
     @command(name="sync")
     async def sync(
-        self, interaction: Interaction[Bot], guild: bool = False
+        self, interaction: Interaction[Bot], guild: Optional[int] = None
     ) -> Message:
         """Sync the command tree with discord"""
         await interaction.response.defer(thinking=True)
@@ -73,7 +69,7 @@ class Admin(Cog):
             txt = "Asked discord to sync, please wait up to 1 hour."
             return await self.bot.reply(interaction, txt)
         else:
-            await self.bot.tree.sync(guild=Object(id=interaction.guild.id))
+            await self.bot.tree.sync(guild=Object(id=guild))
             return await self.bot.reply(interaction, "Guild Synced")
 
     cogs = Group(
@@ -93,11 +89,8 @@ class Admin(Cog):
             await self.bot.reload_extension(f"ext.{cog.lower()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
-        e = Embed(
-            title="Modules",
-            colour=Colour.og_blurple(),
-            description=f"⚙️ Reloaded {cog}",
-        )
+        e = Embed(title="Modules", colour=Colour.og_blurple())
+        e.description = f"⚙️ Reloaded {cog}"
         return await self.bot.reply(interaction, embed=e)
 
     @cogs.command()
@@ -171,7 +164,7 @@ class Admin(Cog):
 
         system("cls")
         _ = f"{self.bot.user}: {self.bot.initialised_at}"
-        logging.info(
+        logger.info(
             f'{_}\n{"-" * len(_)}\nConsole cleared at:\n'
             f"{datetime.datetime.utcnow().replace(microsecond=0)}"
         )
@@ -205,7 +198,7 @@ class Admin(Cog):
         code = code.strip("` ")
         env = {
             "bot": self.bot,
-            "ctx": Interaction[Bot],
+            "ctx": Interaction,
             "interaction": interaction,
         }
         env.update(globals())

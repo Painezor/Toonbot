@@ -15,8 +15,8 @@ class MatchEvent:
 
     __slots__ = ("note", "description", "player", "team", "time", "fixture")
 
-    colour: Colour = None
-    icon_url: str = None
+    colour: Colour
+    icon_url: str
 
     def __init__(self) -> None:
         self.note: Optional[str] = None
@@ -36,32 +36,38 @@ class MatchEvent:
     @property
     def embed(self) -> Embed:
         """The Embed for this match event"""
-        eembed = Embed(description=str(self), colour=self.colour)
-        eembed.set_author(
-            name=f"{self.__class__.__name__} ({self.team.name})",
-            icon_url=self.icon_url,
-        )
+        embed = Embed(description=str(self), colour=self.colour)
 
+        cn = self.__class__.__name__
         if self.team is not None:
-            eembed.set_thumbnail(url=self.team.logo_url)
-        return eembed
+            embed.set_thumbnail(url=self.team.logo_url)
+            name = f"{cn} ({self.team.name})"
+        else:
+            name = cn
+
+        embed.set_author(name=name, icon_url=self.icon_url)
+        return embed
 
     @property
     def embed_extended(self) -> Embed:
         """The Extended Embed for this match event"""
         embed = self.embed
+
         if self.fixture:
+
+            embed.description = ""
+
             for x in self.fixture.events:
+                # We only want the other events, not ourself.
                 if x == self:
                     continue
+
                 embed.description += f"\n{str(x)}"
         return embed
 
 
 class Substitution(MatchEvent):
     """A substitution event for a fixture"""
-
-    __slots__ = ["player_off"]
 
     Colour = Colour.greyple()
 
@@ -82,8 +88,6 @@ class Substitution(MatchEvent):
 
 class Goal(MatchEvent):
     """A Generic Goal Event"""
-
-    __slots__ = "assist"
 
     colour = Colour.green()
 
@@ -222,7 +226,7 @@ class Booking(MatchEvent):
         if self.time is None:
             o = [f"`{self.emote}`"]
         else:
-            [f"`{self.emote} {self.time}`"]
+            o = [f"`{self.emote} {self.time}`"]
 
         if self.team is not None:
             o.append(self.team.tag)

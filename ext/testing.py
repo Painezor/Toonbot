@@ -34,7 +34,8 @@ class Test(commands.Cog):
 
         logging.debug(f"REQUEST RECEIVED {request.url}\n")
         resp = await request.response()
-        logging.debug(resp.json())
+        if resp is not None:
+            logging.debug(resp.json())
 
     @command()
     @guilds(250252535699341312)
