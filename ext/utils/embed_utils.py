@@ -8,12 +8,17 @@ from aiohttp import ClientSession
 from colorthief import ColorThief
 from discord import Message, File, Colour, Embed, Interaction
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core import Bot
+
 
 async def embed_image(
-    interaction: Interaction,
+    interaction: Interaction[Bot],
     embed: Embed,
     image: BytesIO | bytes,
-    filename: str = None,
+    filename: str = "file",
 ) -> Message:
     """Utility / Shortcut to upload image & set it within an embed."""
     filename = filename.replace("_", "").replace(" ", "").replace(":", "")
@@ -43,8 +48,8 @@ def rows_to_embeds(
     e: Embed,
     items: list[str],
     rows: int = 10,
-    header: str = None,
-    footer: str = None,
+    header: str = "",
+    footer: str = "",
 ) -> list[Embed]:
     """Create evenly distributed rows of text from a list of data"""
     desc: str = f"{header}\n" if header else ""

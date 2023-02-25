@@ -5,49 +5,50 @@ import logging
 from asyncio import new_event_loop
 from datetime import datetime
 from json import load
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Callable, cast
 
 import discord
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from discord.ext.commands import AutoShardedBot, when_mentioned
 
-from ext.painezbot_utils.clan import ClanBuilding, Clan
+
 from ext.utils.playwright_browser import make_browser
 
 if TYPE_CHECKING:
     from ext.painezbot_utils.player import Map, GameMode, Player
     from ext.painezbot_utils.ship import ShipType, Module, Ship
+    from ext.painezbot_utils.clan import ClanBuilding, Clan
     from ext.news_tracker import NewsChannel, Article
     from ext.devblog import Blog
     from ext.twitch import Contributor, TrackerChannel, TBot
     from playwright.async_api import BrowserContext
-    from typing import Optional
     from asyncpg import Record, Pool
     from asyncio import Task
 
-discord.utils.setup_logging()
+
+logger = logging.getLogger("painezBot")
 
 with open("credentials.json") as f:
     credentials = load(f)
 
 COGS = [
     # Utility Cogs
-    "reply",
-    "metapainezbot",
+    "ext.reply",
+    "ext.metapainezbot",
     # Slash commands.
-    "admin",
-    "bans",
-    "devblog",
-    "images",
-    "info",
-    "logs",
-    "mod",
-    "reminders",
-    "news_tracker",
-    "translations",
-    "twitch",
-    "warships",
+    "ext.admin",
+    "ext.bans",
+    "ext.devblog",
+    "ext.images",
+    "ext.info",
+    "ext.logs",
+    "ext.mod",
+    "ext.reminders",
+    "ext.news_tracker",
+    "ext.translations",
+    "ext.twitch",
+    "ext.warships",
 ]
 
 
@@ -66,15 +67,14 @@ class PBot(AutoShardedBot):
         )
 
         # Reply Handling
-        self.reply: Callable = None
-        self.error: Callable = None
+        self.reply: Callable
+        self.error: Callable
 
         # Admin
         self.COGS: list[str] = COGS
 
         # Database & API Credentials
         self.db: Pool = kwargs.pop("database")
-        self.credentials: dict = credentials
         self.initialised_at: datetime = datetime.utcnow()
 
         # Notifications
@@ -84,25 +84,25 @@ class PBot(AutoShardedBot):
         self.reminders: set[Task] = set()
 
         # Dev BLog
-        self.dev_blog: Optional[Task] = None
+        self.dev_blog: Task
         self.dev_blog_cache: list[Blog] = []
         self.dev_blog_channels: list[int] = []
 
         # RSS: Cache & Channels
-        self.news: Optional[Task] = None
+        self.news: Task
         self.news_cache: list[Article] = []
         self.news_channels: list[NewsChannel] = []
 
         # Session // Scraping
-        self.browser: Optional[BrowserContext] = None
-        self.session: Optional[ClientSession] = None
+        self.browser: BrowserContext
+        self.session: ClientSession
 
         # Twitch API
-        self.twitch: TBot = None
+        self.twitch: TBot
         self.tracker_channels: list[TrackerChannel] = []
 
         # Wargaming API
-        self.wg_id: str = kwargs.pop("wg_id")
+        self.wg_id: str = credentials["Wargaming"]["client_id"]
 
         self.contributors: list[Contributor] = []
         self.clans: list[Clan] = []
@@ -112,16 +112,17 @@ class PBot(AutoShardedBot):
         self.modes: list[GameMode] = []
         self.modules: list[Module] = []
         self.pr_data: dict = {}
-        self.pr_data_updated_at: Optional[datetime] = None
+        self.pr_data_updated_at: datetime
         self.pr_sums: tuple[int, int, int]  # Dmg WR Kills
         self.ships: list[Ship] = []
         self.ship_types: list[ShipType] = []
 
         # Callables
-        self.get_ship: Callable = None
-        fm = "%d-%m-%Y %H:%M:%S"
-        strt = f"Bot started: {datetime.now().strftime(fm)}"
-        logging.info(f"{strt}\n{'=' * len(strt)}")
+        self.get_ship: Callable
+
+        # Announce aliveness
+        x = f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}'
+        logger.info(f"{x}\n" + "-" * len(x))
 
     def get_clan(self, clan_id: int) -> Clan:
         """Get a Clan object from Stored Clans"""
@@ -154,16 +155,16 @@ class PBot(AutoShardedBot):
         for c in COGS:
             try:
                 await self.load_extension("ext." + c)
-                logging.info(f"Loaded extension {c}")
+                logger.info(f"Loaded extension {c}")
             except Exception as e:
-                logging.info(f"Cog Load Failed: {c}\n{type(e).__name__}: {e}")
+                logger.info(f"Cog Load Failed: {c}\n{type(e).__name__}: {e}")
 
 
 async def run():
     """Start the bot running, loading all credentials and the database."""
     db = await create_pool(**credentials["painezBotDB"])
-
-    bot = PBot(database=db, wg_id=credentials["Wargaming"]["client_id"])
+    db = cast(Pool, db)
+    bot = PBot(database=db)
 
     try:
         await bot.start(credentials["painezbot"]["token"])

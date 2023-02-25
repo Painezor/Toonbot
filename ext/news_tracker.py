@@ -256,7 +256,9 @@ class NewsChannel:
 class NewsConfig(BaseView):
     """News Tracker Config View"""
 
-    def __init__(self, interaction: Interaction, channel: TextChannel) -> None:
+    def __init__(
+        self, interaction: Interaction[Bot], channel: TextChannel
+    ) -> None:
         super().__init__(interaction)
         self.channel: TextChannel = channel
 
@@ -305,7 +307,9 @@ class NewsConfig(BaseView):
         await self.bot.reply(self.interaction, content, embed=e, view=self)
 
 
-async def news_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def news_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
     matches = [
         i
@@ -457,7 +461,7 @@ class NewsTracker(Cog):
     @command()
     @describe(text="Search by article title")
     @autocomplete(text=news_ac)
-    async def newspost(self, interaction: Interaction, text: str):
+    async def newspost(self, interaction: Interaction[Bot], text: str):
         """Search for a recent World of Warships news article"""
 
         await interaction.response.defer(thinking=True)
@@ -479,7 +483,7 @@ class NewsTracker(Cog):
     @default_permissions(manage_channels=True)
     @describe(channel="Select a channel to edit")
     async def news_tracker(
-        self, interaction: Interaction, channel: TextChannel = None
+        self, interaction: Interaction[Bot], channel: TextChannel = None
     ) -> Message:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""

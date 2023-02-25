@@ -1,5 +1,6 @@
 """Utilities for working with future events"""
 import datetime as dt
+from typing import Optional
 
 
 # Time Formats:
@@ -8,7 +9,7 @@ import datetime as dt
 class Timestamp:
     """A Utility class for quick timezone conversion"""
 
-    def __init__(self, time: dt.datetime = None):
+    def __init__(self, time: Optional[dt.datetime] = None):
         if time is None:
             time = dt.datetime.now(tz=dt.timezone.utc)
         self.value = time

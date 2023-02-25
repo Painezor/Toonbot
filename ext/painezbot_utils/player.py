@@ -390,7 +390,7 @@ class Player:
 
     def view(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         mode: GameMode,
         div_size: int,
         ship: Ship = None,
@@ -404,7 +404,7 @@ class ClanButton(Button):
 
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         clan: Clan,
         parent: View = None,
         row: int = 0,
@@ -412,7 +412,7 @@ class ClanButton(Button):
         super().__init__(label="Clan", row=row)
 
         self.clan: Clan = clan
-        self.interaction: Interaction = interaction
+        self.interaction: Interaction[PBot] = interaction
         self.emoji = self.clan.league.emote
         self.parent = parent
 
@@ -430,7 +430,7 @@ class PlayerView(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         player: Player,
         mode: GameMode,
         div_size: int,

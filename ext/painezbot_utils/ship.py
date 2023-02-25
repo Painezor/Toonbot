@@ -339,13 +339,13 @@ class ShipButton(Button):
 
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[PBot],
         ship: Ship,
         row: int = 0,
         higher: bool = False,
     ) -> None:
         self.ship: Ship = ship
-        self.interaction: Interaction = interaction
+        self.interaction: Interaction[PBot] = interaction
 
         emoji = "▶" if higher else "◀"
 
@@ -363,7 +363,7 @@ class ShipButton(Button):
 class ShipView(BaseView):
     """A view representing a ship"""
 
-    def __init__(self, interaction: Interaction, ship: Ship) -> None:
+    def __init__(self, interaction: Interaction[Bot], ship: Ship) -> None:
         super().__init__(interaction)
         self.ship: Ship = ship
 

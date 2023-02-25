@@ -19,12 +19,16 @@ if TYPE_CHECKING:
     from core import Bot
 
 
+with open("credentials.json", "r") as f:
+    credentials = json.load(f)
+
+
 class ImageView(BaseView):
     """Holder View for Image Manipulation functions."""
 
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         user: User = None,
         link: str = None,
         file: Attachment = None,
@@ -59,9 +63,7 @@ class ImageView(BaseView):
         # Prepare POST
         h = {
             "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": self.bot.credentials["Oxford"][
-                "OxfordKey"
-            ],
+            "Ocp-Apim-Subscription-Key": credentials["Oxford"]["OxfordKey"],
         }
         p = {
             "returnFaceId": "False",
@@ -324,7 +326,7 @@ class Images(Cog):
     )
     async def eyes(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         user: Member | User = None,
         link: str = None,
         file: Attachment = None,
@@ -344,7 +346,7 @@ class Images(Cog):
     )
     async def ruins(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         user: Member | User = None,
         link: str = None,
         file: Attachment = None,
@@ -359,7 +361,7 @@ class Images(Cog):
     @describe(user="pick a user", link="provide a link", file="upload a file")
     async def bob_ross(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         user: User | Member = None,
         link: str = None,
         file: Attachment = None,
@@ -438,7 +440,7 @@ class Images(Cog):
         output = await to_thread(draw_tinder, target, av, name)
         if match.id == interaction.user.id:
             caption = f"{u} matched with themself, How pathetic."
-        elif match.id == self.bot.user.id:
+        elif match.id == self.bot.application_id:
             caption = f"{u} Fancy a shag?"
         else:
             caption = (

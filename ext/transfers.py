@@ -219,7 +219,7 @@ class RemoveLeague(Select):
 class TransfersConfig(BaseView):
     """View for configuring Transfer Tickers"""
 
-    def __init__(self, interaction: Interaction, tc: TransferChannel):
+    def __init__(self, interaction: Interaction[Bot], tc: TransferChannel):
         super().__init__(interaction)
 
         self.tc: TransferChannel = tc
@@ -596,7 +596,7 @@ class Transfers(Cog):
     @tf.command(name="manage")
     @describe(channel="Manage which channel?")
     async def manage_transfers(
-        self, interaction: Interaction, channel: TextChannel = None
+        self, interaction: Interaction[Bot], channel: TextChannel = None
     ) -> Message:
         """View the config of this channel's transfer ticker"""
 
@@ -621,7 +621,7 @@ class Transfers(Cog):
     @describe(league_name="Search for a league name")
     async def add_league_tf(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         league_name: str,
         channel: TextChannel = None,
     ) -> Message:

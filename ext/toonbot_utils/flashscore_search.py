@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import typing
 from urllib.parse import quote
 
 from discord import Locale
@@ -56,18 +57,21 @@ locales = {
 
 
 async def fs_search(
-    interaction: Interaction, query: str, mode: Literal["comp", "team"]
-) -> list[fs.FlashScoreItem]:
+    interaction: Interaction[Bot], query: str, mode: Literal["comp", "team"]
+) -> list[fs.Competition | fs.Team]:
     """Fetch a list of items from flashscore matching the user's query"""
     query = quote(query.translate(dict.fromkeys(map(ord, "'[]#<>"), None)))
 
-    bot: Bot = interaction.client
+    bot = interaction.client
 
     try:
         lang_id = locales[interaction.locale]
     except KeyError:
         try:
-            lang_id = locales[interaction.guild_locale]
+            if interaction.guild_locale is None:
+                lang_id = 1
+            else:
+                lang_id = locales[interaction.guild_locale]
         except KeyError:
             lang_id = 1
 
@@ -80,7 +84,7 @@ async def fs_search(
     async with bot.session.get(url) as resp:
         match resp.status:
             case 200:
-                res = await resp.json()
+                res = typing.cast(dict, await resp.json())
             case _:
                 err = f"HTTP {resp.status} error while searching flashscore"
                 raise LookupError(err)
@@ -94,26 +98,22 @@ async def fs_search(
                         continue
 
                     if not (team := bot.get_team(x["id"])):
-                        team = fs.Team(bot)
-                        team.name = x["name"]
-                        team.url = x["url"]
-                        team.id = x["id"]
+
+                        team = fs.Team(x["id"], x["name"], x["url"])
                         team.logo_url = x["images"][0]["path"]
                         team.gender = x["gender"]["name"]
-                        await team.save_to_db()
+                        await save_team(interaction, team)
                     results.append(team)
                 case "TournamentTemplate":
                     if mode == "team":
                         continue
 
                     if not (comp := bot.get_competition(x["id"])):
-                        comp = fs.Competition(bot)
-                        comp.country = x["defaultCountry"]["name"]
-                        comp.id = x["id"]
-                        comp.url = x["url"]
+                        ctry = x["defaultCountry"]["name"]
+                        nom = x["name"]
+                        comp = fs.Competition(x["id"], nom, ctry, x["url"])
                         comp.logo_url = x["images"][0]["path"]
-                        comp.name = x["name"]
-                        await comp.save_to_db()
+                        await save_comp(interaction, comp)
                     results.append(comp)
                 case _:
                     continue  # This is a player, we don't want those.
@@ -121,3 +121,25 @@ async def fs_search(
     if not results:
         raise LookupError("Flashscore Search: No results found for %s", query)
     return results
+
+
+async def save_team(interaction: Interaction[Bot], t: fs.Team) -> None:
+    """Save the Team to the Bot Database"""
+    sql = """INSERT INTO fs_teams (id, name, logo_url, url)
+             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
+    bot = interaction.client
+    async with bot.db.acquire(timeout=60) as conn:
+        async with conn.transaction():
+            await conn.execute(sql, t.id, t.name, t.logo_url, t.url)
+    bot.teams.append(t)
+
+
+async def save_comp(i: Interaction[Bot], c: fs.Competition) -> None:
+    """Save the competition to the bot database"""
+    bot = i.client
+    sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
+                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"""
+    async with bot.db.acquire(timeout=60) as conn:
+        async with conn.transaction():
+            await conn.execute(sql, c.id, c.country, c.name, c.logo_url, c.url)
+    bot.competitions.append(c)

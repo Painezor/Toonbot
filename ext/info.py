@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import discord
 from discord import (
@@ -42,7 +42,7 @@ class Info(Cog):
     @command()
     @describe(user="Select a user")
     async def avatar(
-        self, interaction: Interaction, user: User | Member = None
+        self, interaction: Interaction[Bot], user: Optional[User | Member]
     ) -> Message:
         """Shows a member's avatar"""
 
@@ -70,7 +70,9 @@ class Info(Cog):
 
     @info.command()
     @describe(channel="select a channel")
-    async def channel(self, interaction: Interaction, channel: GuildChannel):
+    async def channel(
+        self, interaction: Interaction[Bot], channel: GuildChannel
+    ):
         """Get information about a channel"""
 
         await interaction.response.defer(thinking=True)
@@ -252,7 +254,7 @@ class Info(Cog):
 
     @info.command()
     @describe(role="select a role")
-    async def role(self, interaction: Interaction, role: Role):
+    async def role(self, interaction: Interaction[Bot], role: Role):
         """Get information about a channel"""
 
         await interaction.response.defer(thinking=True)
@@ -329,7 +331,7 @@ class Info(Cog):
     @info.command(name="emote")
     @describe(emoji="enter a list of emotes")
     async def info_emote(
-        self, interaction: Interaction, emoji: str
+        self, interaction: Interaction[Bot], emoji: str
     ) -> Message:
         """View a bigger version of an Emoji"""
 
@@ -527,7 +529,9 @@ class Info(Cog):
         return await Paginator(interaction, embeds).update()
 
     @info.command()
-    async def user(self, interaction: Interaction, member: Member) -> Message:
+    async def user(
+        self, interaction: Interaction[Bot], member: Member
+    ) -> Message:
         """Show info about this member."""
         # Embed 1: Generic Info
 

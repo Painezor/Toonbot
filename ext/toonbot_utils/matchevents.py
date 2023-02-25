@@ -1,180 +1,13 @@
 """Match Events used for the ticker"""
 from __future__ import annotations
 
-import logging
 from enum import Enum
-from typing import Optional, TYPE_CHECKING, Type
+from typing import TYPE_CHECKING, Optional, Type
 
 from discord import Colour, Embed
-from lxml import etree
-
-from ext.toonbot_utils.flashscore import Player
 
 if TYPE_CHECKING:
-    from ext.toonbot_utils.flashscore import Team, Fixture
-
-
-# This function Generates Event Objects from the etree.
-def parse_events(fixture: Fixture, tree: etree) -> list[MatchEvent]:
-    """Get a list of match events"""
-
-    events = []
-
-    for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
-        # Detection of Teams
-        team_detection = i.attrib["class"]
-        if "Header" in team_detection:
-            parts = [x.strip() for x in i.xpath(".//text()")]
-            if "Penalties" in parts:
-                try:
-                    fixture.penalties_home = parts[1]
-                    fixture.penalties_away = parts[3]
-                except ValueError:
-                    _, pen_string = parts
-                    h, a = pen_string.split(" - ")
-                    fixture.penalties_home = h
-                    fixture.penalties_away = a
-            continue
-        elif "home" in team_detection:
-            team = fixture.home
-        elif "away" in team_detection:
-            team = fixture.away
-        elif "empty" in team_detection:
-            continue  # No events in half signifier.
-        else:
-            logging.error(f"No team found for team_detection {team_detection}")
-            continue
-
-        node = i.xpath('./div[contains(@class, "incident")]')[0]  # event_node
-        xpath = './/div[contains(@class, "incidentIcon")]//@title'
-        title = "".join(node.xpath(xpath)).strip()
-        description = title.replace("<br />", " ")
-
-        xpath = './/div[contains(@class, "incidentIcon")]//svg//text()'
-        icon_desc = "".join(node.xpath(xpath)).strip()
-
-        xpath = './/div[contains(@class, "incidentIcon")]//svg/@class'
-        match (icon := "".join(node.xpath(xpath)).strip()).lower():
-            # Goal types
-            case "footballGoal-ico" | "soccer":
-                match icon_desc.lower():
-                    case "goal" | "":
-                        event = Goal()
-                    case "penalty":
-                        event = Penalty()
-                    case _:
-                        logging.error(
-                            f"[GOAL] icon: <{icon}> unhandled"
-                            f"icon_desc: <{icon_desc}> on {fixture.url}"
-                        )
-                        continue
-            case "footballowngoal-ico" | "soccer footballowngoal-ico":
-                event = OwnGoal()
-            case "penaltymissed-ico":
-                event = Penalty(missed=True)
-            # Card Types
-            case "yellowcard-ico" | "card-ico yellowcard-ico":
-                event = Booking()
-                event.note = icon_desc
-            case "redyellowcard-ico":
-                event = SecondYellow()
-                if "card / Red" not in icon_desc:
-                    event.note = icon_desc
-            case "redcard-ico" | "card-ico redcard-ico":
-                event = RedCard()
-                if icon_desc != "Red Card":
-                    event.note = icon_desc
-            case "card-ico":
-                event = Booking()
-                if icon_desc != "Yellow Card":
-                    event.note = icon_desc
-            # Substitutions
-            case "substitution-ico" | "substitution":
-                event = Substitution()
-
-                p = Player()
-                xpath = './/div[contains(@class, "incidentSubOut")]/a/text()'
-                p.name = "".join(node.xpath(xpath)).strip()
-
-                xpath = './/div[contains(@class, "incidentSubOut")]/a/@href'
-                p.url = "".join(node.xpath(xpath)).strip()
-
-                event.player_off = p
-            # VAR types
-            case "var-ico" | "var":
-                event = VAR()
-                if not icon_desc:
-                    icon_desc = "".join(node.xpath("./div//text()")).strip()
-                if icon_desc:
-                    event.note = icon_desc
-            case "varlive-ico" | "var varlive-ico":
-                event = VAR(in_progress=True)
-                event.note = icon_desc
-            case _:  # Backup checks.
-                match icon_desc.strip().lower():
-                    case "penalty" | "penalty kick":
-                        event = Penalty()
-                    case "penalty missed":
-                        event = Penalty(missed=True)
-                    case "own goal":
-                        event = OwnGoal()
-                    case "goal":
-                        event = Goal()
-                        if icon_desc and icon_desc.lower() != "goal":
-                            logging.error(f"[GOAL] unh icon_desc: {icon_desc}")
-                            continue
-                    # Red card
-                    case "red card":
-                        event = RedCard()
-                    # Second Yellow
-                    case "yellow card / red card":
-                        event = SecondYellow()
-                    case "warning":
-                        event = Booking()
-                    # Substitution
-                    case "substitution - in":
-                        event = Substitution()
-                        p = Player()
-
-                        s = './/div[contains(@class, "incidentSubOut")]/a/'
-                        p.name = "".join(node.xpath(s + "text()")).strip()
-                        p.url = "".join(node.xpath(s + "@href")).strip()
-
-                        event.player_off = p
-                    case _:
-                        logging.error(
-                            f"Match Event (icon: {icon})\n"
-                            f"icon_desc: {icon_desc}\n{fixture.url}"
-                        )
-                        continue
-
-        event.team = team
-
-        # Data not always present.
-        xpath = './/a[contains(@class, "playerName")]//text()'
-        if name := "".join(node.xpath(xpath)).strip():
-            p = Player(fixture.bot)
-            p.name = name
-            xpath = './/a[contains(@class, "playerName")]//@href'
-            p.url = "".join(node.xpath(xpath)).strip()
-            event.player = p
-
-        xpath = './/div[contains(@class, "assist")]//text()'
-        if assist := "".join(node.xpath(xpath)):
-            p = Player(fixture.bot)
-            p.name = assist.strip("()")
-
-            xpath = './/div[contains(@class, "assist")]//@href'
-            p.url = "".join(node.xpath(xpath))
-            event.assist = p
-
-        if description:
-            event.description = description
-
-        xpath = './/div[contains(@class, "timeBox")]//text()'
-        event.time = "".join(node.xpath(xpath)).strip()
-        events.append(event)
-    return events
+    from ext.toonbot_utils.flashscore import Fixture, Player, Team
 
 
 class MatchEvent:
@@ -289,8 +122,6 @@ class OwnGoal(Goal):
 
     colour = Colour.dark_green()
 
-    super().__init__()
-
     @property
     def emote(self) -> str:
         """A string representing an own goal as an emoji"""
@@ -326,9 +157,6 @@ class RedCard(MatchEvent):
 
     colour = Colour.red()
 
-    def __init__(self) -> None:
-        super().__init__()
-
     def __str__(self) -> str:
 
         if self.time is None:
@@ -359,8 +187,6 @@ class SecondYellow(RedCard):
 
     colour = Colour.brand_red()
 
-    super().__init__()
-
     def __str__(self) -> str:
 
         if self.time is None:
@@ -390,9 +216,6 @@ class Booking(MatchEvent):
     a yellow card"""
 
     colour = Colour.yellow()
-
-    def __init__(self) -> None:
-        super().__init__()
 
     def __str__(self) -> str:
 

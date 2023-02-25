@@ -25,7 +25,7 @@ THUMBNAIL = (
 )
 
 
-async def ud_ac(interaction: Interaction, current: str) -> list[Choice]:
+async def ud_ac(interaction: Interaction[Bot], current: str) -> list[Choice]:
     """Autocomplete from list of cogs"""
     url = (
         "https://api.urbandictionary.com/v0/"
@@ -48,7 +48,9 @@ async def ud_ac(interaction: Interaction, current: str) -> list[Choice]:
 class UrbanView(BaseView):
     """Generic View to paginate through multiple definitions"""
 
-    def __init__(self, interaction: Interaction, embeds: list[Embed]) -> None:
+    def __init__(
+        self, interaction: Interaction[Bot], embeds: list[Embed]
+    ) -> None:
         super().__init__(interaction)
         self.index = 0
         self.pages: list[Embed] = embeds
@@ -121,7 +123,7 @@ class UrbanDictionary(Cog):
     @describe(term="enter a search term")
     @autocomplete(term=ud_ac)
     async def search(
-        self, interaction: Interaction, term: str
+        self, interaction: Interaction[Bot], term: str
     ) -> UrbanView | Message:
         """Lookup a definition from Urban Dictionary"""
 

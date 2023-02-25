@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from asyncpg import Record
 from discord import (
@@ -82,9 +82,9 @@ def get_emote(node: HtmlElement):
 class Blog:
     """A world of Warships DevBlog"""
 
-    bot: PBot = None
+    bot: ClassVar[PBot]
 
-    def __init__(self, _id: int, title: str = None, text: str = None):
+    def __init__(self, _id: int, title: str, text: str):
         self.id: int = _id
         self.title: str = title
         self.text: str = text
@@ -312,7 +312,9 @@ class Blog:
 class DevBlogView(BaseView):
     """Browse Dev Blogs"""
 
-    def __init__(self, interaction: Interaction, pages: list[Record]) -> None:
+    def __init__(
+        self, interaction: Interaction[Bot], pages: list[Record]
+    ) -> None:
         super().__init__(interaction)
         self.pages: list[Blog] = pages
         self.index: int = 0
@@ -327,13 +329,11 @@ class DevBlogView(BaseView):
         )
 
 
-async def db_ac(interaction: Interaction, current: str) -> list[Choice]:
+async def db_ac(interaction: Interaction[PBot], current: str) -> list[Choice]:
     """Autocomplete dev blog by text"""
-    blogs = [
-        i
-        for i in interaction.client.dev_blog_cache
-        if current.lower() in i.ac_row
-    ]
+    bot = interaction.client
+    cur = current.lower()
+    blogs = [i for i in bot.dev_blog_cache if cur in i.ac_row]
     return [
         Choice(name=f"{i.id}: {i.title}"[:100], value=str(i.id)) for i in blogs
     ][
@@ -431,7 +431,7 @@ class DevBlog(Cog):
     @command()
     @default_permissions(manage_channels=True)
     async def blog_tracker(
-        self, interaction: Interaction, enabled: Literal["on", "off"]
+        self, interaction: Interaction[Bot], enabled: Literal["on", "off"]
     ) -> Message:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
@@ -465,7 +465,9 @@ class DevBlog(Cog):
     @command()
     @autocomplete(search=db_ac)
     @describe(search="Search for a dev blog by text content")
-    async def devblog(self, interaction: Interaction, search: str) -> Message:
+    async def devblog(
+        self, interaction: Interaction[Bot], search: str
+    ) -> Message:
         """Fetch a World of Warships dev blog, either search for text or
         leave blank to get latest."""
 

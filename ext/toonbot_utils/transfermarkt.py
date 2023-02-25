@@ -12,7 +12,12 @@ from lxml import html
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import FuncButton, add_page_buttons, Parent, BaseView
+from ext.utils.view_utils import FuncButton, BaseView
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from core import Bot
 
 
 FAVICON = (
@@ -102,7 +107,7 @@ class Team(SearchResult):
         return f"{self.flag} {self.markdown}"
 
     @property
-    def select_option(self) -> str:
+    def select_option(self) -> SelectOption:
         """A Select Option representation of this Team"""
         return SelectOption(
             emoji=self.flag, label=self.name, description=self.league.name
@@ -264,7 +269,7 @@ class Transfer:
 class TeamView(BaseView):
     """A View representing a Team on TransferMarkt"""
 
-    def __init__(self, interaction: Interaction, team: Team) -> None:
+    def __init__(self, interaction: Interaction[Bot], team: Team) -> None:
         super().__init__(interaction)
         self.team: Team = team
         self.index: int = 0
@@ -599,7 +604,9 @@ class StadiumAttendance:
 class CompetitionView(BaseView):
     """A View representing a competition on TransferMarkt"""
 
-    def __init__(self, interaction: Interaction, comp: Competition) -> None:
+    def __init__(
+        self, interaction: Interaction[Bot], comp: Competition
+    ) -> None:
         super().__init__(interaction)
         self.comp: Competition = comp
         self.index: int = 0
@@ -707,6 +714,8 @@ class CompetitionView(BaseView):
 class SearchSelect(Select):
     """Dropdown."""
 
+    view: BaseView
+
     def __init__(
         self, objects: list[Team | Competition], row: int = 4
     ) -> None:
@@ -739,12 +748,12 @@ class SearchSelect(Select):
 class SearchView(BaseView):
     """A TransferMarkt Search in View Form"""
 
-    query_string: str = None  # Should be Polymorphed
-    match_string: str = None  # Should be Polymorphed
-    category: str = None  # Should be Polymorphed
+    query_string: str
+    match_string: str
+    category: str
 
     def __init__(
-        self, interaction: Interaction, query: str, fetch: bool = False
+        self, interaction: Interaction[Bot], query: str, fetch: bool = False
     ) -> None:
 
         super().__init__(interaction)
@@ -827,7 +836,7 @@ class AgentSearch(SearchView):
     query_string = "page"
     match_string = "for agents"
 
-    def __init__(self, interaction: Interaction, query: str) -> None:
+    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows: list) -> list[Agent]:
@@ -849,7 +858,7 @@ class CompetitionSearch(SearchView):
     match_string = "competitions"
 
     def __init__(
-        self, interaction: Interaction, query: str, fetch: bool = False
+        self, interaction: Interaction[Bot], query: str, fetch: bool = False
     ) -> None:
 
         super().__init__(interaction, query, fetch=fetch)
@@ -876,7 +885,7 @@ class PlayerSearch(SearchView):
     query_string = "Spieler_page"
     match_string = "for players"
 
-    def __init__(self, interaction: Interaction, query: str) -> None:
+    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows) -> list[Player]:
@@ -918,7 +927,7 @@ class PlayerSearch(SearchView):
             except IndexError:
                 pass
 
-            player.age = "".join(i.xpath(".//td[4]/text()"))
+            player.age = int("".join(i.xpath(".//td[4]/text()")))
             player.position = "".join(i.xpath(".//td[2]/text()"))
 
             xp = './/td/img[@class="flaggenrahmen"]/@title'
@@ -935,7 +944,7 @@ class RefereeSearch(SearchView):
     query_string = "page"
     match_string = "for referees"
 
-    def __init__(self, interaction: Interaction, query: str) -> None:
+    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows: list) -> list[Referee]:
@@ -965,7 +974,7 @@ class StaffSearch(SearchView):
     query_string = "Trainer_page"
     match_string = "Managers"
 
-    def __init__(self, interaction: Interaction, query: str) -> None:
+    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows: list) -> list[Staff]:
@@ -1009,7 +1018,7 @@ class TeamSearch(SearchView):
     match_string = "results: Clubs"
 
     def __init__(
-        self, interaction: Interaction, query: str, fetch: bool = False
+        self, interaction: Interaction[Bot], query: str, fetch: bool = False
     ) -> None:
 
         super().__init__(interaction, query, fetch=fetch)

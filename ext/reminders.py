@@ -184,7 +184,7 @@ class ReminderView(View):
 
 
 @context_menu(name="Create reminder")
-async def create_reminder(interaction: Interaction, message: Message):
+async def create_reminder(interaction: Interaction[Bot], message: Message):
     """Create a reminder with a link to a message."""
     await interaction.response.send_modal(
         RemindModal(

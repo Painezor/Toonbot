@@ -208,7 +208,9 @@ def get_ship(self, identifier: str | int) -> Ship | ShipSentinel | None:
 
 
 # Autocomplete.
-async def map_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def map_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
     bot: PBot = interaction.client
 
@@ -245,7 +247,9 @@ async def map_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     ][:25]
 
 
-async def mode_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def mode_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Fetch a Game Mode"""
     bot: PBot = interaction.client
 
@@ -272,7 +276,7 @@ async def mode_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 
 
 async def player_ac(
-    interaction: Interaction, current: str
+    interaction: Interaction[Bot], current: str
 ) -> list[Choice[str]]:
     """Fetch player's account ID by searching for their name."""
     bot: PBot = interaction.client
@@ -312,7 +316,9 @@ async def player_ac(
     return choices
 
 
-async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def clan_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Autocomplete for a list of clan names"""
     bot: PBot = interaction.client
 
@@ -340,7 +346,9 @@ async def clan_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     return choices
 
 
-async def ship_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def ship_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
     bot: PBot = interaction.client
     matches = [
@@ -463,7 +471,7 @@ class Warships(Cog):
 
     async def send_code(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         code: str,
         regions: list[str],
         contents: str,
@@ -632,7 +640,7 @@ class Warships(Cog):
     @default_permissions(manage_messages=True)
     async def code(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         code: str,
         contents: str,
         eu: bool = True,
@@ -658,7 +666,7 @@ class Warships(Cog):
     )
     @default_permissions(manage_messages=True)
     async def code_cis(
-        self, interaction: Interaction, code: str, contents: str
+        self, interaction: Interaction[Bot], code: str, contents: str
     ) -> Message:
         """Send a message with a region specific redeem button"""
 
@@ -670,7 +678,7 @@ class Warships(Cog):
     @command()
     @describe(code_list="Enter a list of codes")
     async def code_parser(
-        self, interaction: Interaction, code_list: str
+        self, interaction: Interaction[Bot], code_list: str
     ) -> Message:
         """Strip codes for world of warships CCs"""
         code_list = code_list.replace(";", "")
@@ -683,7 +691,7 @@ class Warships(Cog):
     @command()
     @autocomplete(name=map_ac)
     @describe(name="Search for a map by name")
-    async def map(self, interaction: Interaction, name: str) -> Message:
+    async def map(self, interaction: Interaction[Bot], name: str) -> Message:
         """Fetch a map from the world of warships API"""
 
         await interaction.response.defer(thinking=True)
@@ -754,12 +762,12 @@ class Warships(Cog):
     async def guides(self, interaction: Interaction) -> Message:
         """Yurra's collection of guides"""
         yurra = self.bot.get_user(192601340244000769)
-        v = (
+        txt = (
             "Yurra's guides contain advice on various game mechanics, play "
             "styles classes, tech tree branches, and some specific ships."
             "\n\nhttps://bit.ly/yurraguides"
         )
-        e = Embed(title="Yurra's guides", description=v)
+        e = Embed(title="Yurra's guides", description=txt)
         e.url = "https://bit.ly/yurraguides"
         e.set_thumbnail(url=yurra.avatar.url)
         e.colour = Colour.dark_orange()
@@ -777,7 +785,7 @@ class Warships(Cog):
     @command()
     @autocomplete(name=ship_ac)
     @describe(name="Search for a ship by it's name")
-    async def ship(self, interaction: Interaction, name: str) -> Message:
+    async def ship(self, interaction: Interaction[Bot], name: str) -> Message:
         """Search for a ship in the World of Warships API"""
 
         await interaction.response.defer()
@@ -803,7 +811,7 @@ class Warships(Cog):
     )
     async def stats(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         region: REGION,
         player_name: Range[str, 3],
         mode: str = "PVP",
@@ -828,7 +836,7 @@ class Warships(Cog):
     @overmatch.command()
     @describe(shell_calibre="Calibre of shell to get over match value of")
     async def calibre(
-        self, interaction: Interaction, shell_calibre: int
+        self, interaction: Interaction[Bot], shell_calibre: int
     ) -> Message:
         """Get information about what a shell's overmatch parameters"""
 
@@ -855,7 +863,7 @@ class Warships(Cog):
     @overmatch.command()
     @describe(armour_thickness="How thick is the armour you need to penetrate")
     async def armour(
-        self, interaction: Interaction, armour_thickness: int
+        self, interaction: Interaction[Bot], armour_thickness: int
     ) -> Message:
         """Get what gun size is required to overmatch an armour thickness"""
         r = armour_thickness
@@ -890,7 +898,10 @@ class Warships(Cog):
     )
     @autocomplete(query=clan_ac)
     async def search(
-        self, interaction: Interaction, region: REGION, query: Range[str, 2]
+        self,
+        interaction: Interaction[Bot],
+        region: REGION,
+        query: Range[str, 2],
     ) -> Message:
         """Get information about a World of Warships clan"""
         _ = region  # Just to shut the linter up.
@@ -903,7 +914,7 @@ class Warships(Cog):
     @clan.command()
     @describe(region="Get only winners for a specific region")
     async def winners(
-        self, interaction: Interaction, region: REGION = None
+        self, interaction: Interaction[Bot], region: REGION = None
     ) -> Message:
         """Get a list of all past Clan Battle Season Winners"""
 
@@ -925,10 +936,11 @@ class Warships(Cog):
 
             s = seasons.items()
             tuples = sorted(s, key=lambda x: int(x[0]), reverse=True)
+
+            rat = "public_rating"
             for season, winners in tuples:
                 wnr = [f"\n**Season {season}**"]
 
-                rat = "public_rating"
                 srt = sorted(winners, key=lambda c: c[rat], reverse=True)
                 for clan in srt:
                     tag = "realm"
@@ -970,7 +982,7 @@ class Warships(Cog):
     @describe(region="Get Rankings for a specific region")
     async def leaderboard(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         region: REGION = None,
         season: Range[int, 1, 17] = None,
     ) -> Message:

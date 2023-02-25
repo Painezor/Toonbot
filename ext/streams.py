@@ -25,7 +25,9 @@ class Stream:
         return f"[{text}]({self.link}) added by {self.added_by.mention}"
 
 
-async def st_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def st_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Return List of Guild Streams"""
     guild_streams = interaction.client.streams.get(interaction.guild.id, {})
     m = [
@@ -74,7 +76,9 @@ class GuildStreams(Cog):
     @describe(
         name="Enter a name for the stream", link="Enter the link oF the stream"
     )
-    async def add_stream(self, interaction: Interaction, link: str, name: str):
+    async def add_stream(
+        self, interaction: Interaction[Bot], link: str, name: str
+    ):
         """Add a stream to the stream list."""
         if not (
             guild_streams := self.bot.streams.get(interaction.guild.id, {})
@@ -108,7 +112,7 @@ class GuildStreams(Cog):
 
     @streams.command(name="delete")
     @autocomplete(stream=st_ac)
-    async def delete_stream(self, interaction: Interaction, stream: str):
+    async def delete_stream(self, interaction: Interaction[Bot], stream: str):
         """Delete a stream from the stream list"""
         gs = self.bot.streams.get(interaction.guild.id, {})
 

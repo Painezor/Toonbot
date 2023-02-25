@@ -8,7 +8,7 @@ from datetime import datetime
 from math import ceil
 from pathlib import Path
 from re import sub, DOTALL
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from PIL import Image
 from asyncpraw.models import Subreddit
@@ -328,29 +328,29 @@ class NUFCSidebar(Cog):
     )
     async def sidebar(
         self,
-        interaction: Interaction,
-        caption: str = None,
-        image: Attachment = None,
+        interaction: Interaction[Bot],
+        caption: Optional[str],
+        image: Optional[Attachment],
     ) -> Message:
         """Upload an image to the sidebar, or edit the caption."""
-
+        if not caption and not image:
+            return await self.bot.error(
+                interaction, "No caption / image provided."
+            )
         await interaction.response.defer(thinking=True)
         # Check if message has an attachment, for the new sidebar image.
         e: Embed = Embed(color=0xFF4500, url="http://www.reddit.com/r/NUFC")
         e.set_author(icon_url=REDDIT_THUMBNAIL, name="r/NUFC Sidebar updated")
 
+        subreddit = await self.bot.reddit.subreddit("NUFC")
         if caption:
-            page = await (
-                await self.bot.reddit.subreddit("NUFC")
-            ).wiki.get_page("sidebar")
-            await page.edit(
-                content=sub(
-                    r"---.*?---",
-                    f"---\n\n> {caption}\n\n---",
-                    page.content_md,
-                    flags=DOTALL,
-                )
-            )
+
+            page = await subreddit.wiki.get_page("sidebar")
+
+            new_txt = f"---\n\n> {caption}\n\n---"
+            txt = sub(r"---.*?---", new_txt, page.content_md, flags=DOTALL)
+
+            await page.edit(txt)
             e.description = f"Set caption to: {caption}"
 
         if image:
@@ -359,13 +359,14 @@ class NUFCSidebar(Cog):
             try:
                 await s.stylesheet.upload("sidebar", "sidebar")
             except TooLarge:
-                return await self.bot.error(
-                    interaction, content="Image is too large."
-                )
+                return await self.bot.error(interaction, "Image is too large.")
+
             style = await s.stylesheet()
+
+            pg = style.stylesheet
+            u = interaction.user
             await s.stylesheet.update(
-                style.stylesheet,
-                reason=f"Sidebar image by {interaction.user} via discord",
+                pg, reason=f"Sidebar image by {u} via discord"
             )
 
             e.set_image(url=image.url)
@@ -374,11 +375,9 @@ class NUFCSidebar(Cog):
             file = None
 
         # Build
-        wiki = await (await self.bot.reddit.subreddit("NUFC")).wiki.get_page(
-            "config/sidebar"
-        )
+        wiki = await subreddit.wiki.get_page("config/sidebar")
         await wiki.edit(content=await self.make_sidebar())
-        await self.bot.reply(interaction, embed=e, file=file)
+        return await self.bot.reply(interaction, embed=e, file=file)
 
 
 async def setup(bot: Bot) -> None:

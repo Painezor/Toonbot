@@ -22,13 +22,11 @@ class Lookup(Cog):
         self.bot: Bot = bot
         reload(tfm)
 
-    lookup = Group(
-        name="lookup", description="Search for something on transfermarkt"
-    )
+    lookup = Group(name="lookup", description="Search on transfermarkt")
 
     @lookup.command(name="player")
     @describe(query="Enter a player name")
-    async def lookup_player(self, interaction: Interaction, query: str):
+    async def lookup_player(self, interaction: Interaction[Bot], query: str):
         """Search for a player on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -36,7 +34,7 @@ class Lookup(Cog):
 
     @lookup.command(name="team")
     @describe(query="Enter a team name")
-    async def lookup_team(self, interaction: Interaction, query: str):
+    async def lookup_team(self, interaction: Interaction[Bot], query: str):
         """Search for a team on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -44,7 +42,7 @@ class Lookup(Cog):
 
     @lookup.command(name="staff")
     @describe(query="Enter a club official name")
-    async def lookup_staff(self, interaction: Interaction, query: str):
+    async def lookup_staff(self, interaction: Interaction[Bot], query: str):
         """Search for a club official on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -52,7 +50,7 @@ class Lookup(Cog):
 
     @lookup.command(name="referee")
     @describe(query="Enter a referee name")
-    async def lookup_referee(self, interaction: Interaction, query: str):
+    async def lookup_referee(self, interaction: Interaction[Bot], query: str):
         """Search for a referee on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -60,7 +58,9 @@ class Lookup(Cog):
 
     @lookup.command(name="competition")
     @describe(query="Enter a competition name")
-    async def lookup_competition(self, interaction: Interaction, query: str):
+    async def lookup_competition(
+        self, interaction: Interaction[Bot], query: str
+    ):
         """Search for a competition on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -68,7 +68,7 @@ class Lookup(Cog):
 
     @lookup.command(name="agent")
     @describe(query="Enter an agency name")
-    async def lookup_agent(self, interaction: Interaction, query: str):
+    async def lookup_agent(self, interaction: Interaction[Bot], query: str):
         """Search for an agency on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -81,7 +81,7 @@ class Lookup(Cog):
     @transfer.command(name="list")
     @describe(team_name="enter a team name to search for")
     async def listing(
-        self, interaction: Interaction, team_name: str
+        self, interaction: Interaction[Bot], team_name: str
     ) -> Message:
         """Get this window's transfers for a team on transfermarkt"""
 
@@ -96,7 +96,7 @@ class Lookup(Cog):
     @transfer.command()
     @describe(team_name="enter a team name to search for")
     async def rumours(
-        self, interaction: Interaction, team_name: str
+        self, interaction: Interaction[Bot], team_name: str
     ) -> Optional[Message]:
         """Get the latest transfer rumours for a team"""
 
@@ -112,7 +112,7 @@ class Lookup(Cog):
     @command()
     @describe(team_name="enter a team name to search for")
     async def contracts(
-        self, interaction: Interaction, team_name: str
+        self, interaction: Interaction[Bot], team_name: str
     ) -> Message:
         """Get a team's expiring contracts"""
 
@@ -128,7 +128,7 @@ class Lookup(Cog):
     @command()
     @describe(team_name="enter a team name to search for")
     async def trophies(
-        self, interaction: Interaction, team_name: str
+        self, interaction: Interaction[Bot], team_name: str
     ) -> Message:
         """Get a team's trophy case"""
 
@@ -144,7 +144,7 @@ class Lookup(Cog):
     @command()
     @describe(league_name="enter a league name to search for")
     async def attendance(
-        self, interaction: Interaction, league_name: str
+        self, interaction: Interaction[Bot], league_name: str
     ) -> Message:
         """Get a list of a league's average attendances."""
 

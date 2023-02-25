@@ -41,10 +41,9 @@ LST = "http://www.livesoccertv.com/"
 class TVSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
-    def __init__(self, interaction: Interaction, teams: list):
+    def __init__(self, interaction: Interaction[Bot], teams: list):
         super().__init__(interaction)
 
-        self.interaction: Interaction = interaction
         self.teams: list = teams
 
         # Pagination
@@ -70,7 +69,9 @@ class TVSelect(view_utils.BaseView):
         return await self.interaction.client.reply(embed=e, view=self)
 
 
-async def tv_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
+async def tv_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice[str]]:
     """Return list of live teams"""
     dct = interaction.client.tv.keys()
     cr = current.lower()
@@ -88,7 +89,9 @@ class Tv(commands.Cog):
     @command()
     @describe(team="Search for a team")
     @autocomplete(team=tv_ac)
-    async def tv(self, interaction: Interaction, team: str = None) -> Message:
+    async def tv(
+        self, interaction: Interaction[Bot], team: str = None
+    ) -> Message:
         """Lookup next televised games for a team"""
 
         await interaction.response.defer(thinking=True)

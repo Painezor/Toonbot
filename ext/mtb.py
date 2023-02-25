@@ -58,7 +58,7 @@ class MatchThread:
     async def start(self) -> None:
         """The core loop for the match thread bot."""
         # Gather initial data
-        await self.fixture.refresh()
+        await self.fixture.refresh(self.bot)
 
         # Post Pre-Match Thread if required
         title, markdown = await self.pre_match()
@@ -112,7 +112,7 @@ class MatchThread:
             )
 
         # Refresh fixture at kickoff.
-        await self.fixture.refresh()
+        await self.fixture.refresh(self.bot)
         title, markdown = await self.write_markdown()
 
         # Post initial thread or resume existing thread.
@@ -144,7 +144,7 @@ class MatchThread:
             if self.stop:
                 break
 
-            await self.fixture.refresh()
+            await self.fixture.refresh(self.bot)
 
             title, markdown = await self.write_markdown()
             # Only need to update if something has changed.
@@ -305,7 +305,7 @@ class MatchThread:
 
     async def write_markdown(self, post_match=False):
         """Write markdown for the current fixture"""
-        await self.fixture.refresh()
+        await self.fixture.refresh(self.bot)
 
         # Alias for easy replacing.
         home = self.fixture.home.name

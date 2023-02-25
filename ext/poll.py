@@ -111,7 +111,7 @@ class PollView(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         question: str,
         answers: list[str],
         minutes: int,

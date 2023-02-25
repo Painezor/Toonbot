@@ -238,7 +238,7 @@ class NUFC(Cog):
     @guilds(332159889587699712)
     @describe(hex_code="Enter a colour #hexcode")
     @default_permissions(change_nickname=True)
-    async def colour(self, interaction: Interaction, hex_code: str):
+    async def colour(self, interaction: Interaction[Bot], hex_code: str):
         """Gives you a colour"""
         # Get user's old colours.
         remove_list: list[Role] = [
@@ -283,7 +283,7 @@ class NUFC(Cog):
     @guilds(332159889587699712)
     async def shake(self, interaction: Interaction) -> Message:
         """Well to start off with…"""
-        await self.bot.reply(interaction, content=SHAKE)
+        return await interaction.response.send_message(content=SHAKE)
 
     @command()
     @guilds(332159889587699712)

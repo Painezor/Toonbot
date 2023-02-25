@@ -278,7 +278,7 @@ class TrackerChannel:
         return TrackerConfig(interaction, self)
 
 
-async def cc_ac(interaction: Interaction, current: str) -> list[Choice]:
+async def cc_ac(interaction: Interaction[Bot], current: str) -> list[Choice]:
     """Autocomplete from the list of stored CCs"""
     bot: PBot = interaction.client
     ccs = bot.contributors
@@ -305,7 +305,9 @@ async def cc_ac(interaction: Interaction, current: str) -> list[Choice]:
     ][:25]
 
 
-async def language_ac(interaction: Interaction, current: str) -> list[Choice]:
+async def language_ac(
+    interaction: Interaction[Bot], current: str
+) -> list[Choice]:
     """Filter by Language"""
     bot: PBot = getattr(interaction, "client")
 
@@ -321,7 +323,7 @@ async def language_ac(interaction: Interaction, current: str) -> list[Choice]:
 class TrackerConfig(BaseView):
     """Config View for a Twitch Tracker channel"""
 
-    def __init__(self, interaction: Interaction, tc: TrackerChannel):
+    def __init__(self, interaction: Interaction[Bot], tc: TrackerChannel):
         super().__init__(interaction)
         self.tc: TrackerChannel = tc
         self.index: int = 0
@@ -649,7 +651,7 @@ class TwitchTracker(Cog):
     @guilds(250252535699341312)
     @describe(cc="Get streamers who are/not members of the CC program")
     async def streams(
-        self, interaction: Interaction, cc: bool = None
+        self, interaction: Interaction[Bot], cc: bool = None
     ) -> Message:
         """Get a list of current World of Warships streams on Twitch"""
 
@@ -689,7 +691,7 @@ class TwitchTracker(Cog):
     @autocomplete(search=cc_ac, language=language_ac)
     async def cc(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         search: str = None,
         region: REGIONS = None,
         language: str = None,
@@ -737,7 +739,10 @@ class TwitchTracker(Cog):
         channel="Add to Which channel?",
     )
     async def add(
-        self, interaction: Interaction, role: Role, channel: TextChannel = None
+        self,
+        interaction: Interaction[Bot],
+        role: Role,
+        channel: TextChannel = None,
     ) -> Message:
         """Add a role of this discord to the twitch tracker."""
 
@@ -767,7 +772,7 @@ class TwitchTracker(Cog):
     @track.command()
     @describe(channel="Manage which channel's Trackers?")
     async def manage(
-        self, interaction: Interaction, channel: TextChannel = None
+        self, interaction: Interaction[Bot], channel: TextChannel = None
     ) -> Message:
         """View or remove tracked twitch go live roles"""
 

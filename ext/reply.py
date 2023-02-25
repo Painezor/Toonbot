@@ -28,7 +28,7 @@ logger = logging.getLogger("reply")
 
 
 async def error(
-    i: Interaction,
+    i: Interaction[Bot],
     content: str,
     message: Message = None,
     followup: bool = True,
@@ -53,7 +53,10 @@ async def error(
 
 
 async def reply(
-    i: Interaction, message: Message = None, followup: bool = True, **kwargs
+    i: Interaction[Bot],
+    message: Message = None,
+    followup: bool = True,
+    **kwargs,
 ) -> Message:
     """Generic reply handler."""
     r: InteractionResponse = i.response
@@ -94,7 +97,7 @@ class Reply(Cog):
         # self.bot.tree.on_error = self.error_handler
 
     async def error_handler(
-        self, interaction: Interaction, err: AppCommandError
+        self, interaction: Interaction[Bot], err: AppCommandError
     ) -> Message:
         """Event listener for when commands raise exceptions"""
         # Unpack CI

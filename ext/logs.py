@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import discord
 from discord import (
@@ -77,20 +77,23 @@ class LogsConfig(BaseView):
     """Generic Config View"""
 
     def __init__(
-        self, interaction: Interaction, channel: discord.TextChannel
+        self, interaction: Interaction[Bot], channel: discord.TextChannel
     ) -> None:
 
         super().__init__(interaction)
 
         self.channel: discord.TextChannel = channel
 
-    async def on_timeout(self) -> Message:
+    async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         return await self.interaction.delete_original_response()
 
-    async def update(self, content: str = None) -> Message:
+    async def update(self, *, content: Optional[str]) -> Optional[Message]:
         """Regenerate view and push to message"""
         self.clear_items()
+
+        if self.interaction.guild is None:
+            return
 
         q = """SELECT * FROM notifications_settings WHERE (channel_id) = $1"""
         qq = """INSERT INTO notifications_channels (guild_id, channel_id)
@@ -103,7 +106,7 @@ class LogsConfig(BaseView):
                 if not (stg := await connection.fetchrow(q, c)):
                     await connection.execute(qq, self.interaction.guild.id, c)
                     await connection.execute(qqq, c)
-                    return await self.update()
+                    return await self.update(content="Generating...")
 
         e: Embed = Embed(color=0x7289DA, title="Notification Logs config")
         e.description = "Click the buttons below to toggle logging for events."
@@ -124,8 +127,7 @@ class LogsConfig(BaseView):
 def do_footer(entry, embed):
     """Unified Footers."""
     if isinstance(user := entry.user, discord.Object):
-        if (_ := entry.guild.get_member(entry.user)) is not None:
-            user = _
+        user = entry.guild.get_member(entry.user)
 
     if user is None:
         return
@@ -148,8 +150,8 @@ def stringify_minutes(value: int) -> str:
         case 10080:
             return "7 Days"
         case _:
-            logging.info(f"Unhandled archive duration, {value}")
-            return value
+            logging.info("Unhandled archive duration %s", value)
+            return str(value)
 
 
 def stringify_seconds(value: int) -> str:
@@ -242,12 +244,13 @@ def do_perms(
     entry: discord.AuditLogEntry,
     permissions: list[discord.app_commands.AppCommandPermissions],
     embed: Embed,
-) -> Embed:
+) -> str:
     """Add a human-readable list of parsed permissions to an embed"""
 
     if not permissions:
         permissions = entry.target.default_member_permissions
 
+    output = ""
     for p in permissions:
         match p.type:
             case discord.AppCommandPermissionType.user:
@@ -261,8 +264,8 @@ def do_perms(
                     mention = f"<#{p.target.id}>"
             case _:
                 mention = "?"
-        embed.description += f"{'✅' if p.permission else '❌'} {mention}\n"
-    return embed
+        output += f"{'✅' if p.permission else '❌'} {mention}\n"
+    return output
 
 
 class Logs(Cog):
@@ -302,10 +305,15 @@ class Logs(Cog):
             except discord.HTTPException:
                 continue
 
-    def get_channels(self, guild, filters: list[str]):
+    def get_channels(self, guild, filters: list[str]) -> list[TextChannel]:
         """Filter down to the required channels"""
         c = self.bot.notifications_cache
-        channels = [i for i in c if i["guild_id"] == guild.id]
+
+        try:
+            channels = [i for i in c if i["guild_id"] == guild.id]
+        except ValueError:
+            return
+
         for setting in filters:
             channels = [i for i in channels if i[setting]]
 
@@ -398,12 +406,13 @@ class Logs(Cog):
         if channels:
             return
 
-        before: Embed = Embed(colour=Colour.dark_gray(), description="")
-        after: Embed = Embed(
-            colour=Colour.light_gray(),
-            timestamp=discord.utils.utcnow(),
-            description="",
-        )
+        before: Embed = Embed(colour=Colour.dark_gray())
+        after: Embed = Embed(colour=Colour.light_gray())
+
+        before.description = ""
+        after.description = ""
+
+        after.timestamp = discord.utils.utcnow()
 
         if bf.name != af.name:
             before.description += f"**Name**: {bf.name}\n"
@@ -2800,8 +2809,8 @@ class Logs(Cog):
             before.description += f"\nIntegration: {x.name} {a.name} ({a.id})"
 
         if key := changes.pop("app_command_permissions", False):
-            do_perms(entry, key["before"], before)
-            do_perms(entry, key["after"], after)
+            before.description += do_perms(entry, key["before"])
+            after.description += do_perms(entry, key["after"])
 
         if changes:
             logging.info(f"{entry.action} | Changes Remain: {changes}")
@@ -3535,7 +3544,9 @@ class Logs(Cog):
     @command()
     @default_permissions(view_audit_log=True)
     async def logs(
-        self, interaction: Interaction, channel: discord.TextChannel = None
+        self,
+        interaction: Interaction[Bot],
+        channel: discord.TextChannel = None,
     ) -> Message:
         """Create moderator logs in this channel."""
         # TODO: Split /logs command into subcommands with sub-views & Parent.

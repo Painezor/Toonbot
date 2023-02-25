@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class XKCDView(BaseView):
     """A View to browse XKCD Comics"""
 
-    def __init__(self, interaction: Interaction, index: int = 0):
+    def __init__(self, interaction: Interaction[Bot], index: int = 0):
         self.index: int = index
         super().__init__(interaction)
 
@@ -75,7 +75,7 @@ class XKCD(Cog):
         return await XKCDView(interaction, -1).update()
 
     @xkcd.command()
-    async def number(self, interaction: Interaction, number: int):
+    async def number(self, interaction: Interaction[Bot], number: int):
         """Get XKCD Comic by number..."""
 
         await interaction.response.defer(thinking=True)

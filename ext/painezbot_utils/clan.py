@@ -609,7 +609,9 @@ class Clan:
     # achievements = json.pop('achievements')
     # This information is complete garbage.
 
-    def view(self, interaction: Interaction, parent: View = None) -> ClanView:
+    def view(
+        self, interaction: Interaction[Bot], parent: View = None
+    ) -> ClanView:
         """Return a view representing this clan"""
         return ClanView(interaction, self, parent)
 
@@ -619,7 +621,7 @@ class ClanView(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         clan: Clan,
         parent: tuple[View, str] = None,
     ) -> None:
@@ -862,7 +864,9 @@ class ClanView(BaseView):
 class Leaderboard(BaseView):
     """Leaderboard View with dropdowns."""
 
-    def __init__(self, interaction: Interaction, clans: list[Clan]) -> None:
+    def __init__(
+        self, interaction: Interaction[Bot], clans: list[Clan]
+    ) -> None:
         super().__init__(interaction)
 
         self.index: int = 0  # Pages.

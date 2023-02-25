@@ -94,59 +94,62 @@ UNI_DICT = {
 }
 
 
-def get_flag(country: str) -> str | None:
+def get_flag(country: str | list[str]) -> str:
     """Get a flag emoji from a string representing a country"""
-    for x in ["Retired", "Without Club"]:
-        country = country.strip().replace(x, "")
 
-    if not country.strip():
-        return ""
+    if isinstance(country, str):
+        country = [country]
 
-    if (country := country.strip()) in country_dict:
-        country = country_dict.get(country)
+    output = []
+    for c in country:
+        for x in ["Retired", "Without Club"]:
+            c = c.strip().replace(x, "")
 
-    match country.lower():
-        case "england" | "en":
-            return "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
-        case "scotland":
-            return "🏴󠁧󠁢󠁳󠁣󠁴󠁿"
-        case "wales":
-            return "🏴󠁧󠁢󠁷󠁬󠁳󠁿"
-        case "uk":
-            return "🇬🇧"
-        case "world":
-            return "🌍"
-        case "cs":
-            return "🇨🇿"
-        case "da":
-            return "🇩🇰"
-        case "ko":
-            return "🇰🇷"
-        case "zh":
-            return "🇨🇳"
-        case "ja":
-            return "🇯🇵"
-        case "usa":
-            return "🇺🇸"
-        case "pan_america":
-            return "<:PanAmerica:991330048390991933>"
-        case "commonwealth":
-            return "<:Commonwealth:991329664591212554>"
-        case "ussr":
-            return "<:USSR:991330483445186580>"
-        case "europe":
-            return "🇪🇺"
-        case "other":
-            return "🌍"
+        c = country_dict.get(c, c)
 
-    # Check if py country has country
-    try:
-        country = countries.get(name=country.title()).alpha_2
-    except (KeyError, AttributeError):
-        pass
+        match c.lower():
+            case "england" | "en":
+                output.append("🏴󠁧󠁢󠁥󠁮󠁧󠁿")
+            case "scotland":
+                output.append("🏴󠁧󠁢󠁳󠁣󠁴󠁿")
+            case "wales":
+                output.append("🏴󠁧󠁢󠁷󠁬󠁳󠁿")
+            case "uk":
+                output.append("🇬🇧")
+            case "world":
+                output.append("🌍")
+            case "cs":
+                output.append("🇨🇿")
+            case "da":
+                output.append("🇩🇰")
+            case "ko":
+                output.append("🇰🇷")
+            case "zh":
+                output.append("🇨🇳")
+            case "ja":
+                output.append("🇯🇵")
+            case "usa":
+                output.append("🇺🇸")
+            case "pan_america":
+                output.append("<:PanAmerica:991330048390991933>")
+            case "commonwealth":
+                output.append("<:Commonwealth:991329664591212554>")
+            case "ussr":
+                output.append("<:USSR:991330483445186580>")
+            case "europe":
+                output.append("🇪🇺")
+            case "other":
+                output.append("🌍")
 
-    if len(country) != 2:
-        logging.info(f"No flag country found for {country}")
-        return ""
+        # Check if py country has country
+        try:
+            c = countries.get(name=c.title()).alpha_2
+        except (KeyError, AttributeError):
+            pass
 
-    return "".join(UNI_DICT[c] for c in country.lower() if c)
+        if len(c) != 2:
+            logging.info(f"No flag country found for {c}")
+            continue
+
+        output.append("".join(UNI_DICT[i] for i in c.lower() if i))
+    return " ".join(output)

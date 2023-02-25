@@ -6,13 +6,14 @@ from asyncio import new_event_loop
 from collections import defaultdict
 from datetime import datetime
 from json import load
-from typing import Optional, Callable, TYPE_CHECKING
+from typing import Optional, Callable, TYPE_CHECKING, cast
 
-import discord.utils
+
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import create_pool
 from asyncpraw import Reddit
 from discord import Intents, Game, File
+import discord
 from discord.ext.commands import AutoShardedBot
 
 from ext.utils.playwright_browser import make_browser
@@ -21,44 +22,44 @@ if TYPE_CHECKING:
     from ext.scores import ScoreChannel
     from ext.ticker import TickerChannel
     from ext.transfers import TransferChannel
-    from asyncio import Task, Semaphore
+    from asyncio import Task
     from asyncpg import Record, Pool
     from playwright.async_api import BrowserContext
     from io import BytesIO
     import ext.toonbot_utils.flashscore as fs
 
-discord.utils.setup_logging()
+logger = logging.getLogger("core")
 
 with open("credentials.json", "r") as f:
     credentials = load(f)
 
 COGS = [
-    "reply",  # Utility Cogs
+    "ext.reply",  # Utility Cogs
     # Slash commands.
-    "metatoonbot",
-    "admin",
-    "bans",
-    "fixtures",
-    "images",
-    "info",
-    "logs",
-    "lookup",
-    "memes",
-    "mod",
-    "nufc",
-    "poll",
-    "quotes",
-    "reminders",
-    "rng",
-    "scores",
-    "sidebar",
-    "streams",
-    "ticker",
-    "transfers",
-    "tv",
-    "translations",
-    "urbandictionary",
-    "xkcd",
+    "ext.metatoonbot",
+    "ext.admin",
+    "ext.bans",
+    "ext.fixtures",
+    "ext.images",
+    "ext.info",
+    "ext.logs",
+    "ext.lookup",
+    "ext.memes",
+    "ext.mod",
+    "ext.nufc",
+    "ext.poll",
+    "ext.quotes",
+    "ext.reminders",
+    "ext.rng",
+    "ext.scores",
+    "ext.sidebar",
+    "ext.streams",
+    "ext.ticker",
+    "ext.transfers",
+    "ext.tv",
+    "ext.translations",
+    "ext.urbandictionary",
+    "ext.xkcd",
 ]
 
 INVITE_URL = (
@@ -83,25 +84,20 @@ class Bot(AutoShardedBot):
         )
 
         # Reply Handling
-        self.ticker_semaphore: Optional[Semaphore] = None
-        self.reply: Callable = None
-        self.error: Callable = None
+        self.reply: Callable
+        self.error: Callable
 
         # Database & Credentials
         self.db: Pool = kwargs.pop("database")
-        self.credentials: dict = credentials
         self.initialised_at = datetime.utcnow()
         self.invite: str = INVITE_URL
-
-        # Admin
-        self.cogs = COGS
 
         # Livescores
         self.games: list[fs.Fixture] = []
         self.teams: list[fs.Team] = []
         self.competitions: list[fs.Competition] = []
         self.score_channels: list[ScoreChannel] = []
-        self.scores: Task | None = None
+        self.scores: Task
 
         # Notifications
         self.notifications_cache: list[Record] = []
@@ -114,13 +110,13 @@ class Bot(AutoShardedBot):
         self.reminders: set[Task] = set()
 
         # Session // Scraping
-        self.browser: Optional[BrowserContext] = None
-        self.session: Optional[ClientSession] = None
+        self.browser: BrowserContext
+        self.session: ClientSession
 
         # Sidebar
         self.reddit_teams: list[Record] = []
-        self.sidebar: Optional[Task] = None
-        self.reddit = Reddit(**self.credentials["Reddit"])
+        self.sidebar: Task
+        self.reddit = Reddit(**credentials["Reddit"])
 
         # Streams
         self.streams: dict[int, list] = defaultdict(list)
@@ -130,27 +126,33 @@ class Bot(AutoShardedBot):
 
         # Transfers
         self.transfer_channels: list[TransferChannel] = []
-        self.transfers: Optional[Task] | None = None
+        self.transfers: Task
         self.parsed_transfers: list[str] = []
 
         # TV
         self.tv_dict: dict = {}
+
+        # Announce aliveness
         x = f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}'
-        logging.info(f"{x}\n" + "-" * len(x))
+        logger.info(f"{x}\n" + "-" * len(x))
 
     async def setup_hook(self) -> None:
-        """Load Cogs asynchronously"""
-        self.browser = await make_browser()
+        """Create our browsers then load our cogs."""
+
+        # aiohttp
         connector = TCPConnector(ssl=False)
         self.session = ClientSession(loop=self.loop, connector=connector)
 
+        # playwright
+        self.browser = await make_browser()
+
         for c in COGS:
             try:
-                await self.load_extension(f"ext.{c}")
-                logging.info("Loaded ext.%s", c)
+                await self.load_extension(c)
+                logger.info("Loaded %s", c)
             except Exception as error:
                 err = f"{type(error).__name__}: {error}"
-                logging.error("Failed to load cog %s\n%s", c, err)
+                logger.error("Failed to load cog %s\n%s", c, err)
         return
 
     def get_competition(self, comp_id: str) -> Optional[fs.Competition]:
@@ -163,17 +165,23 @@ class Bot(AutoShardedBot):
 
     def get_fixture(self, fixture_id: str) -> Optional[fs.Fixture]:
         """Retrieve a Fixture from the ones stored in the bot."""
-        return next((i for i in self.games if i.id == fixture_id), None)
+        return next((i for i in self.games if i.fs_id == fixture_id), None)
 
-    async def dump_image(self, data: BytesIO) -> str:
+    async def dump_image(self, data: BytesIO) -> Optional[str]:
         """Save a stitched image"""
+        file = File(fp=data, filename="dumped_image.png")
+        channel = self.get_channel(874655045633843240)
+
+        if channel is None:
+            return
+
+        channel = cast(discord.TextChannel, channel)
+
         try:
-            file = File(fp=data, filename="dumped_image.png")
-            channel = self.get_channel(874655045633843240)
             img_msg = await channel.send(file=file)
             return img_msg.attachments[0].url
         except AttributeError:
-            return None
+            return
 
     async def cache_quotes(self) -> None:
         """Cache the QuoteDB"""
@@ -186,7 +194,10 @@ class Bot(AutoShardedBot):
 async def run() -> None:
     """Start the bot running, loading all credentials and the database."""
     database = await create_pool(**credentials["ToonbotDB"])
-    bot = Bot(database=database)
+    database = cast(Pool, database)
+
+    bot: Bot = Bot(database=database)
+
     try:
         await bot.start(credentials["bot"]["token"])
     except KeyboardInterrupt:

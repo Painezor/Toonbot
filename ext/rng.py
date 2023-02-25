@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from collections import Counter
 from random import choice, randint, randrange, shuffle
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Text
 
 from discord import Embed, Colour, TextStyle
+import discord
 from discord.app_commands import command, describe
 from discord.ext.commands import Cog
 from discord.ui import Button, Modal, TextInput
@@ -14,7 +15,7 @@ from ext.utils.view_utils import Stop, BaseView
 
 if TYPE_CHECKING:
     from core import Bot
-    from discord import Interaction, Message, ButtonStyle
+    from discord import Interaction, Message
 
 COIN = (
     "https://www.iconpacks.net/icons/1/"
@@ -60,10 +61,8 @@ class DiceButton(Button):
     view: DiceBox
 
     def __init__(self, sides: int = 6, row: int = 0):
-        super().__init__(
-            label=f"Roll D{sides}", row=row, style=ButtonStyle.blurple
-        )
-
+        s = discord.ButtonStyle.blurple
+        super().__init__(label=f"Roll D{sides}", row=row, style=s)
         self.sides: int = sides
 
     async def callback(self, interaction: Interaction) -> BaseView:
@@ -83,7 +82,7 @@ class DiceButton(Button):
 class CoinView(BaseView):
     """A View with a counter for 2 results"""
 
-    def __init__(self, interaction: Interaction, count: int = 1) -> None:
+    def __init__(self, interaction: Interaction[Bot], count: int = 1) -> None:
         super().__init__(interaction)
         self.flip_results: list[str] = []
         for x in range(count):
@@ -107,7 +106,9 @@ class FlipButton(Button):
     """Flip a coin and pass the result to the view"""
 
     def __init__(self, label="Flip a Coin", count=1) -> None:
-        super().__init__(label=label, emoji="🪙", style=ButtonStyle.primary)
+
+        s = discord.ButtonStyle.primary
+        super().__init__(label=label, emoji="🪙", style=s)
         self.count: int = count
 
     async def callback(self, interaction: Interaction) -> BaseView:
@@ -122,7 +123,7 @@ class FlipButton(Button):
 class ChoiceModal(Modal):
     """Send a Modal to the User to enter their options in."""
 
-    question = TextInput(
+    question: TextInput = TextInput(
         label="Enter a question", placeholder="What should I do?"
     )
 
@@ -172,7 +173,9 @@ class Random(Cog):
 
     @command()
     @describe(count="Enter a number of coins")
-    async def coin(self, interaction: Interaction, count: int = 1) -> Message:
+    async def coin(
+        self, interaction: Interaction[Bot], count: int = 1
+    ) -> Message:
         """Flip a coin"""
         if count > 10000:
             return await self.bot.error(interaction, content="Too many coins.")
@@ -188,7 +191,7 @@ class Random(Cog):
     @command(name="8ball")
     @describe(question="enter a question")
     async def eight_ball(
-        self, interaction: Interaction, question: str
+        self, interaction: Interaction[Bot], question: str
     ) -> Message:
         """Magic Geordie 8ball"""
         res = [
@@ -235,7 +238,7 @@ class Random(Cog):
     @command()
     @describe(dice="enter a roll (format: 1d20+3)")
     async def roll(
-        self, interaction: Interaction, dice: str = "d20"
+        self, interaction: Interaction[Bot], dice: str = "d20"
     ) -> Message:
         """Roll a set of dice in the format XdY+Z.
         Use 'adv' or 'dis' for (dis)advantage"""

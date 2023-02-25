@@ -170,7 +170,7 @@ class QuotesView(BaseView):
     """Generic Paginator that returns nothing."""
 
     def __init__(
-        self, interaction: Interaction, all_guilds: bool = False
+        self, interaction: Interaction[Bot], all_guilds: bool = False
     ) -> None:
 
         super().__init__(interaction)
@@ -291,7 +291,9 @@ class QuotesView(BaseView):
 
 # MESSAGE COMMAND, (right click message -> Add quote)
 @context_menu(name="Add to QuoteDB")
-async def quote_add(interaction: Interaction, message: Message) -> Message:
+async def quote_add(
+    interaction: Interaction[Bot], message: Message
+) -> Message:
     """Add this message to the quote database"""
     bot: Bot = interaction.client
     await interaction.response.defer(thinking=True)
@@ -344,7 +346,7 @@ async def quote_add(interaction: Interaction, message: Message) -> Message:
 
 
 async def quote_ac(
-    interaction: Interaction, current: str
+    interaction: Interaction[Bot], current: str
 ) -> list[Choice[str]]:
     """Autocomplete from guild quotes"""
     bot: Bot = interaction.client
@@ -410,7 +412,7 @@ class QuoteDB(commands.Cog):
 
     @quotes.command()
     async def last(
-        self, interaction: Interaction, all_guilds: bool = False
+        self, interaction: Interaction[Bot], all_guilds: bool = False
     ) -> Message:
         """Get the most recent quote"""
 
@@ -425,7 +427,7 @@ class QuoteDB(commands.Cog):
     @autocomplete(text=quote_ac)
     @describe(text="Search by quote text")
     async def search(
-        self, interaction: Interaction, text: str, user: Member = None
+        self, interaction: Interaction[Bot], text: str, user: Member = None
     ) -> Message:
         """Search for a quote by quote text"""
         if interaction.user.id in self.bot.quote_blacklist:
@@ -441,7 +443,7 @@ class QuoteDB(commands.Cog):
         return await v.update()
 
     @quotes.command()
-    async def user(self, interaction: Interaction, member: Member):
+    async def user(self, interaction: Interaction[Bot], member: Member):
         """Get a random quote from this user."""
         bot: Bot = interaction.client
         blacklist = bot.quote_blacklist
@@ -462,7 +464,9 @@ class QuoteDB(commands.Cog):
 
     @quotes.command()
     @describe(quote_id="Enter quote ID#")
-    async def id(self, interaction: Interaction, quote_id: int) -> Message:
+    async def id(
+        self, interaction: Interaction[Bot], quote_id: int
+    ) -> Message:
         """Get a quote by its ID Number"""
         if interaction.user.id in self.bot.quote_blacklist:
             raise OptedOutError
@@ -479,7 +483,7 @@ class QuoteDB(commands.Cog):
             return await self.bot.error(interaction, err)
 
     @quotes.command()
-    async def stats(self, interaction: Interaction, member: Member):
+    async def stats(self, interaction: Interaction[Bot], member: Member):
         """See quote stats for a user"""
         bot: Bot = interaction.client
         blacklist: list[int] = bot.quote_blacklist

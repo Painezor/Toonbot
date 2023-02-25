@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
+import typing
 
 from discord import (
     Guild,
@@ -11,10 +12,9 @@ from discord import (
     Interaction,
     Colour,
     Embed,
-    HTTPException,
-    Message,
     TextStyle,
 )
+import discord
 from discord.app_commands import (
     command,
     describe,
@@ -68,7 +68,7 @@ class DiscordColours(Enum):
     YELLOW = "yellow"
 
 
-async def colour_ac(_: Interaction, current: str) -> list[Choice]:
+async def colour_ac(_: Interaction[Bot], current: str) -> list[Choice]:
     """Return from list of colours"""
     return [
         Choice(name=i.value, value=i.value)
@@ -102,7 +102,7 @@ class EmbedModal(Modal, title="Send an Embed"):
     def __init__(
         self,
         bot: Bot | PBot,
-        interaction: Interaction,
+        interaction: Interaction[Bot | PBot],
         destination: TextChannel,
         colour: Colour,
     ) -> None:
@@ -110,7 +110,7 @@ class EmbedModal(Modal, title="Send an Embed"):
         super().__init__()
 
         self.bot: Bot | PBot = bot
-        self.interaction: Interaction = interaction
+        self.interaction: Interaction[Bot | PBot] = interaction
         self.destination: TextChannel = destination
         self.colour: Colour = colour
 
@@ -118,13 +118,13 @@ class EmbedModal(Modal, title="Send an Embed"):
         """Send the embed"""
         e = Embed(title=self.e_title, colour=self.colour)
 
-        try:
-            e.set_author(
-                name=self.interaction.guild.name,
-                icon_url=self.interaction.guild.icon.url,
-            )
-        except AttributeError:
-            e.set_author(name=self.interaction.guild.name)
+        g = typing.cast(Guild, self.interaction.guild)
+
+        if g is None:
+            raise
+
+        icon_url = g.icon.url if g.icon else None
+        e.set_author(name=g.name, icon_url=icon_url)
 
         if self.image.value is not None:
             if "http:" in self.image.value:
@@ -141,7 +141,7 @@ class EmbedModal(Modal, title="Send an Embed"):
             await self.bot.reply(
                 self.interaction, "Message sent.", ephemeral=True
             )
-        except HTTPException:
+        except discord.HTTPException:
             err = "I can't send messages to that channel."
             await self.bot.error(self.interaction, err)
 
@@ -149,8 +149,8 @@ class EmbedModal(Modal, title="Send an Embed"):
 class Mod(Cog):
     """Guild Moderation Commands"""
 
-    def __init__(self, bot: Bot) -> None:
-        self.bot: Bot = bot
+    def __init__(self, bot: Bot | PBot) -> None:
+        self.bot: PBot | Bot = bot
 
     @command()
     @guild_only()
@@ -161,21 +161,25 @@ class Mod(Cog):
     )
     async def embed(
         self,
-        interaction: Interaction,
-        destination: TextChannel = None,
+        interaction: Interaction[Bot],
+        destination: Optional[TextChannel],
         colour: str = "random",
-    ) -> Message:
+    ) -> None:
         """Send an embedded announcement as the bot in a specified channel"""
 
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         if destination is None:
-            destination = interaction.channel
+            destination = typing.cast(TextChannel, interaction.channel)
 
-        # In theory this should get the class method from the
-        # Colour class and perform it.
-        clr = next((i for i in DiscordColours if i.value == colour), "random")
-        colour = getattr(Colour, clr, "random")()
+        if interaction.guild is None:
+            return await self.bot.error(interaction, "Can't be used in DMs")
+
+        # TODO: Fuck this, go add all of the actual dcolos to the damn Enum.
+        clr = next(
+            (i.name for i in DiscordColours if i.value == colour), "random"
+        )
+        cl: Colour = getattr(Colour, clr)()
 
         if destination.guild.id != interaction.guild.id:
             err = "You cannot send messages to other servers."
@@ -191,7 +195,7 @@ class Mod(Cog):
             err = f"Bot missing permission: {loc} ❌ embed_links"
             return await self.bot.error(interaction, err)
 
-        modal = EmbedModal(self.bot, interaction, destination, colour)
+        modal = EmbedModal(self.bot, interaction, destination, cl)
 
         await interaction.response.send_modal(modal)
 
@@ -204,16 +208,19 @@ class Mod(Cog):
     )
     async def say(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         message: str,
-        destination: TextChannel = None,
-    ) -> Message:
+        destination: Optional[TextChannel] = None,
+    ) -> discord.Message:
         """Say something as the bot in specified channel"""
 
         await interaction.response.defer(thinking=True, ephemeral=True)
 
         if destination is None:
-            destination = interaction.channel
+            destination = typing.cast(TextChannel, interaction.channel)
+
+        if interaction.guild is None:
+            return await self.bot.error(interaction, "Can't be used in DMs")
 
         if len(message) > 2000:
             err = "Message too long. Keep it under 2000."
@@ -226,34 +233,32 @@ class Mod(Cog):
         try:
             await destination.send(message)
             msg = "Message sent."
-            await interaction.edit_original_response(content=msg)
-        except HTTPException:
+            return await interaction.edit_original_response(content=msg)
+        except discord.HTTPException:
             err = "I can't send messages to that channel."
-            return interaction.edit_original_response(content=err)
+            return await interaction.edit_original_response(content=err)
 
     @command()
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
     @describe(number="Enter the maximum number of messages to delete.")
-    async def clean(self, interaction: Interaction, number: int = 10):
+    async def clean(self, interaction: Interaction[Bot], number: int = 10):
         """Deletes my messages from the last x messages in channel"""
 
         await interaction.response.defer(thinking=True)
 
         def is_me(m):
             """Return only messages sent by the bot."""
-            return m.author.id == self.bot.user.id
+            return m.author.id == self.bot.application_id
 
+        channel = typing.cast(TextChannel, interaction.channel)
+        reason = f"/clean ran by {interaction.user}"
         try:
-            d = await interaction.channel.purge(
-                limit=number,
-                check=is_me,
-                reason=f"/clean ran by {interaction.user}",
-            )
+            d = await channel.purge(limit=number, check=is_me, reason=reason)
 
             msg = f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}'
             await self.bot.reply(interaction, msg)
-        except HTTPException:
+        except discord.HTTPException:
             pass
 
     @command()
@@ -265,7 +270,7 @@ class Mod(Cog):
     )
     async def untimeout(
         self,
-        interaction: Interaction,
+        interaction: Interaction[Bot],
         member: Member,
         reason: str = "Not provided",
     ):
@@ -279,7 +284,7 @@ class Mod(Cog):
             e = Embed(title="User Un-Timed Out", color=Colour.dark_magenta())
             e.description = f"{member.mention} is no longer timed out."
             await self.bot.reply(interaction, embed=e)
-        except HTTPException:
+        except discord.HTTPException:
             await self.bot.error(interaction, "I can't un-timeout that user.")
 
     # Listeners

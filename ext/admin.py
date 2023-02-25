@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("Admin")
 
 
-def error_to_codeblock(error):
+def error_to_codeblock(error) -> str:
     """Formatting of python errors into codeblocks"""
     fmt = format_exception(type(error), error, error.__traceback__)
     return (
@@ -39,15 +39,19 @@ def error_to_codeblock(error):
     )
 
 
-async def cg_ac(interaction: Interaction, current: str) -> list[Choice]:
+async def cg_ac(
+    interaction: Interaction[Bot] | Interaction[PBot], current: str
+) -> list[Choice]:
     """Autocomplete from list of cogs"""
-    bot: Bot | PBot = interaction.client
+    bot = interaction.client
 
-    return [
-        Choice(name=c, value=c)
-        for c in sorted(bot.cogs)
-        if current.lower() in c.lower()
-    ]
+    results = []
+    for i in bot.cogs.values():
+        name = i.qualified_name
+
+        if current.lower() in name.lower():
+            results.append(Choice(name=name, value=name))
+    return results[:25]
 
 
 class Admin(Cog):
@@ -56,15 +60,15 @@ class Admin(Cog):
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
 
-    @command(name="sync")
     @describe(guild="enter guild ID")
+    @command(name="sync")
     async def sync(
-        self, interaction: Interaction, guild: bool = False
+        self, interaction: Interaction[Bot], guild: bool = False
     ) -> Message:
         """Sync the command tree with discord"""
         await interaction.response.defer(thinking=True)
 
-        if not guild:
+        if not guild or interaction.guild is None:
             await self.bot.tree.sync()
             txt = "Asked discord to sync, please wait up to 1 hour."
             return await self.bot.reply(interaction, txt)
@@ -81,7 +85,7 @@ class Admin(Cog):
     @cogs.command(name="reload")
     @describe(cog="pick a cog to reload")
     @autocomplete(cog=cg_ac)
-    async def reload(self, interaction: Interaction, cog: str) -> Message:
+    async def reload(self, interaction: Interaction[Bot], cog: str) -> Message:
         """Reloads a module."""
         await interaction.response.defer(thinking=True)
 
@@ -99,7 +103,7 @@ class Admin(Cog):
     @cogs.command()
     @autocomplete(cog=cg_ac)
     @describe(cog="pick a cog to load")
-    async def load(self, interaction: Interaction, cog: str) -> Message:
+    async def load(self, interaction: Interaction[Bot], cog: str) -> Message:
         """Loads a module."""
         await interaction.response.defer(thinking=True)
 
@@ -117,7 +121,7 @@ class Admin(Cog):
 
     @cogs.command()
     @autocomplete(cog=cg_ac)
-    async def unload(self, interaction: Interaction, cog: str) -> Message:
+    async def unload(self, interaction: Interaction[Bot], cog: str) -> Message:
         """Unloads a module."""
 
         await interaction.response.defer(thinking=True)
@@ -141,7 +145,9 @@ class Admin(Cog):
     )
 
     @console.command(name="print")
-    async def _print(self, interaction: Interaction, to_print: str) -> Message:
+    async def _print(
+        self, interaction: Interaction[Bot], to_print: str
+    ) -> Message:
         """Print something to console."""
 
         await interaction.response.defer(thinking=True)
@@ -172,14 +178,14 @@ class Admin(Cog):
 
         e = Embed(
             title="Bot Console",
-            colour=Colour.og_blurple(),
+            colour=Colour.blurple(),
             description="```\nConsole Log Cleared.```",
         )
-        return await self.bot.reply(interaction, embed=e)
+        return await interaction.edit_original_response(embed=e)
 
     @command(name="quit")
     @guilds(250252535699341312)
-    async def quit(self, interaction: Interaction) -> Message:
+    async def quit(self, interaction: Interaction) -> None:
         """Log the bot out gracefully."""
         if interaction.user.id != self.bot.owner_id:
             raise NotOwner
@@ -189,7 +195,7 @@ class Admin(Cog):
     @command(name="debug")
     @guilds(250252535699341312)
     @describe(code=">>> Code Go Here")
-    async def debug(self, interaction: Interaction, code: str) -> Message:
+    async def debug(self, interaction: Interaction[Bot], code: str) -> Message:
         """Evaluates code."""
 
         await interaction.response.defer(thinking=True)
@@ -197,7 +203,11 @@ class Admin(Cog):
             raise NotOwner
 
         code = code.strip("` ")
-        env = {"bot": self.bot, "ctx": interaction, "interaction": interaction}
+        env = {
+            "bot": self.bot,
+            "ctx": Interaction[Bot],
+            "interaction": interaction,
+        }
         env.update(globals())
 
         e1: Embed = Embed(title="Input", colour=Colour.lighter_grey())
@@ -213,20 +223,19 @@ class Admin(Cog):
         e1.description = f"```py\n{code}\n```"
         e2.description = f"```py\n{result}\n```"
         if len(e2.description) > 4000:
-            logger.log("DEBUG command input\n", code)
-            logger.log("DEBUG command output\n", result)
+            logger.info("DEBUG command input\n%s", code)
+            logger.info("DEBUG command output\n%s", result)
             e2.description = "Too long for discord, output sent to logger."
         return await self.bot.reply(interaction, embeds=[e1, e2])
 
     @Cog.listener()
     async def on_app_command_completion(
-        self, interaction: Interaction, cmd: Command | ContextMenu
+        self, interaction: Interaction[Bot], cmd: Command | ContextMenu
     ) -> None:
         """Log commands as they are run"""
         guild = interaction.guild.name if interaction.guild else "DM"
-        logger.info(
-            f"Command Ran [{interaction.user} {guild}]" "/{cmd.qualified_name}"
-        )
+        a = interaction.user
+        logger.info("Command Ran [%s %s] /%s", a, guild, cmd.qualified_name)
         return
 
 

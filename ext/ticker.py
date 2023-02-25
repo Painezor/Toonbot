@@ -89,7 +89,7 @@ class TickerEvent:
         """The embed for the fixture event."""
         e = await self.fixture.base_embed()
         e.title = self.fixture.score_line
-        e.url = self.fixture.url
+        e.url = self.fixture.link
         e.colour = self.event_type.colour
         e.description = ""
 
@@ -183,7 +183,7 @@ class TickerEvent:
         index: Optional[int] = None
         for x in range(5):
             async with semaphore:
-                await self.fixture.refresh()
+                await self.fixture.refresh(self.bot)
 
             # Figure out which event we're supposed to be using
             # (Either newest event, or Stored if refresh)
@@ -516,7 +516,7 @@ class RemoveLeague(Select):
 class TickerConfig(BaseView):
     """Match Event Ticker View"""
 
-    def __init__(self, interaction: Interaction, tc: TickerChannel):
+    def __init__(self, interaction: Interaction[Bot], tc: TickerChannel):
         super().__init__(interaction)
         self.tc: TickerChannel = tc
         self.index: int = 0
@@ -718,7 +718,7 @@ class Ticker(Cog):
         if records:
             match event_type:
                 case EventType.GOAL | EventType.FULL_TIME:
-                    await f.competition.table()
+                    await f.competition.get_table()
 
         channels: list[TickerChannel] = []
         long: bool = False
@@ -769,8 +769,8 @@ class Ticker(Cog):
 
     @ticker.command()
     @describe(channel="Manage which channel?")
-    async def manage_ticker(
-        self, interaction: Interaction, channel: TextChannel = None
+    async def manage(
+        self, interaction: Interaction[Bot], channel: Optional[TextChannel]
     ) -> Message:
         """View the config of this channel's Match Event Ticker"""
 
@@ -796,7 +796,10 @@ class Ticker(Cog):
         query="Search for a league by name", channel="Add to which channel?"
     )
     async def add_league(
-        self, interaction: Interaction, query: str, channel: TextChannel = None
+        self,
+        interaction: Interaction[Bot],
+        query: str,
+        channel: Optional[TextChannel] = None,
     ) -> Message:
         """Add a league to your Match Event Ticker"""
 

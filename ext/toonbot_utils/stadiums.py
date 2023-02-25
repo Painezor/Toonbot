@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from typing import Optional, ClassVar, TYPE_CHECKING
-from urllib.parse import quote_plus
 
 from discord import Embed
 from lxml import html
@@ -187,41 +186,3 @@ class Stadium:
             if x:
                 e.description += f"{x}: {y}\n"
         return e
-
-
-async def get_stadiums(bot: Bot, query: str) -> list[Stadium]:
-    """Fetch a list of Stadium objects matching a user query"""
-    uri = f"https://www.footballgroundmap.com/search/{quote_plus(query)}"
-    async with bot.session.get(uri) as resp:
-        tree = html.fromstring(await resp.text())
-
-    stadiums: list[Stadium] = []
-
-    xp = ".//div[@class='using-grid'][1]/div[@class='grid']/div"
-    for i in tree.xpath(xp):
-
-        xp = ".//small/preceding-sibling::a//text()"
-        team = "".join(i.xpath(xp)).title()
-        badge = i.xpath(".//img/@src")[0]
-
-        if not (comp_info := i.xpath(".//small/a//text()")):
-            continue
-
-        country = comp_info.pop(0)
-        league = comp_info[0] if comp_info else None
-
-        for s in i.xpath(".//small/following-sibling::a"):
-            name = "".join(s.xpath(".//text()")).title()
-            if query.lower() not in name.lower() + team.lower():
-                continue  # Filtering.
-
-            stadium = Stadium(bot)
-            stadium.name = name
-            stadium.url = "".join(s.xpath("./@href"))
-            stadium.team = team
-            stadium.team_badge = badge
-            stadium.country = country
-            stadium.league = league
-
-            stadiums.append(stadium)
-    return stadiums
