@@ -2,11 +2,10 @@
    information from transfermarkt"""
 from __future__ import annotations  # Cyclic Type hinting
 
-import asyncio
-import logging
 from importlib import reload
 from typing import TYPE_CHECKING, ClassVar, Optional
 import typing
+import logging
 
 from discord import (
     ButtonStyle,
@@ -17,7 +16,7 @@ from discord import (
     HTTPException,
 )
 import discord
-from discord.app_commands import Group, describe
+from discord.app_commands import Group
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import Button, Select
@@ -35,6 +34,8 @@ from ext.utils.view_utils import (
     BaseView,
 )
 
+logger = logging.getLogger('transfers.py')
+
 if TYPE_CHECKING:
     from core import Bot
     from discord import Message, Interaction
@@ -42,9 +43,6 @@ if TYPE_CHECKING:
 TF = "https://www.transfermarkt.co.uk"
 MIN_MARKET_VALUE = "?minMarktwert=200.000"
 LOOP_URL = f"{TF}/transfers/neuestetransfers/statistik{MIN_MARKET_VALUE}"
-
-logger = logging.getLogger("Transfers")
-logger.setLevel(logging.DEBUG)
 
 
 class TransferChannel:
@@ -622,7 +620,7 @@ class Transfers(Cog):
         interaction: Interaction[Bot],
         league_name: str,
         channel: Optional[TextChannel] = None,
-    ) -> Message:
+    ) -> discord.InteractionMessage:
         """Add a league to your transfer ticker channel(s)"""
 
         await interaction.response.defer(thinking=True)
@@ -669,7 +667,7 @@ class Transfers(Cog):
             u = interaction.user
             e.set_footer(text=f"{u} ({u.id})", icon_url=u.avatar.url)
 
-        return await interaction.edit_original_response(embed=e)
+        return await interaction.edit_original_response(embed=e, view=None)
 
     @Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:

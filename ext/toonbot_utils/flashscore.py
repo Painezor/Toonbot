@@ -759,7 +759,10 @@ class Fixture:
             output.append(f"{self.time}`")
         else:
             if self.state:
-                output.append(f"{self.state.shorthand}`")
+                if self.state != GameState.SCHEDULED:
+                    output.append(f"{self.state.shorthand}`")
+                else:
+                    output.append("`")
 
         h = self.home.name
         a = self.away.name
@@ -866,8 +869,11 @@ class Fixture:
 
             xpath = './/div[contains(@class, "incidentIcon")]//svg/@class'
 
+            icon = "".join(node.xpath(xpath)).strip()
+            logger.info("icon: %s, icon_desc: %s", icon, icon_desc)
             # TODO: Un-nest the match.
-            match (icon := "".join(node.xpath(xpath)).strip()).lower():
+
+            match icon.lower():
                 # Goal types
                 case "footballGoal-ico" | "soccer":
                     match icon_desc.lower():
@@ -908,8 +914,14 @@ class Fixture:
                     xpath = './/div[contains(@class, "incidentSubOut")]/a/'
                     s_name = "".join(node.xpath(xpath + "text()")).strip()
                     s_link = "".join(node.xpath(xpath + "@href")).strip()
-                    logger.info("You need to split player %s", s_name)
-                    event.player_off = Player(None, s_name, s_link)
+
+                    try:
+                        forename, surname = s_name.split(" ", 1)
+                    except ValueError:
+                        forename, surname = None, s_name
+
+                    logger.info("s_link = %s", s_link)
+                    event.player_off = Player(forename, surname, s_link)
                 # VAR types
                 case "var-ico" | "var":
                     event = m_evt.VAR()
@@ -954,9 +966,15 @@ class Fixture:
                             s_name = "".join(node.xpath(xpath + "text()"))
                             s_name = s_name.strip()
                             s_link = "".join(node.xpath(xpath + "@href"))
-                            # TODO: Handle Player name split.
-                            logger.info("You need to split player %s", s_name)
-                            event.player_off = Player(None, s_name, s_link)
+
+                            logger.info("s_link = %s", s_link)
+
+                            try:
+                                forename, surname = s_name.split(" ", 1)
+                            except ValueError:
+                                forename, surname = None, s_name
+                            p = Player(forename, surname, s_link)
+                            event.player_off = p
                         case _:
                             logging.error(
                                 f"Match Event (icon: {icon})\n"

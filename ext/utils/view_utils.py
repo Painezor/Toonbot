@@ -4,8 +4,15 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Callable, TYPE_CHECKING, Any, Optional
-from discord import ButtonStyle, NotFound, Embed, SelectOption
+from discord import (
+    ButtonStyle,
+    NotFound,
+    Embed,
+    SelectOption,
+)
 from discord.ui import Button, Select, Modal, View, TextInput
+
+import discord
 
 if TYPE_CHECKING:
     from core import Bot
@@ -19,9 +26,9 @@ logger = logging.getLogger("view_utils")
 class BaseView(View):
     """Error Handler."""
 
-    def __init__(self, interaction: Interaction[Bot | PBot], **kwargs):
+    def __init__(self, interaction: discord.Interaction[Bot | PBot], **kwargs):
 
-        self.bot = interaction.client
+        self.bot: Bot | PBot = interaction.client
         self.interaction: Interaction[Bot | PBot] = interaction
 
         self.index: int = 0
@@ -37,11 +44,12 @@ class BaseView(View):
         """Make sure only the person running the command can select options"""
         return self.interaction.user.id == interaction.user.id
 
-    async def on_timeout(self) -> None:
+    async def on_timeout(self) -> discord.InteractionMessage:
         """Cleanup"""
-        await self.bot.reply(self.interaction, view=None, followup=False)
+        r = self.interaction.edit_original_response
+        return await r(view=None)
 
-    def add_page_buttons(self, row: int = 0) -> None:
+    def add_page_buttons(self, row: int = 0) -> list[discord.ui.Item]:
         """Helper function to bulk add page buttons (Prev, Jump, Next, Stop)"""
         if self.parent:
             self.add_item(self.parent)
@@ -54,7 +62,7 @@ class BaseView(View):
             n = Next(self, row=row)
             self.add_item(n)
         self.add_item(Stop(row=row))
-        return
+        return self.children
 
     def add_function_row(
         self,
@@ -79,11 +87,14 @@ class BaseView(View):
         else:
             self.add_item(FuncSelect(items, row, placeholder))
 
-    async def on_error(self, ctx: Interaction[Bot], error: Exception, item):
+    async def on_error(
+        self, ctx: discord.Interaction[Bot], error: Exception, item
+    ) -> discord.InteractionMessage:
         """Log the stupid fucking error"""
         logger.error(error)
         logger.error("This error brought to you by item %s", item)
-        await ctx.client.reply(ctx, f"Something broke\n{error}")
+        r = self.interaction.edit_original_response
+        return await r(content=f"Something broke\n```py\n{error}```")
 
 
 class First(Button):
@@ -94,7 +105,9 @@ class First(Button):
     def __init__(self, row: int = 0) -> None:
         super().__init__(emoji="⏮", row=row)
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: Interaction
+    ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
         await interaction.response.defer()
         self.view.index = 0
@@ -110,7 +123,9 @@ class Previous(Button):
         d = getattr(view, "index", 0) == 0
         super().__init__(emoji="◀", row=row, disabled=d)
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: Interaction
+    ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
 
         await interaction.response.defer()
@@ -161,7 +176,9 @@ class JumpModal(Modal):
         self.view = view
         self.page.placeholder = f"1 - {len(view.pages)}"
 
-    async def on_submit(self, interaction: Interaction) -> Message:
+    async def on_submit(
+        self, interaction: Interaction
+    ) -> discord.InteractionMessage:
         """Validate entered data & set parent index."""
 
         await interaction.response.defer()
@@ -187,7 +204,9 @@ class Next(Button):
         d = view.index + 1 >= pg_len
         super().__init__(emoji="▶", row=row, disabled=d)
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: Interaction
+    ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
 
         await interaction.response.defer()
@@ -206,7 +225,9 @@ class Last(Button):
         pg_len = len(view.pages)
         self.disabled = pg_len == view.index
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: Interaction
+    ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
 
         await interaction.response.defer()
@@ -244,7 +265,9 @@ class PageSelect(Select):
     ) -> None:
         super().__init__(placeholder=placeholder, options=options, row=row)
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: Interaction
+    ) -> discord.InteractionMessage:
         """Set View Index"""
 
         await interaction.response.defer()
@@ -386,18 +409,20 @@ class Paginator(BaseView):
     """Generic Paginator that returns nothing."""
 
     def __init__(
-        self, interaction: Interaction[Bot | PBot], embeds: list[Embed]
+        self, interaction: discord.Interaction[Bot | PBot], embeds: list[Embed]
     ) -> None:
         super().__init__(interaction)
 
-    async def update(self, content: Optional[str] = None) -> Message:
+    async def update(
+        self, content: Optional[str] = None
+    ) -> discord.InteractionMessage:
         """Refresh the view and send to user"""
         self.clear_items()
         self.add_page_buttons()
         e = self.pages[self.index]
-        return await self.bot.reply(
-            self.interaction, content, embed=e, view=self
-        )
+
+        r = self.interaction.edit_original_response
+        return await r(content=content, embed=e, view=self)
 
 
 class Confirmation(BaseView):
@@ -408,8 +433,8 @@ class Confirmation(BaseView):
         interaction: Interaction[Bot | PBot],
         label_a: str = "Yes",
         label_b: str = "No",
-        style_a: ButtonStyle = ButtonStyle.grey,
-        style_b: ButtonStyle = ButtonStyle.grey,
+        style_a: discord.ButtonStyle = discord.ButtonStyle.grey,
+        style_b: discord.ButtonStyle = discord.ButtonStyle.grey,
     ) -> None:
 
         super().__init__(interaction)
@@ -428,14 +453,14 @@ class BoolButton(Button):
     def __init__(
         self,
         label: str = "Yes",
-        style: ButtonStyle = ButtonStyle.gray,
+        style: discord.ButtonStyle = discord.ButtonStyle.gray,
         value: bool = True,
     ) -> None:
 
         super().__init__(label=label, style=style)
         self.value: bool = value
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(self, _: discord.Interaction) -> None:
         """On Click Event"""
         self.view.value = self.value
         self.view.stop()

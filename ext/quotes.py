@@ -19,8 +19,6 @@ from discord import (
 from discord.app_commands import (
     Group,
     context_menu,
-    describe,
-    autocomplete,
     Choice,
     AppCommandError,
 )
@@ -48,6 +46,14 @@ AS auth_g,
 (SELECT COUNT(*) FROM quotes WHERE submitter_user_id = $1 AND guild_id = $2)
 AS sub_g
 """
+
+
+async def cache_quotes(self) -> None:
+    """Cache the QuoteDB"""
+    async with self.db.acquire(timeout=60) as connection:
+        async with connection.transaction():
+            sql = """SELECT * FROM quotes"""
+            self.quotes = await connection.fetch(sql)
 
 
 class TargetOptedOutError(AppCommandError):
@@ -328,7 +334,7 @@ async def quote_add(ctx: Interaction[Bot], message: Message) -> Message:
                 err = "That quote is already in the database!"
                 return await bot.error(ctx, err)
 
-        await bot.cache_quotes()
+        await cache_quotes(bot)
 
         e = Embed(colour=Colour.green(), description="Added to quote database")
         await ctx.followup.send(embed=e, ephemeral=True)
@@ -374,7 +380,7 @@ class QuoteDB(commands.Cog):
     async def cog_load(self) -> None:
         """When the cog loads…"""
         await self.opt_outs()
-        await self.bot.cache_quotes()
+        await cache_quotes(self.bot)
 
     async def opt_outs(self) -> None:
         """Cache the list of users who have opted out of the quote DB"""

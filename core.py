@@ -1,38 +1,37 @@
 """Master file for toonbot."""
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-from asyncio import new_event_loop
-from collections import defaultdict
-from datetime import datetime
-from json import load
-from typing import Optional, Callable, TYPE_CHECKING, cast
-import typing
+import datetime
+import collections
+from typing import TYPE_CHECKING, Callable, Optional, cast
 
 import aiohttp
-from asyncpg import create_pool
-from asyncpraw import Reddit
+import asyncpg
 import discord
+import asyncpraw
 from discord.ext import commands
 
-from asyncpg import Record, Pool
 from ext.utils.playwright_browser import make_browser
 
 if TYPE_CHECKING:
-    from ext.scores import ScoreChannel
-    from ext.ticker import TickerChannel
-    from ext.transfers import TransferChannel
     from asyncio import Task
+    from io import BytesIO
 
     from playwright.async_api import BrowserContext
-    from io import BytesIO
+
     import ext.toonbot_utils.flashscore as fs
+    from ext.scores import ScoreChannel
     from ext.streams import Stream
+    from ext.ticker import TickerChannel
+    from ext.transfers import TransferChannel
 
 logger = logging.getLogger("core")
 
 with open("credentials.json", "r") as f:
-    credentials = load(f)
+    credentials = json.load(f)
 
 COGS = [
     "ext.reply",  # Utility Cogs
@@ -77,7 +76,7 @@ discord.utils.setup_logging()
 class Bot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, database: asyncpg.Pool) -> None:
 
         super().__init__(
             description="Football lookup bot by Painezor#8489",
@@ -93,9 +92,12 @@ class Bot(commands.AutoShardedBot):
         self.error: Callable
 
         # Database & Credentials
-        self.db: Pool = kwargs.pop("database")
-        self.initialised_at = datetime.utcnow()
+        self.db: asyncpg.Pool = database
+        self.initialised_at: datetime.datetime = datetime.datetime.utcnow()
         self.invite: str = INVITE_URL
+
+        # Fixtures
+        self.fixture_defaults: list[asyncpg.Record] = []
 
         # Livescores
         self.games: list[fs.Fixture] = []
@@ -105,11 +107,11 @@ class Bot(commands.AutoShardedBot):
         self.scores: Task
 
         # Notifications
-        self.notifications_cache: list[Record] = []
+        self.notifications_cache: list[asyncpg.Record] = []
 
         # QuoteDB
         self.quote_blacklist: list[int] = []
-        self.quotes: list[Record] = []
+        self.quotes: list[asyncpg.Record] = []
 
         # Reminders
         self.reminders: set[Task] = set()
@@ -119,12 +121,12 @@ class Bot(commands.AutoShardedBot):
         self.session: aiohttp.ClientSession
 
         # Sidebar
-        self.reddit_teams: list[Record] = []
+        self.reddit_teams: list[asyncpg.Record] = []
         self.sidebar: Task
-        self.reddit = Reddit(**credentials["Reddit"])
+        self.reddit = asyncpraw.Reddit(**credentials["Reddit"])
 
         # Streams
-        self.streams: dict[int, list[Stream]] = defaultdict(list)
+        self.streams: dict[int, list[Stream]] = collections.defaultdict(list)
 
         # Ticker
         self.ticker_channels: list[TickerChannel] = []
@@ -138,7 +140,8 @@ class Bot(commands.AutoShardedBot):
         self.tv_dict: dict = {}
 
         # Announce aliveness
-        x = f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}'
+        started = self.initialised_at.strftime("%d-%m-%Y %H:%M:%S")
+        x = f"Bot __init__ ran: {started}"
         logger.info(f"{x}\n" + "-" * len(x))
 
     async def setup_hook(self) -> None:
@@ -187,18 +190,13 @@ class Bot(commands.AutoShardedBot):
         img_msg = await channel.send(file=file)
         return img_msg.attachments[0].url
 
-    async def cache_quotes(self) -> None:
-        """Cache the QuoteDB"""
-        async with self.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = """SELECT * FROM quotes"""
-                self.quotes = await connection.fetch(sql)
-
 
 async def run() -> None:
     """Start the bot running, loading all credentials and the database."""
-    database = await create_pool(**credentials["ToonbotDB"])
-    database = typing.cast(Pool, database)
+    database = await asyncpg.create_pool(**credentials["ToonbotDB"])
+
+    if database is None:
+        raise Exception("Failed to initialise database.")
 
     bot: Bot = Bot(database=database)
 
@@ -207,8 +205,11 @@ async def run() -> None:
     except KeyboardInterrupt:
         for i in bot.cogs:
             await bot.unload_extension(i)
-        await database.close()
+
+        if bot.db is not None:
+            await bot.db.close()
+
         await bot.close()
 
 
-new_event_loop().run_until_complete(run())
+asyncio.new_event_loop().run_until_complete(run())

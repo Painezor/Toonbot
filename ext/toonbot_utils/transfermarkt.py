@@ -72,7 +72,7 @@ class Competition(SearchResult):
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
         super().__init__(name, link)
-        self.country: str = kwargs.pop("country", None)
+        self.country: Optional[str] = kwargs.pop("country", None)
 
     def __str__(self) -> str:
         if self:
@@ -768,7 +768,7 @@ class SearchView(BaseView):
 
     async def update(self, content: Optional[str] = None) -> None:
         """Populate Initial Results"""
-        url = TF + "schnellsuche/ergebnis/schnellsuche"
+        url = TF + "/schnellsuche/ergebnis/schnellsuche"
 
         # Header names, scrape then compare (don't follow a pattern.)
         # TransferMarkt Search indexes from 1.
@@ -865,7 +865,7 @@ class CompetitionSearch(SearchView):
             link = TF + "".join(i.xpath(".//td[2]/a/@href")).strip()
 
             country = [_.strip() for _ in i.xpath(".//td[3]/img/@title")]
-            country = [i for i in country if i]
+            country = "".join(country)
             comp = Competition(name=name, link=link, country=country)
 
             results.append(comp)

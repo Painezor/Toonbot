@@ -71,7 +71,7 @@ class Substitution(MatchEvent):
 
     def __init__(self) -> None:
         super().__init__()
-        self.player_off: Optional[Player] = None
+        self.player_off: Optional[fs.Player] = None
 
     def __str__(self) -> str:
         o = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
@@ -91,7 +91,7 @@ class Goal(MatchEvent):
 
     def __init__(self) -> None:
         super().__init__()
-        self.assist: Optional[Player] = None
+        self.assist: Optional[fs.Player] = None
 
     def __str__(self) -> str:
         o = [self.timestamp]
@@ -253,7 +253,7 @@ class VAR(MatchEvent):
 
     def __init__(self, in_progress: bool = False) -> None:
         super().__init__()
-        self.assist: Optional[Player] = None
+        self.assist: Optional[fs.Player] = None
         self.in_progress: bool = in_progress
 
     def __str__(self) -> str:

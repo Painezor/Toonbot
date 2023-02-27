@@ -5,8 +5,8 @@ from __future__ import annotations  # Cyclic Type hinting
 from asyncio import sleep, Semaphore
 from typing import Optional, TYPE_CHECKING, Type, ClassVar
 import typing
+import logging
 
-from asyncpg import ForeignKeyViolationError
 from discord import (
     Colour,
     ButtonStyle,
@@ -49,6 +49,8 @@ semaphore = Semaphore(value=5)
 
 _ticker_tasks = set()
 
+logger = logging.getLogger("ticker.py")
+
 
 async def lg_ac(
     interaction: Interaction[Bot], cur: str
@@ -79,7 +81,7 @@ class TickerEvent:
         event_type: EventType,
         channels: list[TickerChannel],
         long: bool,
-        home: bool,
+        home: Optional[bool] = None,
     ) -> None:
 
         self.fixture: fs.Fixture = fixture
@@ -103,6 +105,8 @@ class TickerEvent:
     async def _embed(self) -> Embed:
         """The embed for the fixture event."""
         e = await self.fixture.base_embed()
+        e = e.copy()
+
         e.title = self.fixture.score_line
         e.url = self.fixture.url
         e.colour = self.event_type.colour
@@ -112,13 +116,11 @@ class TickerEvent:
         b = self.fixture.breaks
         m = self.event_type.value.replace("#PERIOD#", f"{b + 1}")
 
-        match self.home:
-            case None:
-                e.set_author(name=m)
-            case True:
-                e.set_author(name=f"{m} ({self.fixture.home.name})")
-            case False:
-                e.set_author(name=f"{m} ({self.fixture.away.name})")
+        {
+            None: e.set_author(name=m),
+            True: e.set_author(name=f"{m} ({self.fixture.home.name})"),
+            False: e.set_author(name=f"{m} ({self.fixture.away.name})"),
+        }[self.home]
 
         match self.event_type:
             case EventType.PENALTY_RESULTS:
@@ -195,6 +197,10 @@ class TickerEvent:
 
         # Handle Match Events with no game events.
         if self.event_type == EventType.KICK_OFF:
+            if self.long:
+                await self._full_embed()
+            else:
+                await self._embed()
             for x in self.channels:
                 await x.dispatch(self)
             return  # Done.
@@ -209,8 +215,10 @@ class TickerEvent:
             if index is None:
                 if self.home:
                     team = self.fixture.home
-                else:
+                elif self.home is False:
                     team = self.fixture.away
+                else:
+                    team = None
 
                 events = self.fixture.events
                 if team is not None:
@@ -221,8 +229,14 @@ class TickerEvent:
                 valid: Type[MatchEvent] = self.event_type.valid_events
                 if valid and events:
                     events.reverse()
-                    self.event = [i for i in events if isinstance(i, valid)][0]
-                    index = self.fixture.events.index(self.event)
+                    try:
+                        ev = [i for i in events if isinstance(i, valid)][0]
+                        self.event = ev
+                        index = self.fixture.events.index(self.event)
+                    except IndexError:
+                        ev = "\n".join(set(str(type(i)) for i in events))
+                        logger.error("Can't find %s in %s", ev, valid)
+
             else:
                 try:
                     self.event = self.fixture.events[index]
@@ -690,11 +704,14 @@ class Ticker(Cog):
 
     @Cog.listener()
     async def on_fixture_event(
-        self, event_type: EventType, f: fs.Fixture, home: bool = False
+        self,
+        event_type: EventType,
+        fixture: fs.Fixture,
+        home: Optional[bool] = False,
     ) -> Optional[TickerEvent]:
         """Event handler for when something occurs during a fixture."""
         # Update the competition's Table on certain events.
-        if not f.competition:
+        if not fixture.competition:
             return
 
         flds = event_type.db_fields
@@ -707,12 +724,14 @@ class Ticker(Cog):
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                records = await connection.fetch(sql, f.competition.title)
+                records = await connection.fetch(
+                    sql, fixture.competition.title
+                )
 
         if records:
             match event_type:
                 case EventType.GOAL | EventType.FULL_TIME:
-                    await f.competition.get_table()
+                    await fixture.competition.get_table()
 
         channels: list[TickerChannel] = []
         long: bool = False
@@ -754,7 +773,7 @@ class Ticker(Cog):
             return TickerEvent(
                 long=long,
                 channels=channels,
-                fixture=f,
+                fixture=fixture,
                 event_type=event_type,
                 home=home,
             )

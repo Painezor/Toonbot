@@ -60,43 +60,47 @@ def stringify_minutes(value: int) -> str:
 
 def stringify_seconds(value: int) -> str:
     """Convert seconds to less painful to read value"""
-    match value:
-        case value if value < 60:
-            return f"{value} Seconds"
-        case 60:
-            return "1 Minute"
-        case 86400:
-            return "1 Day"
-        case 604800:
-            return "7 Days"
-        case _:
-            logger.info(f"Stringify - Unhandled Seconds: {value}")
-            return f"{value} Seconds"
+
+    try:
+        return {
+            0: "`None`",
+            60: "1 Minute",
+            3600: "1 Hour",
+            86400: "1 Day",
+            604800: "7 Days",
+        }[value]
+    except KeyError:
+        logger.error(f"Stringify - Unhandled Seconds: {value}")
+        return f"{value} seconds"
 
 
 def stringify_content_filter(value: discord.ContentFilter) -> str:
     """Convert Enum to human string"""
-    match value:
-        case discord.ContentFilter.all_members:
-            return "Check All Members"
-        case discord.ContentFilter.no_role:
-            return "Check Un-roled Members"
-        case discord.ContentFilter.disabled:
-            return "Disabled"
+
+    try:
+        return {
+            discord.ContentFilter.all_members: "Check All Members",
+            discord.ContentFilter.no_role: "Check Un-roled Members",
+            discord.ContentFilter.disabled: "Disabled",
+        }[value]
+    except KeyError:
+        logger.info("Unhandled content filter %s", value)
+        return value.name
 
 
 def stringify_mfa(value: discord.MFALevel) -> str:
     """Convert discord.MFALevel to human-readable string"""
-    match value:
-        case discord.MFALevel.disabled:
-            return "Disabled"
-        case discord.MFALevel.require_2fa:
-            return "2-Factor Authentication Required"
-        case _:
-            logging.info(f"Could not parse value for MFALevel {value}")
-            return value
+    try:
+        return {
+            discord.MFALevel.disabled: "Disabled",
+            discord.MFALevel.require_2fa: "2-Factor Authentication Required",
+        }[value]
+    except KeyError:
+        logger.info("Unhandled mfa level %s", value)
+        return value.name
 
 
+# TODO: Dict This
 def stringify_notification_level(value: discord.NotificationLevel) -> str:
     """Convert Enum to human string"""
     match value:
@@ -108,6 +112,7 @@ def stringify_notification_level(value: discord.NotificationLevel) -> str:
             return value
 
 
+# TODO: Dict This
 def stringify_trigger_type(value: discord.AutoModRuleTriggerType) -> str:
     """Convert discord.AutModRuleTriggerType to human-readable string"""
     match value:
@@ -126,6 +131,7 @@ def stringify_trigger_type(value: discord.AutoModRuleTriggerType) -> str:
             return "Unknown"
 
 
+# TODO: Dict This
 def stringify_verification(value: discord.VerificationLevel) -> str:
     """Convert discord.VerificationLevel to human-readable string"""
     match value:
@@ -165,7 +171,7 @@ def iter_embed(
 
     # Build our Header Embed
     if main:
-        embed.title = entry.action.name.replace('_', ' ').title()
+        embed.title = entry.action.name.replace("_", " ").title()
 
         # TODO: Overrides Go Here.
         if isinstance(target, discord.Object):

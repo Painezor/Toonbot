@@ -2,7 +2,6 @@
    and loading of modules"""
 from __future__ import annotations
 
-import datetime
 import logging
 from inspect import isawaitable
 from os import system
@@ -148,10 +147,7 @@ class Admin(commands.Cog):
 
         system("cls")
         _ = f"{self.bot.user}: {self.bot.initialised_at}"
-        logger.info(
-            f'{_}\n{"-" * len(_)}\nConsole cleared at:\n'
-            f"{datetime.datetime.utcnow().replace(microsecond=0)}"
-        )
+        logger.info(f'{_}\n{"-" * len(_)}')
 
         e = Embed(title="Bot Console", colour=discord.Colour.blurple())
         e.description = "```\nConsole Log Cleared.```"
@@ -192,11 +188,13 @@ class Admin(commands.Cog):
         try:
             if isawaitable(result := eval(code, env)):
                 result = await result
+            e2.description = f"```py\n{result}\n```"
         except Exception as err:
             result = error_to_codeblock(err)
+            e2.description = result
 
         e1.description = f"```py\n{code}\n```"
-        e2.description = f"```py\n{result}\n```"
+
         if len(e2.description) > 4000:
             logger.info("DEBUG command input\n%s", code)
             logger.info("DEBUG command output\n%s", result)

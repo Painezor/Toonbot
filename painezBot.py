@@ -5,11 +5,12 @@ import logging
 from asyncio import new_event_loop
 from datetime import datetime
 from json import load
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING, Callable
+import aiohttp
+import asyncpg
 
 import discord
-from aiohttp import ClientSession, TCPConnector
-from asyncpg import Pool, Record, create_pool
+from aiohttp import ClientSession
 from discord.ext import commands
 from ext.painezbot_utils.ship import ShipSentinel
 from ext.utils.playwright_browser import make_browser
@@ -56,7 +57,7 @@ COGS = [
 class PBot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, database: asyncpg.Pool) -> None:
 
         super().__init__(
             description="World of Warships bot by Painezor#8489",
@@ -75,11 +76,11 @@ class PBot(commands.AutoShardedBot):
         self.COGS: list[str] = COGS
 
         # Database & API Credentials
-        self.db: Pool = kwargs.pop("database")
+        self.db: asyncpg.Pool = database
         self.initialised_at: datetime = datetime.utcnow()
 
         # Notifications
-        self.notifications_cache: list[Record] = []
+        self.notifications_cache: list[asyncpg.Record] = []
 
         # Reminders
         self.reminders: set[Task] = set()
@@ -171,23 +172,30 @@ class PBot(commands.AutoShardedBot):
     async def setup_hook(self):
         """Load Cogs asynchronously"""
         self.browser = await make_browser()
-        connector = TCPConnector(ssl=False)
-        self.session = ClientSession(loop=self.loop, connector=connector)
+        # aiohttp
+        connector = aiohttp.TCPConnector(ssl=False)
+        self.session = aiohttp.ClientSession(
+            loop=self.loop, connector=connector
+        )
 
         for c in COGS:
             try:
-                await self.load_extension("ext." + c)
-                logger.info(f"Loaded extension {c}")
-            except Exception as e:
-                logger.info(f"Cog Load Failed: {c}\n{type(e).__name__}: {e}")
+                await self.load_extension(c)
+                logger.info("Loaded %s", c)
+            except Exception as error:
+                err = f"{type(error).__name__}: {error}"
+                logger.error("Failed to load cog %s\n%s", c, err)
+        return
 
 
 async def run():
     """Start the bot running, loading all credentials and the database."""
-    db = await create_pool(**credentials["painezBotDB"])
-    db = cast(Pool, db)
-    bot = PBot(database=db)
+    database = await asyncpg.create_pool(**credentials["painezBotDB"])
 
+    if database is None:
+        raise Exception("Failed to initialise database.")
+
+    bot: PBot = PBot(database=database)
     try:
         await bot.start(credentials["painezbot"]["token"])
     except KeyboardInterrupt:
