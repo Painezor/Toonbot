@@ -1,11 +1,11 @@
 """Utilities for Image manipulation"""
 from __future__ import annotations
 
-from io import BytesIO
+import io
 from PIL import Image
 
 
-def stitch(images: list[Image.Image]) -> BytesIO:
+def stitch(images: list[Image.Image]) -> io.BytesIO:
     """Stitch images side by side"""
     # images is a list of opened PIL images.
     w = int(images[0].width / 3 * 2 + sum(i.width / 3 for i in images))
@@ -15,13 +15,13 @@ def stitch(images: list[Image.Image]) -> BytesIO:
     for i in images:
         canvas.paste(i, (x, 0))
         x += int(i.width / 3)
-    canvas.save(output := BytesIO(), "PNG")
+    canvas.save(output := io.BytesIO(), "PNG")
 
     output.seek(0)
     return output
 
 
-def stitch_vertical(images: list[BytesIO]) -> BytesIO:
+def stitch_vertical(images: list[io.BytesIO]) -> io.BytesIO:
     """Stitch Images Vertically"""
     if len(images) == 1:
         return images[0]
@@ -34,7 +34,7 @@ def stitch_vertical(images: list[BytesIO]) -> BytesIO:
     for i in img:
         canvas.paste(i, (0, y))
         y += i.height
-    canvas.save(output := BytesIO(), "PNG")
+    canvas.save(output := io.BytesIO(), "PNG")
     output.seek(0)
     canvas.close()
 

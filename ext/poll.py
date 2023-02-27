@@ -265,7 +265,7 @@ class Poll(Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-    @command()
+    @discord.app_commands.command()
     async def poll(self, interaction: Interaction) -> None:
         """Create a poll with multiple answers.
         Use the UI to set your options."""

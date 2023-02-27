@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from discord import Embed, Interaction, Message, ButtonStyle
-from discord.app_commands import command
+import discord
 from discord.ext.commands import Cog
 from discord.ui import View, Button
 
@@ -23,7 +23,7 @@ class MetaPainezbot(Cog):
     def __init__(self, bot: PBot):
         self.bot: PBot = bot
 
-    @command()
+    @discord.app_commands.command()
     async def invite(self, interaction: Interaction) -> Message:
         """Get the bots invite link"""
         view = View()
@@ -32,7 +32,7 @@ class MetaPainezbot(Cog):
         )
         return await self.bot.reply(interaction, view=view, ephemeral=True)
 
-    @command()
+    @discord.app_commands.command()
     async def about(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
 

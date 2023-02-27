@@ -10,18 +10,9 @@ from sys import version
 from traceback import format_exception
 from typing import TYPE_CHECKING, Optional
 
-from discord import Interaction, Embed, Colour, Message, Object
-from discord.app_commands import (
-    Choice,
-    describe,
-    autocomplete,
-    Group,
-    command,
-    guilds,
-    Command,
-    ContextMenu,
-)
-from discord.ext.commands import Cog, NotOwner
+from discord.ext import commands
+import discord
+from discord import Interaction, Embed, Message, Object
 
 if TYPE_CHECKING:
     from core import Bot
@@ -39,48 +30,48 @@ def error_to_codeblock(error) -> str:
     )
 
 
-async def cg_ac(ctx: Interaction[Bot | PBot], current: str) -> list[Choice]:
+async def cg_ac(
+    ctx: Interaction[Bot | PBot], current: str
+) -> list[discord.app_commands.Choice]:
     """Autocomplete from list of cogs"""
     results = []
     for i in ctx.client.cogs.values():
         name = i.qualified_name
 
         if current.lower() in name.lower():
-            results.append(Choice(name=name, value=name))
+            results.append(discord.app_commands.Choice(name=name, value=name))
     return results[:25]
 
 
-class Admin(Cog):
+class Admin(commands.Cog):
     """Code debug & loading of modules"""
 
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
 
-    @describe(guild="enter guild ID")
-    @command(name="sync")
-    async def sync(
-        self, interaction: Interaction[Bot], guild: Optional[int] = None
-    ) -> Message:
+    @commands.is_owner()
+    @commands.command(name="sync")
+    async def sync(self, ctx, guild: Optional[int] = None) -> Message:
         """Sync the command tree with discord"""
-        await interaction.response.defer(thinking=True)
 
-        if not guild or interaction.guild is None:
+        if not guild:
             await self.bot.tree.sync()
             txt = "Asked discord to sync, please wait up to 1 hour."
-            return await self.bot.reply(interaction, txt)
+            return await ctx.send(txt)
         else:
             await self.bot.tree.sync(guild=Object(id=guild))
-            return await self.bot.reply(interaction, "Guild Synced")
+            g = self.bot.get_guild(guild)
+            return await ctx.send(f"Guild {g} Synced")
 
-    cogs = Group(
+    cogs = discord.app_commands.Group(
         name="cogs",
         description="Load and unload modules",
         guild_ids=[250252535699341312],
     )
 
     @cogs.command(name="reload")
-    @describe(cog="pick a cog to reload")
-    @autocomplete(cog=cg_ac)
+    @discord.app_commands.describe(cog="pick a cog to reload")
+    @discord.app_commands.autocomplete(cog=cg_ac)
     async def reload(self, interaction: Interaction[Bot], cog: str) -> Message:
         """Reloads a module."""
         await interaction.response.defer(thinking=True)
@@ -89,13 +80,13 @@ class Admin(Cog):
             await self.bot.reload_extension(f"ext.{cog.lower()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
-        e = Embed(title="Modules", colour=Colour.og_blurple())
+        e = discord.Embed(title="Modules", colour=discord.Colour.og_blurple())
         e.description = f"⚙️ Reloaded {cog}"
-        return await self.bot.reply(interaction, embed=e)
+        return await interaction.edit_original_response(embed=e)
 
     @cogs.command()
-    @autocomplete(cog=cg_ac)
-    @describe(cog="pick a cog to load")
+    @discord.app_commands.autocomplete(cog=cg_ac)
+    @discord.app_commands.describe(cog="pick a cog to load")
     async def load(self, interaction: Interaction[Bot], cog: str) -> Message:
         """Loads a module."""
         await interaction.response.defer(thinking=True)
@@ -105,15 +96,12 @@ class Admin(Cog):
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
-        e = Embed(
-            title="Modules",
-            colour=Colour.og_blurple(),
-            description=f"⚙️ Loaded {cog}",
-        )
-        return await self.bot.reply(interaction, embed=e)
+        e = discord.Embed(title="Modules", colour=discord.Colour.og_blurple())
+        e.description = f"⚙️ Loaded {cog}"
+        return await interaction.edit_original_response(embed=e)
 
     @cogs.command()
-    @autocomplete(cog=cg_ac)
+    @discord.app_commands.autocomplete(cog=cg_ac)
     async def unload(self, interaction: Interaction[Bot], cog: str) -> Message:
         """Unloads a module."""
 
@@ -124,14 +112,12 @@ class Admin(Cog):
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
-        embed = Embed(
-            title="Modules",
-            colour=Colour.og_blurple(),
-            description=f":⚙️: Unloaded {cog}",
-        )
-        return await self.bot.reply(interaction, embed=embed)
+        embed = discord.Embed(title="Modules")
+        embed.colour = discord.Colour.og_blurple()
+        embed.description = f":⚙️: Unloaded {cog}"
+        return await interaction.edit_original_response(embed=embed)
 
-    console = Group(
+    console = discord.app_commands.Group(
         name="console",
         description="Console Commands",
         guild_ids=[250252535699341312],
@@ -145,14 +131,12 @@ class Admin(Cog):
 
         await interaction.response.defer(thinking=True)
         if not interaction.user.id == self.bot.owner_id:
-            raise NotOwner
+            raise commands.NotOwner
 
-        logging.critical("Print command output\n%s", to_print)
-
-        e = Embed(
-            colour=Colour.og_blurple(), description=f"```\n{to_print}```"
-        )
-        return await self.bot.reply(interaction, embed=e)
+        logger.info("Print command output\n%s", to_print)
+        e = discord.Embed(colour=discord.Colour.og_blurple())
+        e.description = f"```\n{to_print}```"
+        return await interaction.edit_original_response(embed=e)
 
     @console.command(name="clear")
     async def clear(self, interaction: Interaction) -> Message:
@@ -160,7 +144,7 @@ class Admin(Cog):
 
         await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
-            raise NotOwner
+            raise commands.NotOwner
 
         system("cls")
         _ = f"{self.bot.user}: {self.bot.initialised_at}"
@@ -169,31 +153,29 @@ class Admin(Cog):
             f"{datetime.datetime.utcnow().replace(microsecond=0)}"
         )
 
-        e = Embed(
-            title="Bot Console",
-            colour=Colour.blurple(),
-            description="```\nConsole Log Cleared.```",
-        )
+        e = Embed(title="Bot Console", colour=discord.Colour.blurple())
+        e.description = "```\nConsole Log Cleared.```"
         return await interaction.edit_original_response(embed=e)
 
-    @command(name="quit")
-    @guilds(250252535699341312)
+    @discord.app_commands.command(name="quit")
+    @discord.app_commands.guilds(250252535699341312)
     async def quit(self, interaction: Interaction) -> None:
         """Log the bot out gracefully."""
         if interaction.user.id != self.bot.owner_id:
-            raise NotOwner
+            raise commands.NotOwner
+
         await self.bot.reply(interaction, content="Logging out.")
         return await self.bot.close()
 
-    @command(name="debug")
-    @guilds(250252535699341312)
-    @describe(code=">>> Code Go Here")
+    @discord.app_commands.command(name="debug")
+    @discord.app_commands.guilds(250252535699341312)
+    @discord.app_commands.describe(code=">>> Code Go Here")
     async def debug(self, interaction: Interaction[Bot], code: str) -> Message:
         """Evaluates code."""
 
         await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
-            raise NotOwner
+            raise commands.NotOwner
 
         code = code.strip("` ")
         env = {
@@ -203,8 +185,8 @@ class Admin(Cog):
         }
         env.update(globals())
 
-        e1: Embed = Embed(title="Input", colour=Colour.lighter_grey())
-        e2: Embed = Embed(title="Output", colour=Colour.darker_grey())
+        e1 = discord.Embed(title="Input", colour=discord.Colour.lighter_grey())
+        e2 = discord.Embed(title="Output", colour=discord.Colour.darker_grey())
         e2.set_footer(text=f"Python Version: {version}")
 
         try:
@@ -221,9 +203,11 @@ class Admin(Cog):
             e2.description = "Too long for discord, output sent to logger."
         return await self.bot.reply(interaction, embeds=[e1, e2])
 
-    @Cog.listener()
+    @commands.Cog.listener()
     async def on_app_command_completion(
-        self, interaction: Interaction[Bot], cmd: Command | ContextMenu
+        self,
+        interaction: Interaction[Bot],
+        cmd: discord.app_commands.Command | discord.app_commands.ContextMenu,
     ) -> None:
         """Log commands as they are run"""
         guild = interaction.guild.name if interaction.guild else "DM"

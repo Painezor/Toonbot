@@ -4,8 +4,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 import typing
 
+import discord
 from discord import Embed, Interaction, Member, Message, ButtonStyle
-from discord.app_commands import command
 from discord.ext.commands import Cog
 from discord.ui import View, Button
 
@@ -24,7 +24,7 @@ class MetaToonbot(Cog):
     def __init__(self, bot: Bot):
         self.bot: Bot = bot
 
-    @command()
+    @discord.app_commands.command()
     async def invite(self, interaction: Interaction) -> None:
         """Get the bots invite link"""
         view = View()
@@ -40,7 +40,7 @@ class MetaToonbot(Cog):
         )
         await self.bot.reply(interaction, embed=e, view=view, ephemeral=True)
 
-    @command()
+    @discord.app_commands.command()
     async def about(self, interaction: Interaction) -> Message:
         """Tells you information about the bot itself."""
         u = typing.cast(Member, self.bot.user)

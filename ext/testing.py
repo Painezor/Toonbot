@@ -4,8 +4,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import discord
 from discord import Interaction
-from discord.app_commands import command, guilds
+from discord.app_commands import guilds
 from discord.ext import commands
 from playwright.async_api import Request
 
@@ -37,7 +38,7 @@ class Test(commands.Cog):
         if resp is not None:
             logging.debug(resp.json())
 
-    @command()
+    @discord.app_commands.command()
     @guilds(250252535699341312)
     async def lootboxes(self, interaction: Interaction):
         """Get lootbox data."""

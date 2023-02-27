@@ -17,17 +17,14 @@ from discord import (
     TextChannel,
     Message,
 )
-from discord.app_commands import Group, describe, autocomplete
+import discord
+from discord.app_commands import Group
 from discord.ext.commands import Cog
 from discord.ui import Select, Button
-from ext.fixtures import fetch_competition
+from ext.fixtures import fetch_comp
 
-from ext.toonbot_utils.flashscore import (
-    Fixture,
-    Competition,
-    DEFAULT_LEAGUES,
-    lg_ac,
-)
+import ext.toonbot_utils.flashscore as fs
+
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import (
     MatchEvent,
@@ -53,6 +50,23 @@ semaphore = Semaphore(value=5)
 _ticker_tasks = set()
 
 
+async def lg_ac(
+    interaction: Interaction[Bot], cur: str
+) -> list[discord.app_commands.Choice[str]]:
+    """Autocomplete from list of stored leagues"""
+    cur = cur.lower()
+
+    choices = []
+    for i in interaction.client.competitions:
+        if not i.id:
+            continue
+
+        if cur in i.title.lower():
+            name = i.title[:100]
+            choices.append(discord.app_commands.Choice(name=name, value=i.id))
+    return choices[:25]
+
+
 # TODO: Migrate Event embed generation to the individual Events
 class TickerEvent:
     """Handles dispatching and editing messages for a fixture event."""
@@ -61,14 +75,14 @@ class TickerEvent:
 
     def __init__(
         self,
-        fixture: Fixture,
+        fixture: fs.Fixture,
         event_type: EventType,
         channels: list[TickerChannel],
         long: bool,
         home: bool,
     ) -> None:
 
-        self.fixture: Fixture = fixture
+        self.fixture: fs.Fixture = fixture
         self.event_type: EventType = event_type
         self.channels: list[TickerChannel] = channels
         self.long: bool = long
@@ -140,8 +154,9 @@ class TickerEvent:
         c = f" | {comp.title}" if comp else ""
 
         if isinstance(self.fixture.time, GameState):
-            sh = self.fixture.state.shorthand
-            e.set_footer(text=f"{sh}{c}")
+            if self.fixture.state:
+                sh = self.fixture.state.shorthand
+                e.set_footer(text=f"{sh}{c}")
         else:
             e.set_footer(text=f"{self.fixture.time}{c}")
         self.embed = e
@@ -282,11 +297,11 @@ class TickerChannel:
             async with connection.transaction():
                 stg = await connection.fetchrow(
                     """SELECT * FROM ticker_settings WHERE channel_id = $1""",
-                    self.channel,
+                    self.channel.id,
                 )
                 leagues = await connection.fetch(
                     """SELECT * FROM ticker_leagues WHERE channel_id = $1""",
-                    self.channel,
+                    self.channel.id,
                 )
 
         if stg is not None:
@@ -302,7 +317,7 @@ class TickerChannel:
         """Create a ticker for the target channel"""
         guild = self.channel.guild.id
 
-        rows = [(self.channel.id, x) for x in DEFAULT_LEAGUES]
+        rows = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
 
         async with self.bot.db.acquire(timeout=60) as connection:
             # Verify that this is not a livescores channel.
@@ -371,12 +386,12 @@ class TickerChannel:
         sql = """INSERT INTO ticker_leagues (channel_id, league)
                  VALUES ($1, $2) ON CONFLICT DO NOTHING"""
 
-        rows = [(self.channel.id, x) for x in DEFAULT_LEAGUES]
+        rows = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(sql, rows)
 
-        self.leagues = DEFAULT_LEAGUES
+        self.leagues = fs.DEFAULT_LEAGUES
         return self.leagues
 
     # View representing the channel
@@ -513,7 +528,7 @@ class TickerConfig(BaseView):
         """Bulk remove leagues from a ticker channel"""
         # Ask user to confirm their choice.
         i = self.interaction
-        view = Confirmation(i, "Remove", "Cancel", ButtonStyle.red)
+        view = Confirmation(i, "Remove", "Cancel", discord.ButtonStyle.red)
         lg_text = "```yaml\n" + "\n".join(sorted(leagues)) + "```"
 
         ch = self.tc.channel
@@ -543,16 +558,9 @@ class TickerConfig(BaseView):
             return False
 
         c = self.tc.channel.mention
-
-        view = Confirmation(
-            self.interaction,
-            style_a=ButtonStyle.green,
-            label_a="Create ticker",
-            label_b="Cancel",
-        )
-        notfound = (
-            f"{c} does not have a ticker," " would you like to create one?"
-        )
+        btn = discord.ButtonStyle.green
+        view = Confirmation(self.interaction, "Create ticker", "Cancel", btn)
+        notfound = f"{c} does not have a ticker, would you like to create one?"
         await self.bot.reply(self.interaction, notfound, view=view)
         await view.wait()
 
@@ -564,12 +572,7 @@ class TickerConfig(BaseView):
             return False
 
         try:
-            try:
-                await self.tc.create_ticker()
-            # We have code to handle the ForeignKeyViolation within
-            # create_ticker, so rerun it.
-            except ForeignKeyViolationError:
-                await self.tc.create_ticker()
+            await self.tc.create_ticker()
         except IsLiveScoreError:
             err = "You cannot add tickers to a livescores channel."
             await self.bot.error(self.interaction, err)
@@ -676,13 +679,18 @@ class Ticker(Cog):
                 records = await connection.fetch(sql)
 
         for r in records:
-            tc = TickerChannel(r["channel_id"])
+            ch = self.bot.get_channel(r["channel_id"])
+            if ch is None:
+                continue
+            ch = typing.cast(TextChannel, ch)
+
+            tc = TickerChannel(ch)
             await tc.get_settings()
             self.bot.ticker_channels.append(tc)
 
     @Cog.listener()
     async def on_fixture_event(
-        self, event_type: EventType, f: Fixture, home: bool = False
+        self, event_type: EventType, f: fs.Fixture, home: bool = False
     ) -> Optional[TickerEvent]:
         """Event handler for when something occurs during a fixture."""
         # Update the competition's Table on certain events.
@@ -759,7 +767,7 @@ class Ticker(Cog):
     )
 
     @ticker.command()
-    @describe(channel="Manage which channel?")
+    @discord.app_commands.describe(channel="Manage which channel?")
     async def manage(
         self, interaction: Interaction[Bot], channel: Optional[TextChannel]
     ) -> Message:
@@ -784,8 +792,8 @@ class Ticker(Cog):
         return await tc.view(interaction).update()
 
     @ticker.command()
-    @autocomplete(query=lg_ac)
-    @describe(
+    @discord.app_commands.autocomplete(query=lg_ac)
+    @discord.app_commands.describe(
         query="Search for a league by name", channel="Add to which channel?"
     )
     async def add_league(
@@ -820,14 +828,14 @@ class Ticker(Cog):
         fsr = self.bot.get_competition(query)
         if fsr is None:
             if "http" not in query:
-                fsr = await fetch_competition(interaction, query)
+                fsr = await fetch_comp(interaction, query)
             else:
                 if "flashscore" not in query:
                     return await self.bot.error(
                         interaction, f"Invalid link provided ({query})"
                     )
 
-                fsr = await Competition.by_link(self.bot, query)
+                fsr = await fs.Competition.by_link(self.bot, query)
 
                 if fsr is None:
                     err = f"Failed to get league data from <{query}>."
@@ -847,7 +855,7 @@ class Ticker(Cog):
                 await connection.execute(sql, channel.id)
 
         for x in self.bot.ticker_channels.copy():
-            if x.channel == channel.id:
+            if x.channel.id == channel.id:
                 self.bot.ticker_channels.remove(x)
 
 

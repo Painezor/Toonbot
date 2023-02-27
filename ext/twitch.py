@@ -647,9 +647,11 @@ class TwitchTracker(Cog):
                 continue
 
     # TODO: Create a view, with CC & Language Filtering.
-    @command()
+    @discord.app_commands.command()
     @guilds(250252535699341312)
-    @describe(cc="Get streamers who are/not members of the CC program")
+    @discord.app_commands.describe(
+        cc="Get streamers who are/not members of the CC program"
+    )
     async def streams(
         self, interaction: Interaction[Bot], cc: bool = None
     ) -> Message:
@@ -681,14 +683,14 @@ class TwitchTracker(Cog):
         ]
         return await Paginator(interaction, rows_to_embeds(e, rows)).update()
 
-    @command()
-    @describe(
+    @discord.app_commands.command()
+    @discord.app_commands.describe(
         search="search by name (e.g.: painezor, yuzorah), "
         "or website name (ex: twitch, dailybounce)",
         region="Filter by region",
         language="Filter by language",
     )
-    @autocomplete(search=cc_ac, language=language_ac)
+    @discord.app_commands.autocomplete(search=cc_ac, language=language_ac)
     async def cc(
         self,
         interaction: Interaction[Bot],
@@ -734,7 +736,7 @@ class TwitchTracker(Cog):
     )
 
     @track.command()
-    @describe(
+    @discord.app_commands.describe(
         role="Role to track Twitch Go Lives from",
         channel="Add to Which channel?",
     )
@@ -770,7 +772,7 @@ class TwitchTracker(Cog):
         )
 
     @track.command()
-    @describe(channel="Manage which channel's Trackers?")
+    @discord.app_commands.describe(channel="Manage which channel's Trackers?")
     async def manage(
         self, interaction: Interaction[Bot], channel: TextChannel = None
     ) -> Message:

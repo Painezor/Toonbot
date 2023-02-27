@@ -9,7 +9,7 @@ from json import load
 from typing import Optional, Callable, TYPE_CHECKING, cast
 import typing
 
-from aiohttp import ClientSession, TCPConnector
+import aiohttp
 from asyncpg import create_pool
 from asyncpraw import Reddit
 import discord
@@ -70,6 +70,9 @@ INVITE_URL = (
     "&scope=bot%20applications.commands"
 )
 
+logger = logging.getLogger("core")
+discord.utils.setup_logging()
+
 
 class Bot(commands.AutoShardedBot):
     """The core functionality of the bot."""
@@ -78,11 +81,11 @@ class Bot(commands.AutoShardedBot):
 
         super().__init__(
             description="Football lookup bot by Painezor#8489",
-            command_prefix=commands.when_mentioned,
             owner_id=210582977493598208,
-            activity=discord.Game(name="with /slash_commands"),
+            activity=discord.Game(name="⚽ Football"),
             intents=discord.Intents.all(),
             help_command=None,
+            command_prefix=commands.when_mentioned,
         )
 
         # Reply Handling
@@ -113,7 +116,7 @@ class Bot(commands.AutoShardedBot):
 
         # Session // Scraping
         self.browser: BrowserContext
-        self.session: ClientSession
+        self.session: aiohttp.ClientSession
 
         # Sidebar
         self.reddit_teams: list[Record] = []
@@ -142,8 +145,10 @@ class Bot(commands.AutoShardedBot):
         """Create our browsers then load our cogs."""
 
         # aiohttp
-        connector = TCPConnector(ssl=False)
-        self.session = ClientSession(loop=self.loop, connector=connector)
+        connector = aiohttp.TCPConnector(ssl=False)
+        self.session = aiohttp.ClientSession(
+            loop=self.loop, connector=connector
+        )
 
         # playwright
         self.browser = await make_browser()
@@ -167,7 +172,7 @@ class Bot(commands.AutoShardedBot):
 
     def get_fixture(self, fixture_id: str) -> Optional[fs.Fixture]:
         """Retrieve a Fixture from the ones stored in the bot."""
-        return next((i for i in self.games if i.fs_id == fixture_id), None)
+        return next((i for i in self.games if i.id == fixture_id), None)
 
     async def dump_image(self, data: BytesIO) -> Optional[str]:
         """Save a stitched image"""

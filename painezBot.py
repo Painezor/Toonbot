@@ -11,6 +11,7 @@ import discord
 from aiohttp import ClientSession, TCPConnector
 from asyncpg import Pool, Record, create_pool
 from discord.ext import commands
+from ext.painezbot_utils.ship import ShipSentinel
 from ext.utils.playwright_browser import make_browser
 
 if TYPE_CHECKING:
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("painezBot")
+discord.utils.setup_logging()
 
 with open("credentials.json") as f:
     credentials = load(f)
@@ -116,9 +118,6 @@ class PBot(commands.AutoShardedBot):
         self.ships: list[Ship] = []
         self.ship_types: list[ShipType] = []
 
-        # Callables
-        self.get_ship: Callable
-
         # Announce aliveness
         x = f'Bot __init__ ran: {datetime.now().strftime("%d-%m-%Y %H:%M:%S")}'
         logger.info(f"{x}\n" + "-" * len(x))
@@ -140,6 +139,30 @@ class PBot(commands.AutoShardedBot):
             p = Player(account_id)
             self.players.append(p)
             return p
+
+    def get_ship(self, identifier: str | int) -> Ship | ShipSentinel | None:
+        """Get a Ship object from a list of the bots ships"""
+        if identifier is None:
+            return None
+
+        try:
+            return next(
+                i
+                for i in self.ships
+                if getattr(i, "ship_id_str", None) == identifier
+            )
+        except StopIteration:  # Fallback
+            try:
+                return next(
+                    i
+                    for i in self.ships
+                    if getattr(i, "ship_id", None) == identifier
+                )
+            except StopIteration:
+                try:
+                    return next(i for i in ShipSentinel if i.id == identifier)
+                except StopIteration:
+                    return logger.error(f"Unrecognised ShipID {identifier}")
 
     def get_ship_type(self, match: str) -> ShipType:
         """Get a ShipType object matching a string"""

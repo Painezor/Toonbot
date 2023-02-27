@@ -12,7 +12,7 @@ from lxml import html
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.flags import get_flag
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import FuncButton, BaseView
+from ext.utils.view_utils import FuncButton, BaseView, Funcable
 
 from typing import TYPE_CHECKING
 
@@ -217,7 +217,7 @@ class Transfer:
     def loan_fee(self) -> str:
         """Returns either Loan Information or the total fee of a player's
         transfer"""
-        output = f"[{self.fee.title()}]({self.fee_link})"
+        output = f"[{self.fee}]({self.fee_link})"
 
         if self.date is not None:
             output += f": {self.date}"
@@ -230,7 +230,9 @@ class Transfer:
     @property
     def movement(self) -> str:
         """Moving from Team A to Team B"""
-        return f"{self.old_team.markdown} ➡ {self.new_team.markdown}"
+        ot = self.old_team.markdown if self.old_team else "?"
+        nt = self.new_team.markdown if self.new_team else "?"
+        return f"{ot} ➡ {nt}"
 
     @property
     def inbound(self) -> str:
@@ -273,26 +275,24 @@ class TeamView(BaseView):
         super().__init__(interaction)
         self.team: Team = team
 
-    async def update(self, content: str = None) -> None:
+    async def update(self, content: Optional[str] = None) -> None:
         """Send the latest version of the view"""
         self.clear_items()
-        if self.parent:
-            self.add_item(Parent())
-            hide_row = 2
-        else:
-            hide_row = 3
 
         # TODO: Funcables.
-        self.add_item(FuncButton("Transfers", self.push_transfers, emoji="🔄"))
-        self.add_item(FuncButton("Rumours", self.push_rumours, emoji="🕵"))
-        self.add_item(FuncButton("Trophies", self.push_trophies, emoji="🏆"))
-        self.add_item(FuncButton("Contracts", self.push_contracts, emoji="📝"))
-        add_page_buttons(self, row=hide_row)
+        items = [
+            Funcable("Transfers", self.push_transfers, emoji="🔄"),
+            Funcable("Rumours", self.push_rumours, emoji="🕵"),
+            Funcable("Trophies", self.push_trophies, emoji="🏆"),
+            Funcable("Contracts", self.push_contracts, emoji="📝"),
+        ]
+        self.add_function_row(items, 1)
+        self.add_page_buttons()
 
         e = self.pages[self.index]
         await self.bot.reply(self.interaction, content, embed=e, view=self)
 
-    async def push_transfers(self) -> Message:
+    async def push_transfers(self) -> None:
         """Push transfers to View"""
         url = self.team.link.replace("startseite", "transfers")
 
@@ -332,7 +332,7 @@ class TeamView(BaseView):
                 player.position = "".join(i.xpath(xp)).strip()
 
                 # Block 3 - Age
-                player.age = "".join(i.xpath("./td[3]/text()")).strip()
+                player.age = int("".join(i.xpath("./td[3]/text()")).strip())
 
                 # Block 4 - Nationality
                 xp = "./td[4]//img/@title"
@@ -360,7 +360,9 @@ class TeamView(BaseView):
                 team.league = league
 
                 xp = "./td[5]//img[@class='flaggenrahmen']/@title"
-                team.country = [_.strip() for _ in i.xpath(xp) if _.strip()]
+                team.country = "".join(
+                    [_.strip() for _ in i.xpath(xp) if _.strip()]
+                )
 
                 transfer.new_team = team if out else self.team
                 transfer.old_team = self.team if out else team
@@ -410,7 +412,7 @@ class TeamView(BaseView):
         self.index = 0
         return await self.update()
 
-    async def push_rumours(self) -> Message:
+    async def push_rumours(self) -> None:
         """Send transfer rumours for a team to View"""
         e = self.team.base_embed
 
@@ -465,7 +467,7 @@ class TeamView(BaseView):
         self.index = 0
         return await self.update()
 
-    async def push_trophies(self) -> Message:
+    async def push_trophies(self) -> None:
         """Send trophies for a team to View"""
         url = self.team.link.replace("startseite", "erfolge")
 
@@ -494,7 +496,7 @@ class TeamView(BaseView):
         self.index = 0
         return await self.update()
 
-    async def push_contracts(self) -> Message:
+    async def push_contracts(self) -> None:
         """Push a list of a team's expiring contracts to the view"""
         e = self.team.base_embed
         e.description = ""
@@ -700,13 +702,13 @@ class CompetitionView(BaseView):
         embeds += rows_to_embeds(e, [i for i in en], 25)
 
         self.pages = embeds
-        await self.update()
+        return await self.update()
 
 
 class SearchSelect(Select):
     """Dropdown."""
 
-    view: BaseView
+    view: SearchView
 
     def __init__(
         self, objects: list[Team | Competition], row: int = 4
@@ -764,7 +766,7 @@ class SearchView(BaseView):
         self.clear_items()
         await self.bot.reply(self.interaction, view=None, followup=False)
 
-    async def update(self, content: str = None) -> None:
+    async def update(self, content: Optional[str] = None) -> None:
         """Populate Initial Results"""
         url = TF + "schnellsuche/ergebnis/schnellsuche"
 
@@ -838,6 +840,7 @@ class AgentSearch(SearchView):
                 link = TF + link
             results.append(Agent(name=name, link=link))
         self._results = results
+        return results
 
 
 class CompetitionSearch(SearchView):
@@ -852,6 +855,7 @@ class CompetitionSearch(SearchView):
     ) -> None:
 
         super().__init__(interaction, query, fetch=fetch)
+        self.value: Optional[Competition] = None
 
     def parse(self, rows: list) -> list[Competition]:
         """Parse a transfermarkt page into a list of Competition Objects"""
@@ -866,6 +870,7 @@ class CompetitionSearch(SearchView):
 
             results.append(comp)
         self._results = results
+        return results
 
 
 class PlayerSearch(SearchView):
@@ -925,6 +930,7 @@ class PlayerSearch(SearchView):
 
             results.append(player)
         self._results = results
+        return results
 
 
 class RefereeSearch(SearchView):
@@ -955,6 +961,7 @@ class RefereeSearch(SearchView):
             results.append(ref)
 
         self._results = results
+        return results
 
 
 class StaffSearch(SearchView):
@@ -998,6 +1005,7 @@ class StaffSearch(SearchView):
                 pass
             results.append(staff)
         self._results = results
+        return results
 
 
 class TeamSearch(SearchView):
@@ -1015,7 +1023,7 @@ class TeamSearch(SearchView):
 
     def parse(self, rows: list) -> list[Team]:
         """Fetch a list of teams from a transfermarkt page"""
-        r = []
+        results = []
 
         for i in rows:
 
@@ -1046,8 +1054,9 @@ class TeamSearch(SearchView):
 
             team = Team(name, link, league=league)
 
-            r.append(team)
-        self._results = r
+            results.append(team)
+        self._results = results
+        return results
 
 
 DEFAULT_LEAGUES = [

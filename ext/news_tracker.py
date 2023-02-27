@@ -1,8 +1,9 @@
 """Cog for fetching World of Warships Portal Articles from each region"""
 from __future__ import annotations  # Cyclic Type hinting
 
-from datetime import datetime
+import datetime
 from typing import TYPE_CHECKING, Optional
+import typing
 
 import discord
 from asyncpg import Record
@@ -16,11 +17,8 @@ from discord import (
     HTTPException,
 )
 from discord.app_commands import (
-    command,
-    describe,
     guild_only,
     default_permissions,
-    autocomplete,
     Choice,
 )
 from discord.ext.commands import Cog
@@ -47,11 +45,18 @@ class ToggleButton(Button):
         self.region: Region = region
         self.bot: PBot = bot
 
-        colour = ButtonStyle.blurple if value else ButtonStyle.gray
-        label = f'{"On" if value else "Off"} ({region.db_key.upper()})'
+        if value:
+            colour = discord.ButtonStyle.blurple
+            toggle = "On"
+        else:
+            colour = discord.ButtonStyle.gray
+            toggle = "Off"
+
+        label = f"{toggle} ({region.db_key})"
+
         super().__init__(label=label, emoji=region.emote, style=colour)
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(self, interaction: Interaction[PBot]) -> None:
         """Set view value to button value"""
 
         await interaction.response.defer()
@@ -59,7 +64,7 @@ class ToggleButton(Button):
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                sql = f"""UPDATE news_trackers SET {self.region.db_key} = $1
+                sql = f"""UPDATE news_trackers SET {self.label} = $1
                           WHERE channel_id = $2"""
                 await connection.execute(sql, new_value, self.view.channel.id)
 
@@ -73,20 +78,20 @@ class Article:
     """An Object representing a World of Warships News Article"""
 
     bot: PBot
-    embed: Embed
-    view: BaseView
+    embed: discord.Embed
+    view: discord.ui.View
 
     def __init__(self, bot: PBot, partial: str) -> None:
         self.bot = bot
         # Partial is the trailing part of the URL.
         self.partial: str = partial
-        self.link: str = None
+        self.link: Optional[str] = None
 
         # Stored Data
-        self.title: str = None
-        self.category: str = None
-        self.description: str = None
-        self.image: str = None
+        self.title: Optional[str] = None
+        self.category: Optional[str] = None
+        self.description: Optional[str] = None
+        self.image: Optional[str] = None
 
         # A flag for each region the article has been found in.
         self.eu: bool = False
@@ -94,7 +99,7 @@ class Article:
         self.cis: bool = False
         self.sea: bool = False
 
-        self.date: Optional[datetime] = None
+        self.date: Optional[datetime.datetime] = None
 
     async def save_to_db(self) -> None:
         """Store the article in the database for quicker retrieval in future"""
@@ -126,6 +131,9 @@ class Article:
     async def generate_embed(self) -> Embed:
         """Handle dispatching of news article."""
         # CHeck if we need to do a full refresh on the article.
+        if self.link is None:
+            raise ValueError
+
         if None in [self.title, self.category, self.image, self.description]:
             page = await self.bot.browser.new_page()
 
@@ -247,7 +255,7 @@ class NewsChannel:
         self.sent_articles[article] = message
         return message
 
-    async def send_config(self, interaction: Interaction) -> Message:
+    async def send_config(self, interaction: Interaction[PBot]) -> None:
         """Send the config view to the requesting user"""
         view = NewsConfig(interaction, self.channel)
         return await view.update()
@@ -257,12 +265,13 @@ class NewsConfig(BaseView):
     """News Tracker Config View"""
 
     def __init__(
-        self, interaction: Interaction[Bot], channel: TextChannel
+        self, interaction: Interaction[PBot], channel: TextChannel
     ) -> None:
         super().__init__(interaction)
         self.channel: TextChannel = channel
+        self.bot: PBot = interaction.client
 
-    async def on_timeout(self) -> Message:
+    async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         await self.bot.reply(self.interaction, view=None, followup=False)
 
@@ -273,7 +282,7 @@ class NewsConfig(BaseView):
             colour=Colour.dark_teal(), title="World of Warships News Tracker"
         )
 
-    async def update(self, content: str = None) -> None:
+    async def update(self, content: Optional[str] = None) -> None:
         """Regenerate view and push to message"""
         self.clear_items()
 
@@ -290,41 +299,44 @@ class NewsConfig(BaseView):
             " different regions will not be output multiple times"
             ".```"
         )
-        e.set_thumbnail(url=self.interaction.guild.me.display_avatar.url)
+
+        ico = self.bot.user.display_avatar.url if self.bot.user else None
+        e.set_thumbnail(url=ico)
 
         for k, v in sorted(record.items()):
-            if k != "channel_id":
-                region = next(i for i in Region if k == i.db_key)
+            if k == "channel_id":
+                continue
 
-                re = f"{region.emote} {region.name}"
-                if v:  # Bool: True/False
-                    e.description += f"\n✅ {re} News is tracked.**"
-                else:
-                    e.description += f"\n❌ {re} News is not tracked."
+            region = next(i for i in Region if k == i.db_key)
 
-                self.add_item(ToggleButton(self.bot, region=region, value=v))
+            re = f"{region.emote} {region.name}"
+            if v:  # Bool: True/False
+                e.description += f"\n✅ {re} News is tracked.**"
+            else:
+                e.description += f"\n❌ {re} News is not tracked."
+
+            self.add_item(ToggleButton(self.bot, region=region, value=v))
         self.add_item(Stop())
         await self.bot.reply(self.interaction, content, embed=e, view=self)
 
 
-async def news_ac(
-    interaction: Interaction[Bot], current: str
-) -> list[Choice[str]]:
+async def news_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
-    matches = [
-        i
-        for i in interaction.client.news_cache
-        if current.lower() in f"{i.title}: {i.description}".lower()
-    ]
+    choices = []
+    cache = ctx.client.news_cache
+    dt = datetime.datetime.now()
 
-    now = datetime.now()
-    matches = sorted(
-        matches, key=lambda x: now if x.date is None else x.date, reverse=True
-    )
-    return [
-        Choice(name=f"{i.title}: {i.description}"[:100], value=i.link)
-        for i in matches
-    ][:25]
+    for i in sorted(cache, key=lambda x: x.date or dt, reverse=True):
+        if i.link is None:
+            continue
+
+        text = f"{i.title}: {i.description}".lower()
+
+        if cur.lower() not in text:
+            continue
+
+        choices.append(Choice(name=text[:100], value=i.link))
+    return choices[:25]
 
 
 class NewsTracker(Cog):
@@ -379,7 +391,7 @@ class NewsTracker(Cog):
                     date = "".join(i.xpath(".//pubdate/text()"))
                     if date:
                         fmt = "%a, %d %b %Y %H:%M:%S %Z"
-                        article.date = datetime.strptime(date, fmt)
+                        article.date = datetime.datetime.strptime(date, fmt)
                     else:
                         article.date = utcnow()
 
@@ -444,24 +456,23 @@ class NewsTracker(Cog):
         # Append new ones.
         cached_ids = [x.channel.id for x in self.bot.news_channels]
         for r in channels:
-            if r["channel_id"] not in cached_ids:
-                if (channel := self.bot.get_channel(r["channel_id"])) is None:
-                    continue
+            if r["channel_id"] in cached_ids:
+                continue
 
-                c = NewsChannel(
-                    self.bot,
-                    channel=channel,
-                    eu=r["eu"],
-                    na=r["na"],
-                    sea=r["sea"],
-                    cis=r["cis"],
-                )
-                self.bot.news_channels.append(c)
+            if (channel := self.bot.get_channel(r["channel_id"])) is None:
+                continue
 
-    @command()
-    @describe(text="Search by article title")
-    @autocomplete(text=news_ac)
-    async def newspost(self, interaction: Interaction[Bot], text: str):
+            channel = typing.cast(discord.TextChannel, channel)
+
+            c = NewsChannel(
+                self.bot, channel, r["eu"], r["na"], r["sea"], r["cis"]
+            )
+            self.bot.news_channels.append(c)
+
+    @discord.app_commands.command()
+    @discord.app_commands.describe(text="Search by article title")
+    @discord.app_commands.autocomplete(text=news_ac)
+    async def newspost(self, interaction: Interaction[PBot], text: str):
         """Search for a recent World of Warships news article"""
 
         await interaction.response.defer(thinking=True)
@@ -478,19 +489,21 @@ class NewsTracker(Cog):
         )
 
     # Command for tracker management.
-    @command()
+    @discord.app_commands.command()
     @guild_only()
     @default_permissions(manage_channels=True)
-    @describe(channel="Select a channel to edit")
+    @discord.app_commands.describe(channel="Select a channel to edit")
     async def news_tracker(
-        self, interaction: Interaction[Bot], channel: TextChannel = None
-    ) -> Message:
+        self,
+        interaction: Interaction[PBot],
+        channel: Optional[TextChannel] = None,
+    ) -> None:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
 
         await interaction.response.defer(thinking=True)
         if channel is None:
-            channel = interaction.channel
+            channel = typing.cast(discord.TextChannel, interaction.channel)
 
         try:
             n = self.bot.news_channels

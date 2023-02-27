@@ -5,8 +5,9 @@ from __future__ import annotations
 from importlib import reload
 from typing import Optional, TYPE_CHECKING
 
+import discord
 from discord import Interaction, Message
-from discord.app_commands import command, describe, Group
+from discord.app_commands import Group
 from discord.ext.commands import Cog
 
 import ext.toonbot_utils.transfermarkt as tfm
@@ -25,7 +26,7 @@ class Lookup(Cog):
     lookup = Group(name="lookup", description="Search on transfermarkt")
 
     @lookup.command(name="player")
-    @describe(query="Enter a player name")
+    @discord.app_commands.describe(query="Enter a player name")
     async def lookup_player(self, interaction: Interaction[Bot], query: str):
         """Search for a player on TransferMarkt"""
 
@@ -33,7 +34,7 @@ class Lookup(Cog):
         return await tfm.PlayerSearch(interaction, query).update()
 
     @lookup.command(name="team")
-    @describe(query="Enter a team name")
+    @discord.app_commands.describe(query="Enter a team name")
     async def lookup_team(self, interaction: Interaction[Bot], query: str):
         """Search for a team on TransferMarkt"""
 
@@ -41,7 +42,7 @@ class Lookup(Cog):
         return await tfm.TeamSearch(interaction, query).update()
 
     @lookup.command(name="staff")
-    @describe(query="Enter a club official name")
+    @discord.app_commands.describe(query="Enter a club official name")
     async def lookup_staff(self, interaction: Interaction[Bot], query: str):
         """Search for a club official on TransferMarkt"""
 
@@ -49,7 +50,7 @@ class Lookup(Cog):
         return await tfm.StaffSearch(interaction, query).update()
 
     @lookup.command(name="referee")
-    @describe(query="Enter a referee name")
+    @discord.app_commands.describe(query="Enter a referee name")
     async def lookup_referee(self, interaction: Interaction[Bot], query: str):
         """Search for a referee on TransferMarkt"""
 
@@ -57,7 +58,7 @@ class Lookup(Cog):
         return await tfm.RefereeSearch(interaction, query).update()
 
     @lookup.command(name="competition")
-    @describe(query="Enter a competition name")
+    @discord.app_commands.describe(query="Enter a competition name")
     async def lookup_competition(
         self, interaction: Interaction[Bot], query: str
     ):
@@ -67,7 +68,7 @@ class Lookup(Cog):
         return await tfm.CompetitionSearch(interaction, query).update()
 
     @lookup.command(name="agent")
-    @describe(query="Enter an agency name")
+    @discord.app_commands.describe(query="Enter an agency name")
     async def lookup_agent(self, interaction: Interaction[Bot], query: str):
         """Search for an agency on TransferMarkt"""
 
@@ -79,10 +80,10 @@ class Lookup(Cog):
     )
 
     @transfer.command(name="list")
-    @describe(team_name="enter a team name to search for")
+    @discord.app_commands.describe(team_name="enter a team name to search for")
     async def listing(
         self, interaction: Interaction[Bot], team_name: str
-    ) -> Message:
+    ) -> None:
         """Get this window's transfers for a team on transfermarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -91,13 +92,13 @@ class Lookup(Cog):
         await view.wait()
 
         if view.value:
-            return await view.value.view(interaction).push_transfers()
+            await view.value.view(interaction).push_transfers()
 
     @transfer.command()
-    @describe(team_name="enter a team name to search for")
+    @discord.app_commands.describe(team_name="enter a team name to search for")
     async def rumours(
         self, interaction: Interaction[Bot], team_name: str
-    ) -> Optional[Message]:
+    ) -> discord.InteractionMessage:
         """Get the latest transfer rumours for a team"""
 
         await interaction.response.defer(thinking=True)
@@ -109,40 +110,38 @@ class Lookup(Cog):
         if view.value:
             return await view.value.view(interaction).push_rumours()
 
-    @command()
-    @describe(team_name="enter a team name to search for")
-    async def contracts(
-        self, interaction: Interaction[Bot], team_name: str
-    ) -> Message:
+    @discord.app_commands.command()
+    @discord.app_commands.describe(team="enter a team name to search for")
+    async def contracts(self, ctx: Interaction[Bot], team: str) -> None:
         """Get a team's expiring contracts"""
 
-        await interaction.response.defer(thinking=True)
+        await ctx.response.defer(thinking=True)
 
-        view = tfm.TeamSearch(interaction, team_name, fetch=True)
+        view = tfm.TeamSearch(ctx, team, fetch=True)
         await view.update()
         await view.wait()
 
         if view.value:
-            return await view.value.view(interaction).push_contracts()
+            return await view.value.view(ctx).push_contracts()
 
-    @command()
-    @describe(team_name="enter a team name to search for")
-    async def trophies(
-        self, interaction: Interaction[Bot], team_name: str
-    ) -> Message:
+    @discord.app_commands.command()
+    @discord.app_commands.describe(team="enter a team name to search for")
+    async def trophies(self, interaction: Interaction[Bot], team: str) -> None:
         """Get a team's trophy case"""
 
         await interaction.response.defer(thinking=True)
 
-        view = tfm.TeamSearch(interaction, team_name, fetch=True)
+        view = tfm.TeamSearch(interaction, team, fetch=True)
         await view.update()
         await view.wait()
 
         if view.value:
             return await view.value.view(interaction).push_trophies()
 
-    @command()
-    @describe(league_name="enter a league name to search for")
+    @discord.app_commands.command()
+    @discord.app_commands.describe(
+        league_name="enter a league name to search for"
+    )
     async def attendance(
         self, interaction: Interaction[Bot], league_name: str
     ) -> Message:

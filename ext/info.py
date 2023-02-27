@@ -19,7 +19,7 @@ from discord import (
     Role,
 )
 from discord.abc import GuildChannel
-from discord.app_commands import command, guild_only, describe, Group
+from discord.app_commands import guild_only, Group
 from discord.ext.commands import Cog
 from discord.utils import utcnow
 
@@ -39,8 +39,8 @@ class Info(Cog):
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
 
-    @command()
-    @describe(user="Select a user")
+    @discord.app_commands.command()
+    @discord.app_commands.describe(user="Select a user")
     async def avatar(
         self, interaction: Interaction[Bot], user: Optional[User | Member]
     ) -> Message:
@@ -69,7 +69,7 @@ class Info(Cog):
     )
 
     @info.command()
-    @describe(channel="select a channel")
+    @discord.app_commands.describe(c="select a channel")
     async def channel(self, interaction: Interaction[Bot], c: GuildChannel):
         """Get information about a channel"""
 
@@ -243,7 +243,7 @@ class Info(Cog):
         return await Paginator(interaction, [e] + embeds).update()
 
     @info.command()
-    @describe(role="select a role")
+    @discord.app_commands.describe(role="select a role")
     async def role(self, interaction: Interaction[Bot], role: Role):
         """Get information about a channel"""
 
@@ -320,7 +320,7 @@ class Info(Cog):
         return await Paginator(interaction, embeds).update()
 
     @info.command(name="emote")
-    @describe(emoji="enter a list of emotes")
+    @discord.app_commands.describe(emoji="enter a list of emotes")
     async def info_emote(
         self, interaction: Interaction[Bot], emoji: str
     ) -> Message:

@@ -1,64 +1,64 @@
 """Custom Utilities revolving around the usage of Discord Embeds"""
 from __future__ import annotations
 
-from asyncio import to_thread
-from io import BytesIO
+import asyncio
+import io
+from typing import Any
 
-from aiohttp import ClientSession
-from colorthief import ColorThief
-from discord import Message, File, Colour, Embed, Interaction
+import aiohttp
+import discord
 
-from typing import TYPE_CHECKING
+import logging
 
-if TYPE_CHECKING:
-    from core import Bot
+from PIL import Image
 
-
-async def embed_image(
-    interaction: Interaction[Bot],
-    embed: Embed,
-    image: BytesIO | bytes,
-    filename: str = "file",
-) -> Message:
-    """Utility / Shortcut to upload image & set it within an embed."""
-    filename = filename.replace("_", "").replace(" ", "").replace(":", "")
-    embed.set_image(url=f"attachment://{filename}")
-    file = File(fp=image, filename=filename)
-    return await interaction.client.reply(interaction, file=file, embed=embed)
+logger = logging.getLogger("embed_utils")
 
 
-async def get_colour(url: str) -> Colour | int:
+async def get_colour(url: str) -> discord.Colour | int:
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None:
-        return Colour.og_blurple()
-    async with ClientSession() as cs:
+        return discord.Colour.og_blurple()
+    async with aiohttp.ClientSession() as cs:
         async with cs.get(url) as resp:
             raw = await resp.read()
 
+    def get_dominant_color(container: io.BytesIO) -> tuple:
+        img = Image.open(container)
+        img = img.convert("RGB")
+        img = img.resize((1, 1), resample=0)
+        dominant_color = img.getpixel((0, 0))
+        return dominant_color
+
+    c = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
     try:
-        container = BytesIO(raw)
-        c = await to_thread(ColorThief(container).get_color)
-        # Convert to base 16 int.
         return int("%02x%02x%02x" % c, 16)
-    except ValueError:
-        return Colour.og_blurple()
+    except (TypeError, ValueError):
+        logger.info("get_dominant_color => %s", c)
+        return discord.Colour.og_blurple()
+
+
+def paginate(items: list[Any], num: int = 25) -> list[list[Any]]:
+    """Paginate a list into a list of lists of length num"""
+    return [items[i : i + num] for i in range(0, len(items), num)]
 
 
 def rows_to_embeds(
-    e: Embed,
+    e: discord.Embed,
     items: list[str],
     rows: int = 10,
     header: str = "",
     footer: str = "",
-) -> list[Embed]:
+    max_length: int = 4096,
+) -> list[discord.Embed]:
     """Create evenly distributed rows of text from a list of data"""
     desc: str = f"{header}\n" if header else ""
     count: int = 0
-    embeds: list[Embed] = []
+    embeds: list[discord.Embed] = []
 
     for row in items:
-        # If we hit embed size limit or max count (max_rows)
-        if len(f"{desc}{footer}{row}") <= 4096:
+        # If we haven't hit embed size limit or max count (max_rows)
+        if len(f"{desc}{footer}{row}") <= max_length:
             if count < rows:
                 desc += f"{row}\n"
                 count += 1
@@ -79,10 +79,10 @@ def rows_to_embeds(
     return embeds
 
 
-def stack_embeds(embeds: list[Embed]) -> list[list[Embed]]:
+def stack_embeds(embeds: list[discord.Embed]) -> list[list[discord.Embed]]:
     """Paginate a list of embeds up to the maximum size for a Message"""
-    this_iter: list[Embed] = []
-    output: list[list[Embed]] = []
+    this_iter: list[discord.Embed] = []
+    output: list[list[discord.Embed]] = []
     length: int = 0
 
     for x in embeds:

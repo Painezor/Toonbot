@@ -23,13 +23,14 @@ from discord import (
     Forbidden,
     NotFound,
 )
-from discord.app_commands import Group, describe, autocomplete
+from discord.app_commands import Group
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from discord.ui import Button, Select
 from lxml.etree import ParserError, tostring
 from lxml.html import fromstring
-from ext.fixtures import fetch_competition
+from ext.fixtures import fetch_comp
+from ext.ticker import lg_ac
 
 import ext.toonbot_utils.flashscore as fs
 from ext.toonbot_utils.gamestate import GameState
@@ -366,7 +367,7 @@ class Scores(Cog):
 
         for c in comps:
             if self.bot.get_competition(c["id"]) is None:
-                cm = fs.Competition(c["id"], c["url"], c["country"], c["name"])
+                cm = fs.Competition(c["id"], c["name"], c["country"], c["url"])
                 cm.logo_url = c["logo_url"]
                 self.bot.competitions.append(cm)
 
@@ -466,15 +467,16 @@ class Scores(Cog):
             except (Forbidden, NotFound):
                 pass
 
-    def dispatch_events(
-        self,
-        fx: fs.Fixture,
-        old: GameState,
-        new: GameState,
-    ) -> None:
+    def dispatch_events(self, fx: fs.Fixture, old: GameState) -> None:
         """Dispatch events to the ticker"""
         evt = "fixture_event"
         dispatch = self.bot.dispatch
+
+        new = fx.state
+
+        if old == new or old is None:
+            return
+
         match new:
             case GameState.ABANDONED:
                 return dispatch(evt, EventType.ABANDONED, fx)
@@ -723,7 +725,7 @@ class Scores(Cog):
                     # We use the parsed data to create a 'cleaner'
                     # datetime object, with no second or microsecond
                     # And set the day to today.
-                    now = datetime.now(tz=timezone(timedelta()))
+                    now = datetime.now(tz=timezone.utc)
                     ko = now.replace(
                         hour=ko.hour, minute=ko.minute, second=0, microsecond=0
                     )  # Discard micros
@@ -795,9 +797,7 @@ class Scores(Cog):
                                 fx.time = GameState.FINAL_RESULT_ONLY
                             case _:
                                 if "'" not in time[0]:
-                                    logger.error(
-                                        f"Unhandled 1part time {time[0]}"
-                                    )
+                                    logger.error("1 part time %1", time)
                                 fx.time = time[0]
                     case 1, "sched":
                         fx.time = GameState.SCHEDULED
@@ -823,7 +823,7 @@ class Scores(Cog):
                                 logger.error(f"2 part time found {time}")
 
             if old_state is not None:
-                self.dispatch_events(fx, old_state, fx.state)
+                self.dispatch_events(fx, old_state)
         return self.bot.games
 
     livescores = Group(
@@ -834,7 +834,7 @@ class Scores(Cog):
     )
 
     @livescores.command()
-    @describe(channel="Target Channel")
+    @discord.app_commands.describe(channel="Target Channel")
     async def manage(
         self, interaction: Interaction[Bot], channel: Optional[TextChannel]
     ) -> Message:
@@ -865,7 +865,7 @@ class Scores(Cog):
         return await sc.view(interaction).update(txt)
 
     @livescores.command()
-    @describe(name="Enter a name for the channel")
+    @discord.app_commands.describe(name="Enter a name for the channel")
     async def create(
         self, interaction: Interaction[Bot], name: str = "⚽live-scores"
     ) -> Message:
@@ -923,8 +923,8 @@ class Scores(Cog):
         return await self.bot.reply(interaction, msg)
 
     @livescores.command()
-    @autocomplete(league=fs.lg_ac)
-    @describe(
+    @discord.app_commands.autocomplete(league=lg_ac)
+    @discord.app_commands.describe(
         league="league name to search for or direct flashscore link",
         channel="Target Channel",
     )
@@ -953,7 +953,7 @@ class Scores(Cog):
         if comp:
             res = comp
         elif "http" not in league:
-            res = await fetch_competition(interaction, league)
+            res = await fetch_comp(interaction, league)
         else:
             if "flashscore" not in league:
                 err = "Invalid link provided."

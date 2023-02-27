@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, Type
+from typing import Optional, Type
 
 from discord import Colour, Embed
-
-if TYPE_CHECKING:
-    from ext.toonbot_utils.flashscore import Fixture, Player, Team
+import ext.toonbot_utils.flashscore as fs
 
 
 class MatchEvent:
@@ -21,9 +19,9 @@ class MatchEvent:
     def __init__(self) -> None:
         self.note: Optional[str] = None
         self.description: Optional[str] = None
-        self.fixture: Optional[Fixture] = None
-        self.player: Optional[Player] = None
-        self.team: Optional[Team] = None
+        self.fixture: Optional[fs.Fixture] = None
+        self.player: Optional[fs.Player] = None
+        self.team: Optional[fs.Team] = None
         self.time: Optional[str] = None
 
     def is_done(self) -> bool:
@@ -80,9 +78,9 @@ class Substitution(MatchEvent):
         if self.team is not None:
             o.append(self.team.tag)
         if self.player is not None:
-            o.append(f"🔺 {self.player.markdown}")
+            o.append(f"{fs.INBOUND_EMOJI} {self.player.markdown}")
         if self.player_off is not None:
-            o.append(f"🔻 {self.player_off.markdown}")
+            o.append(f"{fs.OUTBOUND_EMOJI} {self.player_off.markdown}")
         return " ".join(o)
 
 

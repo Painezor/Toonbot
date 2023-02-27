@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 import typing
 
 import discord.utils
+import discord
 from discord import (
     Embed,
     BanEntry,
@@ -15,7 +16,8 @@ from discord import (
     TextStyle,
     HTTPException,
 )
-from discord.app_commands import command, default_permissions, describe
+
+from discord.app_commands import default_permissions
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Select, Modal, TextInput
@@ -152,7 +154,8 @@ class BanModal(Modal, title="Bulk ban user IDs"):
 
     async def on_submit(self, interaction: Interaction) -> None:
         """Ban users on submit."""
-        e: Embed = Embed(title="Users Banned", description="")
+        e = discord.Embed(title="Users Banned")
+        e.description = ""
         e.add_field(name="reason", value=self.reason.value)
 
         g = typing.cast(Guild, interaction.guild)
@@ -180,7 +183,7 @@ class BanCog(Cog):
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot = bot
 
-    @command()
+    @discord.app_commands.command()
     @default_permissions(ban_members=True)
     @bot_has_permissions(ban_members=True)
     async def ban(self, interaction: Interaction):
@@ -188,8 +191,8 @@ class BanCog(Cog):
 
         await interaction.response.send_modal(BanModal(self.bot))
 
-    @command()
-    @describe(name="Search by name")
+    @discord.app_commands.command()
+    @discord.app_commands.describe(name="Search by name")
     @default_permissions(ban_members=True)
     @bot_has_permissions(ban_members=True)
     async def banlist(

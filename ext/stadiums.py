@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import quote_plus
 
 # D.py
+import discord
 from discord import Embed, Interaction, Message
-from discord.app_commands import command, describe
 from discord.ext.commands import Cog
 
 # Custom Utils
@@ -108,8 +108,8 @@ class Stadiums(Cog):
         reload(image_utils)
 
     # UNIQUE commands
-    @command()
-    @describe(stadium="Search for a stadium by it's name")
+    @discord.app_commands.command()
+    @discord.app_commands.describe(stadium="Search for a stadium by it's name")
     async def stadium(self, ctx: Interaction[Bot], stadium: str) -> Message:
         """Lookup information about a team's stadiums"""
 

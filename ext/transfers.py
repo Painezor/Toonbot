@@ -5,7 +5,8 @@ from __future__ import annotations  # Cyclic Type hinting
 import asyncio
 import logging
 from importlib import reload
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, ClassVar, Optional
+import typing
 
 from discord import (
     ButtonStyle,
@@ -15,6 +16,7 @@ from discord import (
     Permissions,
     HTTPException,
 )
+import discord
 from discord.app_commands import Group, describe
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
@@ -48,7 +50,7 @@ logger.setLevel(logging.DEBUG)
 class TransferChannel:
     """An object representing a channel with a Transfer Ticker"""
 
-    bot: ClassVar[Bot] = None
+    bot: ClassVar[Bot]
 
     def __init__(self, channel: TextChannel) -> None:
         self.channel: TextChannel = channel
@@ -101,18 +103,17 @@ class TransferChannel:
         tc = self.bot.transfer_channels
         self.bot.transfer_channels = [i for i in tc if i is not self]
 
-    async def add_leagues(
-        self, leagues: list[tfm.Competition]
-    ) -> list[tfm.Competition]:
+    async def add_leagues(self, leagues: list[tfm.Competition]) -> None:
         """Add a list of leagues for the channel to the database"""
-        for i in leagues.copy():
-            if not i:
-                leagues.remove(i)
-                continue
+        rows = []
+        for i in leagues:
             if isinstance(i.country, list):
-                leagues[i].country = i.country[0]
+                ctr = i.country[0]
+            else:
+                ctr = i.country
+            rows.append((self.channel.id, i.name, ctr, i.link))
+            self.leagues.append(i)
 
-        rows = [(self.channel.id, i.name, i.country, i.link) for i in leagues]
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO transfers_leagues
@@ -121,7 +122,6 @@ class TransferChannel:
                 await connection.executemany(sql, rows)
 
         self.leagues += [i for i in leagues if i not in self.leagues]
-        return self.leagues
 
     async def remove_leagues(
         self, leagues: list[tfm.Competition]
@@ -153,7 +153,7 @@ class TransferChannel:
         self.leagues = lg
         return self.leagues
 
-    def view(self, interaction: Interaction) -> TransfersConfig:
+    def view(self, interaction: Interaction[Bot]) -> TransfersConfig:
         """A view representing the configuration of the TransferTicker"""
         return TransfersConfig(interaction, self)
 
@@ -161,12 +161,14 @@ class TransferChannel:
 class ResetLeagues(Button):
     """Button to reset a transfer ticker back to its default leagues"""
 
+    view: TransfersConfig
+
     def __init__(self) -> None:
         super().__init__(
             label="Reset Ticker", style=ButtonStyle.primary, row=1
         )
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(self, interaction: Interaction[Bot]) -> None:
         """Click button reset leagues"""
 
         await interaction.response.defer()
@@ -177,10 +179,12 @@ class ResetLeagues(Button):
 class DeleteTicker(Button):
     """Button to delete a ticker entirely"""
 
+    view: TransfersConfig
+
     def __init__(self) -> None:
         super().__init__(label="Delete ticker", style=ButtonStyle.red, row=1)
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(self, interaction: Interaction[Bot]) -> None:
         """Click button reset leagues"""
 
         await interaction.response.defer()
@@ -190,6 +194,8 @@ class DeleteTicker(Button):
 
 class RemoveLeague(Select):
     """Dropdown to remove leagues from a match event ticker."""
+
+    view: TransfersConfig
 
     def __init__(self, leagues: list[tfm.Competition], row: int = 2):
         super().__init__(placeholder="Remove tracked league(s)", row=row)
@@ -207,13 +213,12 @@ class RemoveLeague(Select):
         for i in unique:
             self.add_option(label=i.name[:100], value=i.link, emoji=i.flag)
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(self, interaction: Interaction) -> None:
         """When a league is selected"""
 
         await interaction.response.defer()
-        return await self.view.remove_leagues(
-            [i for i in self.leagues if i.link in self.values]
-        )
+        leagues = [i for i in self.leagues if i.link in self.values]
+        await self.view.remove_leagues(leagues)
 
 
 class TransfersConfig(BaseView):
@@ -221,27 +226,22 @@ class TransfersConfig(BaseView):
 
     def __init__(self, interaction: Interaction[Bot], tc: TransferChannel):
         super().__init__(interaction)
-
         self.tc: TransferChannel = tc
-        self.index: int = 0
-        self.pages: list[Embed] = []
 
-    async def on_timeout(self) -> Message:
+    async def on_timeout(self) -> None:
         """Hide menu on timeout."""
         try:
-            return await self.interaction.delete_original_response()
-        except HTTPException:
+            await self.interaction.delete_original_response()
+        except discord.NotFound:
             pass
 
-    async def remove_leagues(self, leagues: list[tfm.Competition]) -> Message:
+    async def remove_leagues(self, leagues: list[tfm.Competition]) -> None:
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
         view = Confirmation(
-            self.interaction,
-            label_a="Remove",
-            label_b="Cancel",
-            style_a=ButtonStyle.red,
+            self.interaction, "Remove", "Cancel", discord.ButtonStyle.red
         )
+
         lg_text = "\n".join(
             [
                 f"{i.flag} {i.country}: {i.markdown}"
@@ -260,14 +260,14 @@ class TransfersConfig(BaseView):
             e.description = f"{self.tc.channel.mention}\n\n{lg_text}"
             await self.tc.remove_leagues(leagues)
             u = self.interaction.user
-            e.set_footer(text=f"{u} ({u.id})", icon_url=u.avatar.url)
+            e.set_footer(text=f"{u} ({u.id})", icon_url=u.display_avatar.url)
         else:
             e.description = "No leagues were removed"
 
         await self.interaction.followup.send(embed=e)
-        return await self.update()
+        await self.update()
 
-    async def reset_leagues(self) -> Message:
+    async def reset_leagues(self) -> None:
         """Reset the leagues for this channel"""
         await self.tc.reset_leagues()
 
@@ -275,17 +275,17 @@ class TransfersConfig(BaseView):
         e.description = self.tc.channel.mention
 
         u = self.interaction.user
-        e.set_footer(text=f"{u} ({u.id})", icon_url=u.avatar.url)
+        e.set_footer(text=f"{u} ({u.id})", icon_url=u.display_avatar.url)
 
         await self.interaction.followup.send(embed=e)
-        return await self.update()
+        await self.update()
 
     async def creation_dialogue(self) -> bool:
         """Send Confirmation View for new ticker creation"""
         self.clear_items()
 
         # Ticker Verify -- NOT A SCORES CHANNEL
-        sc = self.bot.score_channels
+        sc = self.interaction.client.score_channels
         if self.tc.channel.id in [i.channel.id for i in sc]:
             err = "You cannot create a ticker in a livescores channel."
             await self.bot.error(self.interaction, err)
@@ -317,17 +317,17 @@ class TransfersConfig(BaseView):
         e.description = self.tc.channel.mention
 
         u = self.interaction.user
-        e.set_footer(text=f"{u} ({u.id})", icon_url=u.avatar.url)
+        e.set_footer(text=f"{u} ({u.id})", icon_url=u.display_avatar.url)
 
         await self.interaction.followup.send(embed=e)
-        return await self.update()
+        return True
 
-    async def delete_ticker(self) -> Message:
+    async def delete_ticker(self) -> None:
         """Delete the ticker for this channel."""
         await self.tc.delete_ticker()
         int = self.interaction
         view = Confirmation(int, "Confirm", "Cancel", ButtonStyle.red)
-        e = Embed(colour=Colour.red)
+        e = discord.Embed(colour=discord.Colour.red())
         e.description = (
             "Are you sure you wish to delete the transfer ticker"
             f"from {self.tc.channel.mention}?\n\nThis action cannot be undone."
@@ -338,15 +338,14 @@ class TransfersConfig(BaseView):
         if view.value:
             u = self.interaction.user
             e.title = "Transfer Ticker Deleted"
-            e.set_footer(text=f"{u} ({u.id})", icon_url=u.avatar.url)
+            e.set_footer(text=f"{u} ({u.id})", icon_url=u.display_avatar.url)
             await self.interaction.followup.send(embed=e)
             return await self.interaction.delete_original_response()
         else:
             e.title = "Transfer Ticker Deletion Cancelled"
-            e.colour = Colour.og_blurple
+            e.colour = Colour.og_blurple()
             m = await self.interaction.followup.send(embed=e)
-            await asyncio.sleep(5)
-            return await m.delete()
+            return
 
     async def update(self) -> Message:
         """Push the latest version of the embed to view."""
@@ -411,7 +410,6 @@ class Transfers(Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         TransferChannel.bot = bot
-        TransfersConfig.bot = bot
         reload(tfm)
 
     async def cog_load(self) -> None:
@@ -594,7 +592,7 @@ class Transfers(Cog):
     )
 
     @tf.command(name="manage")
-    @describe(channel="Manage which channel?")
+    @discord.app_commands.describe(channel="Manage which channel?")
     async def manage_transfers(
         self, interaction: Interaction[Bot], channel: TextChannel = None
     ) -> Message:
@@ -618,18 +616,18 @@ class Transfers(Cog):
                 self.bot.transfer_channels.append(tc)
 
     @tf.command(name="add_league")
-    @describe(league_name="Search for a league name")
+    @discord.app_commands.describe(league_name="Search for a league name")
     async def add_league_tf(
         self,
         interaction: Interaction[Bot],
         league_name: str,
-        channel: TextChannel = None,
+        channel: Optional[TextChannel] = None,
     ) -> Message:
         """Add a league to your transfer ticker channel(s)"""
 
         await interaction.response.defer(thinking=True)
         if channel is None:
-            channel = interaction.channel
+            channel = typing.cast(discord.TextChannel, interaction.channel)
 
         # Validate channel is a ticker channel.
         try:

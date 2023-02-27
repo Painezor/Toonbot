@@ -8,7 +8,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Optional, Callable, ClassVar
 
 from discord import Colour, Embed, Message, SelectOption
-from discord.ui import View, Button
+from discord.ui import Button
 from flatten_dict import flatten, unflatten
 
 from ext.painezbot_utils.ship import Ship, Artillery
@@ -194,7 +194,7 @@ class Player:
         self.created_at: Optional[Timestamp] = None  # Account Creation Date
         self.hidden_profile: bool = False  # Account has hidden stats
         self.joined_clan_at: Optional[Timestamp] = None  # Joined Clan at..
-        self.clan_role: str = None  # Officer, Leader, Recruiter...
+        self.clan_role: Optional[str] = None  # Officer, Leader, Recruiter...
         self.karma: Optional[int] = None  # Player Karma (Hidden from API?)
         self.last_battle_time: Optional[Timestamp] = None  # Last Battle
         self.private: None = (
@@ -296,7 +296,7 @@ class Player:
                     return None
 
         if (data := json["data"].pop(str(self.account_id))) is None:
-            self.clan = False
+            self.clan = None
             return None
 
         self.joined_clan_at = Timestamp(
@@ -317,7 +317,7 @@ class Player:
         self.clan = clan
         return self.clan
 
-    async def get_stats(self, ship: Ship = None) -> None:
+    async def get_stats(self, ship: Optional[Ship] = None) -> None:
         """Get the player's stats as a dict"""
         p = {"application_id": self.bot.wg_id, "account_id": self.account_id}
 
@@ -360,7 +360,7 @@ class Player:
                     try:
                         raise ConnectionError(resp.status)
                     finally:
-                        return []
+                        return
 
         try:
             stats = json["data"].pop(
@@ -370,30 +370,30 @@ class Player:
             raise KeyError(f'Unable to find key "data" in {json}')
 
         self.created_at = Timestamp(
-            datetime.utcfromtimestamp(stats.pop("created_at", None))
+            datetime.utcfromtimestamp(stats["created_at"])
         )
         self.last_battle_time = Timestamp(
-            datetime.utcfromtimestamp(stats.pop("last_battle_time", None))
+            datetime.utcfromtimestamp(stats["last_battle_time"])
         )
         self.stats_updated_at = Timestamp(
-            datetime.utcfromtimestamp(stats.pop("stats_updated_at", None))
+            datetime.utcfromtimestamp(stats["stats_updated_at"])
         )
         self.logout_at = Timestamp(
-            datetime.utcfromtimestamp(stats.pop("logout_at", None))
+            datetime.utcfromtimestamp(stats["logout_at"])
         )
-        self.hidden_profile = stats.pop("hidden_profile", False)
+        self.hidden_profile = stats["hidden_profile"]
         if ship is None:
-            self.statistics[None] = stats.pop("statistics")
+            self.statistics[None] = stats["statistics"]
         else:
             self.statistics[ship] = stats
         return
 
     def view(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         mode: GameMode,
         div_size: int,
-        ship: Ship = None,
+        ship: Optional[Ship] = None,
     ) -> PlayerView:
         """Return a PlayerVIew of this Player"""
         return PlayerView(interaction, self, mode, div_size, ship)
@@ -404,9 +404,8 @@ class ClanButton(Button):
 
     def __init__(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         clan: Clan,
-        parent: View = None,
         row: int = 0,
     ) -> None:
         super().__init__(label="Clan", row=row)
@@ -414,27 +413,26 @@ class ClanButton(Button):
         self.clan: Clan = clan
         self.interaction: Interaction[PBot] = interaction
         self.emoji = self.clan.league.emote
-        self.parent = parent
 
     async def callback(self, interaction: Interaction) -> Message:
         """Change message of interaction to a different ship"""
 
         await interaction.response.defer()
-        return await self.clan.view(
-            self.interaction, parent=self.parent
-        ).overview()
+        return await self.clan.view(self.interaction).overview()
 
 
 class PlayerView(BaseView):
     """A View representing a World of Warships player"""
 
+    bot: ClassVar[PBot]
+
     def __init__(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         player: Player,
         mode: GameMode,
         div_size: int,
-        ship: Ship = None,
+        ship: Optional[Ship] = None,
     ) -> None:
         super().__init__(interaction)
 
@@ -442,7 +440,7 @@ class PlayerView(BaseView):
         self.player: Player = player
         self.div_size: int = div_size
         self.mode: GameMode = mode
-        self.ship: Ship = ship
+        self.ship: Optional[Ship] = ship
 
         # Used
         self.cb_season: int = 17
@@ -458,7 +456,7 @@ class PlayerView(BaseView):
         if self.player.clan is None:
             await self.player.get_clan_info()
 
-        if self.player.clan:
+        if p.clan:
             e.set_author(name=f"[{p.clan.tag}] {p.nickname} ({p.region.name})")
         else:
             e.set_author(name=f"{p.nickname} ({p.region.name})")
@@ -671,9 +669,11 @@ class PlayerView(BaseView):
             pass
 
         try:
-            def_solo = format(p_stats.pop("control_dropped_points", 0), ", ")
-            team = format(p_stats.pop("team_dropped_capture_points", 0), ", ")
-            rate = round(def_solo / team * 100, 2)
+            ds = p_stats.pop("control_dropped_points", 0)
+            def_solo = format(ds, ", ")
+            ts = p_stats.pop("team_dropped_capture_points", 0)
+            team = format(ts, ", ")
+            rate = round(ds / ts * 100, 2)
             desc.append(f"Defence Contribution: {rate}% ({def_solo} / {team})")
         except (KeyError, ZeroDivisionError):
             pass
@@ -718,9 +718,9 @@ class PlayerView(BaseView):
             if clan.cb_rating is not None:
                 c_desc.append(f"**Rating**: {clan.cb_rating}")
 
-            c_desc.append(
-                f"**Joined Date**: {self.player.joined_clan_at.relative}"
-            )
+            if self.player.joined_clan_at:
+                txt = self.player.joined_clan_at.relative
+                c_desc.append(f"**Joined Date**: {txt}")
 
             if clan.old_name is not None:
                 c_desc.append(
@@ -968,7 +968,8 @@ class PlayerView(BaseView):
                 ):
                     await self.player.clan.get_data()
 
-                for x in range(self.player.clan.season_number):
+                sn = self.player.clan.season_number if self.player.clan else 0
+                for x in range(sn):
                     opt = SelectOption(
                         label=f"Season {x}",
                         emoji=self.mode.emoji,

@@ -4,12 +4,11 @@ from __future__ import annotations
 import logging
 from copy import deepcopy
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 
 from discord import Embed, ButtonStyle, Message, Colour
+import discord
 from discord.app_commands import (
-    command,
-    describe,
     default_permissions,
     autocomplete,
     Choice,
@@ -22,7 +21,7 @@ from discord.ui import View, Button
 
 from ext.painezbot_utils.clan import ClanBuilding, League, Leaderboard
 from ext.painezbot_utils.player import Region, Map, GameMode, Player
-from ext.painezbot_utils.ship import Nation, ShipType, Ship, ShipSentinel
+from ext.painezbot_utils.ship import Nation, ShipType, Ship
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
 from ext.utils.view_utils import Paginator
@@ -182,39 +181,13 @@ OM_CA = {
 # https://wows-numbers.com/personal/rating
 
 
-def get_ship(self, identifier: str | int) -> Ship | ShipSentinel | None:
-    """Get a Ship object from a list of the bots ships"""
-    if identifier is None:
-        return None
-
-    try:
-        return next(
-            i
-            for i in self.ships
-            if getattr(i, "ship_id_str", None) == identifier
-        )
-    except StopIteration:  # Fallback
-        try:
-            return next(
-                i
-                for i in self.ships
-                if getattr(i, "ship_id", None) == identifier
-            )
-        except StopIteration:
-            try:
-                return next(i for i in ShipSentinel if i.id == identifier)
-            except StopIteration:
-                return logger.error(f"Unrecognised ShipID {identifier}")
-
-
 # Autocomplete.
 async def map_ac(
-    interaction: Interaction[Bot], current: str
-) -> list[Choice[str]]:
+    interaction: Interaction[PBot], current: str
+) -> list[Choice[int]]:
     """Autocomplete for the list of maps in World of Warships"""
-    bot: PBot = interaction.client
-
     # Run Once
+    bot = interaction.client
     if not bot.maps:
         p = {"application_id": bot.wg_id, "language": "en"}
         async with bot.session.get(MAPS, params=p) as resp:
@@ -247,36 +220,20 @@ async def map_ac(
     ][:25]
 
 
-async def mode_ac(
-    interaction: Interaction[Bot], current: str
-) -> list[Choice[str]]:
+async def mode_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
     """Fetch a Game Mode"""
-    bot: PBot = interaction.client
-
-    if not bot.modes:
-        async with bot.session.get(
-            MODES, params={"application_id": bot.wg_id}
-        ) as resp:
-            match resp.status:
-                case 200:
-                    modes = await resp.json()
-                case _:
-                    return []
-
-        bot.modes = {GameMode(**v) for k, v in modes["data"].items()}
-
-    modes = [
-        i for i in bot.modes if i.tag not in ["PVE_PREMADE", "EVENT", "BRAWL"]
-    ]
-    return [
-        Choice(name=i.name, value=i.tag)
-        for i in modes
-        if current.lower() in i.name.lower()
-    ]
+    choices = []
+    for i in ctx.client.modes:
+        if i.tag not in ["PVE_PREMADE", "EVENT", "BRAWL"]:
+            continue
+        if cur.lower() not in i.name.lower():
+            continue
+        choices.append(Choice(name=i.name, value=i.tag))
+    return choices[:25]
 
 
 async def player_ac(
-    interaction: Interaction[Bot], current: str
+    interaction: Interaction[PBot], current: str
 ) -> list[Choice[str]]:
     """Fetch player's account ID by searching for their name."""
     bot: PBot = interaction.client
@@ -317,7 +274,7 @@ async def player_ac(
 
 
 async def clan_ac(
-    interaction: Interaction[Bot], current: str
+    interaction: Interaction[PBot], current: str
 ) -> list[Choice[str]]:
     """Autocomplete for a list of clan names"""
     bot: PBot = interaction.client
@@ -346,22 +303,14 @@ async def clan_ac(
     return choices
 
 
-async def ship_ac(
-    interaction: Interaction[Bot], current: str
-) -> list[Choice[str]]:
+async def ship_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
-    bot: PBot = interaction.client
-    matches = [
-        i
-        for i in bot.ships
-        if current.lower() in i.ac_row.lower() and hasattr(i, "ship_id_str")
-    ]
+    options = []
+    for i in sorted(ctx.client.ships, key=lambda s: s.name):
+        if cur.lower() in i.ac_row.lower() and i.ship_id_str:
+            options.append(Choice(name=i.ac_row[:100], value=i.ship_id_str))
 
-    #  This may have to be decoded again using unidecode
-    filtered = sorted(matches, key=lambda x: x.name)
-    return [
-        Choice(name=i.ac_row[:100], value=i.ship_id_str) for i in filtered
-    ][:25]
+    return options[:25]
 
 
 class Warships(Cog):
@@ -471,7 +420,7 @@ class Warships(Cog):
 
     async def send_code(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         code: str,
         regions: list[str],
         contents: str,
@@ -514,12 +463,12 @@ class Warships(Cog):
             )
         return await self.bot.reply(interaction, embed=e, view=view)
 
-    @command()
+    @discord.app_commands.command()
     async def ragnar(self, interaction: Interaction) -> Message:
         """Ragnar is inherently underpowered"""
         return await self.bot.reply(interaction, content=RAGNAR)
 
-    @command()
+    @discord.app_commands.command()
     async def armory(self, interaction: Interaction) -> Message:
         """Get a link to the web version of the in-game Armory"""
         e = Embed(
@@ -546,7 +495,7 @@ class Warships(Cog):
             )
         return await self.bot.reply(interaction, embed=e, view=v)
 
-    @command()
+    @discord.app_commands.command()
     async def inventory(self, interaction: Interaction) -> Message:
         """Get a link to the web version of the in-game Inventory"""
         e = Embed(
@@ -570,7 +519,7 @@ class Warships(Cog):
             )
         return await self.bot.reply(interaction, embed=e, view=v)
 
-    @command()
+    @discord.app_commands.command()
     async def logbook(self, interaction: Interaction) -> Message:
         """Get a link to the web version of the in-game Captain's Logbook"""
         e = Embed(
@@ -595,8 +544,8 @@ class Warships(Cog):
         return await self.bot.reply(interaction, embed=e, view=v)
 
     # TODO: Make this into a view.
-    @command()
-    async def how_it_works(self, interaction: Interaction) -> Message:
+    @discord.app_commands.command()
+    async def how_it_works(self, interaction: Interaction) -> None:
         """Links to the various How It Works videos"""
         e = Embed(title="How it Works Video Series", colour=Colour.dark_red())
         e.description = (
@@ -633,14 +582,14 @@ class Warships(Cog):
         e.set_thumbnail(url=HOW_IT_WORKS)
         await self.bot.reply(interaction, embed=e)
 
-    @command()
-    @describe(
+    @discord.app_commands.command()
+    @discord.app_commands.describe(
         code="Enter the code", contents="Enter the reward the code gives"
     )
     @default_permissions(manage_messages=True)
     async def code(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         code: str,
         contents: str,
         eu: bool = True,
@@ -660,13 +609,13 @@ class Warships(Cog):
             regions.append("sea")
         return await self.send_code(interaction, code, regions, contents)
 
-    @command()
-    @describe(
+    @discord.app_commands.command()
+    @discord.app_commands.describe(
         code="Enter the code", contents="Enter the reward the code gives"
     )
     @default_permissions(manage_messages=True)
     async def code_cis(
-        self, interaction: Interaction[Bot], code: str, contents: str
+        self, interaction: Interaction[PBot], code: str, contents: str
     ) -> Message:
         """Send a message with a region specific redeem button"""
 
@@ -675,23 +624,23 @@ class Warships(Cog):
             interaction, code, regions=["cis"], contents=contents
         )
 
-    @command()
-    @describe(code_list="Enter a list of codes")
+    @discord.app_commands.command()
+    @discord.app_commands.describe(code_list="Enter a list of codes")
     async def code_parser(
-        self, interaction: Interaction[Bot], code_list: str
+        self, interaction: Interaction[PBot], code_list: str
     ) -> Message:
         """Strip codes for world of warships CCs"""
         code_list = code_list.replace(";", "")
-        code_list = code_list.split("|")
-        code_list = "\n".join([i.strip() for i in code_list if i])
+        codes = code_list.split("|")
+        codes = "\n".join([i.strip() for i in codes if i])
         return await self.bot.reply(
-            interaction, content=f"```\n{code_list}```", ephemeral=True
+            interaction, content=f"```\n{codes}```", ephemeral=True
         )
 
-    @command()
-    @autocomplete(name=map_ac)
-    @describe(name="Search for a map by name")
-    async def map(self, interaction: Interaction[Bot], name: str) -> Message:
+    @discord.app_commands.command()
+    @discord.app_commands.autocomplete(name=map_ac)
+    @discord.app_commands.describe(name="Search for a map by name")
+    async def map(self, interaction: Interaction[PBot], name: str) -> Message:
         """Fetch a map from the world of warships API"""
 
         await interaction.response.defer(thinking=True)
@@ -707,7 +656,7 @@ class Warships(Cog):
 
         return await self.bot.reply(interaction, embed=map_.embed)
 
-    @command()
+    @discord.app_commands.command()
     async def mods(self, interaction: Interaction) -> Message:
         """information about where to get World of Warships modifications"""
         e = Embed(colour=Colour.red())
@@ -726,7 +675,7 @@ class Warships(Cog):
         v.add_item(Button(url=ASLAIN, label="Aslain's Modpack"))
         return await self.bot.reply(interaction, embed=e, view=v)
 
-    @command()
+    @discord.app_commands.command()
     async def builds(self, interaction: Interaction) -> Message:
         """The Help Me Build collection"""
         e = Embed(title="Help Me Builds", colour=0xAE8A6D)
@@ -742,7 +691,7 @@ class Warships(Cog):
         )
         return await self.bot.reply(interaction, embed=e, view=v)
 
-    @command()
+    @discord.app_commands.command()
     async def help_me(self, interaction: Interaction) -> Message:
         """Help me Discord info"""
         e = Embed(title="Help Me Discord", colour=0xAE8A6D)
@@ -758,10 +707,9 @@ class Warships(Cog):
         v.add_item(Button(url=HELP_ME_DISCORD, label="Help Me Discord"))
         return await self.bot.reply(interaction, embed=e, view=v)
 
-    @command()
+    @discord.app_commands.command()
     async def guides(self, interaction: Interaction) -> Message:
         """Yurra's collection of guides"""
-        yurra = self.bot.get_user(192601340244000769)
         txt = (
             "Yurra's guides contain advice on various game mechanics, play "
             "styles classes, tech tree branches, and some specific ships."
@@ -769,23 +717,26 @@ class Warships(Cog):
         )
         e = Embed(title="Yurra's guides", description=txt)
         e.url = "https://bit.ly/yurraguides"
-        e.set_thumbnail(url=yurra.avatar.url)
+
+        yurra = self.bot.get_user(192601340244000769)
+        if yurra:
+            e.set_author(name=f"{yurra}", icon_url=yurra.display_avatar.url)
         e.colour = Colour.dark_orange()
 
         v = View()
-        v.add_item(
-            Button(
-                label="Yurra's guides",
-                style=ButtonStyle.url,
-                url="https://bit.ly/yurraguides",
-            )
+
+        btn = discord.ui.Button(
+            style=discord.ButtonStyle.url,
+            url="https://bit.ly/yurraguides",
+            label="Yurra's guides",
         )
+        v.add_item(btn)
         return await self.bot.reply(interaction, embed=e, view=v)
 
-    @command()
-    @autocomplete(name=ship_ac)
-    @describe(name="Search for a ship by it's name")
-    async def ship(self, interaction: Interaction[Bot], name: str) -> Message:
+    @discord.app_commands.command()
+    @discord.app_commands.autocomplete(name=ship_ac)
+    @discord.app_commands.describe(name="Search for a ship by it's name")
+    async def ship(self, interaction: Interaction[PBot], name: str) -> Message:
         """Search for a ship in the World of Warships API"""
 
         await interaction.response.defer()
@@ -794,15 +745,17 @@ class Warships(Cog):
             raise ConnectionError("Unable to fetch ships from API")
 
         if (ship := self.bot.get_ship(name)) is None:
-            return LookupError(f"Did not find map matching {name}, sorry.")
+            raise LookupError(f"Did not find map matching {name}, sorry.")
 
         return await ship.view(interaction).overview()
 
     # TODO: Test - Clan Battles
-    @command()
-    @autocomplete(player_name=player_ac, mode=mode_ac, ship=ship_ac)
+    @discord.app_commands.command()
+    @discord.app_commands.autocomplete(
+        player_name=player_ac, mode=mode_ac, ship=ship_ac
+    )
     @guilds(250252535699341312)
-    @describe(
+    @discord.app_commands.describe(
         player_name="Search for a player name",
         region="Which region is this player on",
         mode="battle mode type",
@@ -811,22 +764,25 @@ class Warships(Cog):
     )
     async def stats(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         region: REGION,
         player_name: Range[str, 3],
         mode: str = "PVP",
         division: Range[int, 0, 3] = 0,
-        ship: str = None,
+        ship: Optional[str] = None,
     ) -> Message:
         """Search for a player's Stats"""
         _ = region  # Shut up linter.
 
         await interaction.response.defer(thinking=True)
         player = self.bot.get_player(int(player_name))
-        mode = next(i for i in self.bot.modes if i.tag == mode)
-        ship = self.bot.get_ship(ship)
-        v = player.view(interaction, mode, division, ship)
-        return await v.mode_stats(mode)
+        g_mode = next(i for i in self.bot.modes if i.tag == mode)
+        if ship:
+            g_ship = self.bot.get_ship(ship)
+        else:
+            g_ship = None
+        v = player.view(interaction, g_mode, division, g_ship)
+        return await v.mode_stats(g_mode)
 
     overmatch = Group(
         name="overmatch",
@@ -834,9 +790,11 @@ class Warships(Cog):
     )
 
     @overmatch.command()
-    @describe(shell_calibre="Calibre of shell to get over match value of")
+    @discord.app_commands.describe(
+        shell_calibre="Calibre of shell to get over match value of"
+    )
     async def calibre(
-        self, interaction: Interaction[Bot], shell_calibre: int
+        self, interaction: Interaction[PBot], shell_calibre: int
     ) -> Message:
         """Get information about what a shell's overmatch parameters"""
 
@@ -861,9 +819,11 @@ class Warships(Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @overmatch.command()
-    @describe(armour_thickness="How thick is the armour you need to penetrate")
+    @discord.app_commands.describe(
+        armour_thickness="How thick is the armour you need to penetrate"
+    )
     async def armour(
-        self, interaction: Interaction[Bot], armour_thickness: int
+        self, interaction: Interaction[PBot], armour_thickness: int
     ) -> Message:
         """Get what gun size is required to overmatch an armour thickness"""
         r = armour_thickness
@@ -893,13 +853,13 @@ class Warships(Cog):
     clan = Group(name="clan", description="Get Clans")
 
     @clan.command()
-    @describe(
+    @discord.app_commands.describe(
         query="Clan Name or Tag", region="Which region is this clan from"
     )
-    @autocomplete(query=clan_ac)
+    @discord.app_commands.autocomplete(query=clan_ac)
     async def search(
         self,
-        interaction: Interaction[Bot],
+        interaction: Interaction[PBot],
         region: REGION,
         query: Range[str, 2],
     ) -> Message:
@@ -912,9 +872,11 @@ class Warships(Cog):
         return await clan.view(interaction).overview()
 
     @clan.command()
-    @describe(region="Get only winners for a specific region")
+    @discord.app_commands.describe(
+        region="Get only winners for a specific region"
+    )
     async def winners(
-        self, interaction: Interaction[Bot], region: REGION = None
+        self, interaction: Interaction[PBot], region: Optional[REGION] = None
     ) -> Message:
         """Get a list of all past Clan Battle Season Winners"""
 
@@ -944,9 +906,9 @@ class Warships(Cog):
                 srt = sorted(winners, key=lambda c: c[rat], reverse=True)
                 for clan in srt:
                     tag = "realm"
-                    region = next(i for i in Region if i.realm == clan[tag])
+                    rgn = next(i for i in Region if i.realm == clan[tag])
                     wnr.append(
-                        f"{region.emote} `{str(clan[rat]).rjust(4)}`"
+                        f"{rgn.emote} `{str(clan[rat]).rjust(4)}`"
                         f" **[{clan['tag']}]** {clan['name']}"
                     )
                 rows.append("\n".join(wnr))
@@ -958,13 +920,13 @@ class Warships(Cog):
                 interaction, rows_to_embeds(e, rows, rows=1)
             ).update()
         else:
-            region = next(i for i in Region if i.db_key == region)
+            rgn = next(i for i in Region if i.db_key == region)
             rows = []
             for season, winners in sorted(
                 seasons.items(), key=lambda x: int(x[0]), reverse=True
             ):
                 for clan in winners:
-                    if clan["realm"] != region.realm:
+                    if clan["realm"] != rgn.realm:
                         continue
                     rows.append(
                         f"`{str(season).rjust(2)}.` **[{clan['tag']}]**"
@@ -979,12 +941,12 @@ class Warships(Cog):
             ).update()
 
     @clan.command()
-    @describe(region="Get Rankings for a specific region")
+    @discord.app_commands.describe(region="Get Rankings for a specific region")
     async def leaderboard(
         self,
-        interaction: Interaction[Bot],
-        region: REGION = None,
-        season: Range[int, 1, 17] = None,
+        interaction: Interaction[PBot],
+        region: Optional[REGION] = None,
+        season: Range[int, 1, 20] = 20,
     ) -> Message:
         """Get the Season Clan Battle Leaderboard"""
         url = "https://clans.worldofwarships.eu/api/ladder/structure/"
@@ -994,11 +956,11 @@ class Warships(Cog):
         }
 
         if season is not None:
-            p.update({"season": season})
+            p.update({"season": str(season)})
 
         if region is not None:
-            region = next(i for i in Region if i.db_key == region)
-            p.update({"realm": region.realm})
+            rgn = next(i for i in Region if i.db_key == region)
+            p.update({"realm": rgn.realm})
 
         async with self.bot.session.get(url, params=p) as resp:
             match resp.status:

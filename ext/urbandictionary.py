@@ -8,8 +8,9 @@ from re import finditer
 from typing import TYPE_CHECKING
 
 import datetime
+import discord
 from discord import Embed
-from discord.app_commands import describe, autocomplete, Group, Choice
+from discord.app_commands import autocomplete, Group, Choice
 from discord.ext.commands import Cog
 
 from ext.utils import view_utils
@@ -115,8 +116,8 @@ class UrbanDictionary(Cog):
     )
 
     @ud.command()
-    @describe(term="enter a search term")
-    @autocomplete(term=ud_ac)
+    @discord.app_commands.describe(term="enter a search term")
+    @discord.app_commands.autocomplete(term=ud_ac)
     async def search(
         self, interaction: Interaction[Bot], term: str
     ) -> UrbanView | Message:

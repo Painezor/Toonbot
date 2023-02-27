@@ -14,16 +14,12 @@ from discord import (
     HTTPException,
     TextChannel,
 )
+import discord
 from discord.app_commands import (
     Choice,
-    command,
-    autocomplete,
-    describe,
     default_permissions,
 )
-from discord.ext.commands import Cog
-from discord.ext.tasks import loop
-from discord.utils import utcnow
+from discord.ext import commands, tasks
 from lxml import html
 from lxml.html import HtmlElement
 
@@ -128,7 +124,7 @@ class Blog:
                        VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
                 await connection.execute(q, self.id, self.title, self.text)
 
-    async def parse(self):
+    async def parse(self) -> discord.Embed:
         """Get Embed from the Dev Blog page"""
         async with self.bot.session.get(self.url) as resp:
             tree = html.fromstring(await resp.text())
@@ -137,25 +133,14 @@ class Blog:
 
         blog_number = self.id
         title = "".join(tree.xpath('.//h2[@class="article__title"]/text()'))
-        e: Embed = Embed(
-            colour=0x00FFFF,
-            url=self.url,
-            description="",
-            timestamp=utcnow(),
-            title=title,
-        )
+        e = discord.Embed(url=self.url, title=title, colour=0x00FFFF)
+        e.timestamp = discord.utils.utcnow()
 
-        e.set_author(
-            name=f"World of Warships Development Blog #{blog_number}",
-            url="https://blog.worldofwarships.com/",
-        )
-        e.set_thumbnail(
-            url="https://cdn.discordapp.com/emojis/814963209978511390.png"
-        )
-
+        txt = f"World of Warships Development Blog #{blog_number}"
+        e.set_author(name=txt, url="https://blog.worldofwarships.com/")
         output = []
 
-        def parse(node: HtmlElement):
+        def parse(node: HtmlElement) -> str:
             """Parse a single node"""
 
             if node.tag == "img":
@@ -345,7 +330,7 @@ async def db_ac(interaction: Interaction[PBot], current: str) -> list[Choice]:
     ]  # Last 25 items reversed
 
 
-class DevBlog(Cog):
+class DevBlog(commands.Cog):
     """DevBlog Commands"""
 
     def __init__(self, bot: PBot):
@@ -367,7 +352,7 @@ class DevBlog(Cog):
         """Stop previous runs of tickers upon Cog Reload"""
         self.bot.dev_blog.cancel()
 
-    @loop(seconds=60)
+    @tasks.loop(seconds=60)
     async def blog_loop(self) -> None:
         """Loop to get the latest dev blog articles"""
         if self.bot.session is None or not self.bot.dev_blog_cache:
@@ -431,7 +416,7 @@ class DevBlog(Cog):
             Blog(r["id"], title=r["title"], text=r["text"]) for r in records
         ]
 
-    @command()
+    @discord.app_commands.command()
     @default_permissions(manage_channels=True)
     async def blog_tracker(
         self, interaction: Interaction[PBot], enabled: Literal["on", "off"]
@@ -472,9 +457,11 @@ class DevBlog(Cog):
             e.set_author(icon_url=u.display_avatar.url, name=u.name)
         return await self.bot.reply(interaction, embed=e)
 
-    @command()
-    @autocomplete(search=db_ac)
-    @describe(search="Search for a dev blog by text content")
+    @discord.app_commands.command()
+    @discord.app_commands.autocomplete(search=db_ac)
+    @discord.app_commands.describe(
+        search="Search for a dev blog by text content"
+    )
     async def devblog(
         self, interaction: Interaction[PBot], search: str
     ) -> Message:
@@ -495,7 +482,7 @@ class DevBlog(Cog):
             view = DevBlogView(interaction, pages=matches)
             return await view.update()
 
-    @Cog.listener()
+    @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
         sql = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""

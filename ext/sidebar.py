@@ -14,14 +14,19 @@ from PIL import Image
 from asyncpraw.models import Subreddit
 from asyncprawcore import TooLarge
 from discord import Attachment, Embed, Message, Interaction
-from discord.app_commands import command, describe, guilds, default_permissions
+
+import discord
+from discord.app_commands import guilds, default_permissions
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
 from lxml import html
 
+import ext.toonbot_utils.flashscore as fs
+
 if TYPE_CHECKING:
     from core import Bot
-    from ext.toonbot_utils.flashscore import Fixture
+
+
 NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
 
 REDDIT_THUMBNAIL = (
@@ -72,7 +77,7 @@ class NUFCSidebar(Cog):
     @loop(hours=6)
     async def sidebar_loop(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
-        if not self.bot.get_team("p6ahwuwJ"):
+        if not self.bot.browser or not self.bot.teams:
             await sleep(60)
             return await self.sidebar_loop()
 
@@ -109,8 +114,10 @@ class NUFCSidebar(Cog):
         if fsr is None:
             raise ValueError(f"Team with ID {team_id} not found in db")
 
-        fixtures: list[Fixture] = await fsr.fixtures()
-        results: list[Fixture] = await fsr.results()
+        fx = await fs.parse_games(self.bot, fsr, "/fixtures/")
+        fixtures: list[fs.Fixture] = fx
+        rx = await fs.parse_games(self.bot, fsr, "/results/")
+        results: list[fs.Fixture] = rx
 
         url = "http://www.bbc.co.uk/sport/football/premier-league/table"
         async with self.bot.session.get(url) as resp:
@@ -326,10 +333,10 @@ class NUFCSidebar(Cog):
         markdown += footer
         return markdown
 
-    @command()
+    @discord.app_commands.command()
     @guilds(332159889587699712)
     @default_permissions(manage_channels=True)
-    @describe(
+    @discord.app_commands.describe(
         image="Upload a new sidebar image", caption="Set a new Sidebar Caption"
     )
     async def sidebar(

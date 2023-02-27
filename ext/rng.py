@@ -172,13 +172,13 @@ class Random(Cog):
     def __init__(self, bot: Bot):
         self.bot = bot
 
-    @command()
+    @discord.app_commands.command()
     async def choose(self, interaction: Interaction) -> None:
         """Make a decision for you (separate choices with new lines)"""
         return await interaction.response.send_modal(ChoiceModal())
 
-    @command()
-    @describe(count="Enter a number of coins")
+    @discord.app_commands.command()
+    @discord.app_commands.describe(count="Enter a number of coins")
     async def coin(
         self, interaction: Interaction[Bot], count: int = 1
     ) -> Message:
@@ -195,7 +195,7 @@ class Random(Cog):
         return await v.update()
 
     @command(name="8ball")
-    @describe(question="enter a question")
+    @discord.app_commands.describe(question="enter a question")
     async def eight_ball(
         self, interaction: Interaction[Bot], question: str
     ) -> Message:
@@ -241,8 +241,8 @@ class Random(Cog):
         )
         return await self.bot.reply(interaction, embed=e)
 
-    @command()
-    @describe(dice="enter a roll (format: 1d20+3)")
+    @discord.app_commands.command()
+    @discord.app_commands.describe(dice="enter a roll (format: 1d20+3)")
     async def roll(
         self, interaction: Interaction[Bot], dice: str = "d20"
     ) -> Message:

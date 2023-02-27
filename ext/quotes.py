@@ -419,8 +419,8 @@ class QuoteDB(commands.Cog):
         return await v.update()
 
     @quotes.command()
-    @autocomplete(text=quote_ac)
-    @describe(text="Search by quote text")
+    @discord.app_commands.autocomplete(text=quote_ac)
+    @discord.app_commands.describe(text="Search by quote text")
     async def search(
         self,
         interaction: Interaction[Bot],
@@ -464,7 +464,7 @@ class QuoteDB(commands.Cog):
         await QuotesView(interaction, r).update()
 
     @quotes.command()
-    @describe(quote_id="Enter quote ID#")
+    @discord.app_commands.describe(quote_id="Enter quote ID#")
     async def id(
         self, interaction: Interaction[Bot], quote_id: int
     ) -> Message:

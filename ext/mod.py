@@ -16,12 +16,9 @@ from discord import (
 )
 import discord
 from discord.app_commands import (
-    command,
-    describe,
     default_permissions,
     guild_only,
     Choice,
-    autocomplete,
 )
 from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
@@ -152,11 +149,11 @@ class Mod(Cog):
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: PBot | Bot = bot
 
-    @command()
+    @discord.app_commands.command()
     @guild_only()
     @default_permissions(manage_messages=True)
-    @autocomplete(colour=colour_ac)
-    @describe(
+    @discord.app_commands.autocomplete(colour=colour_ac)
+    @discord.app_commands.describe(
         destination="Choose Target Channel", colour="Choose embed colour"
     )
     async def embed(
@@ -199,10 +196,10 @@ class Mod(Cog):
 
         await interaction.response.send_modal(modal)
 
-    @command()
+    @discord.app_commands.command()
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
-    @describe(
+    @discord.app_commands.describe(
         message="Enter a message to send as the bot",
         destination="Choose Target Channel",
     )
@@ -238,10 +235,12 @@ class Mod(Cog):
             err = "I can't send messages to that channel."
             return await interaction.edit_original_response(content=err)
 
-    @command()
+    @discord.app_commands.command()
     @default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
-    @describe(number="Enter the maximum number of messages to delete.")
+    @discord.app_commands.describe(
+        number="Enter the maximum number of messages to delete."
+    )
     async def clean(self, interaction: Interaction[Bot], number: int = 10):
         """Deletes my messages from the last x messages in channel"""
 
@@ -261,10 +260,10 @@ class Mod(Cog):
         except discord.HTTPException:
             pass
 
-    @command()
+    @discord.app_commands.command()
     @default_permissions(moderate_members=True)
     @bot_has_permissions(moderate_members=True)
-    @describe(
+    @discord.app_commands.describe(
         member="Pick a user to untimeout",
         reason="Enter the reason for ending the timeout.",
     )

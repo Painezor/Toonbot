@@ -19,7 +19,7 @@ logger = logging.getLogger("view_utils")
 class BaseView(View):
     """Error Handler."""
 
-    def __init__(self, interaction: Interaction[Bot | PBot], *args, **kwargs):
+    def __init__(self, interaction: Interaction[Bot | PBot], **kwargs):
 
         self.bot = interaction.client
         self.interaction: Interaction[Bot | PBot] = interaction
@@ -31,7 +31,7 @@ class BaseView(View):
 
         self.value: list[str] = []
 
-        super().__init__(*args, **kwargs)
+        super().__init__(timeout=kwargs.pop("timeout", 180))
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Make sure only the person running the command can select options"""
@@ -146,8 +146,6 @@ class Jump(Button):
         except AttributeError:
             self.disabled = True
 
-        self.view = view
-
     async def callback(self, interaction: Interaction[Bot | PBot]) -> None:
         """When button is clicked…"""
         return await interaction.response.send_modal(JumpModal(self.view))
@@ -224,7 +222,7 @@ class Stop(Button):
     def __init__(self, row=3) -> None:
         super().__init__(emoji="🚫", row=row)
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(self, _: Interaction) -> None:
         """Do this when button is pressed"""
         try:
             await self.view.interaction.delete_original_response()
@@ -350,7 +348,6 @@ class FuncButton(Button):
     async def callback(self, interaction: Interaction) -> None:
         """The Callback performs the passed function with any passed
         args/kwargs"""
-
         await interaction.response.defer()
         return await self.func(*self.args, **self.kwargs)
 

@@ -165,7 +165,7 @@ def iter_embed(
 
     # Build our Header Embed
     if main:
-        embed.title = entry.action.name
+        embed.title = entry.action.name.replace('_', ' ').title()
 
         # TODO: Overrides Go Here.
         if isinstance(target, discord.Object):
@@ -427,7 +427,7 @@ def iter_embed(
             ch_md = f"<#{channel.id}>" if channel else "`None`"
             embed.description += f"**Channel**: {ch_md}\n"
 
-        elif key == "channel":
+        elif key == "code":
             code: str = value
             embed.description += f"**Code**: {code}\n"
 
@@ -549,6 +549,19 @@ def iter_embed(
             s = stringify_content_filter(filt)
             embed.description += f"**Explcit Content Filter**: {s}\n"
 
+        elif key == "flags":
+            if isinstance(value, discord.ChannelFlags):
+                flags: discord.ChannelFlags = value
+                embed.description += f"**Thread Pinned**: `{flags.pinned}`\n"
+
+                rt = flags.require_tag
+                embed.description += f"**Tag Required**: `{rt}`\n"
+
+            else:
+                logger.info("Action %s", entry.action)
+                logger.info("Unhandled Flag Type", type(entry.target))
+                logger.info("Flags %s (Type %s)", value, type(value))
+
         elif key == "format_type":
             # Guild Sticker Format
             fmt: discord.StickerFormatType = value
@@ -621,20 +634,34 @@ def iter_embed(
             nick: str = value
             embed.description += f"**Nickname**: {nick}\n"
 
+        elif key == "nsfw":
+            nsfw: bool = value
+            embed.description += f"**NSFW**: `{nsfw}`\n"
+
         elif key == "overwrites":
             # A list of [target, permoverwrites] tuples for a channel
             # EXPLIT TRUE / None / EXPLICIT FALSE
             overwrites = value
 
-            user_or_role: discord.Member | discord.User | discord.Role
+            user_or_role: (
+                discord.Member | discord.User | discord.Role | discord.Object
+            )
             ow: discord.PermissionOverwrite
 
             output = ""
             for user_or_role, ow in overwrites:
                 if user_or_role is not None:
-                    output += f"{user_or_role.mention}: "
+                    if isinstance(user_or_role, discord.Object):
+                        if user_or_role.type == "role":
+                            output += f"<@&{user_or_role.id}>"
+                        else:
+                            output += f"<@{user_or_role.id}>"
+                    elif isinstance(user_or_role, discord.Role):
+                        output += f"<@&{user_or_role.id}>"
+                    else:
+                        output += f"<@{user_or_role.id}>"
                 else:
-                    output += f"ID# {user_or_role.id}: "
+                    output += "????????????"
 
                 rows = []
                 for k, v in ow:
@@ -800,6 +827,11 @@ def iter_embed(
                 text = _type.name.replace("_", " ").title()
             embed.description += f"**Type**: {text}\n"
 
+        elif key == "user_limit":
+            # Role Icon
+            limit: int = value
+            embed.description += f"**User Limit**: {limit}\n"
+
         elif key == "unicode_emoji":
             # Role Icon
             emoji: str = value
@@ -835,7 +867,7 @@ def iter_embed(
             embed.description += f"**Widget Enabled**: `{widget}`\n"
 
         else:
-            logger.info("Unhandled key in changes %s", key)
+            logger.info("Unhandled key in changes %s (%s)", key, value)
 
     # Build our Footer
     if last:
@@ -971,7 +1003,7 @@ class AuditLogs(commands.Cog):
             ):
                 field = ["moderation"]
             case action.message_bulk_delete | action.message_delete:
-                field = ["message_deletes"]
+                field = ["deleted_messages"]
 
             # Bots, Integrations, and Webhooks
             case (
@@ -1313,7 +1345,7 @@ class AuditLogs(commands.Cog):
             url = i.proxy_url
             val = f"{num}. {i.filename} ({type_})[{url}] ({i.size})\n"
             dels.description += val
-            files.append(i.to_file(spoiler=True, use_cached=True))
+            files.append(await i.to_file(spoiler=True, use_cached=True))
         else:
             dels = None
 
@@ -1414,7 +1446,7 @@ class AuditLogs(commands.Cog):
                 url = i.proxy_url
                 val = f"{num}. {i.filename} ({type_})[{url}] ({i.size})\n"
                 gone.description += val
-                files.append(i.to_file(spoiler=True, use_cached=True))
+                files.append(await i.to_file(spoiler=True, use_cached=True))
         else:
             gone = None
 
@@ -1518,24 +1550,6 @@ async def setup(bot: Bot | PBot) -> None:
 #         sm_af = stringify_seconds(key["after"])
 #         before.description += f"**Thread Reply Slowmode**: {sm_bf}\n"
 #         after.description += f"**Thread Reply Slowmode**: {sm_af}\n"
-
-#     # Flags
-#     if key := changes.pop("flags", False):
-#         bf_flags: discord.ChannelFlags = key["before"]
-#         af_flags: discord.ChannelFlags = key["after"]
-
-#         if isinstance(entry.target, discord.Thread):
-#             if isinstance(entry.target.parent, discord.ForumChannel):
-#                 if bf_flags is not None:
-#                     b = bf_flags.pinned
-#                     before.description += f"**Thread Pinned**: `{b}`\n"
-#                     b = bf_flags.require_tag
-#                     before.description += f"**Force Tags?**: `{b}`\n"
-#                 if af_flags is not None:
-#                     a = af_flags.pinned
-#                     after.description += f"**Thread Pinned**: `{a}`\n"
-#                     a = af_flags.require_tag
-#                     after.description += f"**Force Tags?**: `{a}`\n"
 
 #     if key := changes.pop("available_tags", False):
 #         if new := [i for i in key["after"] if i not in key["before"]]:

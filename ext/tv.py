@@ -6,8 +6,9 @@ from datetime import datetime
 from json import load
 from typing import TYPE_CHECKING, Any, Optional
 
+import discord
 from discord import Embed, Interaction, Message
-from discord.app_commands import command, describe, autocomplete, Choice
+from discord.app_commands import autocomplete, Choice
 from discord.ext import commands
 from lxml import html
 
@@ -90,9 +91,9 @@ class Tv(commands.Cog):
         with open("tv.json") as f:
             self.bot.tv_dict = load(f)
 
-    @command()
-    @describe(team="Search for a team")
-    @autocomplete(team=tv_ac)
+    @discord.app_commands.command()
+    @discord.app_commands.describe(team="Search for a team")
+    @discord.app_commands.autocomplete(team=tv_ac)
     async def tv(
         self, interaction: Interaction[Bot], team: Optional[str]
     ) -> Message:

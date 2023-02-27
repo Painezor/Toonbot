@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 from typing import TYPE_CHECKING
+import typing
 
 import asyncpg
 import asyncpraw
@@ -65,13 +66,16 @@ class MatchThread:
 
         subreddit = await self.bot.reddit.subreddit(self.settings["subreddit"])
 
+        ko = self.fixture.kickoff
+        if ko is None:
+            raise ValueError("Kickoff is None")
+
         if self.record["pre_match_url"] is None:
             if (offset := self.settings["pre_match_offset"]) is None:
-                offset = datetime.timedelta(days=3)
-            else:
-                offset = datetime.timedelta(days=offset)
+                offset = 3
+            offset = datetime.timedelta(days=offset)
 
-            target_time = self.fixture.kickoff - offset
+            target_time = ko - offset
 
             await discord.utils.sleep_until(target_time)
 
@@ -101,15 +105,16 @@ class MatchThread:
             e.title = f"r/{sub} Pre-Match Thread: {self.fixture.score_line}"
             e.url = pre.url
             e.description = f"[Flashscore Link]({self.fixture.url})"
+
+            c = typing.cast(discord.TextChannel, c)
             await c.send(embed=e)
 
         # Sleep until ready to post.
         if isinstance(self.fixture.time, datetime.datetime):
             if (offset := self.settings["match_offset"]) is None:
                 offset = 15
-            await discord.utils.sleep_until(
-                self.fixture.kickoff - datetime.timedelta(minutes=offset)
-            )
+            offset = datetime.timedelta(minutes=offset)
+            await discord.utils.sleep_until(ko - offset)
 
         # Refresh fixture at kickoff.
         await self.fixture.refresh(self.bot)
@@ -245,7 +250,7 @@ class MatchThread:
         # markdown += await self.fixture.preview()
         return title, markdown
 
-    async def fetch_tv(self):
+    async def fetch_tv(self) -> dict:
         """Fetch information about where the match will be televised"""
 
         url = "https://www.livesoccertv.com/"
@@ -312,9 +317,13 @@ class MatchThread:
         away = self.fixture.away
         score = self.fixture.score
 
-        markdown = (
-            f"#### {self.fixture.kickoff} | {self.fixture.competition} \n\n"
-        )
+        time = self.fixture.kickoff.strftime("%d/%m/%Y, %H:%M:%S")
+
+        comp = self.fixture.competition.title
+        if comp:
+            markdown = f"#### {time} | {comp}\n\n"
+        else:
+            markdown = f"#### {time}"
 
         # Grab DB data
         try:

@@ -11,10 +11,9 @@ from typing import Optional, TYPE_CHECKING
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord import Embed, Attachment, Interaction, User, Message, File
 import discord
-from discord.app_commands import describe, guild_only, Group
+from discord.app_commands import guild_only, Group
 from discord.ext.commands import Cog
 
-from ext.utils.embed_utils import embed_image
 from ext.utils.view_utils import FuncButton, BaseView
 
 if TYPE_CHECKING:
@@ -313,7 +312,7 @@ class Images(Cog):
     images = Group(name="images", description="image manipulation commands")
 
     @images.command()
-    @describe(
+    @discord.app_commands.describe(
         user="Select a user",
         link="Provide a link to an image",
         file="Upload a file",
@@ -333,7 +332,9 @@ class Images(Cog):
         ).push_eyes()
 
     @images.command()
-    @describe(user="pick a user", link="provide a link", file="upload a file")
+    @discord.app_commands.describe(
+        user="pick a user", link="provide a link", file="upload a file"
+    )
     async def ruins(
         self,
         interaction: Interaction[Bot],
@@ -346,7 +347,9 @@ class Images(Cog):
         return await ImageView(interaction, user, link, file).push_ruins()
 
     @images.command()
-    @describe(user="pick a user", link="provide a link", file="upload a file")
+    @discord.app_commands.describe(
+        user="pick a user", link="provide a link", file="upload a file"
+    )
     async def bob_ross(
         self,
         interaction: Interaction[Bot],
@@ -441,7 +444,9 @@ class Images(Cog):
         )
         e: Embed = Embed(description=caption, colour=0xFD297B)
         e.set_author(name="Tinder", icon_url=icon)
-        return await embed_image(interaction, e, output, filename="Tinder.png")
+        e.set_image(url="attachment://Tinder.png")
+        file = File(fp=output, filename="Tinder.png")
+        return await interaction.client.reply(interaction, file=file, embed=e)
 
 
 async def setup(bot: Bot) -> None:

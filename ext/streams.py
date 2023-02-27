@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import discord
 from discord import Embed, Permissions, Member, Interaction, Message, User
-from discord.app_commands import autocomplete, Choice, Group, describe
+from discord.app_commands import Choice, Group
 from discord.ext.commands import Cog
 
 if TYPE_CHECKING:
@@ -68,7 +69,7 @@ class GuildStreams(Cog):
         return await self.bot.reply(interaction, embed=e)
 
     @streams.command(name="add")
-    @describe(name="Stream Name", link="Stream Link")
+    @discord.app_commands.describe(name="Stream Name", link="Stream Link")
     async def add_stream(self, ctx: Interaction[Bot], link: str, name: str):
         """Add a stream to the stream list."""
         if ctx.guild is None:
@@ -100,7 +101,7 @@ class GuildStreams(Cog):
         await self.bot.reply(interaction, msg)
 
     @streams.command(name="delete")
-    @autocomplete(stream=st_ac)
+    @discord.app_commands.autocomplete(stream=st_ac)
     async def delete_stream(self, interaction: Interaction[Bot], stream: str):
         """Delete a stream from the stream list"""
         await interaction.response.defer(thinking=True)
