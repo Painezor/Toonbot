@@ -70,7 +70,7 @@ async def colour_ac(_: Interaction[Bot], current: str) -> list[Choice]:
     return [
         Choice(name=i.value, value=i.value)
         for i in DiscordColours
-        if current.lower() in i.value.lower()
+        if current.casefold() in i.value.casefold()
     ][:25]
 
 

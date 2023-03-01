@@ -80,7 +80,7 @@ class ScoreChannel:
                     # for example, interested in U18, or
                     # women's tournaments unless explicitly tracked
                     for x in ["women", "u18"]:  # List of ignored substrings
-                        if x in comp.title and x not in tracked.lower():
+                        if x in comp.title.casefold() and x not in tracked:
                             # Break without doing anything
                             # this sub-tournament was not requested.
                             break
@@ -580,7 +580,7 @@ class Scores(Cog):
                 # Loop over bot.competitions to see if we can find the right
                 # Competition object for base_embed.
 
-                country, name = competition_name.split(":", 1)
+                country, name = competition_name.rsplit(":", 1)
 
                 c = self.bot.competitions
 
@@ -590,9 +590,9 @@ class Scores(Cog):
                     # Partial Matches
                     partial = [x for x in c if x.title in competition_name]
                     for ss in ["women", "u18"]:  # Filter…
-                        if ss in competition_name.lower():
+                        if ss in competition_name.casefold():
                             partial = [
-                                i for i in partial if ss in i.name.lower()
+                                i for i in partial if ss in i.name.casefold()
                             ]
 
                     if partial:
@@ -776,7 +776,7 @@ class Scores(Cog):
                         "aet": GameState.AFTER_EXTRA_TIME,
                         "pen": GameState.AFTER_PENS,
                         "wo": GameState.WALKOVER,
-                    }[override.lower()]
+                    }[override.casefold()]
                 except KeyError:
                     logger.error(f"Unhandled override: {override}")
             else:

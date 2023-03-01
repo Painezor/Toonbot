@@ -26,7 +26,7 @@ class Stream:
 
     @property
     def ac_row(self) -> str:
-        return f"{self.name} {self.link}".lower()
+        return f"{self.name} {self.link}".casefold()
 
 
 async def st_ac(ctx: Interaction[Bot], current: str) -> list[Choice[str]]:
@@ -35,7 +35,7 @@ async def st_ac(ctx: Interaction[Bot], current: str) -> list[Choice[str]]:
         return []
 
     strms = ctx.client.streams[ctx.guild.id]
-    cur = current.lower()
+    cur = current.casefold()
     m = [i.name[:100] for i in strms if cur in i.ac_row]
     return [Choice(name=item, value=item) for item in m][:25]
 
@@ -111,9 +111,9 @@ class GuildStreams(Cog):
 
         gs = interaction.client.streams[interaction.guild.id]
 
-        lk = stream.lower()
+        lk = stream.casefold()
 
-        matches = [i for i in gs if lk in f"{i.name.lower()} {i.link.lower()}"]
+        matches = [i for i in gs if lk in f"{i.name} {i.link}".casefold()]
 
         if not matches:
             err = f"{stream} not in {interaction.guild.name} stream list."

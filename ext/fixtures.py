@@ -1,15 +1,14 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
 # TODO: GLOBAL Nuke page.content in favour of locator.inner_html()
-# TODO: Team dropdown on Competition
 # TODO: Standings => Team Dropdown
-# TODO: FixtureView.photos
-# TODO: FixtureView.report
-# TODO: FixtureView.scorers
+# TODO: Fixture => photos
+# TODO: Fixture => report
+# TODO: Top Scorers
 # TODO: Fixtures => Dropdowns for Fixture Select
 # TODO: Results => Dropdowns for Fixture Select
 # TODO: Transfers => Dropdowns for Teams & Competitions
-# TODO: TeamView.squda => Enumerate when not sorting by squad number.
-# TODO: GLOBAL change all .lower() to .casefold() because fuck you germans.
+# TODO: TeamView.squad => Enumerate when not sorting by squad number.
+# TODO: Nuke file = in r()
 
 
 from __future__ import annotations
@@ -49,7 +48,7 @@ COMPETITION = "Enter the name of a competition to search for"
 async def set_default(
     interaction: discord.Interaction[Bot],
     param: Literal["default_league", "default_team"],
-):
+) -> None:
     """Fetch the default team or default league for this server"""
     if interaction.guild is None:
         interaction.extras["default"] = None
@@ -86,28 +85,34 @@ async def fx_ac(
     interaction: discord.Interaction[Bot], current: str
 ) -> list[Choice[str]]:
     """Check if user's typing is in list of live games"""
-    cur = current.lower()
+    cur = current.casefold()
 
     choices = []
     for i in interaction.client.games:
-        if cur and cur not in i.ac_row.lower():
+        if cur and cur not in i.ac_row:
             continue
 
         if i.id is None:
             continue
 
         choice = discord.app_commands.Choice(name=i.ac_row[:100], value=i.id)
+
+        if len(choices) == 25:
+            break
+
         choices.append(choice)
 
     if current:
         v = f"🔎 Search for '{current}'"
-        choices = choices[:24] + [Choice(name=v, value=current)]
+
+        srch = [discord.app_commands.Choice(name=v, value=current)]
+        choices = choices[:24] + srch
     return choices
 
 
 async def team_ac(
     interaction: discord.Interaction[Bot], current: str
-) -> list[Choice[str]]:
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from list of stored teams"""
     teams = interaction.client.teams
     teams: list[fs.Team] = sorted(teams, key=lambda x: x.name)
@@ -116,45 +121,66 @@ async def team_ac(
     if "default" not in interaction.extras:
         await set_default(interaction, "default_team")
 
-    curr = current.lower()
+    curr = current.casefold()
 
-    opts = []
+    choices = []
     for t in teams:
         if t.id is None:
             continue
 
-        if curr not in t.name.lower():
+        if curr not in t.title.casefold():
             continue
 
         c = discord.app_commands.Choice(name=t.name[:100], value=t.id)
-        opts.append(c)
+        choices.append(c)
+
+        if len(choices) == 25:
+            break
 
     if interaction.extras["default"] is not None:
-        opts = [interaction.extras["default"]] + opts
+        choices = [interaction.extras["default"]] + choices
 
-    return opts[:25]
+    if current:
+        v = f"🔎 Search for '{current}'"
+
+        srch = [discord.app_commands.Choice(name=v, value=current)]
+        choices = choices[:24] + srch
+    return choices
 
 
 async def comp_ac(
     interaction: discord.Interaction[Bot], current: str
-) -> list[Choice[str]]:
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from list of stored competitions"""
     lgs = sorted(interaction.client.competitions, key=lambda x: x.title)
 
     if "default" not in interaction.extras:
         await set_default(interaction, "default_league")
 
-    curr = current.lower()
+    curr = current.casefold()
 
-    opts = []
+    choices = []
 
     for lg in lgs:
-        if curr in lg.title.lower() and lg.id is not None:
-            opts.append(Choice(name=lg.title[:100], value=lg.id))
+        if curr not in lg.title.casefold() or lg.id is None:
+            continue
+
+        opt = discord.app_commands.Choice(name=lg.title[:100], value=lg.id)
+
+        choices.append(opt)
+
+        if len(choices) == 25:
+            break
 
     if interaction.extras["default"] is not None:
-        opts = [interaction.extras["default"]] + opts
-    return list(opts[:25])
+        choices = [interaction.extras["default"]] + choices[:24]
+
+    if current:
+        v = f"🔎 Search for '{current}'"
+
+        srch = [discord.app_commands.Choice(name=v, value=current)]
+        choices = choices[:24] + srch
+    return choices
 
 
 # Searching
@@ -200,6 +226,10 @@ class ItemView(view_utils.BaseView):
 
         self.page: Optional[Page] = None
 
+        # For Functions that require pagination over multiple items
+        # we don't use the generic "update".
+        self._cached_function: Optional[Callable] = None
+
     @property
     def object(self) -> fs.Team | fs.Competition | fs.Fixture:
         if isinstance(self, TeamView):
@@ -221,35 +251,10 @@ class ItemView(view_utils.BaseView):
     async def handle_tabs(self) -> int:
         """Generate our buttons. Returns the next free row number"""
         self.clear_items()
+        self.add_page_buttons(0)
 
         if self.page is None:
             raise AttributeError("self.page is None")
-
-        # row_0 = []
-        # if self.object.competition is not None:
-        #     cmp = self.fixture.competition
-        #     func = CompetitionView(
-        #         self.interaction, cmp, parent=self.summary
-        #     ).update
-        #     row_0.append(view_utils.Funcable(cmp.title, func, emoji="🏆"))
-
-        # if self.fixture.home.id:
-        #     hm = self.fixture.home
-        #     func = TeamView(self.interaction, hm, parent=self.summary).update
-        #     self.add_item(
-        #         view_utils.FuncButton(self.fixture.home.name, func, emoji="👕")
-        #     )
-
-        # if self.fixture.away.id:
-        #     func = TeamView(
-        #         self.interaction, self.fixture.away, parent=self
-        #     ).update
-        #     self.add_item(
-        #         view_utils.FuncButton(self.fixture.away.name, func, emoji="👕")
-        #     )
-
-        # self.add_function_row(row_0, row=0)
-
         # key: [Item, Item, Item, ...]
         rows: dict[int, list[view_utils.Funcable]] = dict()
         row = 1
@@ -265,15 +270,16 @@ class ItemView(view_utils.BaseView):
 
                 link = await sub_loc.nth(o).get_attribute("href")
 
-                # if text == "Archive":
-                #   f = view_utils.Funcable(text, self.archive)
-                #   f.description = "Previous Season Results"
-                #   f.disabled = True
-                #   f.style = discord.ButtonStyle.red
+                if text == "Archive":
+                    f = view_utils.Funcable(text, self.archive)
+                    f.description = "Previous Season Results"
+                    f.style = discord.ButtonStyle.red
+                    f.emoji = "🗄️"
 
-                if text == "Fixtures":
+                elif text == "Fixtures":
                     f = view_utils.Funcable(text, self.fixtures)
                     f.description = "Upcoming Fixtures"
+                    f.emoji = "🗓️"
 
                 elif text == "H2H":
                     f = view_utils.Funcable(text, self.h2h)
@@ -282,6 +288,7 @@ class ItemView(view_utils.BaseView):
 
                 elif text == "Lineups":
                     f = view_utils.Funcable(text, self.lineups)
+                    f.emoji = "🧑‍🤝‍🧑"
 
                 elif text == "News":
                     f = view_utils.Funcable(text, self.news)
@@ -299,13 +306,16 @@ class ItemView(view_utils.BaseView):
                 elif text == "Results":
                     f = view_utils.Funcable(text, self.results)
                     f.description = "Recent Results"
+                    f.emoji = "📋"
 
                 elif text == "Standings":
                     f = view_utils.Funcable(text, self.standings)
                     f.description = "Current League Table"
+                    f.emoji = "🏅"
 
                 elif text in ["Form", "HT/FT", "Live Standings", "Over/Under"]:
                     f = view_utils.Funcable(text, self.standings)
+                    f.emoji = "🏅"
 
                     if link:
                         link = f"{self.object.url}/standings/{link}"
@@ -314,9 +324,11 @@ class ItemView(view_utils.BaseView):
                 elif text == "Squad":
                     f = view_utils.Funcable(text, self.squad)
                     f.description = "Team Squad Members"
+                    f.emoji = "🧑‍🤝‍🧑"
 
                 elif text == "Stats":
                     f = view_utils.Funcable(text, self.stats)
+                    f.emoji = "📊"
 
                 elif text in ["Summary", "Match"]:
                     if not isinstance(self.object, fs.Fixture):
@@ -327,6 +339,8 @@ class ItemView(view_utils.BaseView):
 
                 elif text == "Odds":
                     # TODO: Figure out if we want to encourage Gambling
+                    f = view_utils.Funcable(text, self.odds)
+                    f.emoji = "🎲"
                     continue
 
                 elif text == "Top Scorers":
@@ -349,7 +363,7 @@ class ItemView(view_utils.BaseView):
                     logger.info("%s found extra tab %s", type(self), text)
                     continue
 
-                if row == 1:
+                if row == 1 and f.style is None:
                     f.style = discord.ButtonStyle.blurple
 
                 active = "aria-current"
@@ -364,8 +378,77 @@ class ItemView(view_utils.BaseView):
             self.add_function_row(v, k, ph)
         return row
 
-    async def archive(self) -> None:
-        raise NotImplementedError
+    async def archive(self) -> discord.InteractionMessage:
+        if not isinstance(self, CompetitionView):
+            raise NotImplementedError
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        embed = await self.competition.base_embed()
+        embed.url = f"{self.competition.url}/archive"
+        await self.page.goto(embed.url, timeout=5000)
+        sel = self.page.locator("#tournament-page-archiv")
+        await sel.wait_for(timeout=5000)
+        tree = html.fromstring(await sel.inner_html())
+
+        teams: list[fs.Team] = []
+        comps: list[fs.Competition] = []
+        rows: list[str] = []
+        for i in tree.xpath('.//div[@class="archive__row"]'):
+            # Get Archive as Competition
+            xpath = ".//div[@class='archive__season']/a"
+            c_name = "".join(i.xpath(xpath + "/text()")).strip()
+            c_link = "".join(i.xpath(xpath + "/@href")).strip()
+            c_link = fs.FLASHSCORE + c_link
+
+            country = self.competition.country
+            comps.append(fs.Competition(None, c_name, country, c_link))
+
+            # Get Winner
+            xpath = ".//div[@class='archive__winner']//a"
+            tm_name = "".join(i.xpath(xpath + "/text()")).strip()
+            if tm_name:
+                # if tm_name:
+                tm_link = "".join(i.xpath(xpath + "/@href")).strip()
+                tm_link = fs.FLASHSCORE + tm_link
+
+                team = fs.Team(None, tm_name, tm_link)
+                teams.append(team)
+                rows.append(f"**[{c_name}])({c_link})**: 🏆 {team.markdown}")
+            else:
+                rows.append(f"[{c_name}])({c_link})")
+
+        row = await self.handle_tabs()
+        parent = view_utils.FuncButton(self.archive)
+
+        self.pages = embed_utils.rows_to_embeds(embed, rows, 20)
+        embed = self.pages[self.index]
+        comps = embed_utils.paginate(comps, 20)[self.index]
+        teams = embed_utils.paginate(teams, 20)[self.index]
+
+        lg_dropdown: list[view_utils.Funcable] = []
+        for comp in comps:
+            view = CompetitionView(self.interaction, comp, parent=parent)
+            fn = view.standings
+            lg_dropdown.append(view_utils.Funcable(comp.title, fn))
+
+        if lg_dropdown:
+            self.add_function_row(lg_dropdown, row)
+            row += 1
+
+        tm_dropdown: list[view_utils.Funcable] = []
+        for team in set(teams):
+            fn = TeamView(self.interaction, team, parent=parent).fixtures
+            tm_dropdown.append(view_utils.Funcable(team.name, fn))
+
+        if tm_dropdown:
+            self.add_function_row(tm_dropdown, row)
+            row += 1
+
+        self._cached_function = self.archive
+        r = self.interaction.edit_original_response
+        await r(content="Soon", embed=None, view=self)
 
     # Fixture Only
     async def h2h(
@@ -468,8 +551,6 @@ class ItemView(view_utils.BaseView):
         r = self.interaction.edit_original_response
         return await r(embed=e, attachments=[], view=self)
 
-        # CompetitionView.fixtures
-
     # Competition, Team
     async def fixtures(self) -> discord.InteractionMessage:
         """Push upcoming competition fixtures to View"""
@@ -541,7 +622,7 @@ class ItemView(view_utils.BaseView):
         logger.info(f"Fixture {self.fixture.score_line} has Photos tab")
 
         r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[], view=self)
+        await r(embed=e, attachments=[], view=self)
 
     # Subclassed on Fixture & Team
     async def news(self) -> discord.InteractionMessage:
@@ -737,7 +818,7 @@ class ItemView(view_utils.BaseView):
             link = fs.FLASHSCORE + "".join(row.xpath(xpath + "@href"))
             name = "".join(row.xpath(xpath + "text()")).strip()
             try:  # Name comes in reverse order.
-                surname, forename = name.split(" ", 1)
+                surname, forename = name.rsplit(" ", 1)
             except ValueError:
                 forename, surname = None, name
 
@@ -965,10 +1046,8 @@ class ItemView(view_utils.BaseView):
             name = "".join(elem.xpath(xpath + "/text()"))
             link = fs.FLASHSCORE + "".join(elem.xpath(xpath + "/@href"))
 
-            logger.info("Transfer player link %s", link)
-
             try:
-                surname, forename = name.split(" ", 1)
+                surname, forename = name.rsplit(" ", 1)
             except ValueError:
                 forename, surname = None, name
 
@@ -978,7 +1057,7 @@ class ItemView(view_utils.BaseView):
 
             pmd = player.markdown
 
-            inbound = "".join(elem.xpath(".//svg[0]/@class"))
+            inbound = "".join(elem.xpath(".//svg[1]/@class"))
             if "icon--in" in inbound:
                 emoji = fs.INBOUND_EMOJI
             else:
@@ -1003,7 +1082,7 @@ class ItemView(view_utils.BaseView):
 
                 tmd = team.markdown
             else:
-                tmd = ""
+                tmd = "Free Agent"
 
             embed_rows.append(f"{pmd} {emoji} {tmd}\n{date} {tf_type}\n")
 
@@ -1237,11 +1316,6 @@ class ItemView(view_utils.BaseView):
         if self._cached_function is not None:
             return await self._cached_function()
 
-        children = self.children.copy()
-
-        self.clear_items()
-        [self.add_item(x) for x in children if x.row != 0]
-
         try:
             embed = self.pages[self.index]
         except IndexError:
@@ -1331,8 +1405,6 @@ class TeamView(ItemView):
     ) -> None:
         super().__init__(interaction, **kwargs)
         self.team: fs.Team = team
-
-        self._cached_function: Optional[Callable] = None
 
     # Team.news
     async def news(self) -> discord.InteractionMessage:
@@ -1805,12 +1877,12 @@ class Fixtures(commands.Cog):
                 games = await fs.parse_games(self.bot, res, "/fixtures/")
             else:
                 games = self.bot.games
-                lwr = competition.lower()
+                lwr = competition.casefold()
 
                 res = list(
                     filter(
                         lambda i: i.competition
-                        and lwr in i.competition.title.lower(),
+                        and lwr in i.competition.title.casefold(),
                         games,
                     )
                 )

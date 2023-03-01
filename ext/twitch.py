@@ -18,10 +18,7 @@ from discord import (
 import discord
 from discord.app_commands import (
     guilds,
-    command,
-    autocomplete,
     Choice,
-    describe,
     Group,
 )
 from discord.ext.commands import Cog
@@ -129,7 +126,7 @@ class Contributor:
     @property
     def auto_complete(self) -> str:
         """String to search for to identify this CC"""
-        return f"{self.name} {self.markdown}"
+        return f"{self.name} {self.markdown}".casefold()
 
     @property
     async def embed(self) -> Embed:
@@ -174,7 +171,7 @@ class Stream:
     ) -> None:
         self.language: str = language
         self.viewers: int = viewers
-        self.user: str = user.name
+        self.user: Optional[str] = user.name
         self.title: str = title
         self.timestamp: Timestamp = timestamp
         self.contributor: Optional[bool] = None
@@ -278,7 +275,7 @@ class TrackerChannel:
         return TrackerConfig(interaction, self)
 
 
-async def cc_ac(interaction: Interaction[Bot], current: str) -> list[Choice]:
+async def cc_ac(interaction: Interaction[PBot], current: str) -> list[Choice]:
     """Autocomplete from the list of stored CCs"""
     bot: PBot = interaction.client
     ccs = bot.contributors
@@ -298,32 +295,43 @@ async def cc_ac(interaction: Interaction[Bot], current: str) -> list[Choice]:
             ccs = [i for i in ccs if i.region == Region.SEA]
 
     ccs = sorted(ccs, key=lambda x: x.name)
+    cur = current.casefold()
     return [
         Choice(name=f"{i.name} ({i.region.name})"[:100], value=i.name)
         for i in ccs
-        if current.lower() in i.auto_complete.lower()
+        if cur in i.auto_complete
     ][:25]
 
 
 async def language_ac(
-    interaction: Interaction[Bot], current: str
-) -> list[Choice]:
+    interaction: Interaction[PBot], current: str
+) -> list[discord.app_commands.Choice]:
     """Filter by Language"""
-    bot: PBot = getattr(interaction, "client")
 
-    langs = {}
-    for x in bot.contributors:
+    langs = set()
+    for x in interaction.client.contributors:
         for language in x.language_names:
-            langs.update(language)
-    return [
-        Choice(name=x, value=x) for x in langs if current.lower() in x.lower()
-    ]
+            langs.add(language)
+
+    cur = current.casefold()
+
+    choices = []
+    for i in langs:
+        if cur not in i.casefold():
+            continue
+
+        choices.append(discord.app_commands.Choice(name=i, value=i))
+
+        if len(choices) == 25:
+            break
+
+    return choices
 
 
 class TrackerConfig(BaseView):
     """Config View for a Twitch Tracker channel"""
 
-    def __init__(self, interaction: Interaction[Bot], tc: TrackerChannel):
+    def __init__(self, interaction: Interaction[PBot], tc: TrackerChannel):
         super().__init__(interaction)
         self.tc: TrackerChannel = tc
         self.index: int = 0

@@ -85,14 +85,15 @@ class BaseView(View):
         items: list[Funcable],
         row: int = 0,
         placeholder: str = "More Options...",
+        force_dropdown: bool = False,
     ):
         """Create a row of up to 5 Buttons,
         or a dropdown up to 25 options"""
 
         if len(items) > 25:
-            raise ValueError("Too many items")
+            raise ValueError("Too many for dropdown (%s > 25", len(items))
 
-        if len(items) < 6:
+        if len(items) < 6 and not force_dropdown:
             for x in items:
                 f = FuncButton(x.function, x.args, x.keywords, label=x.label)
                 f.row = row

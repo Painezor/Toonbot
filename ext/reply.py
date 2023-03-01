@@ -12,8 +12,6 @@ from ext.utils import view_utils
 
 from typing import TYPE_CHECKING
 
-from ext.utils.view_utils import BaseView
-
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
@@ -33,7 +31,7 @@ async def error(
 
     kwargs.pop("view", None)
 
-    v = BaseView(i)
+    v = view_utils.BaseView(i)
     v.add_item(view_utils.Stop())
     return await reply(
         i, embed=e, ephemeral=True, followup=followup, view=v, **kwargs

@@ -18,13 +18,11 @@ from discord import (
     SelectOption,
 )
 import discord
-from discord.app_commands import command
 from discord.ext.commands import Cog
 from discord.ui import Button, Modal, TextInput, Select
 from discord.utils import utcnow
 
-from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import BaseView
+from ext.utils import view_utils, timed_events
 
 from typing import TYPE_CHECKING, Optional
 
@@ -112,7 +110,7 @@ class PollSelect(Select):
         return await self.view.update()
 
 
-class PollView(BaseView):
+class PollView(view_utils.BaseView):
     """View for a poll commands"""
 
     def __init__(
@@ -125,7 +123,9 @@ class PollView(BaseView):
     ) -> None:
         self.question: str = question
         self.votes: dict[str, list[int]] = {k: [] for k in answers}
-        self.ends_at = Timestamp(utcnow() + timedelta(minutes=minutes))
+
+        ending = utcnow() + timedelta(minutes=minutes)
+        self.ends_at = timed_events.Timestamp(ending)
 
         super().__init__(interaction)
 

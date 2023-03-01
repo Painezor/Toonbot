@@ -211,22 +211,32 @@ async def map_ac(
 
         bot.maps = maps
 
-    filtered = sorted(
-        [i for i in bot.maps if current.lower() in i.ac_match.lower()],
-        key=lambda x: x.name,
-    )
-    return [
-        Choice(name=i.ac_row[:100], value=i.battle_arena_id) for i in filtered
-    ][:25]
+    cur = current.casefold()
+
+    choices = []
+    for i in sorted(bot.maps, key=lambda map_: map_.name):
+        if cur not in i.ac_match:
+            continue
+
+        value = i.battle_arena_id
+        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=value)
+        choices.append(choice)
+
+        if len(choices) == 25:
+            break
+
+    return choices
 
 
 async def mode_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
     """Fetch a Game Mode"""
     choices = []
+
+    cur = cur.casefold()
     for i in ctx.client.modes:
         if i.tag not in ["PVE_PREMADE", "EVENT", "BRAWL"]:
             continue
-        if cur.lower() not in i.name.lower():
+        if cur not in i.name.casefold():
             continue
         choices.append(Choice(name=i.name, value=i.tag))
     return choices[:25]
@@ -303,14 +313,27 @@ async def clan_ac(
     return choices
 
 
-async def ship_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
+async def ship_ac(
+    interaction: Interaction[PBot], current: str
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete for the list of maps in World of Warships"""
-    options = []
-    for i in sorted(ctx.client.ships, key=lambda s: s.name):
-        if cur.lower() in i.ac_row.lower() and i.ship_id_str:
-            options.append(Choice(name=i.ac_row[:100], value=i.ship_id_str))
 
-    return options[:25]
+    current = current.casefold()
+    choices = []
+    for i in sorted(interaction.client.ships, key=lambda s: s.name):
+        if not i.ship_id_str:
+            continue
+        if current not in i.ac_row:
+            continue
+
+        value = i.ship_id_str
+        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=value)
+        choices.append(choice)
+
+        if len(choices) == 25:
+            break
+
+    return choices
 
 
 class Warships(Cog):

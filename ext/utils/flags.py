@@ -151,5 +151,5 @@ def get_flag(country: str | list[str]) -> str:
                     logging.info(f"No flag country found for {c}")
                     continue
 
-                output.append("".join(UNI_DICT[i] for i in c.lower() if i))
+                output.append("".join(UNI_DICT[i] for i in c.casefold() if i))
     return " ".join(output)

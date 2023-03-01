@@ -326,13 +326,15 @@ async def news_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
     cache = ctx.client.news_cache
     dt = datetime.datetime.now()
 
+    cur = cur.casefold()
+
     for i in sorted(cache, key=lambda x: x.date or dt, reverse=True):
         if i.link is None:
             continue
 
-        text = f"{i.title}: {i.description}".lower()
+        text = f"{i.title}: {i.description}".casefold()
 
-        if cur.lower() not in text:
+        if cur not in text:
             continue
 
         choices.append(Choice(name=text[:100], value=i.link))

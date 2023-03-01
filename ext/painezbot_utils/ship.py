@@ -154,7 +154,7 @@ class Ship:
 
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
-        return f"{self.tier}: {decoded} {nation} {type_}"
+        return f"{self.tier}: {decoded} {nation} {type_}".casefold()
 
     @property
     def default_fit(self) -> Fitting:

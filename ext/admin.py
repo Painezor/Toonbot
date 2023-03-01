@@ -34,10 +34,12 @@ async def cg_ac(
 ) -> list[discord.app_commands.Choice]:
     """Autocomplete from list of cogs"""
     results = []
+
+    cur = current.casefold()
     for i in ctx.client.cogs.values():
         name = i.qualified_name
 
-        if current.lower() in name.lower():
+        if cur in name.casefold():
             results.append(discord.app_commands.Choice(name=name, value=name))
     return results[:25]
 
@@ -76,7 +78,7 @@ class Admin(commands.Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.reload_extension(f"ext.{cog.lower()}")
+            await self.bot.reload_extension(f"ext.{cog.casefold()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
         e = discord.Embed(title="Modules", colour=discord.Colour.og_blurple())
@@ -91,7 +93,7 @@ class Admin(commands.Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.load_extension(f"ext.{cog.lower()}")
+            await self.bot.load_extension(f"ext.{cog.casefold()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 
@@ -107,7 +109,7 @@ class Admin(commands.Cog):
         await interaction.response.defer(thinking=True)
 
         try:
-            await self.bot.unload_extension(f"ext.{cog.lower()}")
+            await self.bot.unload_extension(f"ext.{cog.casefold()}")
         except Exception as err:
             return await self.bot.error(interaction, error_to_codeblock(err))
 

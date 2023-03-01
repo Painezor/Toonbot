@@ -156,7 +156,7 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
             s_link = FLASHSCORE + s_link
 
             try:
-                surname, forename = s_name.split(" ", 1)
+                surname, forename = s_name.rsplit(" ", 1)
             except ValueError:
                 forename, surname = None, s_name
             p = Player(forename, surname, s_link)
@@ -233,7 +233,7 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
             p_url = "".join(node.xpath(xpath)).strip()
 
             try:
-                surname, forename = p_name.split(" ", 1)
+                surname, forename = p_name.rsplit(" ", 1)
             except ValueError:
                 forename, surname = None, p_name
             event.player = Player(forename, surname, p_url)
@@ -500,7 +500,7 @@ class Team(FlashScoreItem):
     @property
     def tag(self) -> str:
         """Generate a 3 letter tag for the team"""
-        match len(self.name.split(" ")):
+        match len(self.name.rsplit(" ")):
             case 1:
                 return "".join(self.name[:3]).upper()
             case _:

@@ -93,7 +93,7 @@ class Blog:
     @property
     def ac_row(self) -> str:
         """Autocomplete representation"""
-        return f"{self.id} {self.title} {self.text}".lower()
+        return f"{self.id} {self.title} {self.text}".casefold()
 
     @property
     def url(self) -> str:
@@ -321,7 +321,7 @@ class DevBlogView(BaseView):
 async def db_ac(interaction: Interaction[PBot], current: str) -> list[Choice]:
     """Autocomplete dev blog by text"""
     bot = interaction.client
-    cur = current.lower()
+    cur = current.casefold()
     blogs = [i for i in bot.dev_blog_cache if cur in i.ac_row]
     return [
         Choice(name=f"{i.id}: {i.title}"[:100], value=str(i.id)) for i in blogs
@@ -479,8 +479,8 @@ class DevBlog(commands.Cog):
             return await self.bot.reply(interaction, embed=e, ephemeral=True)
         except StopIteration:
             # If a specific blog is not selected, send the browser view.
-            s = search.lower()
-            matches = [i for i in dbc if s in f"{i.title} {i.text}".lower()]
+            s = search.casefold()
+            matches = [i for i in dbc if s in f"{i.title} {i.text}".casefold()]
             view = DevBlogView(interaction, pages=matches)
             return await view.update()
 

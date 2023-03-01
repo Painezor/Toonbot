@@ -3,6 +3,7 @@
 from __future__ import annotations  # Cyclic Type hinting
 
 from asyncio import sleep, Semaphore
+import io
 from typing import Optional, TYPE_CHECKING, Type, ClassVar
 import typing
 import logging
@@ -52,18 +53,42 @@ _ticker_tasks = set()
 logger = logging.getLogger("ticker.py")
 
 
+async def get_table(bot: Bot, link: str):
+
+    page = await bot.browser.new_page()
+    await page.goto(link, timeout=5000)
+
+    # Chaining Locators is fucking aids.
+    # Thank you for coming to my ted talk.
+    inner = page.locator(".tableWrapper")
+    outer = page.locator("div", has=inner)
+    table_div = page.locator("div", has=outer).last
+
+    try:
+        await table_div.wait_for(state="visible", timeout=5000)
+    except TimeoutError:
+        return ""
+
+    js = "ads => ads.forEach(x => x.remove());"
+    await page.eval_on_selector_all(fs.ADS, js)
+
+    image = await table_div.screenshot(type="png")
+    await page.close()
+    return await bot.dump_image(io.BytesIO(image))
+
+
 async def lg_ac(
     interaction: Interaction[Bot], cur: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from list of stored leagues"""
-    cur = cur.lower()
+    cur = cur.casefold()
 
     choices = []
     for i in interaction.client.competitions:
         if not i.id:
             continue
 
-        if cur in i.title.lower():
+        if cur in i.title.casefold():
             name = i.title[:100]
             choices.append(discord.app_commands.Choice(name=name, value=i.id))
     return choices[:25]
@@ -739,7 +764,8 @@ class Ticker(Cog):
         if records:
             match event_type:
                 case EventType.GOAL | EventType.FULL_TIME:
-                    await fixture.competition.get_table()
+                    url = f"{fixture.competition.url}/standings/"
+                    fixture.competition.table = await get_table(self.bot, url)
 
         channels: list[TickerChannel] = []
         long: bool = False

@@ -348,26 +348,34 @@ async def quote_add(ctx: Interaction[Bot], message: Message) -> Message:
 
 async def quote_ac(ctx: Interaction[Bot], current: str) -> list[Choice[str]]:
     """Autocomplete from guild quotes"""
-    bot: Bot = ctx.client
 
-    qdb = bot.quotes
-    if ctx.guild:
-        results = [i for i in qdb if i["guild_id"] == ctx.guild.id]
-    else:
-        results = qdb
-
-    if (u := ctx.namespace.user) is not None:
-        results = [i for i in results if i["author_user_id"] == u.id]
+    cur = current.casefold()
 
     results = []
-    for r in results:
-        auth = bot.get_user(r["author_user_id"])
+
+    client = ctx.client
+    for r in client.quotes:
+        if ctx.guild and r["guild_id"] != ctx.guild:
+            continue
+
+        if ctx.namespace.user is not None:
+            if r["author_user_id"] != ctx.namespace.user.id:
+                continue
+
+        if cur not in r["message_content"].casefold():
+            continue
+
+        auth = client.get_user(r["author_user_id"])
         cont = r["message_content"]
         qid = r["quote_id"]
         fmt = f"#{qid}: {auth} {cont}"[:100]
-        if current.lower() in cont.lower():
-            results.append(Choice(name=fmt, value=str(qid)))
-    return results[:25]
+
+        results.append(Choice(name=fmt, value=str(qid)))
+
+        if len(results) == 25:
+            break
+
+    return results
 
 
 class QuoteDB(commands.Cog):

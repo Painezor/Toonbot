@@ -157,8 +157,8 @@ class NUFCSidebar(Cog):
 
             cols = [team] + p[3:7] + p[9:11]  # [t] [p, w, d, l] [gd, pts]
 
-            q = qry.lower()
-            t = team.lower()
+            q = qry.casefold()
+            t = team.casefold()
             table += " | ".join([f"**{i}**" if q in t else i for i in cols])
             table += "\n"
 

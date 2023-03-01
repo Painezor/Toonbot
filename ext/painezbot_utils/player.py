@@ -73,7 +73,7 @@ class Map:
     @property
     def ac_match(self) -> str:
         """Autocomplete match for this map"""
-        return f"{self.name}: {self.description} {self.icon}"
+        return f"{self.name}: {self.description} {self.icon}".casefold()
 
     @property
     def embed(self) -> Embed:

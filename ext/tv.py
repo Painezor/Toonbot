@@ -8,14 +8,13 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import discord
 from discord import Embed, Interaction, Message
-from discord.app_commands import autocomplete, Choice
+from discord.app_commands import Choice
 from discord.ext import commands
 from lxml import html
 
 from ext.utils import view_utils
 from ext.utils.embed_utils import rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Paginator
 
 if TYPE_CHECKING:
     from core import Bot
@@ -78,9 +77,15 @@ async def tv_ac(
     interaction: Interaction[Bot], current: str
 ) -> list[Choice[str]]:
     """Return list of live teams"""
-    dct = interaction.client.tv_dict.keys()
-    cr = current.lower()
-    return [Choice(name=x[:100], value=x) for x in dct if cr in x.lower()][:25]
+    cr = current.casefold()
+
+    choices = []
+    for x in interaction.client.tv_dict.keys():
+        if cr not in x.casefold():
+            continue
+        choices.append(discord.app_commands.Choice(name=x[:100], value=x))
+
+    return choices[:25]
 
 
 class Tv(commands.Cog):
@@ -112,7 +117,9 @@ class Tv(commands.Cog):
 
             else:
                 dct = self.bot.tv_dict
-                matches = [i for i in dct if team.lower() in i.lower()]
+
+                tm = team.casefold()
+                matches = [i for i in dct if tm in i.casefold()]
 
                 if not matches:
                     err = f"Could not find a matching team for {team}."
@@ -177,7 +184,8 @@ class Tv(commands.Cog):
         if not rows:
             rows = [f"No televised matches found, check online at {e.url}"]
 
-        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
+        v = view_utils.Paginator(interaction, rows_to_embeds(e, rows))
+        return await v.update()
 
 
 async def setup(bot: Bot) -> None:

@@ -22,7 +22,7 @@ from discord.app_commands.checks import bot_has_permissions
 from discord.ext.commands import Cog
 from discord.ui import Select, Modal, TextInput
 
-from ext.utils.view_utils import BaseView
+from ext.utils import view_utils
 
 if TYPE_CHECKING:
     from discord import Interaction, Message
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("bans")
 
 
-class BanView(BaseView):
+class BanView(view_utils.BaseView):
     """View to hold the BanList"""
 
     def __init__(

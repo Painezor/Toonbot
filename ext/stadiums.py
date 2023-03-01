@@ -69,6 +69,8 @@ async def get_stadiums(
     stadiums: list[Stadium] = []
 
     xp = ".//div[@class='using-grid'][1]/div[@class='grid']/div"
+
+    qry = query.casefold()
     for i in tree.xpath(xp):
 
         xp = ".//small/preceding-sibling::a//text()"
@@ -83,7 +85,7 @@ async def get_stadiums(
 
         for s in i.xpath(".//small/following-sibling::a"):
             name = "".join(s.xpath(".//text()")).title()
-            if query.lower() not in name.lower() + team.lower():
+            if qry not in f"{name} {team}".casefold():
                 continue  # Filtering.
 
             stadium = Stadium()
