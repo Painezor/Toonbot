@@ -233,7 +233,7 @@ class Booking(MatchEvent):
             o.append(self.player.markdown)
 
         if self.note:
-            if self.note.lower().strip() != "yellow card":
+            if self.note.casefold().strip() != "yellow card":
                 o.append(f"({self.note})")
         return " ".join(o)
 
