@@ -122,25 +122,24 @@ class TickerEvent:
             False: e.set_author(name=f"{m} ({self.fixture.away.name})"),
         }[self.home]
 
-        match self.event_type:
-            case EventType.PENALTY_RESULTS:
-                ph = self.fixture.penalties_home
-                pa = self.fixture.penalties_away
-                if ph is None or pa is None:
-                    e.description = self.fixture.score_line
-                else:
-                    h, a = ("**", "") if ph > pa else ("", "**")
-                    score = f"{ph} - {pa}"
-                    home = f"{h}{self.fixture.home.name}{h}"
-                    away = f"{a}{self.fixture.away.name}{a}"
-                    e.description = f"{home} {score} {away}\n"
+        if self.event_type == EventType.PENALTY_RESULTS:
+            ph = self.fixture.penalties_home
+            pa = self.fixture.penalties_away
+            if ph is None or pa is None:
+                e.description = self.fixture.score_line
+            else:
+                h, a = ("**", "") if ph > pa else ("", "**")
+                score = f"{ph} - {pa}"
+                home = f"{h}{self.fixture.home.name}{h}"
+                away = f"{a}{self.fixture.away.name}{a}"
+                e.description = f"{home} {score} {away}\n"
 
-                ev = self.fixture.events
-                pens = [i for i in ev if isinstance(i, Penalty) and i.shootout]
-                # iterate through everything after penalty header
-                for team in set(i.team for i in pens):
-                    if value := [str(i) for i in pens if i.team == team]:
-                        e.add_field(name=team, value="\n".join(value))
+            ev = self.fixture.events
+            pens = [i for i in ev if isinstance(i, Penalty) and i.shootout]
+            # iterate through everything after penalty header
+            for team in set(i.team for i in pens):
+                if value := [str(i) for i in pens if i.team == team]:
+                    e.add_field(name=team, value="\n".join(value))
 
         # Append our event
         if self.event is not None:
@@ -202,7 +201,7 @@ class TickerEvent:
             else:
                 await self._embed()
             for x in self.channels:
-                await x.dispatch(self)
+                await x.output(self)
             return  # Done.
 
         index: Optional[int] = None
@@ -235,7 +234,8 @@ class TickerEvent:
                         index = self.fixture.events.index(self.event)
                     except IndexError:
                         ev = "\n".join(set(str(type(i)) for i in events))
-                        logger.error("Can't find %s in %s", ev, valid)
+                        logger.error("Can't find %s in %s", valid, ev)
+                        logger.error(f"Event is {self.event_type}")
 
             else:
                 try:
@@ -252,6 +252,14 @@ class TickerEvent:
                 if self.event and self.event.player:
                     break
 
+            if self.long:
+                await self._full_embed()
+            else:
+                await self._embed()
+
+            for ch in self.channels:
+                await ch.output(self)
+
             await sleep(x + 1 * 120)
 
         if self.long:
@@ -260,7 +268,7 @@ class TickerEvent:
             await self._embed()
 
         for ch in self.channels:
-            await ch.dispatch(self)
+            await ch.output(self)
 
 
 class TickerChannel:
@@ -275,7 +283,7 @@ class TickerChannel:
         self.dispatched: dict[TickerEvent, Message] = {}
 
     # Send messages
-    async def dispatch(self, event: TickerEvent) -> Optional[Message]:
+    async def output(self, event: TickerEvent) -> Optional[Message]:
         """Send the appropriate embed to this channel"""
         # Check if we need short or long embed.
         # For each stored db_field value,
@@ -707,7 +715,7 @@ class Ticker(Cog):
         self,
         event_type: EventType,
         fixture: fs.Fixture,
-        home: Optional[bool] = False,
+        home: Optional[bool] = None,
     ) -> Optional[TickerEvent]:
         """Event handler for when something occurs during a fixture."""
         # Update the competition's Table on certain events.

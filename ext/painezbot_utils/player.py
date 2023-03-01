@@ -901,7 +901,7 @@ class PlayerView(BaseView):
         self.clear_items()
         self.add_item(
             FuncButton(
-                func=self.overview,
+                function=self.overview,
                 label="Profile",
                 emoji="🔘",
                 disabled=self._disabled == self.overview,
@@ -921,7 +921,7 @@ class PlayerView(BaseView):
         if self.mode.tag != "CLAN":
             self.add_item(
                 FuncButton(
-                    func=self.weapons,
+                    function=self.weapons,
                     label="Armaments",
                     disabled=self._disabled == self.weapons,
                     row=0,
@@ -988,7 +988,7 @@ class PlayerView(BaseView):
                 )
                 self.add_item(
                     FuncButton(
-                        func=f,
+                        function=f,
                         kwargs={"div_size": 0, "mode": easy},
                         label="Pre-Made",
                         row=1,
@@ -998,7 +998,7 @@ class PlayerView(BaseView):
                 )
                 self.add_item(
                     FuncButton(
-                        func=f,
+                        function=f,
                         kwargs={"div_size": 1, "mode": easy},
                         label="Solo",
                         row=1,
@@ -1008,7 +1008,7 @@ class PlayerView(BaseView):
                 )
                 self.add_item(
                     FuncButton(
-                        func=f,
+                        function=f,
                         kwargs={"mode": hard},
                         label="Hard Mode",
                         row=1,
@@ -1020,7 +1020,7 @@ class PlayerView(BaseView):
                 emoji = self.mode.emoji
                 self.add_item(
                     FuncButton(
-                        func=f,
+                        function=f,
                         kwargs={"div_size": 0},
                         label="Overall",
                         row=1,
@@ -1030,7 +1030,7 @@ class PlayerView(BaseView):
                 )
                 self.add_item(
                     FuncButton(
-                        func=f,
+                        function=f,
                         kwargs={"div_size": 1},
                         label="Solo",
                         row=1,
@@ -1040,7 +1040,7 @@ class PlayerView(BaseView):
                 )
                 self.add_item(
                     FuncButton(
-                        func=f,
+                        function=f,
                         kwargs={"div_size": 2},
                         label="Division (2)",
                         row=1,
@@ -1050,7 +1050,7 @@ class PlayerView(BaseView):
                 )
                 self.add_item(
                     FuncButton(
-                        func=f,
+                        function=f,
                         kwargs={"div_size": 3},
                         label="Division (3)",
                         row=1,

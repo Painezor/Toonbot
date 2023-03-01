@@ -615,7 +615,9 @@ class CompetitionView(BaseView):
         self.add_page_buttons()
 
         self.add_item(
-            FuncButton(label="Attendances", func=self.attendance, emoji="🏟️")
+            FuncButton(
+                label="Attendances", function=self.attendance, emoji="🏟️"
+            )
         )
 
         e = self.pages[self.index]

@@ -107,7 +107,7 @@ def get_flag(country: str | list[str]) -> str:
 
         c = country_dict.get(c, c)
 
-        match c.lower():
+        match c.casefold():
             case "england" | "en":
                 output.append("🏴󠁧󠁢󠁥󠁮󠁧󠁿")
             case "scotland":
@@ -140,16 +140,16 @@ def get_flag(country: str | list[str]) -> str:
                 output.append("🇪🇺")
             case "other":
                 output.append("🌍")
+            case _:
+                # Check if py country has country
+                try:
+                    c = countries.get(name=c.title()).alpha_2
+                except (KeyError, AttributeError):
+                    pass
 
-        # Check if py country has country
-        try:
-            c = countries.get(name=c.title()).alpha_2
-        except (KeyError, AttributeError):
-            pass
+                if len(c) != 2:
+                    logging.info(f"No flag country found for {c}")
+                    continue
 
-        if len(c) != 2:
-            logging.info(f"No flag country found for {c}")
-            continue
-
-        output.append("".join(UNI_DICT[i] for i in c.lower() if i))
+                output.append("".join(UNI_DICT[i] for i in c.lower() if i))
     return " ".join(output)

@@ -239,13 +239,15 @@ class QuotesView(BaseView):
                 | discord.CategoryChannel
                 | NoneType,
             ):
-                message = await channel.fetch_message(quote["message_id"])
-
                 btn = discord.ui.Button(row=3, emoji="🔗")
                 btn.style = discord.ButtonStyle.link
-                btn.url = message.jump_url
-                btn.row = 3
 
+                gid = quote["guild_id"]
+                cid = quote["channel_id"]
+                mid = quote["message_id"]
+
+                btn.url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
+                btn.row = 3
                 self.jump_button = btn
                 self.add_item(self.jump_button)
 

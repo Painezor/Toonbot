@@ -1,13 +1,13 @@
 """Lookups of Live Football Data for teams, fixtures, and competitions."""
 # TODO: GLOBAL Nuke page.content in favour of locator.inner_html()
 # TODO: Team dropdown on Competition
+# TODO: Standings => Team Dropdown
 # TODO: FixtureView.photos
 # TODO: FixtureView.report
 # TODO: FixtureView.scorers
-# TODO: TeamView.fixtures => Dropdowns for Fixture Select
-# TODO: TeamView.results => Dropdowns for Fixture Select
-# TODO: TeamView.transfers => Dropdowns for Teams & Competitions
-# TODO: TeamView.squad => Sort by Squad Number
+# TODO: Fixtures => Dropdowns for Fixture Select
+# TODO: Results => Dropdowns for Fixture Select
+# TODO: Transfers => Dropdowns for Teams & Competitions
 # TODO: TeamView.squda => Enumerate when not sorting by squad number.
 # TODO: GLOBAL change all .lower() to .casefold() because fuck you germans.
 
@@ -29,7 +29,6 @@ from discord.ext import commands
 
 # Custom Utils
 from lxml import html
-from playwright.async_api import Page
 
 import ext.toonbot_utils.flashscore as fs
 from ext.toonbot_utils.flashscore_search import fs_search
@@ -37,9 +36,9 @@ from ext.utils import view_utils, embed_utils, image_utils, timed_events
 
 if TYPE_CHECKING:
     from core import Bot
+    from playwright.async_api import Page
 
 logger = logging.getLogger("Fixtures")
-semaphore = asyncio.Semaphore(5)
 
 JS = "ads => ads.forEach(x => x.remove());"
 TEAM_NAME = "Enter the name of a team to search for"
@@ -83,6 +82,29 @@ async def set_default(
 
 
 # Autocompletes
+async def fx_ac(
+    interaction: discord.Interaction[Bot], current: str
+) -> list[Choice[str]]:
+    """Check if user's typing is in list of live games"""
+    cur = current.lower()
+
+    choices = []
+    for i in interaction.client.games:
+        if cur and cur not in i.ac_row.lower():
+            continue
+
+        if i.id is None:
+            continue
+
+        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=i.id)
+        choices.append(choice)
+
+    if current:
+        v = f"🔎 Search for '{current}'"
+        choices = choices[:24] + [Choice(name=v, value=current)]
+    return choices
+
+
 async def team_ac(
     interaction: discord.Interaction[Bot], current: str
 ) -> list[Choice[str]]:
@@ -120,7 +142,7 @@ async def comp_ac(
     lgs = sorted(interaction.client.competitions, key=lambda x: x.title)
 
     if "default" not in interaction.extras:
-        await set_default(interaction, "default_team")
+        await set_default(interaction, "default_league")
 
     curr = current.lower()
 
@@ -135,45 +157,1240 @@ async def comp_ac(
     return list(opts[:25])
 
 
-async def fx_ac(
-    interaction: discord.Interaction[Bot], current: str
-) -> list[Choice[str]]:
-    """Check if user's typing is in list of live games"""
-    cur = current.lower()
-
-    choices = []
-    for i in interaction.client.games:
-        if cur and cur not in i.ac_row.lower():
-            continue
-
-        if i.id is None:
-            continue
-
-        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=i.id)
-        choices.append(choice)
-
-    if current:
-        v = f"🔎 Search for '{current}'"
-        choices = choices[:24] + [Choice(name=v, value=current)]
-    return choices
-
-
 # Searching
-async def fetch_comp(
-    interaction: discord.Interaction[Bot], comp: str
-) -> fs.Competition:
-    if fsr := interaction.client.get_competition(comp):
+async def fetch_comp(i: discord.Interaction[Bot], comp: str) -> fs.Competition:
+    if fsr := i.client.get_competition(comp):
         return fsr
 
-    comps = await fs_search(interaction, comp, mode="comp")
+    comps = await fs_search(i, comp, mode="comp")
     comps = typing.cast(list[fs.Competition], comps)
 
-    await (v := CompetitionSelect(interaction, comps)).update()
+    await (v := CompetitionSelect(i, comps)).update()
     await v.wait()
 
     if not v.value:
         raise TimeoutError
     return next(i for i in comps if i.id == v.value[0])
+
+
+async def fetch_team(i: discord.Interaction[Bot], team: str) -> fs.Team:
+    if fsr := i.client.get_team(team):
+        return fsr
+
+    teams = await fs_search(i, team, mode="team")
+    teams = typing.cast(list[fs.Team], teams)
+
+    await (v := TeamSelect(i, teams)).update()
+    await v.wait()
+
+    if not v.value:
+        raise TimeoutError
+    return next(i for i in teams if i.id == v.value[0])
+
+
+class ItemView(view_utils.BaseView):
+
+    bot: Bot
+    interaction: discord.Interaction[Bot]
+
+    def __init__(
+        self, interaction: discord.Interaction[Bot], **kwargs
+    ) -> None:
+        super().__init__(interaction, **kwargs)
+
+        self.page: Optional[Page] = None
+
+    @property
+    def object(self) -> fs.Team | fs.Competition | fs.Fixture:
+        if isinstance(self, TeamView):
+            return self.team
+        elif isinstance(self, FixtureView):
+            return self.fixture
+        elif isinstance(self, CompetitionView):
+            return self.competition
+        else:
+            raise
+
+    async def on_timeout(self) -> None:
+        if self.page and not self.page.is_closed():
+            await self.page.close()
+
+        r = self.interaction.edit_original_response
+        await r(view=None)
+
+    async def handle_tabs(self) -> int:
+        """Generate our buttons. Returns the next free row number"""
+        self.clear_items()
+
+        if self.page is None:
+            raise AttributeError("self.page is None")
+
+        # row_0 = []
+        # if self.object.competition is not None:
+        #     cmp = self.fixture.competition
+        #     func = CompetitionView(
+        #         self.interaction, cmp, parent=self.summary
+        #     ).update
+        #     row_0.append(view_utils.Funcable(cmp.title, func, emoji="🏆"))
+
+        # if self.fixture.home.id:
+        #     hm = self.fixture.home
+        #     func = TeamView(self.interaction, hm, parent=self.summary).update
+        #     self.add_item(
+        #         view_utils.FuncButton(self.fixture.home.name, func, emoji="👕")
+        #     )
+
+        # if self.fixture.away.id:
+        #     func = TeamView(
+        #         self.interaction, self.fixture.away, parent=self
+        #     ).update
+        #     self.add_item(
+        #         view_utils.FuncButton(self.fixture.away.name, func, emoji="👕")
+        #     )
+
+        # self.add_function_row(row_0, row=0)
+
+        # key: [Item, Item, Item, ...]
+        rows: dict[int, list[view_utils.Funcable]] = dict()
+        row = 1
+        # Main Tabs
+        tag = "div.tabs__group"
+        for i in range(await (loc := self.page.locator(tag)).count()):
+            rows[row] = []
+            for o in range(await (sub_loc := loc.nth(i).locator("a")).count()):
+                text = await sub_loc.nth(o).text_content()
+
+                if not text:
+                    continue
+
+                link = await sub_loc.nth(o).get_attribute("href")
+
+                # if text == "Archive":
+                #   f = view_utils.Funcable(text, self.archive)
+                #   f.description = "Previous Season Results"
+                #   f.disabled = True
+                #   f.style = discord.ButtonStyle.red
+
+                if text == "Fixtures":
+                    f = view_utils.Funcable(text, self.fixtures)
+                    f.description = "Upcoming Fixtures"
+
+                elif text == "H2H":
+                    f = view_utils.Funcable(text, self.h2h)
+                    f.description = "Head to Head Data"
+                    f.emoji = "⚔"
+
+                elif text == "Lineups":
+                    f = view_utils.Funcable(text, self.lineups)
+
+                elif text == "News":
+                    f = view_utils.Funcable(text, self.news)
+                    f.emoji = "📰"
+
+                elif text == "Photos":
+                    f = view_utils.Funcable(text, self.photos)
+                    f.emoji = "📷"
+                    f.style = discord.ButtonStyle.red
+
+                elif text == "Report":
+                    f = view_utils.Funcable(text, self.report)
+                    f.emoji = "📰"
+
+                elif text == "Results":
+                    f = view_utils.Funcable(text, self.results)
+                    f.description = "Recent Results"
+
+                elif text == "Standings":
+                    f = view_utils.Funcable(text, self.standings)
+                    f.description = "Current League Table"
+
+                elif text in ["Form", "HT/FT", "Live Standings", "Over/Under"]:
+                    f = view_utils.Funcable(text, self.standings)
+
+                    if link:
+                        link = f"{self.object.url}/standings/{link}"
+                    f.args = [link]
+
+                elif text == "Squad":
+                    f = view_utils.Funcable(text, self.squad)
+                    f.description = "Team Squad Members"
+
+                elif text == "Stats":
+                    f = view_utils.Funcable(text, self.stats)
+
+                elif text in ["Summary", "Match"]:
+                    if not isinstance(self.object, fs.Fixture):
+                        continue  # Summary is garbage on everything else.
+
+                    f = view_utils.Funcable(text, self.summary)
+                    f.description = "A list of match events"
+
+                elif text == "Odds":
+                    # TODO: Figure out if we want to encourage Gambling
+                    continue
+
+                elif text == "Top Scorers":
+                    f = view_utils.Funcable(text, self.scorers)
+                    f.emoji = "⚽"
+                    f.style = discord.ButtonStyle.red
+
+                elif text == "Transfers":
+                    f = view_utils.Funcable(text, self.transfers)
+                    f.style = discord.ButtonStyle.red
+                    f.description = "Recent Transfers"
+                    f.emoji = "<:inbound:1079808760194814014>"
+
+                elif text == "Video":
+                    f = view_utils.Funcable(text, self.video)
+                    f.emoji = "📹"
+                    f.description = "Videos and Highlights"
+
+                else:
+                    logger.info("%s found extra tab %s", type(self), text)
+                    continue
+
+                if row == 1:
+                    f.style = discord.ButtonStyle.blurple
+
+                active = "aria-current"
+                b = await sub_loc.nth(o).get_attribute(active) is not None
+                f.disabled = b
+
+                rows[row].append(f)
+            row += 1
+
+        for k, v in rows.items():
+            ph = f"{', '.join([i.label for i in v])}"
+            self.add_function_row(v, k, ph)
+        return row
+
+    async def archive(self) -> None:
+        raise NotImplementedError
+
+    # Fixture Only
+    async def h2h(
+        self, team: Literal["overall", "home", "away"] = "overall"
+    ) -> discord.InteractionMessage:
+        """Get results of recent games for each team in the fixture"""
+        if not isinstance(self, FixtureView):
+            raise NotImplementedError
+
+        e = await self.object.base_embed()
+        e.description = e.description or ""
+
+        if not isinstance(self, FixtureView):
+            raise
+
+        e.title = {
+            "overall": "Head to Head: Overall",
+            "home": f"Head to Head: {self.fixture.home.name} at Home",
+            "away": f"Head to Head: {self.fixture.away.name} Away",
+        }[team]
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        e.url = f"{self.fixture.url}/#/h2h/{team}"
+        await self.page.goto(e.url, timeout=5000)
+        await self.page.wait_for_selector(".h2h", timeout=5000)
+        row = await self.handle_tabs()
+        rows = {}
+
+        locator = self.page.locator(".subTabs")
+
+        for i in range(await locator.count()):
+            rows[row] = []
+
+            sub_loc = locator.nth(i).locator("a")
+
+            for o in range(await sub_loc.count()):
+
+                text = await sub_loc.nth(o).text_content()
+                if not text:
+                    continue
+
+                a = "aria-current"
+                b = await sub_loc.nth(o).get_attribute(a) is not None
+                f = view_utils.Funcable(text, self.h2h, disabled=b)
+                f.disabled = b
+                match o:
+                    case 0:
+                        f.args = ["overall"]
+                    case 1:
+                        f.args = ["home"]
+                    case 2:
+                        f.args = ["away"]
+                    case _:
+                        logger.info("Extra Buttons Found: H2H %s", text)
+                rows[row].append(f)
+            row += 1
+
+        for k, v in rows.items():
+            ph = f"{', '.join([i.label for i in v])}"
+            self.add_function_row(v, k, ph)
+
+        tree = html.fromstring(await self.page.inner_html(".h2h"))
+
+        game: html.HtmlElement
+        xp = './/div[@class="rows" or @class="section__title"]'
+
+        for row in tree.xpath(xp):
+            if "section__title" in row.classes:
+                header = row.xpath(".//text()")[0]
+                e.description += f"\n**{header}**\n"
+                continue
+
+            for game in row:
+                xp = './/span[contains(@class, "homeParticipant")]//text()'
+                home = "".join(game.xpath(xp)).strip().title()
+
+                xp = './/span[contains(@class, "awayParticipant")]//text()'
+                away = "".join(game.xpath(xp)).strip().title()
+
+                # Compare HOME team of H2H fixture to base fixture.
+                xp = './/span[contains(@class, "date")]/text()'
+                ko = game.xpath(xp)[0].strip()
+                ko = datetime.datetime.strptime(ko, "%d.%m.%y")
+                ko = timed_events.Timestamp(ko).relative
+
+                try:
+                    h, a = game.xpath('.//span[@class="h2h__result"]//text()')
+                    # Directly set the private var to avoid the score setter.
+                    e.description += f"{ko} {home} {h} - {a} {away}\n"
+                except ValueError:
+                    strng = game.xpath('.//span[@class="h2h__result"]//text()')
+                    logger.error(f"ValueError trying to split string, {strng}")
+                    e.description += f"{ko} {home} {strng} {away}\n"
+
+        if not e.description:
+            e.description = "Could not find Head to Head Data for this game"
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, attachments=[], view=self)
+
+        # CompetitionView.fixtures
+
+    # Competition, Team
+    async def fixtures(self) -> discord.InteractionMessage:
+        """Push upcoming competition fixtures to View"""
+        if isinstance(self.object, fs.Fixture):
+            raise NotImplementedError
+
+        rows = await fs.parse_games(self.bot, self.object, "/fixtures/")
+        rows = [i.upcoming for i in rows] if rows else ["No Fixtures Found :("]
+
+        embed = await self.object.base_embed()
+
+        embed.title = "Fixtures"
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        await self.page.goto(f"{self.object.url}/fixtures", timeout=5000)
+        await self.page.locator("#live-table").wait_for()
+        await self.handle_tabs()
+
+        self.index = 0
+        self.pages = embed_utils.rows_to_embeds(embed, rows)
+        self._cached_function = None
+        return await self.update()
+
+    # Fixture Only
+    async def lineups(self) -> discord.InteractionMessage:
+        """Push Lineups & Formations Image to view"""
+        if not isinstance(self, FixtureView):
+            raise NotImplementedError
+
+        e = await self.fixture.base_embed()
+        e.title = "Lineups and Formations"
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        e.url = f"{self.fixture.url}#/match-summary/lineups"
+        await self.page.goto(e.url, timeout=5000)
+        await self.page.eval_on_selector_all(fs.ADS, JS)
+        await self.handle_tabs()
+        screenshots = []
+
+        if await (fm := self.page.locator(".lf__fieldWrap")).count():
+            screenshots.append(io.BytesIO(await fm.screenshot()))
+
+        if await (lineup := self.page.locator(".lf__lineUp")).count():
+            screenshots.append(io.BytesIO(await lineup.screenshot()))
+
+        if screenshots:
+            stitch = image_utils.stitch_vertical
+            data = await asyncio.to_thread(stitch, screenshots)
+            file = [discord.File(fp=data, filename="lineups.png")]
+        else:
+            e.description = "Lineups and Formations unavailable."
+            file = []
+        e.set_image(url="attachment://lineups.png")
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, attachments=file, view=self)
+
+    # Fixture Only
+    async def photos(self) -> discord.InteractionMessage:
+        """Push Photos to view"""
+        if not isinstance(self, FixtureView):
+            raise NotImplementedError
+
+        e = await self.fixture.base_embed()
+        e.title = "Fixture - Photos coming soon."
+        logger.info(f"Fixture {self.fixture.score_line} has Photos tab")
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, attachments=[], view=self)
+
+    # Subclassed on Fixture & Team
+    async def news(self) -> discord.InteractionMessage:
+        raise NotImplementedError  # This is subclassed.
+
+    # Fixture Only
+    async def report(self) -> discord.InteractionMessage:
+        """Get the report in text format."""
+        if not isinstance(self, FixtureView):
+            raise NotImplementedError
+
+        e = await self.fixture.base_embed()
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        e.url = f"{self.fixture.url}#/report/"
+        await self.page.goto(e.url, timeout=5000)
+        await self.handle_tabs()
+        loc = ".reportTab"
+        tree = html.fromstring(await self.page.inner_html(loc))
+
+        title = "".join(tree.xpath(".//div[@class='reportTabTitle']/text()"))
+
+        image = "".join(tree.xpath(".//img[@class='reportTabImage']/@src"))
+        if image:
+            e.set_image(url=image)
+        ftr = "".join(tree.xpath(".//span[@class='reportTabInfo']/text()"))
+        e.set_footer(text=ftr)
+
+        xpath = ".//div[@class='reportTabContent']/p/text()"
+        content = [f"{x}\n" for x in tree.xpath(xpath)]
+
+        hdr = f"**{title}**\n\n"
+        self.pages = embed_utils.rows_to_embeds(e, content, 5, hdr, "", 2500)
+        return await self.update()
+
+    # Competition, Team
+    async def results(self) -> discord.InteractionMessage:
+        """Push Previous Results Team View"""
+        if isinstance(self.object, fs.Fixture):
+            raise NotImplementedError  # No.
+
+        rows = await fs.parse_games(self.bot, self.object, "/results/")
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        await self.page.goto(f"{self.object.url}/results", timeout=5000)
+        await self.page.locator("#live-table").wait_for()
+        await self.handle_tabs()
+
+        rows = [i.finished for i in rows] if rows else ["No Results Found :("]
+        embed = await self.object.base_embed()
+        embed = embed.copy()
+        embed.title = "Results"
+
+        self.index = 0
+        self.pages = embed_utils.rows_to_embeds(embed, rows)
+        self._cached_function = None
+        return await self.update()
+
+    # Competition, Fixture, Team
+    async def scorers(
+        self, link: Optional[str] = None
+    ) -> discord.InteractionMessage:
+        """Push Scorers to View"""
+        e = await self.object.base_embed()
+
+        if link is None:
+            link = f"{self.object.url}/standings/"
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        await self.page.goto(link, timeout=5000)
+        if link is None:
+            await self.page.locator("a.tabs__tab").last.click()
+
+        btn = self.page.locator(".showMore")
+        for x in range(await (btn).count()):
+            await btn.nth(x).click()
+        tree = html.fromstring(await self.page.content())
+
+        players = []
+        for i in tree.xpath('.//div[@class="topScorers__row"]'):
+
+            xp = './/div[@class="topScorers__participantCell--player"]//text()'
+            name = "".join(i.xpath(xp))
+
+            logger.info("Name: %s", name)
+            xp = './/div[@class="topScorers__participantCell--player"]//@href'
+            url = fs.FLASHSCORE + "".join(i.xpath(xp))
+            logger.info("Link: %s", link)
+
+            player = fs.Player(None, name, url)
+
+            xp = './/span[contains(@class,"flag")]/@title'
+            player.country = i.xpath(xp)
+
+            xp = './/span[contains(@class, "--goals")]/text()'
+            try:
+                player.goals = int("".join(i.xpath(xp)))
+            except ValueError:
+                pass
+
+            xp = './/span[contains(@class, "--gray")]/text()'
+            try:
+                player.assists = int("".join(i.xpath(xp)))
+            except ValueError:
+                pass
+
+            team_url = fs.FLASHSCORE + "".join(i.xpath("./a/@href"))
+            team_id = team_url.split("/")[-2]
+
+            if (team := self.bot.get_team(team_id)) is None:
+                team_name = "".join(i.xpath(".//a/text()"))
+                team_link = "".join(i.xpath(".//a/@href"))
+                team = fs.Team(team_id, team_name, team_link)
+
+                comp_id = url.split("/")[-2]
+                team.competition = self.bot.get_competition(comp_id)
+
+            player.team = team
+
+            players.append(player)
+        logger.info("Top Scorers Found: %s", players)
+
+    # Team Only
+    async def squad(
+        self,
+        tab_number: int = 0,
+        sort: Optional[str] = None,
+        clear_index: bool = False,
+    ) -> discord.InteractionMessage:
+        """Get the squad of the team, filter or sort, push to view"""
+        if not isinstance(self, TeamView):
+            raise NotImplementedError
+
+        # If we're changing the current sort or filter, we reset the index
+        # to avoid an index error if we were on a later page and this has
+        # fewer items.
+        if clear_index:
+            self.index = 0
+
+        e = await self.team.base_embed()
+        e = e.copy()
+        url = f"{self.team.url}/squad"
+
+        e.title = "Squad"
+        e.description = ""
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        btns = {}
+
+        await self.page.goto(url, timeout=5000)
+        loc = self.page.locator(".lineup").nth(tab_number)
+        await loc.wait_for()
+
+        row = await self.handle_tabs()
+
+        subloc = self.page.locator("role=tablist")
+        for i in range(await loc.count()):
+            btns[row] = []
+
+            sub = subloc.nth(i).locator("button")
+            for o in range(await sub.count()):
+
+                text = await sub.nth(o).text_content()
+
+                if not text:
+                    continue
+
+                if tab_number == o:
+                    e.title += f" ({text})"
+                    await sub.nth(o).click()
+
+                f = view_utils.Funcable(text, self.squad)
+                a = "aria-current"
+                b = await sub.nth(o).get_attribute(a) is not None
+                f.disabled = b
+                f.args = [tab_number]
+                btns[row].append(f)
+            row += 1
+
+        # to_click refers to a button press.
+        tree = html.fromstring(await loc.inner_html())
+
+        def parse_row(row, position: str) -> fs.Player:
+            xpath = './/div[contains(@class, "cell--name")]/a/'
+            link = fs.FLASHSCORE + "".join(row.xpath(xpath + "@href"))
+            name = "".join(row.xpath(xpath + "text()")).strip()
+            try:  # Name comes in reverse order.
+                surname, forename = name.split(" ", 1)
+            except ValueError:
+                forename, surname = None, name
+
+            player = fs.Player(forename, surname, link)
+            player.position = position
+
+            xpath = './/div[contains(@class,"jersey")]/text()'
+            player.squad_number = int("".join(row.xpath(xpath)) or 0)
+            logger.info("#%s", player.squad_number)
+
+            xpath = './/div[contains(@class,"flag")]/@title'
+            player.country = [str(x.strip()) for x in row.xpath(xpath) if x]
+            logger.info(player.country)
+
+            xpath = './/div[contains(@class,"cell--age")]/text()'
+            if age := "".join(row.xpath(xpath)).strip():
+                player.age = int(age)
+
+            xpath = './/div[contains(@class,"cell--goal")]/text()'
+            if goals := "".join(row.xpath(xpath)).strip():
+                player.goals = int(goals)
+
+            xpath = './/div[contains(@class,"matchesPlayed")]/text()'
+            if appearances := "".join(row.xpath(xpath)).strip():
+                player.appearances = int(appearances)
+
+            xpath = './/div[contains(@class,"yellowCard")]/text()'
+            if yellows := "".join(row.xpath(xpath)).strip():
+                player.yellows = int(yellows)
+
+            xpath = './/div[contains(@class,"redCard")]/text()'
+            if reds := "".join(row.xpath(xpath)).strip():
+                player.reds = int(reds)
+
+            xpath = './/div[contains(@title,"Injury")]/@title'
+            player.injury = "".join(row.xpath(xpath)).strip()
+            logger.info("injury %s", player.injury)
+
+            return player
+
+        # Grab All Players.
+        players: list[fs.Player | str] = []
+        for i in tree.xpath('.//div[@class="lineup__rows"]'):
+            # A header row with the player's position.
+            xpath = "./div[@class='lineup__title']/text()"
+            position = "".join(i.xpath(xpath)).strip()
+
+            if not sort:
+                players.append(f"\n**{position}**\n\n")
+
+            pl_rows = i.xpath('.//div[@class="lineup__row"]')
+            players += [parse_row(i, position) for i in pl_rows]
+
+        # Sort our Players
+        if sort:
+            # Remove the header rows.
+            players = [i for i in players if getattr(i, sort)]
+
+            e.set_footer(text=f"Sorted by {sort.replace('_', ' ').title()}")
+
+            players = sorted(
+                players,
+                key=lambda x: getattr(x, sort),
+                reverse=bool(sort in ["goals", "yellows", "reds"]),
+            )
+
+        # Paginate this shit.
+        self.pages = embed_utils.paginate(players, 40)
+        players = self.pages[self.index]
+
+        for label, filt, emoji in [
+            ("Sort by Squad Number", "squad_number", "#️⃣"),
+            ("Sort by Goals", "goals", "⚽"),
+            ("Sort by Red Cards", "reds", "🟥"),
+            ("Sort by Yellow Cards", "yellows", "🟨"),
+            ("Sort by Appearances", "appearances", "👕"),
+            ("Sort by Age", "age", None),
+            ("Show only injured", "injury", fs.INJURY_EMOJI),
+        ]:
+            chk = [i for i in players if isinstance(i, fs.Player)]
+            if not any(getattr(i, filt) for i in chk):
+                continue
+
+            opt = view_utils.Funcable(label, self.squad, [], emoji=emoji)
+
+            tab = tab_number
+            opt.keywords = {
+                "tab_number": tab,
+                "sort": filt,
+                "clear_index": True,
+            }
+            opt.disabled = sort == filt
+            btns[row].append(opt)
+
+        for k, v in btns.items():
+            ph = f"{', '.join([i.label for i in v])}"
+            self.add_function_row(v, k, ph)
+
+        # Build our description & Dropdown.
+        dropdown = []
+        for i in players:
+            if isinstance(i, str):
+                e.description += f"{i}\n"
+                continue
+
+            text = []
+
+            # First Item:
+            if sort:
+                first = str(getattr(i, sort))
+                text.append(f"`{str(first).rjust(2)}.`")
+
+            sqd = i.squad_number
+            if sqd:  # We don't want an empty squad number.
+                text.append(f"`{str(sqd).rjust(2)}.`")
+
+            text.append(i.flag)
+            text.append(i.markdown)
+
+            if sort != "age":
+                text.append(f"({i.age})")
+
+            attrs = []
+            for attr, emoji in [
+                ("appearances", "👕"),
+                ("goals", "⚽"),
+                ("reds", "🟥"),
+                ("🟨", "yellows"),
+            ]:
+                if sort != attr and getattr(i, attr):
+                    attrs.append(f"{emoji} {attr}")
+
+            if attrs:
+                text.append(f'`{" ".join(attrs)}`')
+
+            if i.injury:
+                text.append(f"\n{fs.INJURY_EMOJI} *{i.injury}*")
+
+            flag = i.flag
+            parent = self.squad
+
+            parent = view_utils.FuncButton(self.squad, emoji="🏃‍♂️")
+            v = PlayerView(self.interaction, i, parent=parent).update
+            dropdown.append(view_utils.Funcable(i.name, v, emoji=flag))
+
+        self.add_page_buttons(0)
+        self._cached_function = self.squad
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, view=self)
+
+    # Team only
+    async def transfers(
+        self,
+        click_number: int = 0,
+        label: Optional[str] = "All",
+        clear_index: bool = False,
+    ) -> discord.InteractionMessage:
+        """Get a list of the team's recent transfers."""
+        if not isinstance(self, TeamView):
+            raise NotImplementedError
+
+        if clear_index:
+            self.index = 0
+
+        e = await self.object.base_embed()
+        e = e.copy()
+        e.description = ""
+        e.title = f"Transfers ({label})"
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        e.url = f"{self.object.url}/transfers/"
+        await self.page.goto(e.url, timeout=5000)
+        await self.page.wait_for_selector("section#transfers", timeout=5000)
+        row = await self.handle_tabs()
+
+        tf_buttons = []
+        filters = self.page.locator("button.filter__filter")
+        for o in range(await filters.count()):
+
+            text = await filters.nth(o).text_content()
+            if o == click_number:
+                await filters.nth(o).click(force=True)
+
+            if not text:
+                continue
+
+            show_more = self.page.locator("Show more")
+            max_clicks = 20
+            for _ in range(max_clicks):
+                if await show_more.count():
+                    await show_more.click()
+
+            a = "filter__filter--selected"
+            b = await filters.nth(o).get_attribute(a) is not None
+            f = view_utils.Funcable(text, self.transfers, disabled=b)
+            f.disabled = b
+            match o:
+                case 0:
+                    f.args = [0, "All", True]
+                case 1:
+                    f.args = [1, "Arrivals", True]
+                case 2:
+                    f.args = [2, "Departures", True]
+                case _:
+                    logger.info("Extra Buttons Found: transf %s", text)
+            tf_buttons.append(f)
+
+        self.add_function_row(tf_buttons, row, "Filter Transfers")
+        row += 1
+        tree = html.fromstring(await self.page.inner_html(".transferTab"))
+
+        players: list[fs.Player] = []
+        teams: list[fs.Team] = []
+        embed_rows: list[str] = []
+        for elem in tree.xpath('.//div[@class="transferTab__row"]'):
+            xpath = './/div[@class="transferTab__season"]/text()'
+            date = "".join(elem.xpath(xpath))
+            date = datetime.datetime.strptime(date, "%d.%m.%Y")
+            date = timed_events.Timestamp(date).date
+
+            xpath = './/div[contains(@class, "team--from")]/div/a'
+            name = "".join(elem.xpath(xpath + "/text()"))
+            link = fs.FLASHSCORE + "".join(elem.xpath(xpath + "/@href"))
+
+            logger.info("Transfer player link %s", link)
+
+            try:
+                surname, forename = name.split(" ", 1)
+            except ValueError:
+                forename, surname = None, name
+
+            player = fs.Player(forename, surname, link)
+            player.country = elem.xpath('.//span[@class="flag"]/@title')
+            players.append(player)
+
+            pmd = player.markdown
+
+            inbound = "".join(elem.xpath(".//svg[0]/@class"))
+            if "icon--in" in inbound:
+                emoji = fs.INBOUND_EMOJI
+            else:
+                emoji = fs.OUTBOUND_EMOJI
+
+            tf_type = elem.xpath('.//div[@class="transferTab__text"]/text()')
+            tf_type = "".join(tf_type)
+
+            xpath = './/div[contains(@class, "team--to")]/div/a'
+            team_name = "".join(elem.xpath(xpath + "/text()"))
+            if team_name:
+                tm_lnk = fs.FLASHSCORE + "".join(elem.xpath(xpath + "/@href"))
+
+                team_id = tm_lnk.split("/")[-2]
+                logger.info("Team ID: %s", team_id)
+                team = self.bot.get_team(team_id)
+                if team is None:
+                    team = fs.Team(team_id, team_name, tm_lnk)
+
+                player.team = team
+                teams.append(team)
+
+                tmd = team.markdown
+            else:
+                tmd = ""
+
+            embed_rows.append(f"{pmd} {emoji} {tmd}\n{date} {tf_type}\n")
+
+        self.pages = embed_utils.rows_to_embeds(e, embed_rows, 5)
+        teams = embed_utils.paginate(teams, 5)[self.index]
+        players = embed_utils.paginate(players, 5)[self.index]
+        embed = self.pages[self.index]
+
+        parent = view_utils.FuncButton(self.transfers)
+        parent.emoji = self.object.emoji
+
+        if teams:
+            dropdown = []
+            for team in teams:
+                v = TeamView(self.interaction, team, parent=parent)
+                func = v.transfers
+                f = view_utils.Funcable(team.title, func, emoji="👕")
+                f.description = team.url
+                dropdown.append(f)
+            self.add_function_row(dropdown, row, "Go to Team")
+
+        self.add_page_buttons(0)
+        self._cached_function = self.transfers
+
+        r = self.interaction.edit_original_response
+        return await r(embed=embed, view=self)
+
+    # Competition, Fixture, Team
+    async def standings(
+        self, link: Optional[str] = None
+    ) -> discord.InteractionMessage:
+        """Send Specified Table to view"""
+
+        e = await self.object.base_embed()
+        e.title = "Standings"
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        # Link is an optional passed in override fetched by the
+        # buttons themselves.
+        e.url = link if link else f"{self.object.url}/standings/"
+
+        logger.info(e.url)
+        await self.page.goto(e.url, timeout=5000)
+
+        # Chaining Locators is fucking aids.
+        # Thank you for coming to my ted talk.
+        inner = self.page.locator(".tableWrapper")
+        outer = self.page.locator("div", has=inner)
+        table_div = self.page.locator("div", has=outer).last
+        await table_div.wait_for(state="visible", timeout=5000)
+
+        if isinstance(self, FixtureView | CompetitionView | TeamView):
+            row = await self.handle_tabs()
+        else:
+            row = 0
+        rows = {}
+
+        loc = self.page.locator(".subTabs")
+        for i in range(await loc.count()):
+            rows[row] = []
+
+            sub = loc.nth(i).locator("a")
+            for o in range(await sub.count()):
+
+                text = await sub.nth(o).text_content()
+
+                if not text:
+                    continue
+
+                url = await sub.nth(o).get_attribute("href")
+                f = view_utils.Funcable(text, self.standings)
+                a = "aria-current"
+                b = await sub.nth(o).get_attribute(a) is not None
+                f.disabled = b
+                f.args = [f"{self.object.url}/standings/{url}"]
+                rows[row].append(f)
+            row += 1
+
+        for k, v in rows.items():
+            ph = f"{', '.join([i.label for i in v])}"
+            self.add_function_row(v, k, ph)
+
+        await self.page.eval_on_selector_all(fs.ADS, JS)
+        image = await table_div.screenshot(type="png")
+        file = discord.File(fp=io.BytesIO(image), filename="table.png")
+
+        e.set_image(url="attachment://table.png")
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, attachments=[file], view=self)
+
+    # Fixture Only
+    async def stats(self, half: int = 0) -> discord.InteractionMessage:
+        """Push Stats to View"""
+        if not isinstance(self, FixtureView):
+            raise NotImplementedError
+
+        e = await self.fixture.base_embed()
+
+        match half:
+            case 0:
+                e.title = "Stats"
+            case 1:
+                e.title = "First Half Stats"
+            case 2:
+                e.title = "Second Half Stats"
+            case _:
+                logger.error(f"Fix Half found for fixture {self.fixture.url}")
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        lnk = self.fixture.url
+        e.url = f"{lnk}#/match-summary/match-statistics/{half}"
+        await self.page.goto(e.url, timeout=5000)
+        await self.page.wait_for_selector(".section", timeout=5000)
+        src = await self.page.inner_html(".section")
+
+        row = await self.handle_tabs()
+        rows = {}
+
+        loc = self.page.locator(".subTabs")
+        for i in range(await (loc).count()):
+            rows[row] = []
+
+            sub = loc.nth(i).locator("a")
+            for o in range(await sub.count()):
+
+                text = await sub.nth(o).text_content()
+                if not text:
+                    continue
+
+                f = view_utils.Funcable(text, self.stats)
+
+                a = "aria-current"
+                b = await sub.nth(o).get_attribute(a) is not None
+                f.disabled = b
+                match text:
+                    case "Match":
+                        f.args = [0]
+                    case "1st Half":
+                        f.args = [1]
+                    case "2nd Half":
+                        f.args = [2]
+                    case _:
+                        err = f"Found extra stats row {text}"
+                        logger.error(err)
+                rows[row].append(f)
+            row += 1
+
+        for k, v in rows.items():
+            ph = f"{', '.join([i.label for i in v])}"
+            self.add_function_row(v, k, ph)
+
+        output = ""
+        xp = './/div[@class="stat__category"]'
+        for row in html.fromstring(src).xpath(xp):
+            try:
+                h = row.xpath('.//div[@class="stat__homeValue"]/text()')[0]
+                s = row.xpath('.//div[@class="stat__categoryName"]/text()')[0]
+                a = row.xpath('.//div[@class="stat__awayValue"]/text()')[0]
+                output += f"{h.rjust(4)} [{s.center(19)}] {a.ljust(4)}\n"
+            except IndexError:
+                continue
+
+        if output:
+            e.description = f"```ini\n{output}```"
+        else:
+            e.description = "Could not find stats for this game."
+        r = self.interaction.edit_original_response
+        return await r(embed=e, attachments=[], view=self)
+
+    # Fixture Only
+    async def summary(self) -> discord.InteractionMessage:
+        """Fetch the summary of a Fixture as a text formatted embed"""
+        if not isinstance(self, FixtureView):
+            raise NotImplementedError
+
+        await self.fixture.refresh(self.bot)
+        e = await self.fixture.base_embed()
+
+        e.description = "\n".join(str(i) for i in self.fixture.events)
+        if self.fixture.referee:
+            e.description += f"**Referee**: {self.fixture.referee}\n"
+        if self.fixture.stadium:
+            e.description += f"**Venue**: {self.fixture.stadium}\n"
+        if self.fixture.attendance:
+            e.description += f"**Attendance**: {self.fixture.attendance}\n"
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        e.url = f"{self.fixture.url}#/match-summary/"
+        await self.page.goto(e.url, timeout=5000)
+        await self.handle_tabs()
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, attachments=[], view=self)
+
+    # Fixture Only
+    async def video(self) -> discord.InteractionMessage:
+        """Highlights and other shit."""
+        if not isinstance(self, FixtureView):
+            raise
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        # e.url = f"{self.fixture.link}#/video"
+        url = f"{self.object.url}#/video"
+        await self.page.goto(url, timeout=5000)
+        await self.handle_tabs()
+
+        # e.title = "Videos"
+        # loc = '.keyMoments'
+        # video = (await page.locator(loc).inner_text()).title()
+        url = await self.page.locator("object").get_attribute("data")
+        # OLD: https://www.youtube.com/embed/GUH3NIIGbpo
+        # NEW: https://www.youtube.com/watch?v=GUH3NIIGbpo
+        url = url.replace("embed/", "watch?v=")
+
+        # e.description = f"[{video}]({video_url})"
+        r = self.interaction.edit_original_response
+        return await r(content=url, embed=None, attachments=[], view=self)
+
+    async def update(self) -> discord.InteractionMessage:
+        """Use this to paginate."""
+        # Remove our bottom row.
+        if self._cached_function is not None:
+            return await self._cached_function()
+
+        children = self.children.copy()
+
+        self.clear_items()
+        [self.add_item(x) for x in children if x.row != 0]
+
+        try:
+            embed = self.pages[self.index]
+        except IndexError:
+            embed = self.pages[-1]
+        self.add_page_buttons(0)
+
+        r = self.interaction.edit_original_response
+        return await r(content=None, embed=embed, attachments=[], view=self)
+
+
+class CompetitionView(ItemView):
+    """The view sent to a user about a Competition"""
+
+    bot: Bot
+
+    def __init__(
+        self,
+        interaction: discord.Interaction[Bot],
+        competition: fs.Competition,
+        **kwargs,
+    ) -> None:
+
+        self.competition: fs.Competition = competition
+        super().__init__(interaction, **kwargs)
+
+
+class FixtureView(ItemView):
+    """The View sent to users about a fixture."""
+
+    bot: Bot
+    interaction: discord.Interaction[Bot]
+
+    def __init__(
+        self,
+        interaction: discord.Interaction[Bot],
+        fixture: fs.Fixture,
+        **kwargs,
+    ) -> None:
+        self.fixture: fs.Fixture = fixture
+        super().__init__(interaction, **kwargs)
+
+    # fixture.news
+    async def news(self) -> discord.InteractionMessage:
+        """Push News to view"""
+        e = await self.fixture.base_embed()
+        e.title = "News"
+        e.description = ""
+
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        e.url = f"{self.fixture.url}#/news"
+        await self.page.goto(e.url, timeout=5000)
+        await self.handle_tabs()
+        loc = "section.newsTab__section"
+        tree = html.fromstring(await self.page.inner_html(loc))
+
+        row: html.HtmlEntity
+        for row in tree.xpath('.//a | .//div[@class="section__title"]'):
+            logging.info("Iterating row")
+            if "section__title" in row.classes:
+                header = row.xpath(".//text()")[0]
+                logger.info(f"Header Detected. {header}")
+                e.description += f"\n**{header}**\n"
+                continue
+            link = fs.FLASHSCORE + row.xpath(".//@href")[0]
+            title = row.xpath('.//div[@class="rssNews__title"]/text()')[0]
+
+            xp = './/div[@class="rssNews__description"]/text()'
+            description: str = row.xpath(xp)[0]
+            time, source = description.split(",")
+
+            fmt = "%d.%m.%Y %H:%M"
+            ts = datetime.datetime.strptime(time, fmt)
+            ts = timed_events.Timestamp(ts).relative
+            e.description += f"> [{title}]({link})\n{source} {ts}\n\n"
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, attachments=[], view=self)
+
+
+class TeamView(ItemView):
+    """The View sent to a user about a Team"""
+
+    def __init__(
+        self, interaction: discord.Interaction[Bot], team: fs.Team, **kwargs
+    ) -> None:
+        super().__init__(interaction, **kwargs)
+        self.team: fs.Team = team
+
+        self._cached_function: Optional[Callable] = None
+
+    # Team.news
+    async def news(self) -> discord.InteractionMessage:
+        """Get a list of news articles related to a team in embed format"""
+        if self.page is None:
+            self.page = await self.bot.browser.new_page()
+
+        await self.page.goto(f"{self.team.url}/news", timeout=5000)
+        locator = self.page.locator(".matchBox").nth(0)
+        await locator.wait_for()
+        await self.handle_tabs()
+        tree = html.fromstring(await locator.inner_html())
+
+        items = []
+
+        base_embed = await self.team.base_embed()
+
+        for i in tree.xpath('.//div[@class="rssNews"]'):
+            e = base_embed.copy()
+
+            xpath = './/div[@class="rssNews__title"]/text()'
+            e.title = "".join(i.xpath(xpath))
+
+            xpath = ".//a/@href"
+            e.url = fs.FLASHSCORE + "".join(i.xpath(xpath))
+
+            e.set_image(url="".join(i.xpath(".//img/@src")))
+
+            xpath = './/div[@class="rssNews__perex"]/text()'
+            e.description = "".join(i.xpath(xpath))
+
+            xpath = './/div[@class="rssNews__provider"]/text()'
+            provider = "".join(i.xpath(xpath)).split(",")
+
+            ts = datetime.datetime.strptime(provider[0], "%d.%m.%Y %H:%M")
+            e.timestamp = ts
+            e.set_footer(text=provider[-1].strip())
+            items.append(e)
+
+        self.pages = items
+        return await self.update()
+
+
+class PlayerView(view_utils.BaseView):
+    bot: Bot
+
+    def __init__(
+        self,
+        interaction: discord.Interaction[Bot],
+        player: fs.Player,
+        **kwargs,
+    ):
+        super().__init__(interaction, **kwargs)
+        self.player: fs.Player = player
+
+    async def update(self) -> discord.InteractionMessage:
+        r = self.interaction.edit_original_response
+        return await r(content="Coming Soon!")
 
 
 class CompetitionSelect(view_utils.BaseView):
@@ -215,21 +1432,6 @@ class CompetitionSelect(view_utils.BaseView):
         return await r(embed=e, view=self)
 
 
-async def fetch_team(inter: discord.Interaction[Bot], team: str) -> fs.Team:
-    if fsr := inter.client.get_team(team):
-        return fsr
-
-    teams = await fs_search(inter, team, mode="team")
-    teams = typing.cast(list[fs.Team], teams)
-
-    await (v := TeamSelect(inter, teams)).update()
-    await v.wait()
-
-    if not v.value:
-        raise TimeoutError
-    return next(i for i in teams if i.id == v.value[0])
-
-
 class TeamSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
@@ -265,1220 +1467,6 @@ class TeamSelect(view_utils.BaseView):
         return await r(embed=e, view=self)
 
 
-class ItemView(view_utils.BaseView):
-
-    bot: Bot
-    interaction: discord.Interaction[Bot]
-
-    def __init__(
-        self, interaction: discord.Interaction[Bot], **kwargs
-    ) -> None:
-        super().__init__(interaction, **kwargs)
-
-    async def update(self) -> discord.InteractionMessage:
-        """Use this to paginate."""
-        # Remove our bottom row.
-
-        children = self.children.copy()
-
-        self.clear_items()
-        [self.add_item(x) for x in children if x.row != 4]
-        self.add_page_buttons(4)
-
-        try:
-            embed = self.pages[self.index]
-        except IndexError:
-            embed = self.pages[-1]
-
-        r = self.interaction.edit_original_response
-        return await r(content=None, embed=embed, attachments=[], view=self)
-
-
-class FixtureView(ItemView):
-    """The View sent to users about a fixture."""
-
-    bot: Bot
-    interaction: discord.Interaction[Bot]
-
-    def __init__(
-        self, interaction: discord.Interaction[Bot], fixture: fs.Fixture
-    ) -> None:
-        self.fixture: fs.Fixture = fixture
-        super().__init__(interaction)
-
-    async def handle_tabs(self, page: Page, current_function: Callable) -> int:
-        """Generate our buttons"""
-        self.clear_items()
-
-        row_0 = []
-        if self.fixture.competition is not None:
-            cmp = self.fixture.competition
-            func = CompetitionView(
-                self.interaction, cmp, parent=self.summary
-            ).update
-            row_0.append(view_utils.Funcable(cmp.title, func, emoji="🏆"))
-
-        if self.fixture.home.id:
-            hm = self.fixture.home
-            func = TeamView(self.interaction, hm, parent=self.summary).update
-            self.add_item(
-                view_utils.FuncButton(self.fixture.home.name, func, emoji="👕")
-            )
-
-        if self.fixture.away.id:
-            func = TeamView(
-                self.interaction, self.fixture.away, parent=self
-            ).update
-            self.add_item(
-                view_utils.FuncButton(self.fixture.away.name, func, emoji="👕")
-            )
-
-        # key: [Item, Item, Item, ...]
-        rows: dict[int, list[view_utils.Funcable]] = dict()
-        sl = f"{self.fixture.score_line}"
-
-        row = 1
-        # Main Tabs
-        tag = "div.tabs__group"
-        for i in range(await (loc := page.locator(tag)).count()):
-            rows[row] = []
-            for o in range(await (sub_loc := loc.nth(i).locator("a")).count()):
-                text = await sub_loc.nth(o).text_content()
-
-                if not text:
-                    continue
-
-                f = view_utils.Funcable(text, current_function)
-
-                if row == 1:
-                    f.style = discord.ButtonStyle.blurple
-
-                active = "aria-current"
-                b = await sub_loc.nth(o).get_attribute(active) is not None
-                f.disabled = b
-
-                match text:
-                    case "Form":
-                        f.function = self.standings
-                        f.args = ["form"]
-                    case "H2H":
-                        f.function = self.h2h
-                        f.description = "Head to Head Data"
-                        f.emoji = "⚔"
-                    case "HT/FT":
-                        f.function = self.standings
-                        f.args = ["ht_ft"]
-                    case "Lineups":
-                        f.function = self.lineups
-                    case "Live Standings":
-                        f.function = self.standings
-                        f.args = ["live", None]
-                    case "Match":
-                        f.function = self.summary
-                    case "News":
-                        f.function = self.news
-                        f.emoji = "📰"
-                        f.description = f"News for {sl}"
-                    case "Odds":
-                        # TODO: Figure out if we want to encourage Gambling
-                        continue
-                    case "Over/Under":
-                        f.function = self.standings
-                        f.args = ["over_under"]
-                    case "Photos":
-                        f.function = self.photos
-                        f.emoji = "📷"
-                        f.style = discord.ButtonStyle.red
-                        f.description = f"Photos from {sl}"
-                    case "Report":
-                        f.function = self.report
-                        f.emoji = "📰"
-                    case "Standings":
-                        f.function = self.standings
-                    case "Stats":
-                        f.function = self.stats
-                    case "Summary":
-                        f.function = self.summary
-                        f.description = "A list of match events"
-                    case "Top Scorers":
-                        f.function = self.scorers
-                        f.emoji = "⚽"
-                        f.style = discord.ButtonStyle.red
-                    case "Video":
-                        f.function = self.video
-                        f.emoji = "📹"
-                        f.description = "Videos and Highlights"
-                    case _:
-                        inf = f"Fixture found extra tab named {text}"
-                        logger.info(inf)
-                rows[row].append(f)
-            row += 1
-
-        for k, v in rows.items():
-            ph = f"{', '.join([i.label for i in v])}"
-            self.add_function_row(v, k, ph)
-        return row
-
-    # fixture.h2h
-    async def h2h(
-        self, team: Literal["overall", "home", "away"] = "overall"
-    ) -> discord.InteractionMessage:
-        """Get results of recent games for each team in the fixture"""
-        e = await self.fixture.base_embed()
-        e.description = e.description or ""
-
-        match team:
-            case None | "overall":
-                e.title = "Head to Head: Overall"
-            case "home":
-                e.title = f"Head to Head: {self.fixture.home.name} at Home"
-            case "away":
-                e.title = f"Head to Head: {self.fixture.away.name} Away"
-
-        async with semaphore:
-            page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.fixture.url}/#/h2h/{team}"
-                await page.goto(e.url, timeout=5000)
-                await page.wait_for_selector(".h2h", timeout=5000)
-                row = await self.handle_tabs(page, self.h2h)
-                rows = {}
-
-                locator = page.locator(".subTabs")
-
-                for i in range(await locator.count()):
-                    rows[row] = []
-
-                    sub_loc = locator.nth(i).locator("a")
-
-                    for o in range(await sub_loc.count()):
-
-                        text = await sub_loc.nth(o).text_content()
-                        if not text:
-                            continue
-
-                        a = "aria-current"
-                        b = await sub_loc.nth(o).get_attribute(a) is not None
-                        f = view_utils.Funcable(text, self.h2h, disabled=b)
-                        f.disabled = b
-                        match o:
-                            case 0:
-                                f.args = ["overall"]
-                            case 1:
-                                f.args = ["home"]
-                            case 2:
-                                f.args = ["away"]
-                            case _:
-                                logger.info(
-                                    "Extra Buttons Found: H2H %s", text
-                                )
-                        rows[row].append(f)
-                    row += 1
-
-                for k, v in rows.items():
-                    ph = f"{', '.join([i.label for i in v])}"
-                    self.add_function_row(v, k, ph)
-                tree = html.fromstring(await page.inner_html(".h2h"))
-            finally:
-                await page.close()
-
-        game: html.HtmlElement
-        xp = './/div[@class="rows" or @class="section__title"]'
-        for row in tree.xpath(xp):
-            if "section__title" in row.classes:
-                header = row.xpath(".//text()")[0]
-                e.description += f"\n**{header}**\n"
-                continue
-
-            for game in row:
-                xp = './/span[contains(@class, "homeParticipant")]//text()'
-                home = "".join(game.xpath(xp)).strip().title()
-
-                xp = './/span[contains(@class, "awayParticipant")]//text()'
-                away = "".join(game.xpath(xp)).strip().title()
-
-                # Compare HOME team of H2H fixture to base fixture.
-                xp = './/span[contains(@class, "date")]/text()'
-                ko = game.xpath(xp)[0].strip()
-                ko = datetime.datetime.strptime(ko, "%d.%m.%y")
-                ko = timed_events.Timestamp(ko).relative
-
-                try:
-                    h, a = game.xpath('.//span[@class="h2h__result"]//text()')
-                    # Directly set the private var to avoid the score setter.
-                    e.description += f"{ko} {home} {h} - {a} {away}\n"
-                except ValueError:
-                    strng = game.xpath('.//span[@class="h2h__result"]//text()')
-                    logger.error(f"ValueError trying to split string, {strng}")
-                    e.description += f"{ko} {home} {strng} {away}\n"
-
-        if not e.description:
-            e.description = "Could not find Head to Head Data for this game"
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[], view=self)
-
-    # fixture.lineups
-    async def lineups(self) -> discord.InteractionMessage:
-        """Push Lineups & Formations Image to view"""
-        e = await self.fixture.base_embed()
-        e.title = "Lineups and Formations"
-
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.fixture.url}#/match-summary/lineups"
-                await page.goto(e.url, timeout=5000)
-                await page.eval_on_selector_all(fs.ADS, JS)
-                await self.handle_tabs(page, self.lineups)
-                screenshots = []
-
-                if await (fm := page.locator(".lf__fieldWrap")).count():
-                    screenshots.append(io.BytesIO(await fm.screenshot()))
-
-                if await (lineup := page.locator(".lf__lineUp")).count():
-                    screenshots.append(io.BytesIO(await lineup.screenshot()))
-            finally:
-                await page.close()
-
-        if screenshots:
-            func = image_utils.stitch_vertical
-            data = await asyncio.to_thread(func, screenshots)
-            file = [discord.File(fp=data, filename="lineups.png")]
-        else:
-            e.description = "Lineups and Formations unavailable."
-            file = []
-        e.set_image(url="attachment://lineups.png")
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=file, view=self)
-
-    # fixture.h2h
-    async def news(self) -> discord.InteractionMessage:
-        """Push News to view"""
-        e = await self.fixture.base_embed()
-        e.title = "News"
-        e.description = ""
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.fixture.url}#/news"
-                await page.goto(e.url, timeout=5000)
-                await self.handle_tabs(page, self.news)
-                loc = "section.newsTab__section"
-                tree = html.fromstring(await page.inner_html(loc))
-            finally:
-                await page.close()
-
-        row: html.HtmlEntity
-        for row in tree.xpath('.//a | .//div[@class="section__title"]'):
-            logging.info("Iterating row")
-            if "section__title" in row.classes:
-                header = row.xpath(".//text()")[0]
-                logger.info(f"Header Detected. {header}")
-                e.description += f"\n**{header}**\n"
-                continue
-            link = fs.FLASHSCORE + row.xpath(".//@href")[0]
-            title = row.xpath('.//div[@class="rssNews__title"]/text()')[0]
-
-            xp = './/div[@class="rssNews__description"]/text()'
-            description: str = row.xpath(xp)[0]
-            time, source = description.split(",")
-
-            fmt = "%d.%m.%Y %H:%M"
-            ts = datetime.datetime.strptime(time, fmt)
-            ts = timed_events.Timestamp(ts).relative
-            e.description += f"> [{title}]({link})\n{source} {ts}\n\n"
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[], view=self)
-
-    # fixture.photos
-    async def photos(self) -> discord.InteractionMessage:
-        """Push Photos to view"""
-        e = await self.fixture.base_embed()
-        e.title = "Fixture - Photos coming soon."
-        logger.info(f"Fixture {self.fixture.score_line} has Photos tab")
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[], view=self)
-
-    # fixture.report
-    async def report(self) -> discord.InteractionMessage:
-        """Get the report in text format."""
-        e = await self.fixture.base_embed()
-
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.fixture.url}#/report/"
-                await page.goto(e.url, timeout=5000)
-                await self.handle_tabs(page, self.summary)
-                loc = ".reportTab"
-                tree = html.fromstring(await page.inner_html(loc))
-            finally:
-                await page.close()
-
-        title = "".join(tree.xpath(".//div[@class='reportTabTitle']/text()"))
-
-        image = "".join(tree.xpath(".//img[@class='reportTabImage']/@src"))
-        if image:
-            e.set_image(url=image)
-        ftr = "".join(tree.xpath(".//span[@class='reportTabInfo']/text()"))
-        e.set_footer(text=ftr)
-
-        xpath = ".//div[@class='reportTabContent']/p/text()"
-        content = [f"{x}\n" for x in tree.xpath(xpath)]
-
-        hdr = f"**{title}**\n\n"
-        self.pages = embed_utils.rows_to_embeds(e, content, 5, hdr, "", 2500)
-        return await self.update()
-
-    # fixture.scorers
-    async def scorers(self) -> discord.InteractionMessage:
-        """Push Scorers to View"""
-        e = await self.fixture.base_embed()
-        e.title = "Fixture - Scorers coming soon."
-        logger.info(f"Fixture {self.fixture.url} has Top Scorers tab")
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[], view=self)
-
-    # Fixture.stats
-    async def stats(self, half: int = 0) -> discord.InteractionMessage:
-        """Push Stats to View"""
-        e = await self.fixture.base_embed()
-
-        match half:
-            case 0:
-                e.title = "Stats"
-            case 1:
-                e.title = "First Half Stats"
-            case 2:
-                e.title = "Second Half Stats"
-            case _:
-                logger.error(f"Fix Half found for fixture {self.fixture.url}")
-
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                lnk = self.fixture.url
-                e.url = f"{lnk}#/match-summary/match-statistics/{half}"
-                await page.goto(e.url, timeout=5000)
-                await page.wait_for_selector(".section", timeout=5000)
-                src = await page.inner_html(".section")
-
-                row = await self.handle_tabs(page, self.stats)
-                rows = {}
-
-                loc = page.locator(".subTabs")
-                for i in range(await (loc).count()):
-                    rows[row] = []
-
-                    sub = loc.nth(i).locator("a")
-                    for o in range(await sub.count()):
-
-                        text = await sub.nth(o).text_content()
-                        if not text:
-                            continue
-
-                        f = view_utils.Funcable(text, self.stats)
-
-                        a = "aria-current"
-                        b = await sub.nth(o).get_attribute(a) is not None
-                        f.disabled = b
-                        match text:
-                            case "Match":
-                                f.args = [0]
-                            case "1st Half":
-                                f.args = [1]
-                            case "2nd Half":
-                                f.args = [2]
-                            case _:
-                                err = f"Found extra stats row {text}"
-                                logger.error(err)
-                        rows[row].append(f)
-                    row += 1
-
-                for k, v in rows.items():
-                    ph = f"{', '.join([i.label for i in v])}"
-                    self.add_function_row(v, k, ph)
-            finally:
-                await page.close()
-
-        output = ""
-        xp = './/div[@class="stat__category"]'
-        for row in html.fromstring(src).xpath(xp):
-            try:
-                h = row.xpath('.//div[@class="stat__homeValue"]/text()')[0]
-                s = row.xpath('.//div[@class="stat__categoryName"]/text()')[0]
-                a = row.xpath('.//div[@class="stat__awayValue"]/text()')[0]
-                output += f"{h.rjust(4)} [{s.center(19)}] {a.ljust(4)}\n"
-            except IndexError:
-                continue
-
-        if output:
-            e.description = f"```ini\n{output}```"
-        else:
-            e.description = "Could not find stats for this game."
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[], view=self)
-
-    # Fixture.summary
-    async def summary(self) -> discord.InteractionMessage:
-        """Fetch the summary of a Fixture as a link to an image"""
-        await self.fixture.refresh(self.bot)
-        e = await self.fixture.base_embed()
-
-        e.description = "\n".join(str(i) for i in self.fixture.events)
-        if self.fixture.referee:
-            e.description += f"**Referee**: {self.fixture.referee}\n"
-        if self.fixture.stadium:
-            e.description += f"**Venue**: {self.fixture.stadium}\n"
-        if self.fixture.attendance:
-            e.description += f"**Attendance**: {self.fixture.attendance}\n"
-
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.fixture.url}#/match-summary/"
-                await page.goto(e.url, timeout=5000)
-                await self.handle_tabs(page, self.summary)
-            finally:
-                await page.close()
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[], view=self)
-
-    # Fixture.standings
-    async def standings(
-        self,
-        first: str = "table",
-        second: str = "overall",
-        thirrd: Optional[str] = None,
-    ) -> discord.InteractionMessage:
-        """Send Specified Table to Fixture view"""
-        e = await self.fixture.base_embed()
-
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.fixture.url}#/standings/{first}"
-                e.title = f"{first.title().replace('_', '/')}"
-                if second is not None:
-                    e.title += f" ({second.title()}"
-                    e.url += f"/{second}"
-                    if thirrd:
-                        e.title += f": {thirrd}"
-                        e.url += f"/{thirrd}"
-                    e.title += ")"
-                await page.goto(e.url, timeout=5000)
-
-                # Chaining Locators is fucking aids.
-                # Thank you for coming to my ted talk.
-                inner = page.locator(".tableWrapper")
-                outer = page.locator("div", has=inner)
-                table_div = page.locator("div", has=outer).last
-                await table_div.wait_for(state="visible", timeout=5000)
-
-                row = await self.handle_tabs(page, self.standings)
-                rows = {}
-
-                loc = page.locator(".subTabs")
-                for i in range(await loc.count()):
-                    rows[row] = []
-
-                    sub = loc.nth(i).locator("a")
-                    for o in range(await sub.count()):
-
-                        text = await sub.nth(o).text_content()
-
-                        if not text:
-                            continue
-
-                        f = view_utils.Funcable(text, self.standings)
-                        a = "aria-current"
-                        b = await sub.nth(o).get_attribute(a) is not None
-                        f.disabled = b
-                        match o:  # Buttons are always in the same order.
-                            case 1:
-                                args = [first, "home"]
-                            case 2:
-                                args = [first, "away"]
-                            case _:
-                                args = [first, "overall"]
-                        if row == 4:
-                            args += [text]
-                        f.args = args
-                        rows[row].append(f)
-                    row += 1
-
-                for k, v in rows.items():
-                    ph = f"{', '.join([i.label for i in v])}"
-                    self.add_function_row(v, k, ph)
-
-                await page.eval_on_selector_all(fs.ADS, JS)
-                image = await table_div.screenshot(type="png")
-                file = discord.File(fp=io.BytesIO(image), filename="table.png")
-            finally:
-                await page.close()
-        e.set_image(url="attachment://table.png")
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[file], view=self)
-
-    # Fixture.video
-    async def video(self) -> discord.InteractionMessage:
-        """Highlights and other shit."""
-        # e = await self.fixture.base_embed()
-        i = self.interaction
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                # e.url = f"{self.fixture.link}#/video"
-                url = f"{self.fixture.url}#/video"
-                await page.goto(url, timeout=5000)
-                await self.handle_tabs(page, self.video)
-
-                # e.title = "Videos"
-                # loc = '.keyMoments'
-                # video = (await page.locator(loc).inner_text()).title()
-                url = await page.locator("object").get_attribute("data")
-                # OLD: https://www.youtube.com/embed/GUH3NIIGbpo
-                # NEW: https://www.youtube.com/watch?v=GUH3NIIGbpo
-                if url is None:
-                    return await self.bot.error(i, "Error fetching video.")
-                url = url.replace("embed/", "watch?v=")
-            finally:
-                await page.close()
-        # e.description = f"[{video}]({video_url})"
-        r = self.interaction.edit_original_response
-        return await r(content=url, embed=None, attachments=[], view=self)
-
-
-class TeamView(ItemView):
-    """The View sent to a user about a Team"""
-
-    def __init__(
-        self, interaction: discord.Interaction[Bot], team: fs.Team, **kwargs
-    ) -> None:
-        super().__init__(interaction, **kwargs)
-        self.team: fs.Team = team
-
-        self._cached_function: Optional[Callable] = None
-
-    # Team.handle_tabs
-    async def handle_tabs(self, page: Page, current_function: Callable) -> int:
-        """Generate our buttons"""
-        self.clear_items()
-
-        row_0 = []
-        if self.team.competition is not None:
-            cmp = self.team.competition
-            p = self.news
-            func = CompetitionView(self.interaction, cmp, parent=p).update
-            row_0.append(view_utils.Funcable(cmp.title, func, emoji="🏆"))
-
-        # key: [Item, Item, Item, ...]
-        rows: dict[int, list[view_utils.Funcable]] = dict()
-
-        row = 1
-        # Main Tabs
-        tag = "div.tabs__group"
-        for i in range(await (loc := page.locator(tag)).count()):
-            rows[row] = []
-            for o in range(await (sub_loc := loc.nth(i).locator("a")).count()):
-                text = await sub_loc.nth(o).text_content()
-
-                if not text:
-                    continue
-
-                f = view_utils.Funcable(text, current_function)
-
-                if row == 1:
-                    f.style = discord.ButtonStyle.blurple
-
-                active = "aria-current"
-                b = await sub_loc.nth(o).get_attribute(active) is not None
-                f.disabled = b
-
-                match text:
-                    case "Fixtures":
-                        f.function = self.fixtures
-                        f.description = "Upcoming Fixtures"
-                    case "News":
-                        f.function = self.news
-                        f.emoji = "📰"
-                        f.description = f"News for {self.team.name}"
-                    case "Results":
-                        f.function = self.results
-                        f.description = "Recent Results"
-                    case "Standings":
-                        f.function = self.standings
-                        f.description = "Current League Table"
-                    case "Squad":
-                        f.function = self.squad
-                        f.description = "Team Squad Members"
-                    case "Summary":
-                        pass  # Don't care.
-                    case "Transfers":
-                        f.function = self.transfers
-                        f.emoji = "📹"
-                        f.style = discord.ButtonStyle.red
-                        f.description = "Recent Transfers"
-                    case _:
-                        inf = f"Team found extra tab named {text}"
-                        logger.info(inf)
-                rows[row].append(f)
-            row += 1
-
-        for k, v in rows.items():
-            ph = f"{', '.join([i.label for i in v])}"
-            self.add_function_row(v, k, ph)
-        return row
-
-    # Team.fixtures
-    async def fixtures(self) -> discord.InteractionMessage:
-        """Push upcoming fixtures to Team View"""
-        rows = await fs.parse_games(self.bot, self.team, "/fixtures/")
-        rows = [i.upcoming for i in rows] if rows else ["No Fixtures Found :("]
-
-        embed = await self.team.base_embed()
-        embed.title = "Fixtures"
-        page = await self.bot.browser.new_page()
-        try:
-            await page.goto(f"{self.team.url}/fixtures", timeout=5000)
-            await page.locator("#live-table").wait_for()
-            await self.handle_tabs(page, self.fixtures)
-        finally:
-            await page.close()
-        self.index = 0
-        self.pages = embed_utils.rows_to_embeds(embed, rows)
-        self._cached_function = None
-        return await self.update()
-
-    # Team.news
-    async def news(self) -> discord.InteractionMessage:
-        """Get a list of news articles related to a team in embed format"""
-        page: Page = await self.bot.browser.new_page()
-        try:
-            await page.goto(f"{self.team.url}/news", timeout=5000)
-            locator = page.locator(".matchBox").nth(0)
-            await locator.wait_for()
-            await self.handle_tabs(page, self.news)
-            tree = html.fromstring(await locator.inner_html())
-        finally:
-            await page.close()
-
-        items = []
-
-        base_embed = await self.team.base_embed()
-
-        for i in tree.xpath('.//div[@class="rssNews"]'):
-            e = base_embed.copy()
-
-            xpath = './/div[@class="rssNews__title"]/text()'
-            e.title = "".join(i.xpath(xpath))
-
-            xpath = ".//a/@href"
-            e.url = fs.FLASHSCORE + "".join(i.xpath(xpath))
-
-            e.set_image(url="".join(i.xpath(".//img/@src")))
-
-            xpath = './/div[@class="rssNews__perex"]/text()'
-            e.description = "".join(i.xpath(xpath))
-
-            xpath = './/div[@class="rssNews__provider"]/text()'
-            provider = "".join(i.xpath(xpath)).split(",")
-
-            ts = datetime.datetime.strptime(provider[0], "%d.%m.%Y %H:%M")
-            e.timestamp = ts
-            e.set_footer(text=provider[-1].strip())
-            items.append(e)
-
-        self.pages = items
-        return await self.update()
-
-    # Team.squad
-    async def squad(
-        self,
-        to_click: Optional[str] = None,
-        sort: Optional[str] = None,
-        clear_index: bool = False,
-    ) -> discord.InteractionMessage:
-        page = await self.bot.browser.new_page()
-        try:
-            await page.goto(f"{self.team.url}/squad", timeout=5000)
-            await page.locator(".lineup").wait_for()
-            await self.handle_tabs(page, self.squad)
-
-            # to_click refers to a button press.
-            if to_click is not None:
-                await page.locator("button", has_text=to_click).click()
-
-            tree = html.fromstring(await page.content())
-        finally:
-            await page.close()
-
-        # tab += 1  # tab is Indexed at 0 but xpath indexes from [1]
-        rows = tree.xpath('.//div[@class="lineup__title" or "lineup__row"]')
-
-        players: list[fs.Player | str] = []
-
-        e = await self.team.base_embed()
-        e = e.copy()
-
-        e.title = sort.title() if sort else "Squad"
-
-        e.description = ""
-        for i in rows:
-            # A header row with the player's position.
-            if position := "".join(i.xpath("/text()")).strip():
-                if e.description:
-                    # Double Line Breaks after the first.
-                    e.description += "\n"
-                if not sort:
-                    players.append(f"**{position}**\n")
-                continue  # There will not be additional data.
-
-            xpath = './/div[contains(@class, "cell--name")]/a/'
-            link = "".join(i.xpath(xpath + "@href"))
-            name = "".join(i.xpath(xpath + "text()"))
-            try:  # Name comes in reverse order.
-                forename, surname = name.split(" ", 1)
-            except ValueError:
-                forename, surname = None, name
-
-            player = fs.Player(forename, surname, link)
-
-            xpath = './/span[contains(@class,"jersey")]/text()'
-            player.squad_number = int("".join(i.xpath(xpath)))
-
-            xpath = './/span[contains(@class,"flag")]/@title'
-            player.country = i.xpath(xpath)
-
-            xpath = './/span[contains(@class,"cell--age")]/text()'
-            player.age = int("".join(i.xpath(xpath)))
-
-            xpath = './/span[contains(@class,"cell--goal")]/text()'
-            self.goals = int("".join(i.xpath(xpath)))
-
-            xpath = './/span[contains(@class,"matchesPlayed")]/text()'
-            self.appearances = int("".join(i.xpath(xpath)))
-
-            xpath = './/span[contains(@class,"yellowCard")]/text()'
-            self.yellows = int("".join(i.xpath(xpath)))
-
-            xpath = './/span[contains(@class,"redCard")]/text()'
-            self.reds = int("".join(i.xpath(xpath)))
-
-            xpath = './/span[contains(@title,"Injury")]/@title'
-            player.injury = "".join(i.xpath(xpath))
-            players.append(player)
-
-        if sort:
-            # Remove the header rows.
-            players = [i for i in players if isinstance(i, fs.Player)]
-
-            players = [i for i in players if getattr(i, sort)]
-            players = sorted(
-                players,
-                key=lambda x: getattr(x, sort),
-                reverse=bool(sort in ["goals", "yellows", "reds"]),
-            )
-
-        if clear_index:
-            self.index = 0
-
-        players = embed_utils.paginate(players)[self.index]
-        self.pages = players
-
-        dropdown = []
-        for i in players:
-            if isinstance(i, str):
-                continue
-
-            flag = i.flag
-            parent = self.squad()
-            v = PlayerView(self.interaction, i, parent=parent).update
-            dropdown.append(view_utils.Funcable(i.name, v, emoji=flag))
-
-        for i in players:
-            e.description += i.squad_row if isinstance(i, fs.Player) else i
-            e.description += "\n"
-
-        filters = []
-        for label, filt, emoji in [
-            ("Sort by Goals", "goals", "⚽"),
-            ("Sort by Red Cards", "reds", "🟥"),
-            ("Sort by Yellow Cards", "yellows", "🟨"),
-            ("Sort by Appearances", "appearances", "🟨"),
-            ("Sort by Age", "age", None),
-            ("Show only injured", "injured", fs.INJURY_EMOJI),
-        ]:
-            opt = view_utils.Funcable(label, self.squad, [], emoji=emoji)
-
-            tc = to_click
-            opt.keywords = {"to_click": tc, "sort": filt, clear_index: True}
-            opt.disabled = sort == filt
-            filters.append(opt)
-
-        self.add_function_row(filters, 3, "Sort or Filter")
-        self.add_page_buttons(4)
-        self._cached_function = self.squad
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, view=self)
-
-    # Team.standings
-    async def standings(
-        self,
-        first: Optional[str] = None,
-        second: Optional[str] = None,
-        third: Optional[str] = None,
-    ) -> discord.InteractionMessage:
-        """Send Specified Table to view"""
-        e = await self.team.base_embed()
-        e.title = "Standings"
-
-        async with semaphore:
-            page: Page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.team.url}/standings/"
-                logger.info("Team Table URL $s", e.url)
-
-                if first is not None:
-                    e.title = f"{first.title().replace('_', '/')}"
-                    e.url += first
-
-                if second is not None:
-                    e.title += f" ({second.title()}"
-                    e.url += f"/{second}"
-                    if third:
-                        e.title += f": {third}"
-                        e.url += f"/{third}"
-                    e.title += ")"
-                await page.goto(e.url, timeout=5000)
-
-                # Chaining Locators is fucking aids.
-                # Thank you for coming to my ted talk.
-                inner = page.locator(".tableWrapper")
-                outer = page.locator("div", has=inner)
-                table_div = page.locator("div", has=outer).last
-                await table_div.wait_for(state="visible", timeout=5000)
-
-                row = await self.handle_tabs(page, self.standings)
-                rows = {}
-
-                loc = page.locator(".subTabs")
-                for i in range(await loc.count()):
-                    rows[row] = []
-
-                    sub = loc.nth(i).locator("a")
-                    for o in range(await sub.count()):
-
-                        text = await sub.nth(o).text_content()
-
-                        if not text:
-                            continue
-
-                        f = view_utils.Funcable(text, self.standings)
-                        a = "aria-current"
-                        b = await sub.nth(o).get_attribute(a) is not None
-                        f.disabled = b
-                        match o:  # Buttons are always in the same order.
-                            case 1:
-                                args = [first, "home"]
-                            case 2:
-                                args = [first, "away"]
-                            case _:
-                                args = [first, "overall"]
-                        if row == 4:
-                            args += [text]
-                        f.args = args
-                        rows[row].append(f)
-                    row += 1
-
-                for k, v in rows.items():
-                    ph = f"{', '.join([i.label for i in v])}"
-                    self.add_function_row(v, k, ph)
-
-                await page.eval_on_selector_all(fs.ADS, JS)
-                image = await table_div.screenshot(type="png")
-                file = discord.File(fp=io.BytesIO(image), filename="table.png")
-            finally:
-                await page.close()
-        e.set_image(url="attachment://table.png")
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[file], view=self)
-
-    async def transfers(
-        self, to_click: Optional[str] = "All"
-    ) -> discord.InteractionMessage:
-        """Get a list of the team's recent transfers."""
-        e = await self.team.base_embed()
-        e = e.copy()
-        e.description = ""
-        e.title = f"Transfers ({to_click})"
-
-        async with semaphore:
-            page = await self.bot.browser.new_page()
-            try:
-                e.url = f"{self.team.url}/transfers/"
-                await page.goto(e.url, timeout=5000)
-                await page.wait_for_selector("section#transfers", timeout=5000)
-                row = await self.handle_tabs(page, self.transfers)
-                rows = {}
-
-                if to_click is not None:
-                    await page.locator("button", has_text=to_click).click()
-
-                filters = page.locator("button.filter__filter")
-
-                for o in range(await filters.count()):
-
-                    text = await filters.nth(o).text_content()
-                    if not text:
-                        continue
-
-                    a = "filter__filter--selected"
-                    b = await filters.nth(o).get_attribute(a) is not None
-                    f = view_utils.Funcable(text, self.transfers, disabled=b)
-                    f.disabled = b
-                    match o:
-                        case 0:
-                            f.args = ["All"]
-                        case 1:
-                            f.args = ["Arrivals"]
-                        case 2:
-                            f.args = ["Departures"]
-                        case _:
-                            logger.info("Extra Buttons Found: transf %s", text)
-                    rows[row].append(f)
-                    row += 1
-
-                for k, v in rows.items():
-                    ph = f"{', '.join([i.label for i in v])}"
-                    self.add_function_row(v, k, ph)
-                tree = html.fromstring(await page.inner_html(".transferTab"))
-            finally:
-                await page.close()
-
-        players = []
-        teams = []
-        for row in tree.xpath('.//div[@class="transferTab__row"]'):
-            xpath = './/div[@class="transferTab__season"]/text()'
-            date = "".join(row.xpath(xpath))
-            date = datetime.datetime.strptime(date, "%d/%m/%Y")
-            date = timed_events.Timestamp(date).relative
-
-            xpath = './/div[@class="transferTab__name"]/a'
-            name = "".join(row.xpath(xpath + "/text()"))
-            link = "".join(row.xpath(xpath + "@href"))
-
-            try:
-                forename, surname = name.split(" ", 1)
-            except ValueError:
-                forename, surname = None, name
-
-            player = fs.Player(forename, surname, link)
-            player.country = row.xpath('.//span[@class="flag"]/@title')
-
-            if row.xpath('.//svg[@class="transferTab__icon--in]'):
-                emoji = fs.INBOUND_EMOJI
-            else:
-                emoji = fs.OUTBOUND_EMOJI
-
-            tf_type = row.xpath('.//div[@class="transferTab__text]/text()')
-
-            xpath = './/div[@class="transferTab__href"]'
-            team_name = "".join(row.xpath(xpath + "/text()"))
-            team_link = "".join(row.xpath(xpath + "/@href"))
-
-            link = team_link.split("/")[-1]
-            team = self.bot.get_team(link)
-            if team is None:
-                team = fs.Team(None, team_name, team_link)
-
-            pmd = player.markdown
-            tmd = team.markdown
-            e.description += f"{date} {pmd} {emoji} {tf_type} {tmd}\n"
-            players.append(player)
-            teams.append(team)
-
-        r = self.interaction.edit_original_response
-        return await r(embed=e, view=self)
-
-    async def results(self) -> discord.InteractionMessage:
-        """Push Previous Results Team View"""
-        rows = await fs.parse_games(self.bot, self.team, "/results/")
-
-        page = await self.bot.browser.new_page()
-        try:
-            await page.goto(f"{self.team.url}/results", timeout=5000)
-            await page.locator("#live-table").wait_for()
-            await self.handle_tabs(page, self.results)
-        finally:
-            await page.close()
-
-        output = []
-        for i in rows:
-            if i.home.url == self.team.url:
-                home = True
-            elif i.away.url == self.team.url:
-                home = False
-            else:
-                home = None
-                logger.info(
-                    f"team push_results: [HOME: {i.home.url}] "
-                    f"[AWAY: {i.away.url}] [TARGET: {self.team.url}]"
-                )
-
-            if None in [home, i.score_home, i.score_away]:
-                emoji = ""
-            else:
-                if i.score_home is not None and i.score_away is not None:
-                    if (
-                        i.penalties_home is not None
-                        and i.penalties_away is not None
-                    ):
-                        if i.penalties_home > i.penalties_away:
-                            emoji = "🇼" if home else "🇱"
-                        else:
-                            emoji = "🇱" if home else "🇼"
-                    else:
-                        if i.score_home > i.score_away:
-                            emoji = "🇼" if home else "🇱"
-                        elif i.score_home < i.score_away:
-                            emoji = "🇱" if home else "🇼"
-                        else:
-                            emoji = "🇩"
-                else:
-                    emoji = ""
-
-            output.append(f"{emoji} {i.ko_relative}: {i.bold_markdown} ")
-
-        if not output:
-            output = ["No Results Found"]
-
-        rows = [i.upcoming for i in rows] if rows else ["No Results Found :("]
-        embed = await self.team.base_embed()
-        embed = embed.copy()
-        embed.title = "Fixtures"
-
-        self.index = 0
-        self.pages = embed_utils.rows_to_embeds(embed, rows)
-        self._cached_function = None
-        return await self.update()
-
-    async def update(self) -> discord.InteractionMessage:
-        if self._cached_function is None:
-            return await super().update()
-        else:
-            return await self._cached_function()
-
-
-class CompetitionView(view_utils.BaseView):
-    """The view sent to a user about a Competition"""
-
-    bot: Bot
-
-    def __init__(
-        self,
-        interaction: discord.Interaction[Bot],
-        competition: fs.Competition,
-        **kwargs,
-    ) -> None:
-
-        self.competition: fs.Competition = competition
-        super().__init__(interaction, **kwargs)
-
-    async def update(self, content: Optional[str] = None) -> None:
-        """Send the latest version of the CompetitionView to the user"""
-        self.clear_items()
-
-        buttons = [
-            view_utils.Funcable("Table", self.push_table, emoji="🥇"),
-            view_utils.Funcable("Scorers", self.push_scorers, emoji="⚽"),
-            view_utils.Funcable("Fixtures", self.push_fixtures, emoji="📆"),
-            view_utils.Funcable("Results", self.push_results, emoji="⚽"),
-        ]
-        self.add_function_row(buttons, 4)
-
-        try:
-            embed = self.pages[self.index]
-        except IndexError:
-            embed = self.pages[-1]
-
-        i = self.interaction
-        await i.edit_original_response(content=content, view=self, embed=embed)
-
-    async def push_table(self) -> None:
-        """Push Team's Table for a Competition to View"""
-        embed = await self.competition.base_embed()
-        embed.clear_fields()
-        embed.title = f"≡ Table for {self.competition}"
-        if img := await self.competition.get_table():
-            embed.set_image(url=img)
-            embed.description = timed_events.Timestamp().long
-        else:
-            embed.description = "No Table Found"
-
-        self.index = 0
-        self.pages = [embed]
-        await self.update()
-
-    async def push_scorers(self) -> None:
-        """PUsh the Scorers Embed to Competition View"""
-        self.index = 0
-        await self.update()
-
-    async def push_assists(self) -> None:
-        """PUsh the Scorers Embed to View"""
-        self.index = 0
-        await self.update()
-
-    async def push_fixtures(self) -> None:
-        """Push upcoming competition fixtures to View"""
-        rows = await fs.parse_games(self.bot, self.competition, "/fixtures/")
-        rows = [i.upcoming for i in rows] if rows else ["No Fixtures Found :("]
-        embed = await self.competition.base_embed()
-        embed.title = f"≡ Fixtures for {self.competition}"
-
-        self.index = 0
-        self.pages = embed_utils.rows_to_embeds(embed, rows)
-        await self.update()
-
-    async def push_results(self) -> None:
-        """Push results fixtures to View"""
-        rows = await fs.parse_games(self.bot, self.competition, "/results/")
-        rows = [i.upcoming for i in rows] if rows else ["No Results Found"]
-        embed = await self.competition.base_embed()
-        embed.title = f"≡ Results for {self.competition.title}"
-
-        self.index = 0
-        self.pages = embed_utils.rows_to_embeds(embed, rows)
-        await self.update()
-
-
-class PlayerView(view_utils.BaseView):
-    bot: Bot
-
-    def __init__(
-        self,
-        interaction: discord.Interaction[Bot],
-        player: fs.Player,
-        **kwargs,
-    ):
-        super().__init__(interaction, **kwargs)
-        self.player: fs.Player = player
-
-    async def update(self) -> discord.InteractionMessage:
-        r = self.interaction.edit_original_response
-        return await r(content="Coming Soon!")
-
-
 class FixtureSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
@@ -1489,7 +1477,6 @@ class FixtureSelect(view_utils.BaseView):
 
         # Pagination
         self.fixtures: list[fs.Fixture] = fixtures
-        self.index: int = 0
 
         p = [fixtures[i : i + 25] for i in range(0, len(fixtures), 25)]
         self.pages: list[list[fs.Fixture]] = p
@@ -1554,7 +1541,7 @@ class Fixtures(commands.Cog):
         self.bot.fixture_defaults = rows
 
     # Group Commands for those with multiple available subcommands.
-    default = Group(
+    default = discord.app_commands.Group(
         name="default",
         guild_only=True,
         description="Set the server's default team and competition.",
@@ -1615,7 +1602,7 @@ class Fixtures(commands.Cog):
         e.description = f"Default Competition is now {fsr.markdown}"
         await ctx.edit_original_response(embed=e)
 
-    match = Group(
+    match = discord.app_commands.Group(
         name="match",
         description="Get information about a match from flashscore",
     )
@@ -1689,57 +1676,6 @@ class Fixtures(commands.Cog):
             fix = await choose_recent_fixture(interaction, team)
         return await FixtureView(interaction, fix).h2h()
 
-    league = Group(
-        name="competition",
-        description="Get information about a competition from flashscore",
-    )
-
-    @league.command(name="fixtures")
-    @discord.app_commands.autocomplete(competition=comp_ac)
-    @discord.app_commands.describe(competition=COMPETITION)
-    async def fx_comp(
-        self, interaction: discord.Interaction[Bot], competition: str
-    ) -> discord.InteractionMessage:
-        """Fetch upcoming fixtures for a competition."""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_comp(interaction, competition)
-        return await CompetitionView(interaction, fsr).push_fixtures()
-
-    @league.command(name="results")
-    @discord.app_commands.autocomplete(competition=comp_ac)
-    @discord.app_commands.describe(competition=COMPETITION)
-    async def comp_results(
-        self, interaction: discord.Interaction[Bot], competition: str
-    ) -> discord.InteractionMessage:
-        """Get recent results for a competition"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_comp(interaction, competition)
-        return await CompetitionView(interaction, fsr).push_results()
-
-    @league.command(name="scorers")
-    @discord.app_commands.autocomplete(competition=comp_ac)
-    @discord.app_commands.describe(competition=COMPETITION)
-    async def scorers_comp(
-        self, ctx: discord.Interaction[Bot], competition: str
-    ) -> discord.InteractionMessage:
-        """Get top scorers from a competition."""
-        await ctx.response.defer(thinking=True)
-        fsr = await fetch_comp(ctx, competition)
-        return await CompetitionView(ctx, fsr).push_scorers()
-
-    @league.command(name="table")
-    @discord.app_commands.autocomplete(competition=comp_ac)
-    @discord.app_commands.describe(
-        competition="Enter the name of a competition"
-    )
-    async def comp_table(
-        self, interaction: discord.Interaction[Bot], competition: str
-    ) -> None:
-        """Get the Table of a competition"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_comp(interaction, competition)
-        return await CompetitionView(interaction, fsr).push_table()
-
     team = discord.app_commands.Group(
         name="team", description="Get information about a team "
     )
@@ -1777,7 +1713,7 @@ class Fixtures(commands.Cog):
         fsr = await fetch_team(interaction, team)
         return await TeamView(interaction, fsr).standings()
 
-    @team.command()
+    @team.command(name="news")
     @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_news(
@@ -1788,7 +1724,7 @@ class Fixtures(commands.Cog):
         fsr = await fetch_team(interaction, team)
         return await TeamView(interaction, fsr).news()
 
-    @team.command()
+    @team.command(name="squad")
     @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_squad(
@@ -1797,7 +1733,58 @@ class Fixtures(commands.Cog):
         """Lookup a team's squad members"""
         await interaction.response.defer(thinking=True)
         fsr = await fetch_team(interaction, team)
-        return await TeamView(interaction, fsr).squad()  #
+        return await TeamView(interaction, fsr).squad()
+
+    league = Group(
+        name="competition",
+        description="Get information about a competition from flashscore",
+    )
+
+    @league.command(name="fixtures")
+    @discord.app_commands.autocomplete(competition=comp_ac)
+    @discord.app_commands.describe(competition=COMPETITION)
+    async def comp_fixtures(
+        self, interaction: discord.Interaction[Bot], competition: str
+    ) -> discord.InteractionMessage:
+        """Fetch upcoming fixtures for a competition."""
+        await interaction.response.defer(thinking=True)
+        fsr = await fetch_comp(interaction, competition)
+        return await CompetitionView(interaction, fsr).fixtures()
+
+    @league.command(name="results")
+    @discord.app_commands.autocomplete(competition=comp_ac)
+    @discord.app_commands.describe(competition=COMPETITION)
+    async def comp_results(
+        self, interaction: discord.Interaction[Bot], competition: str
+    ) -> discord.InteractionMessage:
+        """Get recent results for a competition"""
+        await interaction.response.defer(thinking=True)
+        fsr = await fetch_comp(interaction, competition)
+        return await CompetitionView(interaction, fsr).results()
+
+    @league.command(name="scorers")
+    @discord.app_commands.autocomplete(competition=comp_ac)
+    @discord.app_commands.describe(competition=COMPETITION)
+    async def comp_scorers(
+        self, ctx: discord.Interaction[Bot], competition: str
+    ) -> discord.InteractionMessage:
+        """Get top scorers from a competition."""
+        await ctx.response.defer(thinking=True)
+        fsr = await fetch_comp(ctx, competition)
+        return await CompetitionView(ctx, fsr).scorers()
+
+    @league.command(name="table")
+    @discord.app_commands.autocomplete(competition=comp_ac)
+    @discord.app_commands.describe(
+        competition="Enter the name of a competition"
+    )
+    async def comp_table(
+        self, interaction: discord.Interaction[Bot], competition: str
+    ) -> discord.InteractionMessage:
+        """Get the Table of a competition"""
+        await interaction.response.defer(thinking=True)
+        fsr = await fetch_comp(interaction, competition)
+        return await CompetitionView(interaction, fsr).standings()
 
     @discord.app_commands.command()
     @discord.app_commands.describe(competition=COMPETITION)

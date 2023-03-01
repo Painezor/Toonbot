@@ -300,94 +300,94 @@ class EventType(Enum):
     )
 
     # State Changes
-    DELAYED = "Match Delayed", Colour.orange(), ["delayed"], type(None)
+    DELAYED = "Match Delayed", Colour.orange(), ["delayed"], None
     INTERRUPTED = (
         "Match Interrupted",
         Colour.dark_orange(),
         ["delayed"],
-        type(None),
+        None,
     )
-    CANCELLED = "Match Cancelled", Colour.red(), ["delayed"], type(None)
-    POSTPONED = "Match Postponed", Colour.red(), ["delayed"], type(None)
-    ABANDONED = "Match Abandoned", Colour.red(), ["full_time"], type(None)
-    RESUMED = "Match Resumed", Colour.light_gray(), ["kick_off"], type(None)
+    CANCELLED = "Match Cancelled", Colour.red(), ["delayed"], None
+    POSTPONED = "Match Postponed", Colour.red(), ["delayed"], None
+    ABANDONED = "Match Abandoned", Colour.red(), ["full_time"], None
+    RESUMED = "Match Resumed", Colour.light_gray(), ["kick_off"], None
 
     # Period Changes
-    KICK_OFF = "Kick Off", Colour.green(), ["kick_off"], type(None)
-    HALF_TIME = "Half Time", 0x00FFFF, ["half_time"], type(None)
+    KICK_OFF = "Kick Off", Colour.green(), ["kick_off"], None
+    HALF_TIME = "Half Time", 0x00FFFF, ["half_time"], None
     SECOND_HALF_BEGIN = (
         "Second Half",
         Colour.light_gray(),
         ["second_half_begin"],
-        type(None),
+        None,
     )
     PERIOD_BEGIN = (
         "Period #PERIOD#",
         Colour.light_gray(),
         ["second_half_begin"],
-        type(None),
+        None,
     )
     PERIOD_END = (
         "Period #PERIOD# Ends",
         Colour.light_gray(),
         ["half_time"],
-        type(None),
+        None,
     )
 
-    FULL_TIME = "Full Time", Colour.teal(), ["full_time"], type(None)
+    FULL_TIME = "Full Time", Colour.teal(), ["full_time"], None
     FINAL_RESULT_ONLY = (
         "Final Result",
         Colour.teal(),
         ["final_result_only"],
-        type(None),
+        None,
     )
     SCORE_AFTER_EXTRA_TIME = (
         "Score After Extra Time",
         Colour.teal(),
         ["full_time"],
-        type(None),
+        None,
     )
 
     NORMAL_TIME_END = (
         "End of normal time",
         Colour.greyple(),
         ["extra_time"],
-        type(None),
+        None,
     )
     EXTRA_TIME_BEGIN = (
         "ET: First Half",
         Colour.lighter_grey(),
         ["extra_time"],
-        type(None),
+        None,
     )
     HALF_TIME_ET_BEGIN = (
         "ET: Half Time",
         Colour.light_grey(),
         ["half_time", "extra_time"],
-        type(None),
+        None,
     )
     HALF_TIME_ET_END = (
         "ET: Second Half",
         Colour.dark_grey(),
         ["second_half_begin", "extra_time"],
-        type(None),
+        None,
     )
     EXTRA_TIME_END = (
         "ET: End of Extra Time",
         Colour.darker_gray(),
         ["extra_time"],
-        type(None),
+        None,
     )
 
     PENALTIES_BEGIN = (
         "Penalties Begin",
         Colour.dark_gold(),
         ["penalties"],
-        type(None),
+        None,
     )
     PENALTY_RESULTS = (
         "Penalty Results",
         Colour.gold(),
         ["penalties"],
-        type(None),
+        None,
     )

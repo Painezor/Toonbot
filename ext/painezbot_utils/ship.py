@@ -725,7 +725,7 @@ class ShipView(BaseView):
         # FuncButton - Overview, Armaments, Leaderboard.
         self.add_item(
             FuncButton(
-                func=self.overview,
+                function=self.overview,
                 label="Overview",
                 disabled=self.disabled == self.overview,
                 emoji=Hull.emoji,
@@ -735,7 +735,7 @@ class ShipView(BaseView):
         if Artillery in self.fitting.modules:
             self.add_item(
                 FuncButton(
-                    func=self.main_guns,
+                    function=self.main_guns,
                     label="Main Battery",
                     disabled=self.disabled == self.main_guns,
                     emoji=Artillery.emoji,
@@ -745,7 +745,7 @@ class ShipView(BaseView):
         if Torpedoes in self.fitting.modules:
             self.add_item(
                 FuncButton(
-                    func=self.torpedoes,
+                    function=self.torpedoes,
                     label="Torpedoes",
                     disabled=self.disabled == self.torpedoes,
                     emoji=Torpedoes.emoji,
@@ -760,7 +760,7 @@ class ShipView(BaseView):
             ).emoji
             self.add_item(
                 FuncButton(
-                    func=self.aircraft,
+                    function=self.aircraft,
                     label="Aircraft",
                     disabled=self.disabled == self.aircraft,
                     emoji=emoji,
@@ -772,7 +772,7 @@ class ShipView(BaseView):
         # Secondaries & AA
         self.add_item(
             FuncButton(
-                func=self.auxiliary,
+                function=self.auxiliary,
                 label="Auxiliary",
                 disabled=self.disabled == self.auxiliary,
                 emoji=Module.emoji,

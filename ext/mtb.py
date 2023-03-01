@@ -145,7 +145,7 @@ class MatchThread:
             match = await self.bot.reddit.submission(url=r)
             await match.edit(markdown)
 
-        for i in range(300):  # Maximum number of loops.
+        for _ in range(300):  # Maximum number of loops.
             if self.stop:
                 break
 
@@ -157,8 +157,9 @@ class MatchThread:
                 await match.edit(markdown)
                 self.old_markdown = markdown
 
-            if self.fixture.state.colour in [0xFFFFFF, 0xFF0000]:
-                break
+            if self.fixture.state is not None:
+                if self.fixture.state.colour in [0xFFFFFF, 0xFF0000]:
+                    break
 
             await asyncio.sleep(60)
 
@@ -269,7 +270,7 @@ class MatchThread:
                 tv.update({"link": f"http://www.livesoccertv.com{lnk}"})
                 break
         if not tv:
-            return ""
+            return {}
 
         async with self.bot.session.get(tv["link"]) as resp:
             match resp.status:
@@ -297,11 +298,13 @@ class MatchThread:
             tv.update({"uk_tv": [f"[{i}]({j})" for i, j in uk_tv]})
         return tv
 
-    async def send_notification(self, channel_id, post: asyncpraw.Reddit.post):
+    async def send_notification(self, channel_id, post):
         """Announce new posts to designated channels."""
         channel = self.bot.get_channel(channel_id)
         if channel is None:
             return  # Rip
+
+        channel = typing.cast(discord.TextChannel, channel)
         await channel.send(
             embed=discord.Embed(
                 colour=0xFF4500, title=post.title, url=post.url
@@ -317,9 +320,15 @@ class MatchThread:
         away = self.fixture.away
         score = self.fixture.score
 
-        time = self.fixture.kickoff.strftime("%d/%m/%Y, %H:%M:%S")
+        if self.fixture.kickoff is not None:
+            time = self.fixture.kickoff.strftime("%d/%m/%Y, %H:%M:%S")
+        else:
+            time = ""
 
-        comp = self.fixture.competition.title
+        if self.fixture.competition is not None:
+            comp = self.fixture.competition.title
+        else:
+            comp = ""
         if comp:
             markdown = f"#### {time} | {comp}\n\n"
         else:
@@ -442,8 +451,6 @@ class MatchThread:
 
             team = home_icon if team == home else team
             team = away_icon if team == away else team
-
-            event.team = team
 
             markdown += str(event)
 

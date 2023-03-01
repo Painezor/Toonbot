@@ -7,6 +7,7 @@ from json import dumps
 import json
 from random import choice
 from typing import Optional, TYPE_CHECKING
+import typing
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
 from discord import Embed, Attachment, Interaction, User, Message, File
@@ -14,7 +15,7 @@ import discord
 from discord.app_commands import guild_only, Group
 from discord.ext.commands import Cog
 
-from ext.utils.view_utils import FuncButton, BaseView
+from ext.utils import view_utils
 
 if TYPE_CHECKING:
     from core import Bot
@@ -24,7 +25,7 @@ with open("credentials.json", "r") as f:
     credentials = json.load(f)
 
 
-class ImageView(BaseView):
+class ImageView(view_utils.BaseView):
     """Holder View for Image Manipulation functions."""
 
     def __init__(
@@ -46,7 +47,7 @@ class ImageView(BaseView):
                 "png"
             ).url
 
-        self.image: bytes
+        self.image: Optional[bytes] = None
         self.coordinates: dict = {}
 
         self.output: BytesIO
@@ -113,6 +114,7 @@ class ImageView(BaseView):
             if self._with_ruins is not None:
                 return self._with_ruins
 
+            self.image = typing.cast(bytes, self.image)
             img = ImageOps.fit(Image.open(BytesIO(self.image)), (256, 256))
             base = Image.open("Images/local man.png")
             base.paste(img, box=(175, 284, 431, 540))
@@ -141,6 +143,7 @@ class ImageView(BaseView):
             if self._with_eyes is not None:
                 return self._with_eyes
 
+            self.image = typing.cast(bytes, self.image)
             im = Image.open(BytesIO(self.image))
             for i in self.coordinates:
                 # Get eye bounds
@@ -200,6 +203,7 @@ class ImageView(BaseView):
             if self._with_knob is not None:
                 return self._with_knob
 
+            self.image = typing.cast(bytes, self.image)
             im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
             knob = Image.open("Images/knob.png")
 
@@ -246,6 +250,7 @@ class ImageView(BaseView):
             if self._with_bob is not None:
                 return self._with_bob
 
+            self.image = typing.cast(bytes, self.image)
             im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
             bob = Image.open("Images/ross face.png")
             for coordinates in self.coordinates:
@@ -285,16 +290,21 @@ class ImageView(BaseView):
         """Push the latest versio of the view to the user"""
         self.clear_items()
 
-        self.add_item(FuncButton(label="Eyes", func=self.push_eyes, emoji="👀"))
-        self.add_item(FuncButton("Bob Ross", self.push_bob, emoji="🖌️"))
-        self.add_item(FuncButton("Ruins", self.push_ruins, emoji="🏚️"))
+        funcs = [
+            view_utils.Funcable("Eyes", self.push_eyes, emoji="👀"),
+            view_utils.Funcable("Bob Ross", self.push_bob, emoji="🖌️"),
+            view_utils.Funcable("Ruins", self.push_ruins, emoji="🏚️"),
+        ]
 
         i = self.interaction
         if not isinstance(i.channel, discord.PartialMessageable):
             if i.channel:
                 if i.channel.is_nsfw():
-                    btn = FuncButton("Knob", self.push_knob, emoji="🍆")
-                    self.add_item(btn)
+                    btn = view_utils.Funcable("Knob", self.push_knob)
+                    btn.emoji = "🍆"
+                    funcs.append(btn)
+
+        self.add_function_row(funcs)
 
         e: Embed = Embed(colour=0xFFFFFF, description=i.user.mention)
         e.add_field(name="Source Image", value=self.target_url)

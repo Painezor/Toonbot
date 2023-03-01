@@ -840,17 +840,17 @@ class ClanView(BaseView):
             FuncButton(
                 label="Overview",
                 disabled=self._disabled == self.overview,
-                func=self.overview,
+                function=self.overview,
             ),
             FuncButton(
                 label="Members",
                 disabled=self._disabled == self.members,
-                func=self.members,
+                function=self.members,
             ),
             FuncButton(
                 label="New Members",
                 disabled=self._disabled == self.new_members,
-                func=self.new_members,
+                function=self.new_members,
             ),
         ]:
             # FuncButton(label='CB Season History'...)
@@ -907,7 +907,7 @@ class Leaderboard(BaseView):
 
         self.pages = rows_to_embeds(e, rows)
 
-        add_page_buttons(self)
+        self.add_page_buttons()
         self.add_item(FuncDropdown(options=opts, placeholder="View Clan Info"))
         return await self.bot.reply(
             self.interaction, embed=self.pages[self.index], view=self

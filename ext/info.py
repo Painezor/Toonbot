@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Optional
 
+from importlib import reload
 import discord
 from discord import (
     Member,
@@ -26,7 +27,7 @@ from discord.utils import utcnow
 import ext.logs as logs
 from ext.utils.embed_utils import get_colour, rows_to_embeds
 from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Paginator
+from ext.utils import view_utils
 
 if TYPE_CHECKING:
     from core import Bot
@@ -38,6 +39,7 @@ class Info(Cog):
 
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
+        reload(view_utils)
 
     @discord.app_commands.command()
     @discord.app_commands.describe(user="Select a user")
@@ -240,7 +242,7 @@ class Info(Cog):
                 emb.add_field(name="Denied", value=deny)
             embeds.append(emb)
 
-        return await Paginator(interaction, [e] + embeds).update()
+        return await view_utils.Paginator(interaction, [e] + embeds).update()
 
     @info.command()
     @discord.app_commands.describe(role="select a role")
@@ -317,7 +319,7 @@ class Info(Cog):
             perm_embed = None
 
         embeds = [i for i in [e, perm_embed] if i]
-        return await Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(interaction, embeds).update()
 
     @info.command(name="emote")
     @discord.app_commands.describe(emoji="enter a list of emotes")
@@ -359,7 +361,7 @@ class Info(Cog):
             )
             return await self.bot.error(interaction, err)
 
-        return await Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(interaction, embeds).update()
 
     @info.command()
     @guild_only()
@@ -478,20 +480,16 @@ class Info(Cog):
         stickers: Embed = base_embed.copy()
         stickers.title = "Emotes and Stickers"
 
-        emojis = ""
-        for emoji in g.emojis:
-            if len(emojis) + len(str(emoji)) < 1024:
-                emojis += str(emoji)
-
-        if emojis:
-            stickers.add_field(name="Emotes", value=emojis, inline=False)
-
-        lm = g.emoji_limit
-        stickers.description = f"**Emotes Used**: {len(g.emojis)} / {lm}\n"
-
         lm = g.sticker_limit
         count = len(g.stickers)
-        stickers.description += f"**Stickers Used**: {count} / {lm}\n"
+        stickers.description = f"**Stickers Used**: {count} / {lm}\n"
+
+        lm = g.emoji_limit
+        stickers.description += f"**Emotes Used**: {len(g.emojis)} / {lm}\n\n"
+
+        for emoji in g.emojis:
+            if len(stickers.description) + len(str(emoji)) < 4096:
+                stickers.description += str(emoji)
 
         r_e = base_embed.copy()
         r_e.title = "Roles"
@@ -508,7 +506,7 @@ class Info(Cog):
             r_e.description += f"**My Role**: {g.self_role.mention}\n"
 
         embeds = [cover, chs, stickers, r_e]
-        return await Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(interaction, embeds).update()
 
     @info.command()
     async def user(
@@ -634,7 +632,7 @@ class Info(Cog):
         shared = f"User found on {len(matches)} servers."
         embeds = rows_to_embeds(sh, matches, 20, shared)
         embeds += [i for i in [generic, perm_embed, av] if i is not None]
-        return await Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(interaction, embeds).update()
 
 
 async def setup(bot: Bot | PBot) -> None:

@@ -34,11 +34,11 @@ from ext.utils.view_utils import (
     BaseView,
 )
 
-logger = logging.getLogger('transfers.py')
+logger = logging.getLogger("transfers.py")
 
 if TYPE_CHECKING:
     from core import Bot
-    from discord import Message, Interaction
+    from discord import Interaction
 
 TF = "https://www.transfermarkt.co.uk"
 MIN_MARKET_VALUE = "?minMarktwert=200.000"
@@ -222,6 +222,9 @@ class RemoveLeague(Select):
 class TransfersConfig(BaseView):
     """View for configuring Transfer Tickers"""
 
+    bot: Bot
+    interaction: Interaction[Bot]
+
     def __init__(self, interaction: Interaction[Bot], tc: TransferChannel):
         super().__init__(interaction)
         self.tc: TransferChannel = tc
@@ -320,8 +323,10 @@ class TransfersConfig(BaseView):
         await self.interaction.followup.send(embed=e)
         return True
 
-    async def delete_ticker(self) -> None:
-        """Delete the ticker for this channel."""
+    async def delete_ticker(self) -> discord.InteractionMessage:
+        """Delete the ticker for this channel.
+        Returns True if the ticker was actually deleted.
+        """
         await self.tc.delete_ticker()
         int = self.interaction
         view = Confirmation(int, "Confirm", "Cancel", ButtonStyle.red)
@@ -330,22 +335,22 @@ class TransfersConfig(BaseView):
             "Are you sure you wish to delete the transfer ticker"
             f"from {self.tc.channel.mention}?\n\nThis action cannot be undone."
         )
-        await self.bot.reply(self.interaction, embed=e, view=view)
+
+        r = self.interaction.edit_original_response
+
+        await r.edit(embed=e, view=view)
         await view.wait()
 
         if view.value:
             u = self.interaction.user
             e.title = "Transfer Ticker Deleted"
             e.set_footer(text=f"{u} ({u.id})", icon_url=u.display_avatar.url)
-            await self.interaction.followup.send(embed=e)
-            return await self.interaction.delete_original_response()
         else:
             e.title = "Transfer Ticker Deletion Cancelled"
             e.colour = Colour.og_blurple()
-            m = await self.interaction.followup.send(embed=e)
-            return
+        return await r.edit(embed=e)
 
-    async def update(self) -> Message:
+    async def update(self) -> discord.InteractionMessage:
         """Push the latest version of the embed to view."""
         self.clear_items()
 
@@ -399,7 +404,8 @@ class TransfersConfig(BaseView):
         else:
             self.add_item(Stop(row=1))
 
-        return await self.bot.reply(self.interaction, embed=e, view=self)
+        r = self.interaction.edit_original_response
+        return await r(embed=e, view=self)
 
 
 class Transfers(Cog):
@@ -438,6 +444,8 @@ class Transfers(Cog):
             channel = self.bot.get_channel(cid)
             if channel is None:
                 continue
+
+            channel = typing.cast(discord.TextChannel, channel)
 
             tc = TransferChannel(channel)
             await tc.get_leagues()
@@ -493,7 +501,7 @@ class Transfers(Cog):
             player.position = "".join(i.xpath("./td[1]//tr[2]/td/text()"))
 
             # Box 2 - Age
-            player.age = "".join(i.xpath("./td[2]//text()")).strip()
+            player.age = int("".join(i.xpath("./td[2]//text()")).strip())
 
             # Box 3 - Country
             player.country = i.xpath(".//td[3]/img/@title")
@@ -578,6 +586,8 @@ class Transfers(Cog):
                 if channel is None:
                     continue
 
+                channel = typing.cast(discord.TextChannel, channel)
+
                 try:
                     await channel.send(embed=e)
                 except HTTPException:
@@ -592,13 +602,17 @@ class Transfers(Cog):
     @tf.command(name="manage")
     @discord.app_commands.describe(channel="Manage which channel?")
     async def manage_transfers(
-        self, interaction: Interaction[Bot], channel: TextChannel = None
-    ) -> Message:
+        self,
+        interaction: discord.Interaction[Bot],
+        channel: typing.Optional[discord.TextChannel],
+    ) -> discord.InteractionMessage:
         """View the config of this channel's transfer ticker"""
 
         await interaction.response.defer(thinking=True)
         if channel is None:
             channel = interaction.channel
+
+        channel = typing.cast(discord.TextChannel, channel)
 
         # Validate channel is a ticker channel.
         try:
@@ -617,7 +631,7 @@ class Transfers(Cog):
     @discord.app_commands.describe(league_name="Search for a league name")
     async def add_league_tf(
         self,
-        interaction: Interaction[Bot],
+        interaction: discord.Interaction[Bot],
         league_name: str,
         channel: Optional[TextChannel] = None,
     ) -> discord.InteractionMessage:

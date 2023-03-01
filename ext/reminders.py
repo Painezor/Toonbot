@@ -38,7 +38,7 @@ async def spool_reminder(bot: Bot | PBot, r: Record):
     # Get data from records
     await sleep_until(r["target_time"])
     rv = ReminderView(bot, r)
-    await rv.dispatch()
+    await rv.send_reminder()
 
 
 class RemindModal(Modal):
@@ -126,7 +126,7 @@ class ReminderView(View):
         self.bot: Bot | PBot = bot
         self.record: Record = r
 
-    async def dispatch(self):
+    async def send_reminder(self):
         """Send message to appropriate destination"""
         r = self.record
 

@@ -427,6 +427,8 @@ class DevBlog(commands.Cog):
         if (channel := interaction.channel) is None:
             raise
 
+        channel = typing.cast(discord.TextChannel, channel)
+
         if (guild := interaction.guild) is None:
             raise
 

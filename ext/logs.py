@@ -84,7 +84,7 @@ def stringify_content_filter(value: discord.ContentFilter) -> str:
             discord.ContentFilter.disabled: "Disabled",
         }[value]
     except KeyError:
-        logger.info("Unhandled content filter %s", value)
+        logger.info("Unhandled content filter %s", value.name)
         return value.name
 
 
@@ -173,11 +173,8 @@ def iter_embed(
     if main:
         embed.title = entry.action.name.replace("_", " ").title()
 
-        # TODO: Overrides Go Here.
         if isinstance(target, discord.Object):
             embed.description = f"{target.type} {target.id}"
-            logger.info(f"Object with {target.type} / {target.id} not handled")
-            # TODO: Overrides Come out here.
 
         elif isinstance(target, discord.Guild):
             ico = entry.guild.icon.url if entry.guild.icon else None
@@ -397,10 +394,19 @@ def iter_embed(
             s = stringify_minutes(archive_time)
             embed.description += f"**Archive Time**: {s}\n"
 
-        elif key == "auto_archive_duration":
-            # Thread Archiving
+        elif key == "available":
+            # Sticker Availability
             available: bool = value
             embed.description += f"**Available**: `{available}`\n"
+
+        elif key == "available_tags":
+            a_tags: list[discord.ForumTag] = value
+            txt = ""
+            for i in a_tags:
+                txt += f"{i.emoji} {i.name}"
+                if i.moderated:
+                    txt += " (Mod Only)"
+            embed.add_field(name="Tags Changed", value=txt)
 
         elif key == "avatar":
             # User / Member Avatar
@@ -602,6 +608,10 @@ def iter_embed(
             inviter: Optional[discord.Member] = value
             if inviter:
                 embed.description += f"**inviter**: `{inviter.mention}`\n"
+
+        elif key == "location":
+            logger.info("Location found of type %s", type(value))
+            embed.description += f"**Location**: {value}\n"
 
         elif key == "locked":
             # Is thread locked
@@ -1111,16 +1121,20 @@ class AuditLogs(commands.Cog):
                 after = discord.Embed()
                 after.timestamp = entry.created_at
 
-                after = iter_embed(entry, entry.changes.after, main=True)
+                after = iter_embed(
+                    entry, entry.changes.after, main=True, last=True
+                )
             case discord.AuditLogActionCategory.delete:
                 before = discord.Embed()
                 before.timestamp = entry.created_at
 
-                before = iter_embed(entry, entry.changes.before)
+                before = iter_embed(
+                    entry, entry.changes.before, main=True, last=True
+                )
                 after = None
             case discord.AuditLogActionCategory.update:
-                after = iter_embed(entry, entry.changes.after)
-                before = iter_embed(entry, entry.changes.before)
+                after = iter_embed(entry, entry.changes.after, last=True)
+                before = iter_embed(entry, entry.changes.before, main=True)
             case None:
                 before = after = None
 
@@ -1343,7 +1357,7 @@ class AuditLogs(commands.Cog):
         e.description = f"<#{message.channel.id}>\n\n{message.content}"
         attachments: list[discord.File] = []
 
-        files = []
+        atts = []
         dels = discord.Embed(title="Attachments")
         dels.description = ""
         for num, i in enumerate(message.attachments):
@@ -1351,7 +1365,10 @@ class AuditLogs(commands.Cog):
             url = i.proxy_url
             val = f"{num}. {i.filename} ({type_})[{url}] ({i.size})\n"
             dels.description += val
-            files.append(await i.to_file(spoiler=True, use_cached=True))
+            try:
+                atts.append(await i.to_file(spoiler=True, use_cached=True))
+            except discord.HTTPException:
+                pass
         else:
             dels = None
 
@@ -1409,8 +1426,6 @@ class AuditLogs(commands.Cog):
         if not channels:
             return
 
-        delta = after.created_at - before.created_at
-
         u = before.author
 
         if before.reference:
@@ -1438,11 +1453,14 @@ class AuditLogs(commands.Cog):
             e2 = discord.Embed(colour=discord.Colour.brand_green())
             e2.timestamp = after.edited_at
             e2.description = f"> {after.content}"
-            e2.set_footer(text=f"Message edited after Delay: {delta}")
+
+            if after.edited_at is not None:
+                delta = after.edited_at - before.created_at
+                e2.set_footer(text=f"Message edited after Delay: {delta}")
         else:
             e = e2 = None
 
-        files = []
+        atts = []
         if before.attachments != after.attachments:
             att = [i for i in before.attachments if i not in after.attachments]
             gone = discord.Embed(title="Removed Attachemnts")
@@ -1452,7 +1470,10 @@ class AuditLogs(commands.Cog):
                 url = i.proxy_url
                 val = f"{num}. {i.filename} ({type_})[{url}] ({i.size})\n"
                 gone.description += val
-                files.append(await i.to_file(spoiler=True, use_cached=True))
+                try:
+                    atts.append(await i.to_file(spoiler=True, use_cached=True))
+                except discord.HTTPException:
+                    pass
         else:
             gone = None
 
@@ -1465,7 +1486,7 @@ class AuditLogs(commands.Cog):
         embeds = [i for i in [reply, e, e2, gone] if i]
         for ch in channels:
             try:
-                await ch.send(embeds=embeds, view=v, files=files)
+                await ch.send(embeds=embeds, view=v, files=atts)
             except (discord.Forbidden, discord.NotFound):
                 continue
 
@@ -1519,6 +1540,25 @@ class AuditLogs(commands.Cog):
             except (discord.Forbidden, discord.NotFound):
                 continue
 
+    @commands.Cog.listener()
+    async def on_app_command_completion(
+        self,
+        interaction: discord.Interaction[PBot | Bot],
+        cmd: discord.app_commands.Command | discord.app_commands.ContextMenu,
+    ) -> None:
+        """Log commands as they are run"""
+        guild = interaction.guild.name if interaction.guild else "DM"
+        a = interaction.user
+
+        c_n = cmd.qualified_name
+        if isinstance(cmd, discord.app_commands.ContextMenu):
+            logger.info("Command Ran [%s %s] /%s", a, guild, c_n)
+        else:
+            if interaction.data:
+                logger.info(interaction.data)
+            logger.info("Command Ran [%s %s] /%s", a, guild, c_n)
+        return
+
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(view_audit_log=True)
     async def logs(
@@ -1556,24 +1596,6 @@ async def setup(bot: Bot | PBot) -> None:
 #         sm_af = stringify_seconds(key["after"])
 #         before.description += f"**Thread Reply Slowmode**: {sm_bf}\n"
 #         after.description += f"**Thread Reply Slowmode**: {sm_af}\n"
-
-#     if key := changes.pop("available_tags", False):
-#         if new := [i for i in key["after"] if i not in key["before"]]:
-#             txt = ""
-#             for i in new:
-#                 txt += f"{i.emoji} {i.name}"
-#                 if i.moderated:
-#                     txt += " (Mod Only)"
-#             after.add_field(name="Tags Added", value=txt)
-
-#         if removed := [i for i in key["before"] if i not in key["after"]]:
-#             txt = ""
-#             for i in removed:
-#                 txt += f"{i.emoji} {i.name}"
-#                 if i.moderated:
-#                     txt += " (Mod Only)"
-#             before.add_field(name="Tags Removed", value=txt)
-
 
 # async def handle_guild_update(self, entry: discord.AuditLogEntry):
 #     """Handler for When a guild is updated."""

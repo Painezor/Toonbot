@@ -201,7 +201,7 @@ async def run():
     except KeyboardInterrupt:
         for i in bot.cogs:
             await bot.unload_extension(i)
-        await db.close()
+        await database.close()
         await bot.close()
 
 

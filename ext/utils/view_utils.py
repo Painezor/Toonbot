@@ -1,6 +1,7 @@
 """Generic Objects for discord Views"""
 from __future__ import annotations
 
+import traceback
 import logging
 from dataclasses import dataclass
 from typing import Callable, TYPE_CHECKING, Any, Optional
@@ -26,7 +27,13 @@ logger = logging.getLogger("view_utils")
 class BaseView(View):
     """Error Handler."""
 
-    def __init__(self, interaction: discord.Interaction[Bot | PBot], **kwargs):
+    def __init__(
+        self,
+        interaction: discord.Interaction[Bot | PBot],
+        *,
+        parent: Optional[FuncButton] = None,
+        timeout: int = 180,
+    ):
 
         self.bot: Bot | PBot = interaction.client
         self.interaction: Interaction[Bot | PBot] = interaction
@@ -34,20 +41,29 @@ class BaseView(View):
         self.index: int = 0
         self.update: Callable
         self.pages: list[Any] = []
-        self.parent: Optional[FuncButton] = kwargs.pop("parent", None)
+        self.parent: Optional[FuncButton] = parent
+
+        if parent is not None:
+            if not parent.label:
+                parent.label = "Back"
+            if not parent.emoji:
+                parent.emoji = "🔼"
 
         self.value: list[str] = []
 
-        super().__init__(timeout=kwargs.pop("timeout", 180))
+        super().__init__(timeout=timeout)
 
     async def interaction_check(self, interaction: Interaction) -> bool:
         """Make sure only the person running the command can select options"""
         return self.interaction.user.id == interaction.user.id
 
-    async def on_timeout(self) -> discord.InteractionMessage:
+    async def on_timeout(self) -> Optional[discord.InteractionMessage]:
         """Cleanup"""
         r = self.interaction.edit_original_response
-        return await r(view=None)
+        try:
+            return await r(view=None)
+        except discord.NotFound:
+            pass  # Shhhhhhh.
 
     def add_page_buttons(self, row: int = 0) -> list[discord.ui.Item]:
         """Helper function to bulk add page buttons (Prev, Jump, Next, Stop)"""
@@ -70,15 +86,15 @@ class BaseView(View):
         row: int = 0,
         placeholder: str = "More Options...",
     ):
-        """A very ugly method that will create a row of up to 5 Buttons,
-        or a dropdown up to 25 buttons"""
+        """Create a row of up to 5 Buttons,
+        or a dropdown up to 25 options"""
 
         if len(items) > 25:
             raise ValueError("Too many items")
 
         if len(items) < 6:
             for x in items:
-                f = FuncButton(x.label, x.function, x.args, x.keywords)
+                f = FuncButton(x.function, x.args, x.keywords, label=x.label)
                 f.row = row
                 f.disabled = x.disabled
                 f.style = x.style
@@ -88,13 +104,15 @@ class BaseView(View):
             self.add_item(FuncSelect(items, row, placeholder))
 
     async def on_error(
-        self, ctx: discord.Interaction[Bot], error: Exception, item
+        self, _: discord.Interaction[Bot], error: Exception, item
     ) -> discord.InteractionMessage:
         """Log the stupid fucking error"""
         logger.error(error)
         logger.error("This error brought to you by item %s", item)
+        traceback.print_exc()
         r = self.interaction.edit_original_response
-        return await r(content=f"Something broke\n```py\n{error}```")
+        txt = f"Something broke\n```py\n{error}```"
+        return await r(content=txt, embed=None)
 
 
 class First(Button):
@@ -249,6 +267,10 @@ class Stop(Button):
             await self.view.interaction.delete_original_response()
         except NotFound:
             pass
+
+        # Handle any cleanup.
+        await self.view.on_timeout()
+
         self.view.stop()
 
 
@@ -355,16 +377,15 @@ class FuncButton(Button):
 
     def __init__(
         self,
-        label: str,
-        func: Callable,
+        function: Callable,
         args: list = [],
         kw: dict = {},
         **kwargs,
     ) -> None:
 
-        super().__init__(label=label, **kwargs)
+        super().__init__(**kwargs)
 
-        self.func: Callable = func
+        self.function: Callable = function
         self.args: list = args
         self.kwargs: dict = kw
 
@@ -372,7 +393,7 @@ class FuncButton(Button):
         """The Callback performs the passed function with any passed
         args/kwargs"""
         await interaction.response.defer()
-        return await self.func(*self.args, **self.kwargs)
+        return await self.function(*self.args, **self.kwargs)
 
 
 # TODO: Deprecate FuncDropdown in favour of Funcable and generate_function_row
@@ -412,6 +433,8 @@ class Paginator(BaseView):
         self, interaction: discord.Interaction[Bot | PBot], embeds: list[Embed]
     ) -> None:
         super().__init__(interaction)
+
+        self.pages = embeds
 
     async def update(
         self, content: Optional[str] = None

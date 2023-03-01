@@ -1,7 +1,6 @@
 """The Flashscore Search Feature, with language controls."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 import typing
 from urllib.parse import quote
 
@@ -9,9 +8,11 @@ from discord import Locale
 
 from ext.toonbot_utils import flashscore as fs
 
-if TYPE_CHECKING:
-    from discord import Interaction
+if typing.TYPE_CHECKING:
     from typing import Literal
+
+    from discord import Interaction
+
     from core import Bot
 
 # slovak - 7

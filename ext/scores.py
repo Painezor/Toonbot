@@ -440,7 +440,8 @@ class Scores(Cog):
             fix = sorted(flt, key=lambda c: c.kickoff or now)
 
             ls_txt = [i.live_score_text for i in fix]
-            table = comp.table_link
+
+            table = f"\n[View Table]({comp.table})" if comp.table else ""
             comp.score_embeds = rows_to_embeds(e, ls_txt, 50, footer=table)
 
         for sc in self.bot.score_channels.copy():
@@ -467,10 +468,10 @@ class Scores(Cog):
             except (Forbidden, NotFound):
                 pass
 
-    def dispatch_events(self, fx: fs.Fixture, old: GameState) -> None:
+    def dispatch_states(self, fx: fs.Fixture, old: GameState) -> None:
         """Dispatch events to the ticker"""
         evt = "fixture_event"
-        dispatch = self.bot.dispatch
+        send_event = self.bot.dispatch
 
         new = fx.state
 
@@ -479,68 +480,68 @@ class Scores(Cog):
 
         match new:
             case GameState.ABANDONED:
-                return dispatch(evt, EventType.ABANDONED, fx)
+                return send_event(evt, EventType.ABANDONED, fx)
             case GameState.AFTER_EXTRA_TIME:
-                return dispatch(evt, EventType.SCORE_AFTER_EXTRA_TIME, fx)
+                return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fx)
             case GameState.AFTER_PENS:
-                return dispatch(evt, EventType.PENALTY_RESULTS, fx)
+                return send_event(evt, EventType.PENALTY_RESULTS, fx)
             case GameState.BREAK_TIME:
                 match old:
                     # Break Time = after regular time & before penalties
                     case GameState.EXTRA_TIME:
-                        return dispatch(evt, EventType.EXTRA_TIME_END, fx)
+                        return send_event(evt, EventType.EXTRA_TIME_END, fx)
                     case _:
                         fx.breaks += 1
                         if fx.periods is not None:
                             event = EventType.PERIOD_END
                         else:
                             event = EventType.NORMAL_TIME_END
-                        return dispatch(evt, event, fx)
+                        return send_event(evt, event, fx)
             case GameState.CANCELLED:
-                return dispatch(evt, EventType.CANCELLED, fx)
+                return send_event(evt, EventType.CANCELLED, fx)
             case GameState.DELAYED:
-                return dispatch(evt, EventType.DELAYED, fx)
+                return send_event(evt, EventType.DELAYED, fx)
             case GameState.EXTRA_TIME:
                 match old:
                     case GameState.HALF_TIME:
-                        return dispatch(evt, EventType.HALF_TIME_ET_END, fx)
+                        return send_event(evt, EventType.HALF_TIME_ET_END, fx)
                     case _:
-                        return dispatch(evt, EventType.EXTRA_TIME_BEGIN, fx)
+                        return send_event(evt, EventType.EXTRA_TIME_BEGIN, fx)
             case GameState.FULL_TIME:
                 match old:
                     case GameState.EXTRA_TIME:
-                        return dispatch(
+                        return send_event(
                             evt,
                             EventType.SCORE_AFTER_EXTRA_TIME,
                             fx,
                         )
                     case GameState.SCHEDULED | GameState.HALF_TIME:
-                        return dispatch(evt, EventType.FINAL_RESULT_ONLY, fx)
+                        return send_event(evt, EventType.FINAL_RESULT_ONLY, fx)
                     case _:
-                        return dispatch(evt, EventType.FULL_TIME, fx)
+                        return send_event(evt, EventType.FULL_TIME, fx)
             case GameState.HALF_TIME:
                 # Half Time is fired at regular Half time & ET Half time.
                 if old == GameState.EXTRA_TIME:
-                    return dispatch(evt, EventType.HALF_TIME_ET_BEGIN, fx)
+                    return send_event(evt, EventType.HALF_TIME_ET_BEGIN, fx)
                 else:
-                    return dispatch(evt, EventType.HALF_TIME, fx)
+                    return send_event(evt, EventType.HALF_TIME, fx)
             case GameState.INTERRUPTED:
-                return dispatch(evt, EventType.INTERRUPTED, fx)
+                return send_event(evt, EventType.INTERRUPTED, fx)
             case GameState.LIVE:
                 match old:
                     case GameState.SCHEDULED | GameState.DELAYED:
                         # Match has resumed
-                        return dispatch(evt, EventType.KICK_OFF, fx)
+                        return send_event(evt, EventType.KICK_OFF, fx)
                     case GameState.INTERRUPTED:
-                        return dispatch(evt, EventType.RESUMED, fx)
+                        return send_event(evt, EventType.RESUMED, fx)
                     case GameState.HALF_TIME:
-                        return dispatch(evt, EventType.SECOND_HALF_BEGIN, fx)
+                        return send_event(evt, EventType.SECOND_HALF_BEGIN, fx)
                     case GameState.BREAK_TIME:
-                        return dispatch(evt, EventType.PERIOD_BEGIN, fx)
+                        return send_event(evt, EventType.PERIOD_BEGIN, fx)
             case GameState.PENALTIES:
-                return dispatch(evt, EventType.PENALTIES_BEGIN, fx)
+                return send_event(evt, EventType.PENALTIES_BEGIN, fx)
             case GameState.POSTPONED:
-                return dispatch(evt, EventType.POSTPONED, fx)
+                return send_event(evt, EventType.POSTPONED, fx)
             case GameState.STOPPAGE_TIME:
                 return
 
@@ -685,24 +686,24 @@ class Scores(Cog):
                         home_cards, away_cards = None, int(cards[0])
 
                 if home_cards is not None:
-                    if home_cards != fx.cards_home:
-                        if fx.cards_home is not None:
-                            if home_cards > fx.cards_home:
+                    if home_cards != fx.home_cards:
+                        if fx.home_cards is not None:
+                            if home_cards > fx.home_cards:
                                 t = EventType.RED_CARD
                             else:
                                 t = EventType.VAR_RED_CARD
                             self.bot.dispatch(f, t, fx, home=True)
-                        fx.cards_home = home_cards
+                        fx.home_cards = home_cards
 
                 if away_cards is not None:
-                    if away_cards != fx.cards_away:
-                        if fx.cards_away is not None:
-                            if away_cards > fx.cards_away:
+                    if away_cards != fx.away_cards:
+                        if fx.away_cards is not None:
+                            if away_cards > fx.away_cards:
                                 t = EventType.RED_CARD
                             else:
                                 t = EventType.VAR_RED_CARD
-                            self.bot.dispatch(f, t, fx)
-                        fx.cards_away = away_cards
+                            self.bot.dispatch(f, t, fx, home=False)
+                        fx.away_cards = away_cards
 
             # The time block can be 1 element or 2 elements long.
             # Element 1 is either a time of day HH:MM (e.g. 20:45)
@@ -749,36 +750,35 @@ class Scores(Cog):
                 h_score = int(h_score)
                 a_score = int("".join([i for i in a_score if i.isdigit()]))
 
-                if fx.score_home != h_score:
-                    if fx.score_home is not None:
-                        if h_score > fx.score_home:
-                            self.bot.dispatch(f, EventType.GOAL, fx, home=True)
+                if fx.home_score != h_score:
+                    if fx.home_score is not None:
+                        if h_score > fx.home_score:
+                            ev = EventType.GOAL
                         else:
-                            self.bot.dispatch(
-                                f, EventType.VAR_GOAL, fx, home=True
-                            )
-                    fx.score_home = h_score
+                            ev = EventType.VAR_GOAL
+                        self.bot.dispatch(f, ev, fx, home=True)
+                    fx.home_score = h_score
 
-                if fx.score_away != a_score:
-                    if fx.score_away is not None:
-                        if a_score > fx.score_away:
-                            self.bot.dispatch(f, EventType.GOAL, fx)
-                        elif fx.score_away > a_score:
-                            self.bot.dispatch(f, EventType.VAR_GOAL, fx)
-                    fx.score_away = a_score
+                if fx.away_score != a_score:
+                    if fx.away_score is not None:
+                        if a_score > fx.away_score:
+                            ev = EventType.GOAL
+                        else:
+                            ev = EventType.VAR_GOAL
+                        self.bot.dispatch(f, ev, fx, home=False)
+                    fx.away_score = a_score
             else:
                 override = None
 
             if override:
-                match override:
-                    case "aet":
-                        fx.time = GameState.AFTER_EXTRA_TIME
-                    case "pen":
-                        fx.time = GameState.AFTER_PENS
-                    case "WO":
-                        fx.time = GameState.WALKOVER
-                    case _:
-                        logger.error(f"Unhandled override: {override}")
+                try:
+                    fx.time = {
+                        "aet": GameState.AFTER_EXTRA_TIME,
+                        "pen": GameState.AFTER_PENS,
+                        "wo": GameState.WALKOVER,
+                    }[override.lower()]
+                except KeyError:
+                    logger.error(f"Unhandled override: {override}")
             else:
                 # From the link of the score, we can gather info about the time
                 # valid states are: sched, live, fin
@@ -823,7 +823,7 @@ class Scores(Cog):
                                 logger.error(f"2 part time found {time}")
 
             if old_state is not None:
-                self.dispatch_events(fx, old_state)
+                self.dispatch_states(fx, old_state)
         return self.bot.games
 
     livescores = Group(

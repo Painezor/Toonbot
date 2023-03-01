@@ -201,18 +201,6 @@ class Admin(commands.Cog):
             e2.description = "Too long for discord, output sent to logger."
         return await self.bot.reply(interaction, embeds=[e1, e2])
 
-    @commands.Cog.listener()
-    async def on_app_command_completion(
-        self,
-        interaction: Interaction[Bot],
-        cmd: discord.app_commands.Command | discord.app_commands.ContextMenu,
-    ) -> None:
-        """Log commands as they are run"""
-        guild = interaction.guild.name if interaction.guild else "DM"
-        a = interaction.user
-        logger.info("Command Ran [%s %s] /%s", a, guild, cmd.qualified_name)
-        return
-
 
 async def setup(bot: Bot | PBot) -> None:
     """Load the Administration cog into the Bot"""
