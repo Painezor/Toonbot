@@ -104,7 +104,7 @@ class Bot(commands.AutoShardedBot):
         self.teams: list[fs.Team] = []
         self.competitions: list[fs.Competition] = []
         self.score_channels: list[ScoreChannel] = []
-        self.scores: Task
+        self.score_loop: Optional[Task] = None
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []

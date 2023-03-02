@@ -2,11 +2,13 @@
    for channels using it."""
 from __future__ import annotations  # Cyclic Type hinting
 
-from asyncio import sleep, Semaphore
+from asyncio import sleep
 import io
 from typing import Optional, TYPE_CHECKING, Type, ClassVar
 import typing
 import logging
+
+from playwright.async_api import TimeoutError as pw_TimeoutError
 
 from discord import (
     Colour,
@@ -46,8 +48,6 @@ class IsLiveScoreError(Exception):
     in a livescore channel."""
 
 
-semaphore = Semaphore(value=5)
-
 _ticker_tasks = set()
 
 logger = logging.getLogger("ticker.py")
@@ -66,7 +66,7 @@ async def get_table(bot: Bot, link: str):
 
     try:
         await table_div.wait_for(state="visible", timeout=5000)
-    except TimeoutError:
+    except pw_TimeoutError:
         return ""
 
     js = "ads => ads.forEach(x => x.remove());"
@@ -231,18 +231,16 @@ class TickerEvent:
 
         index: Optional[int] = None
         for x in range(5):
-            async with semaphore:
-                await self.fixture.refresh(self.bot)
+            await self.fixture.refresh(self.bot)
 
             # Figure out which event we're supposed to be using
             # (Either newest event, or Stored if refresh)
             if index is None:
-                if self.home:
-                    team = self.fixture.home
-                elif self.home is False:
-                    team = self.fixture.away
-                else:
-                    team = None
+                team = {
+                    None: None,
+                    False: self.fixture.away,
+                    True: self.fixture.home,
+                }[self.home]
 
                 events = self.fixture.events
                 if team is not None:

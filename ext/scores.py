@@ -1,14 +1,16 @@
 """This Cog Grabs data from Flashscore and outputs the latest scores to user
 -configured live score channels"""
 from __future__ import annotations
+import asyncio
 
 import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
 from importlib import reload
 from itertools import zip_longest
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import ClassVar, Optional
 import typing
+from xml.etree.ElementPath import xpath_tokenizer
 
 import discord
 from asyncpg import Record
@@ -26,9 +28,7 @@ from discord import (
 from discord.app_commands import Group
 from discord.ext.commands import Cog
 from discord.ext.tasks import loop
-from discord.ui import Button, Select
-from lxml.etree import ParserError, tostring
-from lxml.html import fromstring
+from lxml import html, etree
 from ext.fixtures import fetch_comp
 from ext.ticker import lg_ac
 
@@ -38,7 +38,7 @@ from ext.toonbot_utils.matchevents import EventType
 from ext.utils.embed_utils import rows_to_embeds, stack_embeds
 from ext.utils.view_utils import Confirmation, BaseView
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from discord import Interaction
     from core import Bot
 
@@ -227,7 +227,7 @@ class ScoresConfig(BaseView):
         super().__init__(interaction)
         self.sc: ScoreChannel = channel
 
-    async def update(self, content: Optional[str]) -> Message:
+    async def update(self, content: Optional[str] = None) -> Message:
         """Push the newest version of view to message"""
         self.clear_items()
 
@@ -273,9 +273,8 @@ class ScoresConfig(BaseView):
             d = f"No tracked leagues for {c}, would you like to reset it?"
             embed.description = d
 
-        return await self.bot.reply(
-            self.interaction, content=content, embed=embed, view=self
-        )
+        r = self.interaction.edit_original_response
+        return await r(content=content, embed=embed, view=self)
 
     async def remove_leagues(self, leagues: list[str]) -> Message:
         """Bulk remove leagues from a live scores channel"""
@@ -302,7 +301,7 @@ class ScoresConfig(BaseView):
         return await self.update(content=msg)
 
 
-class ResetLeagues(Button):
+class ResetLeagues(discord.ui.Button):
     """Button to reset a live score channel back to the default leagues"""
 
     def __init__(self) -> None:
@@ -320,7 +319,7 @@ class ResetLeagues(Button):
         return await v.update(msg)
 
 
-class RemoveLeague(Select):
+class RemoveLeague(discord.ui.Select):
     """Button to bring up the remove leagues dropdown."""
 
     def __init__(self, leagues: list[str], row: int = 4) -> None:
@@ -349,12 +348,17 @@ class Scores(Cog):
     async def cog_load(self) -> None:
         """Load our database into the bot"""
         await self.load_database()
-        self.bot.scores = self.score_loop.start()
+        self.bot.score_loop = self.score_loop.start()
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
-        self.bot.scores.cancel()
+        if self.bot.score_loop is not None:
+            self.bot.score_loop.cancel()
+
         self.bot.score_channels.clear()
+        self.bot.games.clear()
+        self.bot.teams.clear()
+        self.bot.competitions.clear()
 
     # Database load: Leagues & Teams
     async def load_database(self) -> None:
@@ -554,23 +558,25 @@ class Scores(Cog):
             match resp.status:
                 case 200:
                     bt = bytearray(await resp.text(), encoding="utf-8")
-                    tree = fromstring(bytes(bt))
+                    tree = html.fromstring(bytes(bt))
                 case _:
                     rs = resp.reason
                     st = resp.status
                     logger.error("%s %s during score loop", st, rs)
                     return []
 
-        xp = './/div[@id="score-data"]'
-        chunks = tostring(tree.xpath(xp)[0]).decode("utf8").split("<br/>")
+        data = tree.xpath('.//div[@id="score-data"]')[0]
+        chunks = etree.tostring(data).decode("utf8").split("<br/>")
 
         # Generic
         competition = None
+        comps = self.bot.competitions
 
         for game in chunks:
             try:
-                tree = fromstring(game)
-            except ParserError:  # Document is empty because of trailing </div>
+                tree = html.fromstring(game)
+                # Document is empty because of trailing </div>
+            except etree.ParserError:
                 continue
 
             # Check if the chunk to be parsed has is a header.
@@ -580,15 +586,12 @@ class Scores(Cog):
                 # Loop over bot.competitions to see if we can find the right
                 # Competition object for base_embed.
 
-                country, name = competition_name.rsplit(":", 1)
-
-                c = self.bot.competitions
-
-                if exact := [i for i in c if i.title == competition_name]:
+                if exact := [i for i in comps if i.title == competition_name]:
                     competition = exact[0]
                 else:
+                    country, name = competition_name.rsplit(":", 1)
                     # Partial Matches
-                    partial = [x for x in c if x.title in competition_name]
+                    partial = [x for x in comps if x.title in competition_name]
                     for ss in ["women", "u18"]:  # Filter…
                         if ss in competition_name.casefold():
                             partial = [
@@ -652,18 +655,10 @@ class Scores(Cog):
                         logger.error("Fetch games found %s", teams)
                         continue
 
-                # TODO: Flesh this out to actually try and find the team's IDs.
                 home = fs.Team(None, home_name, None)
                 away = fs.Team(None, away_name, None)
-
                 fx = fs.Fixture(home, away, match_id, url)
-
-                # TODO: Spawn Browser Page Here
-                # DO all set and forget shit.
-                # Fetch Team Link + ID
-                # Fetch Competition Link + ID
-                fx.home = home
-                fx.away = away
+                self.bot.loop.create_task(fx.fetch_data(self.bot))
                 self.bot.games.append(fx)
 
                 old_state = None
@@ -839,6 +834,8 @@ class Scores(Cog):
         self, interaction: Interaction[Bot], channel: Optional[TextChannel]
     ) -> Message:
         """View or Delete tracked leagues from a live-scores channel."""
+        await interaction.response.defer(thinking=True)
+
         if channel is None:
             channel = typing.cast(TextChannel, interaction.channel)
 

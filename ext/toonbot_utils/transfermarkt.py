@@ -994,15 +994,16 @@ class StaffSearch(SearchView):
             staff.job = "".join(i.xpath(".//td[5]/text()"))
             staff.country = i.xpath('.//img[@class="flaggenrahmen"]/@title')
 
-            # TODO: Staff can take an actual Team() object.
             try:
                 xp = './/tm-tooltip[@data-type="club"][1]/a/@title'
-                staff.team = i.xpath(xp)[0]
+                team_name = i.xpath(xp)[0]
 
                 tl = i.xpath('.//tm-tooltip[@data-type="club"][1]/a/@href')[0]
                 if TF not in tl:
                     tl = TF + tl
-                staff.team_link = tl
+                team_link = tl
+
+                staff.team = Team(team_name, team_link)
             except IndexError:
                 pass
             results.append(staff)

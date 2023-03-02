@@ -65,7 +65,10 @@ def stringify_seconds(value: int) -> str:
         return {
             0: "`None`",
             60: "1 Minute",
+            1800: "30 Minutes",
             3600: "1 Hour",
+            7200: "2 Hours",
+            21600: "6 Hours",
             86400: "1 Day",
             604800: "7 Days",
         }[value]
@@ -174,7 +177,7 @@ def iter_embed(
         embed.title = entry.action.name.replace("_", " ").title()
 
         if isinstance(target, discord.Object):
-            embed.description = f"{target.type} {target.id}"
+            embed.description = f"{target.type.__name__} {target.id}\n\n"
 
         elif isinstance(target, discord.Guild):
             ico = entry.guild.icon.url if entry.guild.icon else None
@@ -240,9 +243,6 @@ def iter_embed(
                 ico = ctr.display_avatar.url if ctr.display_avatar else None
                 embed.set_author(name=f"{ctr} ({ctr.id})", icon_url=ico)
             embed.description = f"{target.name} ({target.id})\n\n"
-
-        elif target:
-            logger.info(f"Target {target} not handled.")
 
         if entry.action == action.member_prune:
             # Extra is a proxy with two attributes
@@ -406,6 +406,11 @@ def iter_embed(
                 txt += f"{i.emoji} {i.name}"
                 if i.moderated:
                     txt += " (Mod Only)"
+            embed.add_field(name="Tags Changed", value=txt)
+
+        elif key == "applied_tags":
+            a_tags: list[discord.ForumTag] = value
+            txt = [f"{i.emoji} {i.name}" for i in a_tags]
             embed.add_field(name="Tags Changed", value=txt)
 
         elif key == "avatar":
@@ -1003,6 +1008,11 @@ class AuditLogs(commands.Cog):
         if not channels:
             return []
 
+        if entry.action == discord.AuditLogAction.message_delete:
+            if isinstance(entry.target, discord.User | discord.Member):
+                if entry.target.bot:
+                    return []
+
         match entry.action:
             # Kicks, Bans, Moderation
             case action.ban | action.unban:
@@ -1171,7 +1181,7 @@ class AuditLogs(commands.Cog):
         # Extended member join information.
         e = discord.Embed(colour=0x7289DA, title="Member Joined")
         e.set_author(
-            name=f"{member.name} {member.id}",
+            name=f"{member} {member.id}",
             icon_url=member.display_avatar.url,
         )
 
@@ -1292,23 +1302,31 @@ class AuditLogs(commands.Cog):
             return
 
         embed = discord.Embed(color=discord.Colour.dark_purple())
-        embed.set_author(name="Twitch Integration", icon_url=TWTCH)
+
         # Find if it was addition or removal.
 
-        def parse_emoji(emoji, added: bool = False) -> discord.Embed:
+        def parse_emoji(
+            emoji: discord.Emoji, added: bool = False
+        ) -> discord.Embed:
             e = embed.copy()
             if emoji.roles:
-                roles = ", ".join([i.mention for i in emoji.roles])
-                e.add_field(name="Available to roles", value=roles)
+                role = max(emoji.roles, key=lambda i: i.position)
+                role = role.mention
+            else:
+                role = ""
 
             anim = "animated " if emoji.animated else ""
             if added:
-                e.title = f"New {anim}emote: {emoji.name}"
+                tit = f"New {anim}emote: {emoji.name}"
             else:
-                e.title = f"{anim}Emoji Removed"
+                tit = f"{anim}Emoji Removed"
+            embed.set_author(name=f"Integration: {tit}", icon_url=TWTCH)
 
-            e.description = f"{emoji}"
-            e.set_image(url=emoji.url)
+            if emoji.user is not None:
+                e.set_footer(text=emoji.user)
+
+            e.description = f"{emoji} {role}"
+            e.set_thumbnail(url=emoji.url)
             e.set_footer(text=emoji.url)
             return e
 
@@ -1553,10 +1571,10 @@ class AuditLogs(commands.Cog):
         c_n = cmd.qualified_name
         if isinstance(cmd, discord.app_commands.ContextMenu):
             logger.info("Command Ran [%s %s] /%s", a, guild, c_n)
-        else:
-            if interaction.data:
-                logger.info(interaction.data)
-            logger.info("Command Ran [%s %s] /%s", a, guild, c_n)
+            return
+
+        params = ", ".join([f"{k}={v}" for k, v in interaction.namespace])
+        logger.info("Command Ran [%s %s] /%s %s", a, guild, c_n, params)
         return
 
     @discord.app_commands.command()

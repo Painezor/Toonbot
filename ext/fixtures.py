@@ -8,7 +8,8 @@
 # TODO: Results => Dropdowns for Fixture Select
 # TODO: Transfers => Dropdowns for Teams & Competitions
 # TODO: TeamView.squad => Enumerate when not sorting by squad number.
-# TODO: Nuke file = in r()
+# TODO: Hybridise .news
+# TODO: File=None in all r()
 
 
 from __future__ import annotations
@@ -30,8 +31,9 @@ from discord.ext import commands
 from lxml import html
 
 import ext.toonbot_utils.flashscore as fs
-from ext.toonbot_utils.flashscore_search import fs_search
 from ext.utils import view_utils, embed_utils, image_utils, timed_events
+
+from playwright.async_api import TimeoutError as pw_TimeoutError
 
 if TYPE_CHECKING:
     from core import Bot
@@ -188,7 +190,7 @@ async def fetch_comp(i: discord.Interaction[Bot], comp: str) -> fs.Competition:
     if fsr := i.client.get_competition(comp):
         return fsr
 
-    comps = await fs_search(i, comp, mode="comp")
+    comps = await fs.search(i, comp, mode="comp")
     comps = typing.cast(list[fs.Competition], comps)
 
     await (v := CompetitionSelect(i, comps)).update()
@@ -203,7 +205,7 @@ async def fetch_team(i: discord.Interaction[Bot], team: str) -> fs.Team:
     if fsr := i.client.get_team(team):
         return fsr
 
-    teams = await fs_search(i, team, mode="team")
+    teams = await fs.search(i, team, mode="team")
     teams = typing.cast(list[fs.Team], teams)
 
     await (v := TeamSelect(i, teams)).update()
@@ -246,7 +248,10 @@ class ItemView(view_utils.BaseView):
             await self.page.close()
 
         r = self.interaction.edit_original_response
-        await r(view=None)
+        try:
+            await r(view=None)
+        except discord.NotFound:
+            pass
 
     async def handle_tabs(self) -> int:
         """Generate our buttons. Returns the next free row number"""
@@ -331,16 +336,15 @@ class ItemView(view_utils.BaseView):
                     f.emoji = "📊"
 
                 elif text in ["Summary", "Match"]:
-                    if not isinstance(self.object, fs.Fixture):
+                    if not isinstance(self, FixtureView):
                         continue  # Summary is garbage on everything else.
 
                     f = view_utils.Funcable(text, self.summary)
                     f.description = "A list of match events"
 
                 elif text == "Odds":
-                    # TODO: Figure out if we want to encourage Gambling
-                    f = view_utils.Funcable(text, self.odds)
-                    f.emoji = "🎲"
+                    # Let's not support gambling.
+                    # Unless I get an affiliate link ...
                     continue
 
                 elif text == "Top Scorers":
@@ -400,7 +404,10 @@ class ItemView(view_utils.BaseView):
             xpath = ".//div[@class='archive__season']/a"
             c_name = "".join(i.xpath(xpath + "/text()")).strip()
             c_link = "".join(i.xpath(xpath + "/@href")).strip()
-            c_link = fs.FLASHSCORE + c_link
+
+            logger.info(c_link)
+            c_link = fs.FLASHSCORE + '/' + c_link.strip('/')
+            logger.info(c_link)
 
             country = self.competition.country
             comps.append(fs.Competition(None, c_name, country, c_link))
@@ -415,9 +422,9 @@ class ItemView(view_utils.BaseView):
 
                 team = fs.Team(None, tm_name, tm_link)
                 teams.append(team)
-                rows.append(f"**[{c_name}])({c_link})**: 🏆 {team.markdown}")
+                rows.append(f"[{c_name}]({c_link}): 🏆 {team.markdown}")
             else:
-                rows.append(f"[{c_name}])({c_link})")
+                rows.append(f"[{c_name}]({c_link})")
 
         row = await self.handle_tabs()
         parent = view_utils.FuncButton(self.archive)
@@ -434,7 +441,7 @@ class ItemView(view_utils.BaseView):
             lg_dropdown.append(view_utils.Funcable(comp.title, fn))
 
         if lg_dropdown:
-            self.add_function_row(lg_dropdown, row)
+            self.add_function_row(lg_dropdown, row, "View Season")
             row += 1
 
         tm_dropdown: list[view_utils.Funcable] = []
@@ -443,12 +450,12 @@ class ItemView(view_utils.BaseView):
             tm_dropdown.append(view_utils.Funcable(team.name, fn))
 
         if tm_dropdown:
-            self.add_function_row(tm_dropdown, row)
+            self.add_function_row(tm_dropdown, row, "View Team")
             row += 1
 
         self._cached_function = self.archive
         r = self.interaction.edit_original_response
-        await r(content="Soon", embed=None, view=self)
+        await r(embed=embed, view=self, attachments=[])
 
     # Fixture Only
     async def h2h(
@@ -554,6 +561,9 @@ class ItemView(view_utils.BaseView):
     # Competition, Team
     async def fixtures(self) -> discord.InteractionMessage:
         """Push upcoming competition fixtures to View"""
+        if isinstance(self, FixtureView):
+            raise NotImplementedError
+        
         if isinstance(self.object, fs.Fixture):
             raise NotImplementedError
 
@@ -628,6 +638,10 @@ class ItemView(view_utils.BaseView):
     async def news(self) -> discord.InteractionMessage:
         raise NotImplementedError  # This is subclassed.
 
+    async def odds(self) -> discord.InteractionMessage:
+        r = self.interaction.edit_original_response
+        await r(content="Soon? Maybe.", embed=None, attachments=[], view=self)
+        return None
     # Fixture Only
     async def report(self) -> discord.InteractionMessage:
         """Get the report in text format."""
@@ -663,7 +677,13 @@ class ItemView(view_utils.BaseView):
     # Competition, Team
     async def results(self) -> discord.InteractionMessage:
         """Push Previous Results Team View"""
+        if isinstance(self, FixtureView):
+            # This one actually invalidates properly if we're using an "old"
+            # fs.Fixture object
+            raise NotImplementedError
+
         if isinstance(self.object, fs.Fixture):
+            # This one just unfucks the typechecking for self.object.
             raise NotImplementedError  # No.
 
         rows = await fs.parse_games(self.bot, self.object, "/results/")
@@ -800,7 +820,7 @@ class ItemView(view_utils.BaseView):
 
                 if tab_number == o:
                     e.title += f" ({text})"
-                    await sub.nth(o).click()
+                    await sub.nth(o).click(force=True)
 
                 f = view_utils.Funcable(text, self.squad)
                 a = "aria-current"
@@ -968,7 +988,7 @@ class ItemView(view_utils.BaseView):
         self._cached_function = self.squad
 
         r = self.interaction.edit_original_response
-        return await r(embed=e, view=self)
+        return await r(embed=e, view=self, attachments=[])
 
     # Team only
     async def transfers(
@@ -1072,7 +1092,6 @@ class ItemView(view_utils.BaseView):
                 tm_lnk = fs.FLASHSCORE + "".join(elem.xpath(xpath + "/@href"))
 
                 team_id = tm_lnk.split("/")[-2]
-                logger.info("Team ID: %s", team_id)
                 team = self.bot.get_team(team_id)
                 if team is None:
                     team = fs.Team(team_id, team_name, tm_lnk)
@@ -1108,7 +1127,7 @@ class ItemView(view_utils.BaseView):
         self._cached_function = self.transfers
 
         r = self.interaction.edit_original_response
-        return await r(embed=embed, view=self)
+        return await r(embed=embed, view=self, attachments=[])
 
     # Competition, Fixture, Team
     async def standings(
@@ -1134,7 +1153,15 @@ class ItemView(view_utils.BaseView):
         inner = self.page.locator(".tableWrapper")
         outer = self.page.locator("div", has=inner)
         table_div = self.page.locator("div", has=outer).last
-        await table_div.wait_for(state="visible", timeout=5000)
+
+        try:
+            await table_div.wait_for(state="visible", timeout=5000)
+        except pw_TimeoutError:
+            # Entry point not handled on fixtures from leagues.
+            await self.handle_tabs()
+            r = self.interaction.edit_original_response
+            e.description = "❌ No Table Available"
+            await r(embed=e, view=self)
 
         if isinstance(self, FixtureView | CompetitionView | TeamView):
             row = await self.handle_tabs()
@@ -1370,7 +1397,7 @@ class FixtureView(ItemView):
         e.url = f"{self.fixture.url}#/news"
         await self.page.goto(e.url, timeout=5000)
         await self.handle_tabs()
-        loc = "section.newsTab__section"
+        loc = ".container__detail"
         tree = html.fromstring(await self.page.inner_html(loc))
 
         row: html.HtmlEntity
@@ -1715,6 +1742,7 @@ class Fixtures(commands.Cog):
         self, ctx: discord.Interaction[Bot], fixture: str
     ) -> discord.InteractionMessage:
         """Look up the lineups and/or formations for a Fixture."""
+        await ctx.response.defer(thinking=True)
         if (fix := self.bot.get_fixture(fixture)) is None:
             team = await fetch_team(ctx, fixture)
             fix = await choose_recent_fixture(ctx, team)
