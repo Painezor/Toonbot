@@ -28,7 +28,7 @@ from discord.utils import utcnow
 from lxml import html
 from playwright.async_api import TimeoutError
 
-from ext.painezbot_utils.player import Region
+from ext.painezbot_utils.region import Region
 from ext.utils.view_utils import Stop, BaseView
 
 if TYPE_CHECKING:

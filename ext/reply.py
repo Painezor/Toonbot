@@ -77,27 +77,6 @@ class Reply(Cog):
         self.bot: Bot | PBot = bot
         self.bot.reply = reply
         self.bot.error = error
-        # self.bot.tree.on_error = self.error_handler
-
-    async def error_handler(
-        self, interaction: Interaction[Bot], err: AppCommandError
-    ) -> Message:
-        """Event listener for when commands raise exceptions"""
-        # Unpack CI
-        msg = f"An Internal error occurred.\n{err.args}"
-        await self.bot.error(interaction, msg)
-
-        if interaction.command:
-            i1 = interaction.command.qualified_name
-        else:
-            i1 = "No Command."
-
-        if interaction.data:
-            i2 = interaction.data.items()
-        else:
-            i2 = "{}"
-        logger.error("Error from %s\n%s", i1, i2)
-        raise err
 
 
 async def setup(bot: Bot | PBot):

@@ -484,7 +484,8 @@ class BoolButton(Button):
         super().__init__(label=label, style=style)
         self.value: bool = value
 
-    async def callback(self, _: discord.Interaction) -> None:
+    async def callback(self, interaction: discord.Interaction) -> None:
         """On Click Event"""
+        await interaction.response.defer()
         self.view.value = self.value
         self.view.stop()

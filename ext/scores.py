@@ -345,6 +345,9 @@ class Scores(Cog):
         fs.FlashScoreItem.bot = bot
         ScoreChannel.bot = bot
 
+        # Weak refs.
+        self.tasks: set[asyncio.Task] = set()
+
     async def cog_load(self) -> None:
         """Load our database into the bot"""
         await self.load_database()
@@ -354,6 +357,8 @@ class Scores(Cog):
         """Cancel the live scores loop when cog is unloaded."""
         if self.bot.score_loop is not None:
             self.bot.score_loop.cancel()
+
+        [i.cancel() for i in self.tasks]
 
         self.bot.score_channels.clear()
         self.bot.games.clear()
@@ -658,7 +663,9 @@ class Scores(Cog):
                 home = fs.Team(None, home_name, None)
                 away = fs.Team(None, away_name, None)
                 fx = fs.Fixture(home, away, match_id, url)
-                self.bot.loop.create_task(fx.fetch_data(self.bot))
+                rf_task = self.bot.loop.create_task(fx.fetch_data(self.bot))
+                self.tasks.add(rf_task)
+                rf_task.add_done_callback(self.tasks.discard)
                 self.bot.games.append(fx)
 
                 old_state = None

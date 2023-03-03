@@ -50,7 +50,7 @@ class BanView(view_utils.BaseView):
     @property
     def embed(self) -> Embed:
         """Generic Embed for this server"""
-        g = typing.cast(Guild, self.interaction.guild)
+        g = typing.cast(discord.Guild, self.interaction.guild)
         e = Embed(title=f"{g.name} bans", colour=Colour.blurple())
         if g.icon:
             e.set_thumbnail(url=g.icon.url)
@@ -91,7 +91,7 @@ class BanView(view_utils.BaseView):
         e.description = ""
         e.timestamp = discord.utils.utcnow()
 
-        g = typing.cast(Guild, self.interaction.guild)
+        g = typing.cast(discord.Guild, self.interaction.guild)
 
         u = self.interaction.user
         e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
@@ -114,7 +114,7 @@ class BanView(view_utils.BaseView):
         return await self.bot.reply(self.interaction, embed=e, view=self)
 
 
-class BanSelect(Select):
+class BanSelect(discord.ui.Select):
     """Dropdown to unban members"""
 
     view: BanView
@@ -137,12 +137,12 @@ class BanSelect(Select):
 class BanModal(Modal, title="Bulk ban user IDs"):
     """Modal for user to enter multi line bans on."""
 
-    ban_list = TextInput(
+    ban_list = discord.ui.TextInput(
         label="Enter User IDs to ban, one per line",
         style=TextStyle.paragraph,
         placeholder="12345678901234\n12345678901235\n12345678901236\n…",
     )
-    reason = TextInput(
+    reason = discord.ui.TextInput(
         label="Enter a reason",
         placeholder="<Insert your reason here>",
         default="No reason provided",

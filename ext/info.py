@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 
 from importlib import reload
 import discord
+from discord.ext import commands
 from discord import (
     Member,
     Embed,
@@ -21,7 +22,6 @@ from discord import (
 )
 from discord.abc import GuildChannel
 from discord.app_commands import guild_only, Group
-from discord.ext.commands import Cog
 from discord.utils import utcnow
 
 import ext.logs as logs
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from painezBot import PBot
 
 
-class Info(Cog):
+class Info(commands.Cog):
     """Get information about users or servers."""
 
     def __init__(self, bot: Bot | PBot) -> None:
@@ -44,7 +44,9 @@ class Info(Cog):
     @discord.app_commands.command()
     @discord.app_commands.describe(user="Select a user")
     async def avatar(
-        self, interaction: Interaction[Bot], user: Optional[User | Member]
+        self,
+        interaction: discord.Interaction[Bot | PBot],
+        user: Optional[User | Member],
     ) -> Message:
         """Shows a member's avatar"""
 
@@ -72,7 +74,9 @@ class Info(Cog):
 
     @info.command()
     @discord.app_commands.describe(c="select a channel")
-    async def channel(self, interaction: Interaction[Bot], c: GuildChannel):
+    async def channel(
+        self, interaction: discord.Interaction[Bot | PBot], c: GuildChannel
+    ):
         """Get information about a channel"""
 
         await interaction.response.defer(thinking=True)
@@ -339,13 +343,16 @@ class Info(Cog):
             e.description = ""
 
             if (em := self.bot.get_emoji(e_id)) is None:
-                em = PartialEmoji(name=name, animated=bool(anim), id=e_id)
+                em = discord.PartialEmoji(
+                    name=name, animated=bool(anim), id=e_id
+                )
 
-            e.colour = await get_colour(em.url)
-            if em.animated:
-                e.description = f"**Animated?**: {em.animated}\n"
-            e.set_image(url=em.url)
-            e.set_footer(text=em.url)
+            if em is not None:
+                e.colour = await get_colour(em.url)
+                if em.animated:
+                    e.description = f"**Animated?**: {em.animated}\n"
+                e.set_image(url=em.url)
+                e.set_footer(text=em.url)
 
             if isinstance(em, Emoji):  # Not a partial emoji
                 if (g := em.guild) is not None:
@@ -510,7 +517,7 @@ class Info(Cog):
 
     @info.command()
     async def user(
-        self, interaction: Interaction[Bot], member: Member
+        self, interaction: discord.Interaction[Bot | PBot], member: Member
     ) -> Message:
         """Show info about this member."""
         # Embed 1: Generic Info

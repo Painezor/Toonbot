@@ -406,7 +406,7 @@ class ItemView(view_utils.BaseView):
             c_link = "".join(i.xpath(xpath + "/@href")).strip()
 
             logger.info(c_link)
-            c_link = fs.FLASHSCORE + '/' + c_link.strip('/')
+            c_link = fs.FLASHSCORE + "/" + c_link.strip("/")
             logger.info(c_link)
 
             country = self.competition.country
@@ -563,7 +563,7 @@ class ItemView(view_utils.BaseView):
         """Push upcoming competition fixtures to View"""
         if isinstance(self, FixtureView):
             raise NotImplementedError
-        
+
         if isinstance(self.object, fs.Fixture):
             raise NotImplementedError
 
@@ -642,6 +642,7 @@ class ItemView(view_utils.BaseView):
         r = self.interaction.edit_original_response
         await r(content="Soon? Maybe.", embed=None, attachments=[], view=self)
         return None
+
     # Fixture Only
     async def report(self) -> discord.InteractionMessage:
         """Get the report in text format."""
@@ -834,9 +835,11 @@ class ItemView(view_utils.BaseView):
         tree = html.fromstring(await loc.inner_html())
 
         def parse_row(row, position: str) -> fs.Player:
-            xpath = './/div[contains(@class, "cell--name")]/a/'
-            link = fs.FLASHSCORE + "".join(row.xpath(xpath + "@href"))
-            name = "".join(row.xpath(xpath + "text()")).strip()
+            xpath = './/div[contains(@class, "cell--name")]/a/@href'
+            link = fs.FLASHSCORE + "".join(row.xpath(xpath))
+            
+            xpath = './/div[contains(@class, "cell--name")]/a/text()'
+            name = "".join(row.xpath(xpath)).strip()
             try:  # Name comes in reverse order.
                 surname, forename = name.rsplit(" ", 1)
             except ValueError:

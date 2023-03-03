@@ -88,7 +88,7 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
                 try:
                     fixture.penalties_home = text[1]
                     fixture.penalties_away = text[3]
-                    logging.info("Parsed a 2 part penalties OK!!")
+                    logger.info("Parsed a 2 part penalties OK!!")
                 except IndexError:
                     # If Penalties are still in progress, it's actually
                     # in format ['Penalties', '1 - 2']
@@ -111,22 +111,21 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
 
         svg_text = "".join(node.xpath(".//svg//text()")).strip()
         svg_class = "".join(node.xpath(".//svg/@class")).strip()
-        sub_incident = "".join(node.xpath(".//smv__subIncident/text()"))
+        sub_i = "".join(node.xpath(".//div[@class='smv__subIncident']/text()"))
 
-        logging.info("Parsing match event")
-        logging.info("text: %s", svg_text)
-        logging.info("class: %s", svg_class)
-        logging.info("sub_incident: %s", sub_incident)
+        logger.info("text: %s, class: %s", svg_text, svg_class)
+        if sub_i:
+            logger.info("sub_incident: %s", sub_i)
 
         # Try to figure out what kind of event this is.
         if svg_class == "soccer":
             # This is a goal.
 
-            if sub_incident == "(Penalty)":
+            if sub_i == "(Penalty)":
                 event = m_evt.Penalty()
 
-            elif sub_incident:
-                logging.info("Unhandled goal sub_incident", sub_incident)
+            elif sub_i:
+                logger.info("Unhandled goal sub_incident", sub_i)
                 event = m_evt.Goal()
 
             else:
@@ -135,7 +134,7 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
         elif "footballOwnGoal-ico" in svg_class:
             event = m_evt.OwnGoal()
 
-        elif "Penalty missed" in sub_incident:
+        elif "Penalty missed" in sub_i:
             event = m_evt.Penalty(missed=True)
 
         # cards
@@ -144,7 +143,6 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
             or "redyellowcard-ico" in svg_class.casefold()
         ):
             event = m_evt.SecondYellow()
-            logger.info("Yellow/Red has svg_clas %s", svg_class)
 
         elif "redCard-ico" in svg_class:
             event = m_evt.RedCard()
@@ -178,8 +176,6 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
             if p_url:
                 p_url = FLASHSCORE + p_url
 
-            logging.info("Match Event Player url is %s", p_url)
-
             try:
                 surname, forename = p_name.rsplit(" ", 1)
             except ValueError:
@@ -188,8 +184,8 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
 
         # Subbed off player.
         if isinstance(event, m_evt.Substitution):
+            xpath = './/div[contains(@class, "incidentSubOut")]/a/'
             if s_name := "".join(node.xpath(xpath + "text()")):
-                xpath = './/div[contains(@class, "incidentSubOut")]/a/'
                 s_name = s_name.strip()
 
                 s_url = "".join(node.xpath(xpath + "@href"))
@@ -231,7 +227,7 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
         xpath = './/div[contains(@class, "timeBox")]//text()'
         time = "".join(node.xpath(xpath)).strip()
         event.time = time
-        event.note = svg_class
+        event.note = svg_text
 
         # Description of the event.
         xpath = './/div[contains(@class, "incidentIcon")]//@title'
@@ -268,6 +264,8 @@ async def parse_games(
     xp = './/div[contains(@class, "sportName soccer")]/div'
     if not (games := tree.xpath(xp)):
         raise LookupError(f"No fixtures found on {object.url + sub_page}")
+
+    logger.info("TODO: Fetch team IDs & urls on %s", object.url)
 
     for i in games:
         try:
@@ -480,6 +478,45 @@ class Team(FlashScoreItem):
             output = f"{output} ({self.competition.title})"
         return output
 
+    @classmethod
+    def from_fixture_html(cls, bot: Bot, tree, home: bool = True) -> Team:
+
+        attr = "home" if home else "away"
+
+        xpath = f".//div[contains(@class, 'duelParticipant__{attr}')]"
+        div = tree.xpath(xpath)
+        if not div:
+            raise LookupError("Cannot find team on page.")
+
+        div = div[0]  # Only One
+
+        # Get Name
+        xp = ".//a[contains(@class, 'participant__participantName')]/"
+        name = "".join(div.xpath(xp + "text()"))
+        url = "".join(div.xpath(xp + "@href"))
+
+        team_id = url.split("/")[-2]
+
+        if (team := bot.get_team(team_id)) is not None:
+            if team.name != name:
+                team.name = name
+        else:
+            for i in bot.teams:
+                if i.url and url in i.url:
+                    team = i
+                    break
+            else:
+                team = Team(team_id, name, FLASHSCORE + url)
+                bot.teams.append(team)
+
+        if team.logo_url is None:
+            logo = div.xpath('.//img[@class="participant__image"]/@src')
+            logo = "".join(logo)
+            if logo:
+                team.logo_url = FLASHSCORE + logo
+
+        return team
+
     @property
     def tag(self) -> str:
         """Generate a 3 letter tag for the team"""
@@ -564,7 +601,6 @@ class Competition(FlashScoreItem):
         elif url and country and FLASHSCORE not in url:
             ctr = country.casefold().replace(" ", "-").replace(".", "")
             url = f"{FLASHSCORE}/{ctr}/{url}/"
-            logger.error("Test replacement %s", url)
         elif fsid and not url:
             # https://www.flashscore.com/?r=1:jLsL0hAF ??
             url = f"https://www.flashscore.com/?r=2:{url}"
@@ -632,7 +668,7 @@ class Competition(FlashScoreItem):
 
 
 # Do up to N fixtures at a time
-semaphore = asyncio.Semaphore(5)
+semaphore = asyncio.Semaphore(2)
 
 
 class Fixture:
@@ -699,6 +735,7 @@ class Fixture:
         return f"{time}: {self.bold_markdown}"
 
     async def fetch_data(self, bot: Bot):
+        logger.info("Entered Fetch_data on url %s", self.url)
         if self.url is None:
             return
 
@@ -707,55 +744,24 @@ class Fixture:
 
         async with semaphore:
             page = await bot.browser.new_page()
-            await page.goto(self.url)
+            try:
+                await page.goto(self.url)
 
-            # We are now on the fixture's page. Hooray.
-            loc = page.locator("duelParticipant")
-            await loc.wait_for()
-            tree = html.fromstring(await page.content())
-            await page.close()
-
+                # We are now on the fixture's page. Hooray.
+                loc = page.locator(".duelParticipant")
+                await loc.wait_for(timeout=2500)
+                tree = html.fromstring(await page.content())
+            finally:
+                await page.close()
+        logger.info("Got page on url %s", self.url)
         # Handle Teams
-        def make_team(attr: typing.Literal["home", "away"]) -> Team:
 
-            xpath = f".//div[contains(@class, 'duelParticipant__{attr}')]"
-            div = tree.xpath(xpath)
-            if not div:
-                raise ValueError("div not found")
-
-            div = div[0]  # Only One
-
-            # Get Name
-            xp = "./div[contains(@class, 'participant__participantName')]/a/"
-            name = "".join(div.xpath(xp + "text()"))
-            url = "".join(div.xpath(xp + "@href"))
-            team_id = url.split("/")[-2]
-            logger.info("get_fixture_data returned team_id %s", team_id)
-
-            if (team := bot.get_team(team_id)) is not None:
-                pass
-            else:
-                for i in bot.teams:
-                    if i.url is None:
-                        continue
-                    if url in i.url:
-                        team = i
-                        break
-                else:
-                    team = Team(team_id, name, FLASHSCORE + url)
-
-            if team.logo_url is None:
-                logo_url = div.xpath('.//img[@class="participant__image]/@src')
-                if logo_url:
-                    team.logo_url = FLASHSCORE + logo_url
-
-            return team
-
-        self.home = make_team("home")
-        self.away = make_team("away")
+        self.home = Team.from_fixture_html(bot, tree)
+        self.away = Team.from_fixture_html(bot, tree, home=False)
 
         # TODO: Fetch Competition Info
-        div = tree.xpath(".//div[@class='tournamentHeader__country'")
+        div = tree.xpath(".//span[@class='tournamentHeader__country']")
+        logger.info("Fetching competition...")
         if div:
             div = div[0]
 
@@ -769,12 +775,10 @@ class Fixture:
                 country.split(":")[0]
 
             if (comp := bot.get_competition(comp_id)) is not None:
-                pass
+                logger.info("Found matching comp for %s", comp_id)
             else:
                 for i in bot.competitions:
-                    if i.url is None:
-                        continue
-                    if url in i.url:
+                    if i.url and url in i.url:
                         comp = i
                         break
                 else:

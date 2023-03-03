@@ -2,22 +2,21 @@
 from __future__ import annotations
 
 import asyncio
+import collections
+import datetime
 import json
 import logging
-import datetime
-import collections
-from typing import TYPE_CHECKING, Callable, Optional, cast
+import typing
 
 import aiohttp
 import asyncpg
-import discord
 import asyncpraw
+import discord
 from discord.ext import commands
 
 from ext.utils.playwright_browser import make_browser
 
-if TYPE_CHECKING:
-    from asyncio import Task
+if typing.TYPE_CHECKING:
     from io import BytesIO
 
     from playwright.async_api import BrowserContext
@@ -28,7 +27,6 @@ if TYPE_CHECKING:
     from ext.ticker import TickerChannel
     from ext.transfers import TransferChannel
 
-logger = logging.getLogger("core")
 
 with open("credentials.json", "r") as f:
     credentials = json.load(f)
@@ -80,16 +78,16 @@ class Bot(commands.AutoShardedBot):
 
         super().__init__(
             description="Football lookup bot by Painezor#8489",
+            command_prefix=commands.when_mentioned,
             owner_id=210582977493598208,
             activity=discord.Game(name="⚽ Football"),
             intents=discord.Intents.all(),
             help_command=None,
-            command_prefix=commands.when_mentioned,
         )
 
         # Reply Handling
-        self.reply: Callable
-        self.error: Callable
+        self.reply: typing.Callable
+        self.error: typing.Callable
 
         # Database & Credentials
         self.db: asyncpg.Pool = database
@@ -104,7 +102,7 @@ class Bot(commands.AutoShardedBot):
         self.teams: list[fs.Team] = []
         self.competitions: list[fs.Competition] = []
         self.score_channels: list[ScoreChannel] = []
-        self.score_loop: Optional[Task] = None
+        self.score_loop: typing.Optional[asyncio.Task] = None
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
@@ -114,7 +112,7 @@ class Bot(commands.AutoShardedBot):
         self.quotes: list[asyncpg.Record] = []
 
         # Reminders
-        self.reminders: set[Task] = set()
+        self.reminders: set[asyncio.Task] = set()
 
         # Session // Scraping
         self.browser: BrowserContext
@@ -122,7 +120,7 @@ class Bot(commands.AutoShardedBot):
 
         # Sidebar
         self.reddit_teams: list[asyncpg.Record] = []
-        self.sidebar: Task
+        self.sidebar: asyncio.Task
         self.reddit = asyncpraw.Reddit(**credentials["Reddit"])
 
         # Streams
@@ -133,7 +131,7 @@ class Bot(commands.AutoShardedBot):
 
         # Transfers
         self.transfer_channels: list[TransferChannel] = []
-        self.transfers: Task
+        self.transfers: asyncio.Task
         self.parsed_transfers: list[str] = []
 
         # TV
@@ -148,10 +146,8 @@ class Bot(commands.AutoShardedBot):
         """Create our browsers then load our cogs."""
 
         # aiohttp
-        connector = aiohttp.TCPConnector(ssl=False)
-        self.session = aiohttp.ClientSession(
-            loop=self.loop, connector=connector
-        )
+        cnt = aiohttp.TCPConnector(ssl=False)
+        self.session = aiohttp.ClientSession(loop=self.loop, connector=cnt)
 
         # playwright
         self.browser = await make_browser()
@@ -165,27 +161,27 @@ class Bot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s\n%s", c, err)
         return
 
-    def get_competition(self, comp_id: str) -> Optional[fs.Competition]:
+    def get_competition(self, comp_id: str) -> typing.Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
         return next((i for i in self.competitions if i.id == comp_id), None)
 
-    def get_team(self, team_id: str) -> Optional[fs.Team]:
+    def get_team(self, team_id: str) -> typing.Optional[fs.Team]:
         """Retrieve a Team from the ones stored in the bot."""
         return next((i for i in self.teams if i.id == team_id), None)
 
-    def get_fixture(self, fixture_id: str) -> Optional[fs.Fixture]:
+    def get_fixture(self, fixture_id: str) -> typing.Optional[fs.Fixture]:
         """Retrieve a Fixture from the ones stored in the bot."""
         return next((i for i in self.games if i.id == fixture_id), None)
 
-    async def dump_image(self, data: BytesIO) -> Optional[str]:
+    async def dump_image(self, data: BytesIO) -> typing.Optional[str]:
         """Save a stitched image"""
         file = discord.File(fp=data, filename="dumped_image.png")
         channel = self.get_channel(874655045633843240)
 
         if channel is None:
-            return
+            return None
 
-        channel = cast(discord.TextChannel, channel)
+        channel = typing.cast(discord.TextChannel, channel)
 
         img_msg = await channel.send(file=file)
         return img_msg.attachments[0].url

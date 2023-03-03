@@ -3,20 +3,15 @@ from __future__ import annotations  # Cyclic Type hinting
 
 import logging
 from datetime import datetime
-from typing import Optional
 
-from discord import Interaction, Embed, Colour, Message, SelectOption
-from discord.ui import Select
+import discord
 from lxml import html
 
-from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.flags import get_flag
-from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import FuncButton, BaseView, Funcable
+from ext.utils import view_utils, timed_events, flags, embed_utils
 
-from typing import TYPE_CHECKING
+import typing
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 
@@ -40,9 +35,9 @@ class SearchResult:
         return f"SearchResult({self.__dict__})"
 
     @property
-    def base_embed(self) -> Embed:
+    def base_embed(self) -> discord.Embed:
         """A generic embed used for transfermarkt objects"""
-        e: Embed = Embed(color=Colour.dark_blue(), description="")
+        e = discord.Embed(color=discord.Colour.dark_blue(), description="")
         e.set_author(name="TransferMarkt")
         return e
 
@@ -59,10 +54,10 @@ class SearchResult:
             return "🌍"
 
         if isinstance(self.country, list):
-            flags = [get_flag(i) for i in self.country]
-            return " ".join([x for x in flags if x is not None])
+            output = [flags.get_flag(i) for i in self.country]
+            return " ".join([x for x in output if x is not None])
         else:
-            return get_flag(self.country)
+            return flags.get_flag(self.country)
 
 
 class Competition(SearchResult):
@@ -72,7 +67,7 @@ class Competition(SearchResult):
 
     def __init__(self, name: str, link: str, **kwargs) -> None:
         super().__init__(name, link)
-        self.country: Optional[str] = kwargs.pop("country", None)
+        self.country: typing.Optional[str] = kwargs.pop("country", None)
 
     def __str__(self) -> str:
         if self:
@@ -83,7 +78,7 @@ class Competition(SearchResult):
     def __bool__(self):
         return bool(self.name)
 
-    def view(self, interaction: Interaction[Bot]) -> CompetitionView:
+    def view(self, interaction: discord.Interaction[Bot]) -> CompetitionView:
         """Send a view of this Competition to the user."""
         return CompetitionView(interaction, self)
 
@@ -107,11 +102,12 @@ class Team(SearchResult):
         return f"{self.flag} {self.markdown}"
 
     @property
-    def select_option(self) -> SelectOption:
+    def select_option(self) -> discord.SelectOption:
         """A Select Option representation of this Team"""
-        return SelectOption(
-            emoji=self.flag, label=self.name, description=self.league.name
-        )
+        a = self.flag
+        b = self.name
+        c = self.league.name
+        return discord.SelectOption(emoji=a, label=b, description=c)
 
     @property
     def badge(self) -> str:
@@ -120,7 +116,7 @@ class Team(SearchResult):
         return f"https://tmssl.akamaized.net/images/wappen/head/{number}.png"
 
     @property
-    def base_embed(self) -> Embed:
+    def base_embed(self) -> discord.Embed:
         """Return a discord embed object representing a team"""
         e = super().base_embed
         e.set_thumbnail(url=self.badge)
@@ -128,7 +124,7 @@ class Team(SearchResult):
         e.url = self.link
         return e
 
-    def view(self, interaction: Interaction[Bot]) -> TeamView:
+    def view(self, interaction: discord.Interaction[Bot]) -> TeamView:
         """Send a view of this Team to the user."""
         return TeamView(interaction, self)
 
@@ -203,15 +199,15 @@ class Transfer:
     def __init__(self, player: Player) -> None:
         self.player: Player = player
 
-        self.link: Optional[str] = None
-        self.fee: Optional[str] = None
-        self.fee_link: Optional[str] = None
-        self.old_team: Optional[Team] = None
-        self.new_team: Optional[Team] = None
-        self.date: Optional[str] = None
+        self.link: typing.Optional[str] = None
+        self.fee: typing.Optional[str] = None
+        self.fee_link: typing.Optional[str] = None
+        self.old_team: typing.Optional[Team] = None
+        self.new_team: typing.Optional[Team] = None
+        self.date: typing.Optional[str] = None
 
         # Typehint
-        self.embed: Optional[Embed] = None
+        self.embed: typing.Optional[discord.Embed] = None
 
     @property
     def loan_fee(self) -> str:
@@ -244,9 +240,9 @@ class Transfer:
         """Get outbound text."""
         return f"{self.player} {self.loan_fee}\nTo: {self.new_team}\n"
 
-    def generate_embed(self) -> Embed:
+    def generate_embed(self) -> discord.Embed:
         """An embed representing a transfermarkt player transfer."""
-        e: Embed = Embed(description="", colour=0x1A3151)
+        e = discord.Embed(description="", colour=0x1A3151)
         e.title = f"{self.player.flag} {self.player.name}"
         e.url = self.player.link
         desc = []
@@ -262,29 +258,31 @@ class Transfer:
         if self.player.picture is not None and "http" in self.player.picture:
             e.set_thumbnail(url=self.player.picture)
 
-        desc.append(Timestamp().relative)
+        desc.append(timed_events.Timestamp().relative)
         e.description = "\n".join(desc)
         self.embed = e
         return self.embed
 
 
-class TeamView(BaseView):
+class TeamView(view_utils.BaseView):
     """A View representing a Team on TransferMarkt"""
 
-    def __init__(self, interaction: Interaction[Bot], team: Team) -> None:
+    def __init__(
+        self, interaction: discord.Interaction[Bot], team: Team
+    ) -> None:
         super().__init__(interaction)
         self.team: Team = team
 
-    async def update(self, content: Optional[str] = None) -> None:
+    async def update(self, content: typing.Optional[str] = None) -> None:
         """Send the latest version of the view"""
         self.clear_items()
 
         # TODO: Funcables.
         items = [
-            Funcable("Transfers", self.push_transfers, emoji="🔄"),
-            Funcable("Rumours", self.push_rumours, emoji="🕵"),
-            Funcable("Trophies", self.push_trophies, emoji="🏆"),
-            Funcable("Contracts", self.push_contracts, emoji="📝"),
+            view_utils.Funcable("Transfers", self.push_transfers, emoji="🔄"),
+            view_utils.Funcable("Rumours", self.push_rumours, emoji="🕵"),
+            view_utils.Funcable("Trophies", self.push_trophies, emoji="🏆"),
+            view_utils.Funcable("Contracts", self.push_contracts, emoji="📝"),
         ]
         self.add_function_row(items, 1)
         self.add_page_buttons()
@@ -389,8 +387,10 @@ class TeamView(BaseView):
         if players_in := parse(tree.xpath(xp)):
             embed = base_embed.copy()
             embed.title = f"Inbound Transfers for {embed.title}"
-            embed.colour = Colour.green()
-            embeds += rows_to_embeds(embed, [i.inbound for i in players_in])
+            embed.colour = discord.Colour.green()
+
+            rows = [i.inbound for i in players_in]
+            embeds += embed_utils.rows_to_embeds(embed, rows)
 
         xp = (
             './/div[@class="box"][.//h2[contains(text(),"Departures")]]'
@@ -399,13 +399,14 @@ class TeamView(BaseView):
         if players_out := parse(tree.xpath(xp), out=True):
             embed = base_embed.copy()
             embed.title = f"Outbound Transfers for {embed.title}"
-            embed.colour = Colour.red()
-            embeds += rows_to_embeds(embed, [i.outbound for i in players_out])
+            embed.colour = discord.Colour.red()
+            rows = [i.outbound for i in players_out]
+            embeds += embed_utils.rows_to_embeds(embed, rows)
 
         if not embeds:
             embed = base_embed
             embed.title = f"No transfers found {embed.title}"
-            embed.colour = Colour.orange()
+            embed.colour = discord.Colour.orange()
             embeds = [embed]
 
         self.pages = embeds
@@ -445,7 +446,7 @@ class TeamView(BaseView):
 
             pos = "".join(i.xpath(".//td[2]//tr[2]/td/text()"))
             country = i.xpath(".//td[3]/img/@title")
-            flag = " ".join([get_flag(i) for i in country])
+            flag = " ".join([flags.get_flag(i) for i in country])
             age = "".join(i.xpath("./td[4]/text()")).strip()
             team = "".join(i.xpath(".//td[5]//img/@alt"))
 
@@ -463,7 +464,7 @@ class TeamView(BaseView):
         if not rows:
             rows = ["No rumours about new signings found."]
 
-        self.pages = rows_to_embeds(e, rows)
+        self.pages = embed_utils.rows_to_embeds(e, rows)
         self.index = 0
         return await self.update()
 
@@ -492,7 +493,7 @@ class TeamView(BaseView):
 
         if not trophies:
             trophies = ["No trophies found for team."]
-        self.pages = rows_to_embeds(e, trophies)
+        self.pages = embed_utils.rows_to_embeds(e, trophies)
         self.index = 0
         return await self.update()
 
@@ -539,10 +540,11 @@ class TeamView(BaseView):
             age = age.split("(")[-1].replace(")", "").strip()
 
             country = i.xpath(".//td[3]/img/@title")
-            flag = " ".join([get_flag(f) for f in country])
+            flag = " ".join([flags.get_flag(f) for f in country])
             date = "".join(i.xpath(".//td[4]//text()")).strip()
 
-            expiry = Timestamp(datetime.strptime(date, "%b %d, %Y")).countdown
+            ts = datetime.strptime(date, "%b %d, %Y")
+            expiry = timed_events.Timestamp(ts).countdown
 
             option = "".join(i.xpath(".//td[5]//text()")).strip()
             option = f"\n∟ {option.title()}" if option != "-" else ""
@@ -553,7 +555,7 @@ class TeamView(BaseView):
         if not rows:
             rows = ["No expiring contracts found."]
 
-        self.pages = rows_to_embeds(e, rows)
+        self.pages = embed_utils.rows_to_embeds(e, rows)
         self.index = 0
         return await self.update()
 
@@ -600,33 +602,31 @@ class StadiumAttendance:
         return f"[{self.name}]({self.link}) {self.total} ({team})"
 
 
-class CompetitionView(BaseView):
+class CompetitionView(view_utils.BaseView):
     """A View representing a competition on TransferMarkt"""
 
     def __init__(
-        self, interaction: Interaction[Bot], comp: Competition
+        self, interaction: discord.Interaction[Bot], comp: Competition
     ) -> None:
         super().__init__(interaction)
         self.comp: Competition = comp
 
-    async def update(self, content: Optional[str] = None) -> Message:
+    async def update(
+        self, content: typing.Optional[str] = None
+    ) -> discord.InteractionMessage:
         """Send the latest version of the view"""
         self.clear_items()
         self.add_page_buttons()
 
-        self.add_item(
-            FuncButton(
-                label="Attendances", function=self.attendance, emoji="🏟️"
-            )
-        )
+        btn = view_utils.Funcable("Attendances", self.attendance, emoji="🏟️")
+        self.add_function_row([btn])
 
         e = self.pages[self.index]
 
-        return await self.bot.reply(
-            self.interaction, content, embed=e, view=self
-        )
+        r = self.interaction.edit_original_response
+        return await r(content=content, embed=e, view=self)
 
-    async def attendance(self) -> Message:
+    async def attendance(self) -> discord.InteractionMessage:
         """Fetch attendances for league's stadiums."""
         url = self.comp.link.replace("startseite", "besucherzahlen")
         async with self.bot.session.get(url) as resp:
@@ -685,7 +685,7 @@ class CompetitionView(BaseView):
         ranked = sorted(rows, key=lambda x: x.average, reverse=True)
 
         en = [f"{i[0]}: {i[1].average_row}" for i in enumerate(ranked, 1)]
-        embeds += rows_to_embeds(e, [i for i in en], 25)
+        embeds += embed_utils.rows_to_embeds(e, [i for i in en], 25)
 
         e = self.comp.base_embed.copy()
         e.title = f"Total Attendance data for {self.comp.name}"
@@ -693,7 +693,7 @@ class CompetitionView(BaseView):
         ranked = sorted(rows, key=lambda x: x.total, reverse=True)
 
         en = [f"{i[0]}: {i[1].total_row}" for i in enumerate(ranked, 1)]
-        embeds += rows_to_embeds(e, [i for i in en], 25)
+        embeds += embed_utils.rows_to_embeds(e, [i for i in en], 25)
 
         e = self.comp.base_embed.copy()
         e.title = f"Max Capacity data for {self.comp.name}"
@@ -701,13 +701,13 @@ class CompetitionView(BaseView):
         ranked = sorted(rows, key=lambda x: x.capacity, reverse=True)
 
         en = [f"{i[0]}: {i[1].capacity_row}" for i in enumerate(ranked, 1)]
-        embeds += rows_to_embeds(e, [i for i in en], 25)
+        embeds += embed_utils.rows_to_embeds(e, [i for i in en], 25)
 
         self.pages = embeds
         return await self.update()
 
 
-class SearchSelect(Select):
+class SearchSelect(discord.ui.Select):
     """Dropdown."""
 
     view: SearchView
@@ -733,7 +733,9 @@ class SearchSelect(Select):
                 emoji=obj.emoji,
             )
 
-    async def callback(self, interaction: Interaction) -> Competition | Team:
+    async def callback(
+        self, interaction: discord.Interaction
+    ) -> Competition | Team:
         """Set view value to item."""
         await interaction.response.defer()
         self.view.value = self.objects[int(self.values[0])]
@@ -741,7 +743,7 @@ class SearchSelect(Select):
         return self.view.value
 
 
-class SearchView(BaseView):
+class SearchView(view_utils.BaseView):
     """A TransferMarkt Search in View Form"""
 
     query_string: str
@@ -749,12 +751,15 @@ class SearchView(BaseView):
     category: str
 
     def __init__(
-        self, interaction: Interaction[Bot], query: str, fetch: bool = False
+        self,
+        interaction: discord.Interaction[Bot],
+        query: str,
+        fetch: bool = False,
     ) -> None:
 
         super().__init__(interaction)
-        self.value: Optional[Team | Competition] = None
-        self.pages: list[Embed] = []
+        self.value: typing.Optional[Team | Competition] = None
+        self.pages: list[discord.Embed] = []
         self.query: str = query
         self.fetch: bool = fetch
         self._results: list = []
@@ -768,7 +773,7 @@ class SearchView(BaseView):
         self.clear_items()
         await self.bot.reply(self.interaction, view=None, followup=False)
 
-    async def update(self, content: Optional[str] = None) -> None:
+    async def update(self, content: typing.Optional[str] = None) -> None:
         """Populate Initial Results"""
         url = TF + "/schnellsuche/ergebnis/schnellsuche"
 
@@ -799,7 +804,8 @@ class SearchView(BaseView):
             logging.error(f"ValueError when parsing header, {header}")
             matches = 0
 
-        e = Embed(title=f"{matches} results for {self.query}", url=resp.url)
+        e = discord.Embed(title=f"{matches} results for {self.query}")
+        e.url = str(resp.url)
 
         cat = self.category.title()
         e.set_author(name=f"TransferMarkt Search: {cat}", icon_url=FAVICON)
@@ -811,9 +817,9 @@ class SearchView(BaseView):
             err = f"No results found for {self.category}: {self.query}"
             return await self.bot.error(self.interaction, err)
 
-        e = rows_to_embeds(e, [str(i) for i in self._results])[0]
+        e = embed_utils.rows_to_embeds(e, [str(i) for i in self._results])[0]
 
-        self.pages = [Embed()] * max(matches // 10, 1)
+        self.pages = [discord.Embed()] * max(matches // 10, 1)
 
         self.clear_items()
         self.add_page_buttons(row=1)
@@ -830,7 +836,9 @@ class AgentSearch(SearchView):
     query_string = "page"
     match_string = "for agents"
 
-    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
+    def __init__(
+        self, interaction: discord.Interaction[Bot], query: str
+    ) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows: list) -> list[Agent]:
@@ -853,11 +861,14 @@ class CompetitionSearch(SearchView):
     match_string = "competitions"
 
     def __init__(
-        self, interaction: Interaction[Bot], query: str, fetch: bool = False
+        self,
+        interaction: discord.Interaction[Bot],
+        query: str,
+        fetch: bool = False,
     ) -> None:
 
         super().__init__(interaction, query, fetch=fetch)
-        self.value: Optional[Competition] = None
+        self.value: typing.Optional[Competition] = None
 
     def parse(self, rows: list) -> list[Competition]:
         """Parse a transfermarkt page into a list of Competition Objects"""
@@ -882,7 +893,9 @@ class PlayerSearch(SearchView):
     query_string = "Spieler_page"
     match_string = "for players"
 
-    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
+    def __init__(
+        self, interaction: discord.Interaction[Bot], query: str
+    ) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows) -> list[Player]:
@@ -942,7 +955,9 @@ class RefereeSearch(SearchView):
     query_string = "page"
     match_string = "for referees"
 
-    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
+    def __init__(
+        self, interaction: discord.Interaction[Bot], query: str
+    ) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows: list) -> list[Referee]:
@@ -973,7 +988,9 @@ class StaffSearch(SearchView):
     query_string = "Trainer_page"
     match_string = "Managers"
 
-    def __init__(self, interaction: Interaction[Bot], query: str) -> None:
+    def __init__(
+        self, interaction: discord.Interaction[Bot], query: str
+    ) -> None:
         super().__init__(interaction, query)
 
     def parse(self, rows: list) -> list[Staff]:
@@ -1019,7 +1036,10 @@ class TeamSearch(SearchView):
     match_string = "results: Clubs"
 
     def __init__(
-        self, interaction: Interaction[Bot], query: str, fetch: bool = False
+        self,
+        interaction: discord.Interaction[Bot],
+        query: str,
+        fetch: bool = False,
     ) -> None:
 
         super().__init__(interaction, query, fetch=fetch)

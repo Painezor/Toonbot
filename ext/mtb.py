@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+from multiprocessing.sharedctypes import Value
 from typing import TYPE_CHECKING
 import typing
 
@@ -498,6 +499,10 @@ class MatchThreadCommands(commands.Cog):
         self, f: flashscore.Fixture, settings: asyncpg.Record
     ) -> None:
         """Create match threads for all scheduled games."""
+
+        if f.kickoff is None:
+            raise AttributeError("fixture %s has no kickoff", f)
+
         diff = f.kickoff - datetime.datetime.now(tz=datetime.timezone.utc)
         if diff.days > 7:
             return
