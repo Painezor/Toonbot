@@ -139,7 +139,7 @@ class Bot(commands.AutoShardedBot):
 
         # Announce aliveness
         started = self.initialised_at.strftime("%d-%m-%Y %H:%M:%S")
-        x = f"Bot __init__ ran: {started}"
+        x = f"Toonbot __init__ ran: {started}"
         logger.info(f"{x}\n" + "-" * len(x))
 
     async def setup_hook(self) -> None:

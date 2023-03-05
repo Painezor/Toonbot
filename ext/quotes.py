@@ -2,33 +2,16 @@
 from __future__ import annotations
 
 import random
-from importlib import reload
-from types import NoneType
-from typing import TYPE_CHECKING, Optional
+import typing
+import importlib
 
+import asyncpg
 import discord
-from asyncpg import UniqueViolationError, Record
-from discord import (
-    Embed,
-    ButtonStyle,
-    Interaction,
-    Colour,
-    Message,
-    Member,
-)
-from discord.app_commands import (
-    Group,
-    context_menu,
-    Choice,
-    AppCommandError,
-)
 from discord.ext import commands
-from discord.ui import Button
 
 from ext.utils import view_utils
-from ext.utils.view_utils import BaseView
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 QT = "https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png"
@@ -56,7 +39,7 @@ async def cache_quotes(self) -> None:
             self.quotes = await connection.fetch(sql)
 
 
-class TargetOptedOutError(AppCommandError):
+class TargetOptedOutError(discord.app_commands.AppCommandError):
     """Target user of command has opted out of quote DB"""
 
     def __init__(self, user: discord.User | discord.Member):
@@ -64,18 +47,19 @@ class TargetOptedOutError(AppCommandError):
 
 
 # Delete quotes
-class DeleteQuote(Button):
+class DeleteQuote(discord.ui.Button):
     """Button to spawn a new view to delete a quote."""
 
     view: QuotesView
 
-    def __init__(self, quote: Record, row: int = 3) -> None:
-        self.quote: Record = quote
-        super().__init__(
-            style=ButtonStyle.red, label="Delete", emoji="🗑️", row=row
-        )
+    def __init__(self, quote: asyncpg.Record, row: int = 3) -> None:
+        self.quote: asyncpg.Record = quote
+        super().__init__(label="Delete", emoji="🗑️", row=row)
+        self.style = discord.ButtonStyle.red
 
-    async def callback(self, interaction: Interaction[Bot]):
+    async def callback(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Delete quote by quote ID"""
         bot: Bot = interaction.client
         r = self.quote
@@ -86,48 +70,36 @@ class DeleteQuote(Button):
                 err = "You can't delete other servers quotes."
                 return await bot.error(interaction, err)
 
-        user = interaction.user
-        in_quote = user.id in [r["author_user_id"], r["submitter_user_id"]]
-
-        if isinstance(user, Member):
-            mod = user.guild_permissions.manage_messages
-        else:
-            mod = False
-
         i = self.view.interaction
         dlt = view_utils.Confirmation(i, style_a=discord.ButtonStyle.red)
-        if in_quote or mod:
 
-            txt = "Delete this quote?"
-            await interaction.client.reply(interaction, txt, view=dlt)
+        txt = "Delete this quote?"
+        edit = self.view.interaction.edit_original_response
+        await edit(content=txt, view=dlt)
 
-            await dlt.wait()
-            if dlt.value:
-                qid = r["quote_id"]
-                async with bot.db.acquire(timeout=60) as connection:
-                    async with connection.transaction():
-                        sql = "DELETE FROM quotes WHERE quote_id = $1"
-                        await connection.execute(sql, qid)
+        await dlt.wait()
+        if dlt.value:
+            qid = r["quote_id"]
+            async with bot.db.acquire(timeout=60) as connection:
+                async with connection.transaction():
+                    sql = "DELETE FROM quotes WHERE quote_id = $1"
+                    await connection.execute(sql, qid)
 
-                aq = self.view.all_quotes
-                gq = self.view.guild_quotes
-                aq = [i for i in aq if i != r]
-                gq = [i for i in gq if i != r]
+            aq = self.view.all_quotes
+            gq = self.view.guild_quotes
+            aq = [i for i in aq if i != r]
+            gq = [i for i in gq if i != r]
 
-                txt = f"Quote #{qid} has been deleted."
-                await self.view.interaction.followup.send(txt)
-                await self.view.update()
-
-                if self.view.index != 0:
-                    self.view.index -= 1
-            else:
-                await self.view.interaction.followup.send("Quote not deleted")
+            txt = f"Quote #{qid} has been deleted."
+            if self.view.index != 0:
+                self.view.index -= 1
         else:
-            err = "You need manage_messages perms to delete a quote"
-            await self.view.interaction.followup.send(err)
+            txt = "Quote not deleted"
+        await edit(content=txt)
+        return await self.view.update()
 
 
-class Global(Button):
+class Global(discord.ui.Button):
     """Toggle This Server Only or Global"""
 
     view: QuotesView
@@ -141,7 +113,9 @@ class Global(Button):
 
         super().__init__(style=style, row=row, emoji="🌍")
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Flip the bool."""
 
         await interaction.response.defer()
@@ -150,7 +124,7 @@ class Global(Button):
         return await self.view.update()
 
 
-class RandomQuote(Button):
+class RandomQuote(discord.ui.Button):
     """Push a random quote to the view."""
 
     view: QuotesView
@@ -158,7 +132,9 @@ class RandomQuote(Button):
     def __init__(self, row: int = 3) -> None:
         super().__init__(row=row, emoji="🎲")
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Randomly select a number"""
 
         await interaction.response.defer()
@@ -166,19 +142,19 @@ class RandomQuote(Button):
         return await self.view.update()
 
 
-class QuotesView(BaseView):
+class QuotesView(view_utils.BaseView):
     """Generic Paginator that returns nothing."""
 
     def __init__(
-        self, interaction: Interaction[Bot], all_guilds: bool = False
+        self, interaction: discord.Interaction[Bot], all_guilds: bool = False
     ) -> None:
 
         super().__init__(interaction)
 
         self.all_guilds: bool = all_guilds
-        self.all_quotes: list[Record] = interaction.client.quotes
+        self.all_quotes: list[asyncpg.Record] = interaction.client.quotes
 
-        self.guild_quotes: list[Record]
+        self.guild_quotes: list[asyncpg.Record]
 
         if interaction.guild is None:
             self.guild_quotes = []
@@ -188,9 +164,9 @@ class QuotesView(BaseView):
             q = [i for i in self.all_quotes if i["guild_id"] == g]
             self.guild_quotes = q
 
-        self.jump_button: Button
+        self.jump_button: typing.Optional[discord.ui.Button] = None
 
-    async def on_timeout(self) -> Message:
+    async def on_timeout(self) -> discord.InteractionMessage:
         """Remove buttons and dropdowns when listening stops."""
 
         if self.jump_button is not None:
@@ -198,10 +174,9 @@ class QuotesView(BaseView):
             v.add_item(self.jump_button)
         else:
             v = None
+        return await self.interaction.edit_original_response(view=v)
 
-        return await self.bot.reply(self.interaction, view=v, followup=False)
-
-    async def update(self) -> Message:
+    async def update(self) -> discord.InteractionMessage:
         """Refresh the view and send to user"""
         self.clear_items()
 
@@ -213,7 +188,8 @@ class QuotesView(BaseView):
                 quote = random.choice(self.pages)
                 self.index = self.pages.index(quote)
             except IndexError:
-                e = Embed(description="No quotes found", color=Colour.red())
+                e = discord.Embed(description="No quotes found")
+                e.color = discord.Colour.red()
                 self.add_item(Global(self))
                 self.add_item(view_utils.Stop())
 
@@ -222,7 +198,7 @@ class QuotesView(BaseView):
         else:
             quote = self.pages[self.index]
 
-        e = Embed(color=0x7289DA, timestamp=quote["timestamp"])
+        e = discord.Embed(color=0x7289DA, timestamp=quote["timestamp"])
         if (g := self.bot.get_guild(quote["guild_id"])) is None:
             guild = "Deleted Server"
         else:
@@ -230,28 +206,26 @@ class QuotesView(BaseView):
 
         if (channel := self.bot.get_channel(quote["channel_id"])) is None:
             channel = "Deleted Channel"
-        else:
-            if not isinstance(
-                channel,
-                discord.abc.PrivateChannel
-                | discord.ForumChannel
-                | discord.StageChannel
-                | discord.CategoryChannel
-                | NoneType,
-            ):
-                btn = discord.ui.Button(row=3, emoji="🔗")
-                btn.style = discord.ButtonStyle.link
+        elif not isinstance(
+            channel,
+            discord.abc.PrivateChannel
+            | discord.ForumChannel
+            | discord.StageChannel
+            | discord.CategoryChannel,
+        ):
+            btn = discord.ui.Button(row=3, emoji="🔗")
+            btn.style = discord.ButtonStyle.link
 
-                gid = quote["guild_id"]
-                cid = quote["channel_id"]
-                mid = quote["message_id"]
+            gid = quote["guild_id"]
+            cid = quote["channel_id"]
+            mid = quote["message_id"]
 
-                btn.url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
-                btn.row = 3
-                self.jump_button = btn
-                self.add_item(self.jump_button)
+            btn.url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
+            btn.row = 3
+            self.jump_button = btn
+            self.add_item(self.jump_button)
 
-                channel = channel.name
+            channel = channel.name
 
         auth_id = quote["author_user_id"]
         sub_id = quote["submitter_user_id"]
@@ -285,12 +259,15 @@ class QuotesView(BaseView):
         self.add_item(RandomQuote(row=0))
         self.add_page_buttons()
 
-        return await self.bot.reply(self.interaction, embed=e, view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(embed=e, view=self)
 
 
 # MESSAGE COMMAND, (right click message -> Add quote)
-@context_menu(name="Add to QuoteDB")
-async def quote_add(ctx: Interaction[Bot], message: Message) -> Message:
+@discord.app_commands.context_menu(name="Add to QuoteDB")
+async def quote_add(
+    ctx: discord.Interaction[Bot], message: discord.Message
+) -> discord.InteractionMessage:
     """Add this message to the quote database"""
     bot: Bot = ctx.client
     await ctx.response.defer(thinking=True)
@@ -313,17 +290,16 @@ async def quote_add(ctx: Interaction[Bot], message: Message) -> Message:
     if not message.content:
         return await bot.error(ctx, "That message has no content.")
 
+    sql = """INSERT INTO quotes (channel_id, guild_id, message_id, author_user_
+id, submitter_user_id, message_content, timestamp) VALUES ($1, $2, $3, $4, $5,
+ $6, $7) RETURNING *"""
+
     guild = message.guild.id if message.guild else None
     async with bot.db.acquire(timeout=60) as connection:
         async with connection.transaction():
             try:
                 await connection.fetchrow(
-                    """
-                    INSERT INTO quotes (channel_id, guild_id, message_id,
-                    author_user_id, submitter_user_id, message_content,
-                    timestamp) VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    RETURNING *
-                    """,
+                    sql,
                     message.channel.id,
                     guild,
                     message.id,
@@ -332,13 +308,14 @@ async def quote_add(ctx: Interaction[Bot], message: Message) -> Message:
                     message.content,
                     message.created_at,
                 )
-            except UniqueViolationError:
+            except asyncpg.UniqueViolationError:
                 err = "That quote is already in the database!"
                 return await bot.error(ctx, err)
 
         await cache_quotes(bot)
 
-        e = Embed(colour=Colour.green(), description="Added to quote database")
+        e = discord.Embed(colour=discord.Colour.green())
+        e.description = "Added to quote database"
         await ctx.followup.send(embed=e, ephemeral=True)
 
         v = QuotesView(ctx)
@@ -346,7 +323,9 @@ async def quote_add(ctx: Interaction[Bot], message: Message) -> Message:
         return await v.update()
 
 
-async def quote_ac(ctx: Interaction[Bot], current: str) -> list[Choice[str]]:
+async def quote_ac(
+    ctx: discord.Interaction[Bot], current: str
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from guild quotes"""
 
     cur = current.casefold()
@@ -366,11 +345,10 @@ async def quote_ac(ctx: Interaction[Bot], current: str) -> list[Choice[str]]:
             continue
 
         auth = client.get_user(r["author_user_id"])
-        cont = r["message_content"]
         qid = r["quote_id"]
-        fmt = f"#{qid}: {auth} {cont}"[:100]
+        fmt = f"#{qid}: {auth} {r['message_content']}"[:100]
 
-        results.append(Choice(name=fmt, value=str(qid)))
+        results.append(discord.app_commands.Choice(name=fmt, value=str(qid)))
 
         if len(results) == 25:
             break
@@ -385,14 +363,14 @@ class QuoteDB(commands.Cog):
         bot.tree.add_command(quote_add)
         self.bot: Bot = bot
 
-        reload(view_utils)
+        importlib.reload(view_utils)
 
     async def cog_load(self) -> None:
         """When the cog loads…"""
         await self.opt_outs()
         await cache_quotes(self.bot)
 
-    async def opt_outs(self) -> None:
+    async def opt_outs(self) -> list[int]:
         """Cache the list of users who have opted out of the quote DB"""
 
         q = """SELECT * FROM quotes_optout"""
@@ -401,13 +379,16 @@ class QuoteDB(commands.Cog):
                 records = await connection.fetch(q)
 
         self.bot.quote_blacklist = [r["userid"] for r in records]
+        return self.bot.quote_blacklist
 
-    quotes = Group(
+    quotes = discord.app_commands.Group(
         name="quote", description="Get from or add to the quote database"
     )
 
     @quotes.command()
-    async def random(self, interaction: Interaction[Bot]) -> Message:
+    async def random(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Get a random quote."""
 
         await interaction.response.defer(thinking=True)
@@ -422,10 +403,12 @@ class QuoteDB(commands.Cog):
 
     @quotes.command()
     async def last(
-        self, interaction: Interaction[Bot], all_guilds: bool = False
-    ) -> Message:
+        self,
+        interaction: discord.Interaction[Bot],
+        all_guilds: bool = False,
+    ) -> discord.InteractionMessage:
         """Get the most recent quote"""
-
+        await interaction.response.defer(thinking=True)
         if interaction.user.id in self.bot.quote_blacklist:
             err = "You are opted out of the QuoteDB."
             return await interaction.client.error(interaction, err)
@@ -439,11 +422,12 @@ class QuoteDB(commands.Cog):
     @discord.app_commands.describe(text="Search by quote text")
     async def search(
         self,
-        interaction: Interaction[Bot],
+        interaction: discord.Interaction[Bot],
         text: str,
-        user: Optional[discord.Member] = None,
-    ) -> Message:
+        user: typing.Optional[discord.Member] = None,
+    ) -> discord.InteractionMessage:
         """Search for a quote by quote text"""
+        await interaction.response.defer(thinking=True)
         if interaction.user.id in self.bot.quote_blacklist:
             err = "You are opted out of the QuoteDB."
             return await interaction.client.error(interaction, err)
@@ -458,33 +442,35 @@ class QuoteDB(commands.Cog):
         return await v.update()
 
     @quotes.command()
-    async def user(self, interaction: Interaction[Bot], member: Member):
+    async def user(
+        self, interaction: discord.Interaction[Bot], member: discord.Member
+    ) -> discord.InteractionMessage:
         """Get a random quote from this user."""
-        bot: Bot = interaction.client
-        blacklist = bot.quote_blacklist
+        await interaction.response.defer(thinking=True)
 
         if interaction.user.id in self.bot.quote_blacklist:
             err = "You are opted out of the QuoteDB."
             return await interaction.client.error(interaction, err)
 
-        if member.id in blacklist:
+        if member.id in self.bot.quote_blacklist:
             raise TargetOptedOutError(member)
 
         sql = """SELECT * FROM quotes WHERE author_user_id = $1
                  ORDER BY random()"""
-        async with bot.db.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-
                 r = await connection.fetch(sql, member.id)
 
-        await QuotesView(interaction, r).update()
+        return await QuotesView(interaction, r).update()
 
     @quotes.command()
     @discord.app_commands.describe(quote_id="Enter quote ID#")
     async def id(
-        self, interaction: Interaction[Bot], quote_id: int
-    ) -> Message:
+        self, interaction: discord.Interaction[Bot], quote_id: int
+    ) -> discord.InteractionMessage:
         """Get a quote by its ID Number"""
+        await interaction.response.defer(thinking=True)
+
         if interaction.user.id in self.bot.quote_blacklist:
             err = "You are opted out of the QuoteDB."
             return await interaction.client.error(interaction, err)
@@ -501,12 +487,15 @@ class QuoteDB(commands.Cog):
             return await self.bot.error(interaction, err)
 
     @quotes.command()
-    async def stats(self, interaction: Interaction[Bot], member: Member):
+    async def stats(
+        self, interaction: discord.Interaction[Bot], member: discord.Member
+    ) -> discord.InteractionMessage:
         """See quote stats for a user"""
-        bot: Bot = interaction.client
-        blacklist: list[int] = bot.quote_blacklist
+        await interaction.response.defer(thinking=True)
 
-        if interaction.user.id in self.bot.quote_blacklist:
+        blacklist: list[int] = self.bot.quote_blacklist
+
+        if interaction.user.id in blacklist:
             err = "You are opted out of the QuoteDB."
             return await interaction.client.error(interaction, err)
 
@@ -514,11 +503,12 @@ class QuoteDB(commands.Cog):
             raise TargetOptedOutError(member)
 
         g = interaction.guild.id if interaction.guild else None
-        async with bot.db.acquire(timeout=60) as connection:
+        async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 r = await connection.fetchrow(QT_SQL, member.id, g)
 
-        e: Embed = Embed(color=Colour.og_blurple(), title="Quote Stats")
+        e = discord.Embed(color=discord.Colour.og_blurple())
+        e.title = "Quote Stats"
 
         nom = f"{member} ({member.id})"
         e.set_author(icon_url=member.display_avatar.url, name=nom)
@@ -528,23 +518,25 @@ class QuoteDB(commands.Cog):
             f"Added {r['sub_g']} quotes ({r['sub']} Globally)"
         )
 
-        await bot.reply(interaction, embed=e)
+        return await interaction.edit_original_response(embed=e)
 
     @quotes.command()
-    async def opt_out(self, ctx: Interaction[Bot]):
+    async def opt_out(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Remove all quotes about, or added by you, and prevent
         future quotes being added."""
-
-        g = ctx.guild.id if ctx.guild else None
-        u = ctx.user.id
+        await interaction.response.defer(thinking=True)
+        g = interaction.guild.id if interaction.guild else None
+        u = interaction.user.id
 
         sql = """DELETE FROM quotes_optout WHERE userid = $1"""
         if u in self.bot.quote_blacklist:
             #   Opt Back In confirmation Dialogue
-            style = ButtonStyle.green
-            v = view_utils.Confirmation(ctx, "Opt In", "Cancel", style)
+            style = discord.ButtonStyle.green
+            v = view_utils.Confirmation(interaction, "Opt In", "Cancel", style)
 
-            await self.bot.reply(ctx, OPT_IN, view=v)
+            await interaction.edit_original_response(content=OPT_IN, view=v)
             await v.wait()
 
             if v.value:
@@ -555,7 +547,9 @@ class QuoteDB(commands.Cog):
                 msg = "You have opted back into the Quotes Database."
             else:
                 msg = "Opt in cancelled, quotes cannot be added about you."
-            return await self.bot.reply(ctx, msg, view=None)
+
+            edit = interaction.edit_original_response
+            return await edit(content=msg, view=None)
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -568,7 +562,7 @@ class QuoteDB(commands.Cog):
         else:
             output = [f"You have been quoted {r['author']} times"]
 
-            guild = ctx.guild
+            guild = interaction.guild
             if r["auth"] and guild is not None:
                 output.append(f" ({r['auth_g']} times on {guild.name})")
             output.append("\n")
@@ -580,25 +574,26 @@ class QuoteDB(commands.Cog):
             s = "\n\n**ALL of these quotes will be deleted if you opt out.**"
             output.append(s)
 
-            e = Embed(colour=discord.Colour.red())
+            e = discord.Embed(colour=discord.Colour.red())
 
             e.description = "".join(output)
             e.title = "Your quotes will be deleted if you opt out."
 
         v = view_utils.Confirmation(
-            ctx,
+            interaction,
             "Opt out",
             "Cancel",
             discord.ButtonStyle.red,
         )
 
         txt = "Opt out of QuoteDB?"
-        await self.bot.reply(ctx, txt, embed=e, view=v)
+        edit = interaction.edit_original_response
+        await edit(content=txt, embed=e, view=v)
 
         await v.wait()
         if not v.value:
             err = "Opt out cancelled, you can still quote and be quoted"
-            return await self.bot.error(ctx, err)
+            return await self.bot.error(interaction, err)
 
         sql = """DELETE FROM quotes WHERE author_user_id = $1
                  OR submitter_user_id = $2"""
@@ -611,7 +606,8 @@ class QuoteDB(commands.Cog):
             e.description = r.split(" ")[-1] + " quotes were deleted."
 
         txt = "You were removed from the Quote Database"
-        await self.bot.reply(ctx, txt, embed=e)
+
+        return await edit(content=txt, embed=e, view=None)
 
 
 async def setup(bot: Bot):

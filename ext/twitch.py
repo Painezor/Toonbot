@@ -3,13 +3,13 @@ from __future__ import annotations
 
 import logging
 from json import load
-from typing import Literal, Optional, ClassVar
+from typing import Literal, Optional
 import typing
 
 
 import discord
 from discord.ext import commands
-from iso639 import languages
+from iso639 import Lang
 import twitchio
 from twitchio.ext.commands import Bot as TBot
 from ext.logs import stringify_seconds
@@ -26,14 +26,12 @@ with open("credentials.json") as f:
 
 CCS = "https://wows-static-content.gcdn.co/contributors-program/members.json"
 WOWS_GAME_ID = 32502
-PARTNER_ICON = (
-    "https://static-cdn.jtvnw.net/badges/v1/"
-    "d12a2e27-16f6-41d0-ab77-b780518f00a3/1"
-)
+PARTNER_ICON = """https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab7
+7-b780518f00a3/1"""
+
 REGIONS = Literal["eu", "na", "cis", "sea"]
-TWITCH_LOGO = (
-    "https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklogo.com.png"
-)
+TWITCH_LOGO = """https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklo
+go.com.png"""
 
 logger = logging.getLogger("twitch")
 
@@ -41,7 +39,7 @@ logger = logging.getLogger("twitch")
 class Contributor:
     """An Object representing a World of Warships CC"""
 
-    bot: ClassVar[PBot]
+    bot: typing.ClassVar[PBot]
 
     def __init__(
         self,
@@ -58,7 +56,7 @@ class Contributor:
     @property
     def language_names(self) -> list[str]:
         """Get the name of each language"""
-        return [languages.get(alpha2=lang).name for lang in self.language]
+        return [Lang(lang).name for lang in self.language]
 
     @property
     def markdown(self) -> str:
@@ -338,7 +336,7 @@ class TrackerConfig(view_utils.BaseView):
 
         tc = self.tc.channel.mention
         notfound = f"{tc} does not have a twitch tracker, create one now?"
-        await self.bot.reply(self.interaction, content=notfound, view=view)
+        await i.edit_original_response(content=notfound, view=view)
         await view.wait()
 
         if not view.value:
@@ -367,10 +365,10 @@ class TrackerConfig(view_utils.BaseView):
         embed = discord.Embed()
         embed.description = f"Remove items from {tc}?\n\n•{mentions}"
 
-        await self.bot.reply(self.interaction, embed=embed, view=view)
+        edit = self.interaction.edit_original_response
+        await edit(embed=embed, view=view)
         await view.wait()
 
-        r = self.interaction.edit_original_response
         if view.value:
             await self.tc.untrack(roles)
             e = discord.Embed(title="Tracked roles removed")
@@ -379,10 +377,10 @@ class TrackerConfig(view_utils.BaseView):
             e.set_footer(text=f"{i.user}\n{i.user.id}", icon_url=av)
             await self.interaction.followup.send(embed=e)
 
-        return await r(view=self)
+        return await edit(view=self)
 
     async def update(
-        self, content: Optional[str] = None
+        self, content: typing.Optional[str] = None
     ) -> discord.InteractionMessage:
         """Regenerate view and push to message"""
         self.clear_items()
@@ -427,9 +425,8 @@ class TrackerConfig(view_utils.BaseView):
             if len(roles) > 25:
                 roles = roles[self.index * 25 :][:25]
             self.add_item(Untrack(roles))
-        return await self.bot.reply(
-            self.interaction, content=content, embed=e, view=self
-        )
+        edit = self.interaction.edit_original_response
+        return await edit(content=content, embed=e, view=self)
 
 
 class Untrack(discord.ui.Select):
@@ -473,9 +470,8 @@ class TwitchTracker(commands.Cog):
         """On cog load, generate list of Tracker Channels"""
         await self.fetch_ccs()
         await self.update_cache()
-        self.bot.twitch = TBot.from_client_credentials(
-            **credentials["Twitch API"]
-        )
+        tc = TBot.from_client_credentials(**credentials["Twitch API"])
+        self.bot.twitch = tc
         self.bot.loop.create_task(self.bot.twitch.connect())
 
     async def update_cache(self) -> list[TrackerChannel]:
@@ -544,7 +540,6 @@ class TwitchTracker(commands.Cog):
         if not isinstance(member.activity, discord.Streaming):
             return discord.Embed(title="This user is not streaming")
 
-        url = member.activity.url
         e = discord.Embed(title=member.activity.name, url=member.activity.url)
 
         desc = []
@@ -667,7 +662,6 @@ class TwitchTracker(commands.Cog):
 
         streams = []
         for s in ftch:
-            lang = s.language
             views = s.viewer_count
             timestamp = timed_events.Timestamp(s.started_at)
             st = Stream(s.language, s.user, views, s.title.strip(), timestamp)
@@ -705,7 +699,7 @@ class TwitchTracker(commands.Cog):
         interaction: discord.Interaction[PBot],
         search: typing.Optional[str] = None,
         region: typing.Optional[REGIONS] = None,
-        language: Optional[str] = None,
+        language: typing.Optional[str] = None,
     ) -> discord.InteractionMessage:
         """Fetch The List of all CCs"""
 
@@ -717,7 +711,7 @@ class TwitchTracker(commands.Cog):
             ccs = [i for i in ccs if search == i.name]
             if len(ccs) == 1:  # Send an individual Profile
                 e = await ccs[0].embed
-                return await self.bot.reply(interaction, embed=e)
+                return await interaction.edit_original_response(embed=e)
 
         if search is not None:
             ccs = [i for i in ccs if search in i.auto_complete]
@@ -752,7 +746,7 @@ class TwitchTracker(commands.Cog):
         self,
         interaction: discord.Interaction[PBot],
         role: discord.Role,
-        channel: Optional[discord.TextChannel] = None,
+        channel: typing.Optional[discord.TextChannel] = None,
     ) -> discord.InteractionMessage:
         """Add a role of this discord to the twitch tracker."""
 
@@ -767,7 +761,9 @@ class TwitchTracker(commands.Cog):
             tc = TrackerChannel(channel)
             success = await tc.view(interaction).creation_dialogue()
             if not success:
-                return
+                text = "Ticker Creation Cancelled"
+                edit = interaction.edit_original_response
+                return await edit(content=text, view=None)
 
             self.bot.tracker_channels.append(tc)
 
@@ -780,7 +776,7 @@ class TwitchTracker(commands.Cog):
     async def manage(
         self,
         interaction: discord.Interaction[PBot],
-        channel: Optional[discord.TextChannel] = None,
+        channel: typing.Optional[discord.TextChannel] = None,
     ) -> discord.InteractionMessage:
         """View or remove tracked twitch go live roles"""
 

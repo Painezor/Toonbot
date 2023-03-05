@@ -837,7 +837,7 @@ class ItemView(view_utils.BaseView):
         def parse_row(row, position: str) -> fs.Player:
             xpath = './/div[contains(@class, "cell--name")]/a/@href'
             link = fs.FLASHSCORE + "".join(row.xpath(xpath))
-            
+
             xpath = './/div[contains(@class, "cell--name")]/a/text()'
             name = "".join(row.xpath(xpath)).strip()
             try:  # Name comes in reverse order.
@@ -1334,7 +1334,8 @@ class ItemView(view_utils.BaseView):
         url = await self.page.locator("object").get_attribute("data")
         # OLD: https://www.youtube.com/embed/GUH3NIIGbpo
         # NEW: https://www.youtube.com/watch?v=GUH3NIIGbpo
-        url = url.replace("embed/", "watch?v=")
+        if url is not None:
+            url = url.replace("embed/", "watch?v=")
 
         # e.description = f"[{video}]({video_url})"
         r = self.interaction.edit_original_response

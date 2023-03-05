@@ -361,7 +361,7 @@ def iter_embed(
             if allowed:
                 embed.add_field(name="Allowed Perms", value=", ".join(allowed))
             else:
-                embed.add_field(name="Allowed Perms", value="None")
+                embed.add_field(name="Allowed Perms", value="`None`")
 
         elif key == "app_command_permissions":
             perms: list[discord.app_commands.AppCommandPermissions] = value
@@ -1125,28 +1125,27 @@ class AuditLogs(commands.Cog):
 
         channels = await self.get_channels(entry)
 
-        match entry.category:
-            case discord.AuditLogActionCategory.create:
-                before = None
-                after = discord.Embed()
-                after.timestamp = entry.created_at
+        if entry.category == discord.AuditLogActionCategory.create:
+            before = None
+            after = discord.Embed()
+            after.timestamp = entry.created_at
 
-                after = iter_embed(
-                    entry, entry.changes.after, main=True, last=True
-                )
-            case discord.AuditLogActionCategory.delete:
-                before = discord.Embed()
-                before.timestamp = entry.created_at
+            after = iter_embed(
+                entry, entry.changes.after, main=True, last=True
+            )
+        elif entry.category == discord.AuditLogActionCategory.delete:
+            before = discord.Embed()
+            before.timestamp = entry.created_at
 
-                before = iter_embed(
-                    entry, entry.changes.before, main=True, last=True
-                )
-                after = None
-            case discord.AuditLogActionCategory.update:
-                after = iter_embed(entry, entry.changes.after, last=True)
-                before = iter_embed(entry, entry.changes.before, main=True)
-            case None:
-                before = after = None
+            before = iter_embed(
+                entry, entry.changes.before, main=True, last=True
+            )
+            after = None
+        elif entry.category == discord.AuditLogActionCategory.update:
+            after = iter_embed(entry, entry.changes.after, last=True)
+            before = iter_embed(entry, entry.changes.before, main=True)
+        else:
+            before = after = None
 
         # Handle View Creation
         view = None

@@ -335,7 +335,7 @@ class NUFCSidebar(Cog):
 
     @discord.app_commands.command()
     @guilds(332159889587699712)
-    @default_permissions(manage_channels=True)
+    @discord.app_commands.default_permissions(manage_channels=True)
     @discord.app_commands.describe(
         image="Upload a new sidebar image", caption="Set a new Sidebar Caption"
     )

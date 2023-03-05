@@ -14,16 +14,17 @@ from discord.ext import commands
 
 from ext.utils.playwright_browser import make_browser
 
-# if typing.TYPE_CHECKING:
-from playwright.async_api import BrowserContext
+if typing.TYPE_CHECKING:
+    from playwright.async_api import BrowserContext
 
-from ext.devblog import Blog
-from ext.maps import Map
-from ext.news_tracker import Article, NewsChannel
-from ext.painezbot_utils.clan import Clan, ClanBuilding
-from ext.painezbot_utils.player import GameMode, Player
-from ext.painezbot_utils.ship import Module, Ship, ShipType
-from ext.twitch import Contributor, TBot, TrackerChannel
+    from ext.devblog import Blog
+    from ext.maps import Map
+    from ext.news_tracker import Article, NewsChannel
+    from ext.painezbot_utils.clan import Clan, ClanBuilding
+    from ext.painezbot_utils.player import GameMode, Player
+    from ext.painezbot_utils.ship import Ship, ShipType
+    from ext.painezbot_utils.modules import Module
+    from ext.twitch import Contributor, TBot, TrackerChannel
 
 
 with open("credentials.json") as f:
@@ -100,7 +101,7 @@ class PBot(commands.AutoShardedBot):
         self.session: aiohttp.ClientSession
 
         # Twitch API
-        self.twitch: typing.Optional[TBot] = None
+        self.twitch: TBot
         self.tracker_channels: list[TrackerChannel] = []
 
         # Wargaming API

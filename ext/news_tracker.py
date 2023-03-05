@@ -493,7 +493,7 @@ class NewsTracker(Cog):
     # Command for tracker management.
     @discord.app_commands.command()
     @guild_only()
-    @default_permissions(manage_channels=True)
+    @discord.app_commands.default_permissions(manage_channels=True)
     @discord.app_commands.describe(channel="Select a channel to edit")
     async def news_tracker(
         self,

@@ -661,7 +661,7 @@ class Competition(FlashScoreItem):
     @property
     def title(self) -> str:
         """Return COUNTRY: league"""
-        if self.country:
+        if self.country is not None:
             return f"{self.country.upper()}: {self.name}"
         else:
             return self.name
@@ -1141,7 +1141,7 @@ async def search(
             case 200:
                 res = typing.cast(dict, await resp.json())
             case _:
-                err = f"HTTP {resp.status} error while searching flashscore"
+                err = f"{resp.status} error searching flashscore {query}"
                 raise LookupError(err)
 
     results: list[Competition | Team] = []

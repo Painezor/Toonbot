@@ -4,30 +4,14 @@ from __future__ import annotations
 import asyncio
 
 import logging
-from collections import Counter, defaultdict
+import collections
 from datetime import datetime, timezone, timedelta
-from importlib import reload
-from itertools import zip_longest
-from typing import ClassVar, Optional
+import importlib
+import itertools
 import typing
-from xml.etree.ElementPath import xpath_tokenizer
 
 import discord
-from asyncpg import Record
-from discord import (
-    TextChannel,
-    ButtonStyle,
-    Colour,
-    Embed,
-    PermissionOverwrite,
-    Permissions,
-    Message,
-    Forbidden,
-    NotFound,
-)
-from discord.app_commands import Group
-from discord.ext.commands import Cog
-from discord.ext.tasks import loop
+from discord.ext import commands, tasks
 from lxml import html, etree
 from ext.fixtures import fetch_comp
 from ext.ticker import lg_ac
@@ -35,11 +19,10 @@ from ext.ticker import lg_ac
 import ext.toonbot_utils.flashscore as fs
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import EventType
-from ext.utils.embed_utils import rows_to_embeds, stack_embeds
-from ext.utils.view_utils import Confirmation, BaseView
+
+from ext.utils import view_utils, embed_utils
 
 if typing.TYPE_CHECKING:
-    from discord import Interaction
     from core import Bot
 
 logger = logging.getLogger("scores")
@@ -54,17 +37,19 @@ NO_GAMES_FOUND = (
 class ScoreChannel:
     """A livescore channel object, containing it's properties."""
 
-    bot: ClassVar[Bot]
+    bot: typing.ClassVar[Bot]
 
-    def __init__(self, channel: TextChannel) -> None:
-        self.channel: TextChannel = channel
-        self.messages: list[Message | None] = [None, None, None, None, None]
+    def __init__(self, channel: discord.TextChannel) -> None:
+        self.channel: discord.TextChannel = channel
+        self.messages: list[discord.Message | None] = []
         self.leagues: list[str] = []
 
-    def generate_embeds(self) -> list[Embed]:
+    def generate_embeds(self) -> list[discord.Embed]:
         """Have each Competition generate it's livescore embeds"""
         embeds = []
         games = self.bot.games.copy()
+
+        # TODO: Switch to use comp.id in tracked
 
         for comp in set(i.competition for i in games if i.competition):
             for tracked in self.leagues:
@@ -91,7 +76,11 @@ class ScoreChannel:
                         break
 
         if not embeds:
-            return [Embed(title="No Games Found", description=NO_GAMES_FOUND)]
+            return [
+                discord.Embed(
+                    title="No Games Found", description=NO_GAMES_FOUND
+                )
+            ]
         return embeds
 
     async def get_leagues(self) -> list[str]:
@@ -101,8 +90,7 @@ class ScoreChannel:
 
         async with self.bot.db.acquire(timeout=60) as c:
             async with c.transaction():
-                records: list[Record] = await c.fetch(sql, self.channel.id)
-
+                records = await c.fetch(sql, self.channel.id)
         self.leagues = [r["league"] for r in records]
         return self.leagues
 
@@ -150,7 +138,7 @@ class ScoreChannel:
         self.leagues = [i for i in self.leagues if i not in leagues]
         return self.leagues
 
-    async def update(self) -> list[Message | None]:
+    async def update(self) -> list[discord.Message | None]:
         """Edit a live-score channel to have the latest scores"""
         if self.channel.is_news():
             return []
@@ -161,13 +149,14 @@ class ScoreChannel:
         embeds = self.generate_embeds()
 
         # Stack embeds to max size for individual message.
-        stacked = stack_embeds(embeds)
+        stacked = embed_utils.stack_embeds(embeds)
 
         # Zip the lists into tuples to simultaneously iterate
         # Limit to 5 max
-        tuples = list(zip_longest(self.messages, stacked))[:5]
 
-        message: Message | None
+        tuples = list(itertools.zip_longest(self.messages, stacked))[:5]
+
+        message: discord.Message | None
 
         # Zip longest will give (, None) in slot [0] // self.messages
         # if we do not have enough messages for the embeds.
@@ -182,7 +171,7 @@ class ScoreChannel:
                     # No message exists in cache,
                     # or we need an additional message.
                     m = await self.channel.send(embeds=embeds)
-                    self.messages[count] = m
+                    self.messages.append(m)
                     continue
             except discord.Forbidden:
                 # If we don't have permissions to send Messages in the channel,
@@ -199,8 +188,9 @@ class ScoreChannel:
                         self.messages[count] = m
                     continue
 
-                new = Counter([i.description for i in embeds])
-                old = Counter([i.description for i in message.embeds])
+                cnt = collections.Counter
+                new = cnt([i.description for i in embeds])
+                old = cnt([i.description for i in message.embeds])
                 if not old == new:
                     m = await message.edit(embeds=embeds, suppress=False)
                     self.messages[count] = m
@@ -213,25 +203,27 @@ class ScoreChannel:
                 count += 1
         return self.messages
 
-    def view(self, interaction: Interaction[Bot]) -> ScoresConfig:
+    def view(self, interaction: discord.Interaction[Bot]) -> ScoresConfig:
         """Get a view representing this score channel"""
         return ScoresConfig(interaction, self)
 
 
-class ScoresConfig(BaseView):
+class ScoresConfig(view_utils.BaseView):
     """Generic Config View"""
 
     def __init__(
-        self, interaction: Interaction[Bot], channel: ScoreChannel
+        self, interaction: discord.Interaction[Bot], channel: ScoreChannel
     ) -> None:
         super().__init__(interaction)
         self.sc: ScoreChannel = channel
 
-    async def update(self, content: Optional[str] = None) -> Message:
+    async def update(
+        self, content: typing.Optional[str] = None
+    ) -> discord.InteractionMessage:
         """Push the newest version of view to message"""
         self.clear_items()
 
-        embed: Embed = Embed(colour=Colour.dark_teal())
+        embed = discord.Embed(colour=discord.Colour.dark_teal())
 
         usr = typing.cast(discord.Member, self.bot.user)
         embed.title = f"{usr.name} Live Scores config"
@@ -257,7 +249,9 @@ class ScoresConfig(BaseView):
 
         if leagues := await self.sc.get_leagues():
             header = f"Tracked leagues for {self.sc.channel.mention}```yaml\n"
-            embeds = rows_to_embeds(embed, sorted(leagues), 25, header, "```")
+
+            rte = embed_utils.rows_to_embeds
+            embeds = rte(embed, sorted(leagues), 25, header, "```")
             self.pages = embeds
             self.add_page_buttons(row=1)
             embed = self.pages[self.index]
@@ -273,23 +267,27 @@ class ScoresConfig(BaseView):
             d = f"No tracked leagues for {c}, would you like to reset it?"
             embed.description = d
 
-        r = self.interaction.edit_original_response
-        return await r(content=content, embed=embed, view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(content=content, embed=embed, view=self)
 
-    async def remove_leagues(self, leagues: list[str]) -> Message:
+    async def remove_leagues(
+        self, leagues: list[str]
+    ) -> discord.InteractionMessage:
         """Bulk remove leagues from a live scores channel"""
         # Ask user to confirm their choice.
-        view = Confirmation(
+        view = view_utils.Confirmation(
             self.interaction,
             label_a="Remove",
             label_b="Cancel",
-            style_a=ButtonStyle.red,
+            style_a=discord.ButtonStyle.red,
         )
 
         lg_txt = "\n".join(sorted(leagues))
         c = self.sc.channel.mention
         txt = f"Remove these leagues from {c}? ```yaml\n{lg_txt}```"
-        await self.bot.reply(self.interaction, txt, embed=None, view=view)
+
+        edit = self.interaction.edit_original_response
+        await edit(content=txt, embed=None, view=view)
         await view.wait()
 
         if not view.value:
@@ -309,7 +307,9 @@ class ResetLeagues(discord.ui.Button):
             label="Reset to default leagues", style=discord.ButtonStyle.primary
         )
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Click button reset leagues"""
         v = typing.cast(ScoresConfig, self.view)
 
@@ -327,20 +327,22 @@ class RemoveLeague(discord.ui.Select):
         super().__init__(placeholder=ph, row=row, max_values=len(leagues))
         [self.add_option(label=lg) for lg in sorted(leagues)]
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """When a league is selected"""
         await interaction.response.defer()
         v = typing.cast(ScoresConfig, self.view)
         return await v.remove_leagues(self.values)
 
 
-class Scores(Cog):
+class Scores(commands.Cog):
     """Live Scores channel module"""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-        reload(fs)
+        importlib.reload(fs)
 
         fs.FlashScoreItem.bot = bot
         ScoreChannel.bot = bot
@@ -397,9 +399,20 @@ class Scores(Cog):
                 records = await connection.fetch(sql)
 
         # Generate {channel_id: [league1, league2, league3, …]}
-        channel_leagues = defaultdict(list)
-        for r in records:
-            channel_leagues[r["channel_id"]].append(r["league"])
+        channel_leagues = collections.defaultdict(list)
+
+        comps = self.bot.competitions
+
+        sql = """UPDATE scores_leagues SET league_id = $1 WHERE league = $2"""
+        async with self.bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                for r in records:
+                    channel_leagues[r["channel_id"]].append(r["league"])
+
+                    if r["league_id"] is None:
+                        lg = next(i for i in comps if i.title == r["league"])
+
+                        await connection.execute(sql, lg.id, r["league"])
 
         chans = self.bot.score_channels
         for channel_id, leagues in channel_leagues.items():
@@ -421,7 +434,7 @@ class Scores(Cog):
         return chans
 
     # Core Loop
-    @loop(minutes=1)
+    @tasks.loop(minutes=1)
     async def score_loop(self) -> None:
         """Score Checker Loop"""
         if not self.bot.score_channels:
@@ -451,7 +464,8 @@ class Scores(Cog):
             ls_txt = [i.live_score_text for i in fix]
 
             table = f"\n[View Table]({comp.table})" if comp.table else ""
-            comp.score_embeds = rows_to_embeds(e, ls_txt, 50, footer=table)
+            rte = embed_utils.rows_to_embeds
+            comp.score_embeds = rte(e, ls_txt, 50, footer=table)
 
         for sc in self.bot.score_channels.copy():
             await sc.update()
@@ -464,17 +478,14 @@ class Scores(Cog):
         if not self.bot.score_channels:
             await self.update_cache()
 
-        def is_bot_msg(m):
+        def bot(m):
             return m.author.id == self.bot.application_id
 
+        rsn = "Clearing Score Channel"
         for x in self.bot.score_channels:
             try:
-                await x.channel.purge(
-                    reason="Clearing score-channel.",
-                    check=is_bot_msg,
-                    limit=20,
-                )
-            except (Forbidden, NotFound):
+                await x.channel.purge(reason=rsn, check=bot, limit=20)
+            except discord.HTTPException:
                 pass
 
     def dispatch_states(self, fx: fs.Fixture, old: GameState) -> None:
@@ -828,23 +839,25 @@ class Scores(Cog):
                 self.dispatch_states(fx, old_state)
         return self.bot.games
 
-    livescores = Group(
+    livescores = discord.app_commands.Group(
         guild_only=True,
         name="livescores",
         description="Create & manage livescores channels",
-        default_permissions=Permissions(manage_channels=True),
+        default_permissions=discord.Permissions(manage_channels=True),
     )
 
     @livescores.command()
     @discord.app_commands.describe(channel="Target Channel")
     async def manage(
-        self, interaction: Interaction[Bot], channel: Optional[TextChannel]
-    ) -> Message:
+        self,
+        interaction: discord.Interaction[Bot],
+        channel: typing.Optional[discord.TextChannel],
+    ) -> discord.InteractionMessage:
         """View or Delete tracked leagues from a live-scores channel."""
         await interaction.response.defer(thinking=True)
 
         if channel is None:
-            channel = typing.cast(TextChannel, interaction.channel)
+            channel = typing.cast(discord.TextChannel, interaction.channel)
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -855,12 +868,9 @@ class Scores(Cog):
             err = f"{channel.mention} is not a live-scores channel."
             return await self.bot.error(interaction, err)
 
+        chans = self.bot.score_channels
         try:
-            sc = next(
-                i
-                for i in self.bot.score_channels
-                if i.channel.id == channel.id
-            )
+            sc = next(i for i in chans if i.channel.id == channel.id)
         except StopIteration:
             sc = ScoreChannel(channel)
             self.bot.score_channels.append(sc)
@@ -871,8 +881,8 @@ class Scores(Cog):
     @livescores.command()
     @discord.app_commands.describe(name="Enter a name for the channel")
     async def create(
-        self, interaction: Interaction[Bot], name: str = "⚽live-scores"
-    ) -> Message:
+        self, interaction: discord.Interaction[Bot], name: str = "⚽live-scores"
+    ) -> discord.InteractionMessage:
         """Create a live-scores channel for your server."""
         await interaction.response.defer(thinking=True)
 
@@ -889,18 +899,19 @@ class Scores(Cog):
             channel = await guild.create_text_channel(
                 name, reason=reason, topic=topic
             )
-        except Forbidden:
+        except discord.Forbidden:
             err = "I need manage_channels permissions to make a channel."
             return await self.bot.error(interaction, err)
 
+        ow_ = discord.PermissionOverwrite
         ow = {
-            guild.me: PermissionOverwrite(send_messages=True),
-            guild.default_role: PermissionOverwrite(send_messages=False),
+            guild.default_role: ow_(send_messages=False),
+            guild.me: ow_(send_messages=True),
         }
 
         try:
             channel = await channel.edit(overwrites=ow)
-        except Forbidden:
+        except discord.Forbidden:
             pass
 
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -912,8 +923,7 @@ class Scores(Cog):
                        VALUES ($1, $2)"""
                 await connection.execute(q, channel.guild.id, channel.id)
 
-        sc = ScoreChannel(channel)
-        self.bot.score_channels.append(sc)
+        self.bot.score_channels.append(sc := ScoreChannel(channel))
         await sc.reset_leagues()
         try:
             await sc.channel.send(
@@ -922,9 +932,9 @@ class Scores(Cog):
                 " and `/livescores manage` to remove them"
             )
             msg = f"{channel.mention} created successfully."
-        except Forbidden:
+        except discord.Forbidden:
             msg = f"{channel.mention} created, but I need send_messages perms."
-        return await self.bot.reply(interaction, msg)
+        return await interaction.edit_original_response(content=msg)
 
     @livescores.command()
     @discord.app_commands.autocomplete(league=lg_ac)
@@ -934,16 +944,16 @@ class Scores(Cog):
     )
     async def add_league(
         self,
-        interaction: Interaction[Bot],
+        interaction: discord.Interaction[Bot],
         league: str,
-        channel: Optional[TextChannel],
-    ) -> Message:
+        channel: typing.Optional[discord.TextChannel],
+    ) -> discord.InteractionMessage:
         """Add a league to an existing live-scores channel"""
 
         await interaction.response.defer(thinking=True)
 
         if channel is None:
-            channel = typing.cast(TextChannel, interaction.channel)
+            channel = typing.cast(discord.TextChannel, interaction.channel)
 
         chn = self.bot.score_channels
         try:
@@ -981,8 +991,10 @@ class Scores(Cog):
         return await view.update(content=reply)
 
     # Event listeners for channel deletion or guild removal.
-    @Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
+    @commands.Cog.listener()
+    async def on_guild_channel_delete(
+        self, channel: discord.abc.GuildChannel
+    ) -> None:
         """Remove all of a channel's stored data upon deletion"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():

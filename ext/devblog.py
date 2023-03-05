@@ -2,31 +2,17 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, ClassVar, Literal, Optional
 import typing
 
-from asyncpg import Record
-from discord import (
-    Interaction,
-    Message,
-    Colour,
-    Embed,
-    HTTPException,
-    TextChannel,
-)
+import asyncpg
 import discord
-from discord.app_commands import (
-    Choice,
-    default_permissions,
-)
 from discord.ext import commands, tasks
 from lxml import html
 from lxml.html import HtmlElement
 
-from ext.utils.flags import get_flag
-from ext.utils.view_utils import BaseView
+from ext.utils import flags, view_utils
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from painezBot import PBot
 
 import yatg
@@ -81,14 +67,17 @@ def get_emote(node: HtmlElement):
 class Blog:
     """A world of Warships DevBlog"""
 
-    bot: ClassVar[PBot]
+    bot: typing.ClassVar[PBot]
 
     def __init__(
-        self, _id: int, title: Optional[str] = None, text: Optional[str] = None
+        self,
+        _id: int,
+        title: typing.Optional[str] = None,
+        text: typing.Optional[str] = None,
     ):
         self.id: int = _id
-        self.title: Optional[str] = title
-        self.text: Optional[str] = text
+        self.title: typing.Optional[str] = title
+        self.text: typing.Optional[str] = text
 
     @property
     def ac_row(self) -> str:
@@ -223,7 +212,7 @@ class Blog:
                             if (
                                 country := node.attrib.get("data-nation", None)
                             ) is not None:
-                                sub_out.append(" " + get_flag(country))
+                                sub_out.append(" " + flags.get_flag(country))
                         except AttributeError:
                             pass
 
@@ -298,36 +287,45 @@ class Blog:
         return e
 
 
-class DevBlogView(BaseView):
+class DevBlogView(view_utils.BaseView):
     """Browse Dev Blogs"""
 
     def __init__(
-        self, interaction: Interaction[PBot], pages: list[Record]
+        self,
+        interaction: discord.Interaction[PBot],
+        pages: list[asyncpg.Record],
     ) -> None:
         super().__init__(interaction)
         self.pages: list[Blog] = pages
         self.index: int = 0
 
-    async def update(self) -> Message:
+    async def update(self) -> discord.InteractionMessage:
         """Push the latest version of the view to discord."""
         self.clear_items()
         self.add_page_buttons()
         e = await self.pages[self.index].parse()
-        return await self.interaction.client.reply(
-            self.interaction, embed=e, ephemeral=True
-        )
+        return await self.interaction.edit_original_response(embed=e)
 
 
-async def db_ac(interaction: Interaction[PBot], current: str) -> list[Choice]:
+async def db_ac(
+    interaction: discord.Interaction[PBot], current: str
+) -> list[discord.app_commands.Choice]:
     """Autocomplete dev blog by text"""
-    bot = interaction.client
     cur = current.casefold()
-    blogs = [i for i in bot.dev_blog_cache if cur in i.ac_row]
-    return [
-        Choice(name=f"{i.id}: {i.title}"[:100], value=str(i.id)) for i in blogs
-    ][
-        :-25:-1
-    ]  # Last 25 items reversed
+
+    blogs = []
+    for i in interaction.client.dev_blog_cache:
+        if cur not in i.ac_row:
+            continue
+
+        name = f"{i.id}: {i.title}"[:100]
+        blogs.append(discord.app_commands.Choice(name=name, value=str(i.id)))
+
+        if len(blogs) == 25:
+            break
+
+    blogs.reverse()
+    return blogs
 
 
 class DevBlog(commands.Cog):
@@ -390,10 +388,12 @@ class DevBlog(commands.Cog):
 
             for x in self.bot.dev_blog_channels:
                 try:
-                    ch = typing.cast(TextChannel, self.bot.get_channel(x))
+                    ch = typing.cast(
+                        discord.TextChannel, self.bot.get_channel(x)
+                    )
 
                     await ch.send(embed=e)
-                except (AttributeError, HTTPException):
+                except (AttributeError, discord.HTTPException):
                     continue
 
     @blog_loop.before_loop
@@ -417,13 +417,14 @@ class DevBlog(commands.Cog):
         ]
 
     @discord.app_commands.command()
-    @default_permissions(manage_channels=True)
+    @discord.app_commands.default_permissions(manage_channels=True)
     async def blog_tracker(
-        self, interaction: Interaction[PBot], enabled: Literal["on", "off"]
-    ) -> Message:
+        self,
+        interaction: discord.Interaction[PBot],
+        enabled: typing.Literal["on", "off"],
+    ) -> discord.InteractionMessage:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
-
         if (channel := interaction.channel) is None:
             raise
 
@@ -440,7 +441,7 @@ class DevBlog(commands.Cog):
                 async with connection.transaction():
                     await connection.execute(sql, channel.id)
             output = "New Dev Blogs will no longer be sent to this channel."
-            colour = Colour.red()
+            colour = discord.Colour.red()
         else:
             sql = """INSERT INTO dev_blog_channels (channel_id, guild_id)
                    VALUES ($1, $2) ON CONFLICT DO NOTHING"""
@@ -448,16 +449,17 @@ class DevBlog(commands.Cog):
                 async with connection.transaction():
                     await connection.execute(sql, channel.id, guild.id)
             output = "new Dev Blogs will now be sent to this channel."
-            colour = Colour.green()
+            colour = discord.Colour.green()
 
         await self.update_cache()
 
-        e = Embed(colour=colour, title="Dev Blog Tracker", description=output)
+        e = discord.Embed(colour=colour, title="Dev Blog Tracker")
+        e.description = output
 
         u = self.bot.user
         if u is not None:
             e.set_author(icon_url=u.display_avatar.url, name=u.name)
-        return await self.bot.reply(interaction, embed=e)
+        return await interaction.edit_original_response(embed=e)
 
     @discord.app_commands.command()
     @discord.app_commands.autocomplete(search=db_ac)
@@ -465,18 +467,17 @@ class DevBlog(commands.Cog):
         search="Search for a dev blog by text content"
     )
     async def devblog(
-        self, interaction: Interaction[PBot], search: str
-    ) -> Message:
+        self, interaction: discord.Interaction[PBot], search: str
+    ) -> discord.InteractionMessage:
         """Fetch a World of Warships dev blog, either search for text or
         leave blank to get latest."""
-
         await interaction.response.defer(thinking=True)
 
         dbc = self.bot.dev_blog_cache
         try:
             blog = next(i for i in dbc if i.id == int(search))
             e = await blog.parse()
-            return await self.bot.reply(interaction, embed=e, ephemeral=True)
+            return await interaction.edit_original_response(embed=e)
         except StopIteration:
             # If a specific blog is not selected, send the browser view.
             s = search.casefold()
@@ -485,7 +486,9 @@ class DevBlog(commands.Cog):
             return await view.update()
 
     @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
+    async def on_guild_channel_delete(
+        self, channel: discord.abc.GuildChannel
+    ) -> None:
         """Remove dev blog trackers from deleted channels"""
         sql = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:

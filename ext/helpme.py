@@ -150,8 +150,9 @@ class HelpMe(commands.Cog):
     @discord.app_commands.command()
     async def how_it_works(
         self, interaction: discord.Interaction[PBot]
-    ) -> None:
+    ) -> discord.InteractionMessage:
         """Links to the various How It Works videos"""
+        await interaction.response.defer(thinking=True)
         e = discord.Embed(
             title="How it Works Video Series", colour=discord.Colour.dark_red()
         )
@@ -187,13 +188,14 @@ class HelpMe(commands.Cog):
             )
         )
         e.set_thumbnail(url=HOW_IT_WORKS)
-        await self.bot.reply(interaction, embed=e)
+        return await interaction.edit_original_response(embed=e)
 
     @discord.app_commands.command()
     async def mods(
         self, interaction: discord.Interaction[PBot]
     ) -> discord.InteractionMessage:
         """information about where to get World of Warships modifications"""
+        await interaction.response.defer(thinking=True)
         e = discord.Embed(colour=discord.Colour.red())
         e.set_thumbnail(url="http://i.imgur.com/2LiednG.jpg")
         e.title = "World of Warships Mods"
@@ -208,7 +210,7 @@ class HelpMe(commands.Cog):
         v = discord.ui.View()
         v.add_item(discord.ui.Button(url=MODSTATION, label="Modstation"))
         v.add_item(discord.ui.Button(url=ASLAIN, label="Aslain's Modpack"))
-        return await self.bot.reply(interaction, embed=e, view=v)
+        return await interaction.edit_original_response(embed=e, view=v)
 
     @discord.app_commands.command()
     async def builds(
@@ -227,7 +229,7 @@ class HelpMe(commands.Cog):
         btn = discord.ui.Button(url=BUILDS)
         btn.label = "Help Me Builds on Google Docs"
         v = discord.ui.View().add_item(btn)
-        return await self.bot.reply(interaction, embed=e, view=v)
+        return await interaction.edit_original_response(embed=e, view=v)
 
 
 async def setup(bot: PBot):

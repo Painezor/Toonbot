@@ -4,10 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, ClassVar
 
-from flatten_dict import flatten, unflatten
-
 import typing
-import discord
 
 from ext.painezbot_utils.region import Region
 from ext.painezbot_utils.ship import Ship
@@ -24,7 +21,6 @@ if typing.TYPE_CHECKING:
 # and Hurricane Emblems for player stats.
 # TODO: Player's Ranked Battle Season History
 # TODO: Clan Battle Season objects for Images for Leaderboard.
-# TODO: Yeet old FuncDropdown shit and replace with Funcables
 
 
 API = "https://api.worldofwarships."
@@ -70,35 +66,7 @@ class Player:
         self.nickname: str = kwargs.pop("nickname", None)
 
         # Additional Fetched Data.
-        self.clan: Optional[Clan] = None
-        self.created_at: Optional[Timestamp] = None  # Account Creation Date
-        self.hidden_profile: bool = False  # Account has hidden stats
-        self.joined_clan_at: Optional[Timestamp] = None  # Joined Clan at..
-        self.clan_role: Optional[str] = None  # Officer, Leader, Recruiter...
-        self.karma: Optional[int] = None  # Player Karma (Hidden from API?)
-        self.last_battle_time: Optional[Timestamp] = None  # Last Battle
-        self.private: None = (
-            None  # Player's private data. We do not have access.
-        )
-        self.levelling_tier: Optional[int] = None  # Player account level
-        self.levelling_points: Optional[int] = None  # Player account XP
-        self.logout_at: Optional[Timestamp] = None  # Last Logout
-        self.stats_updated_at: Optional[Timestamp] = None  # Last Stats Update
-        self.statistics: dict[
-            Ship | None, dict
-        ] = {}  # Parsed Player Statistics
-
-        # Data from CB Endpoint
-        self.average_damage: float = 0
-        self.average_xp: float = 0
-        self.average_kills: float = 0
-        self.battles_per_day: float = 0
-        self.win_rate: float = 0
-
-        self.battles: int = 0
-
-        self.is_online: bool = False
-        self.is_banned: bool = False
+        self.stats: dict = {}
 
         # CB Season Stats
         self.clan_battle_stats: dict[
@@ -259,7 +227,7 @@ class Player:
         )
         self.hidden_profile = stats["hidden_profile"]
         if ship is None:
-            self.statistics[None] = stats["statistics"]
+            self.stats[None] = stats["statistics"]
         else:
-            self.statistics[ship] = stats
+            self.stats[ship] = stats
         return

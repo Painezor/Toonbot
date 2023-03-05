@@ -10,7 +10,6 @@ import typing
 import discord
 
 from discord.ext import commands
-import flatten_dict
 
 from ext.painezbot_utils.clan import ClanBuilding, League, Clan
 from ext.painezbot_utils.player import Region, GameMode, Player
@@ -65,6 +64,8 @@ SHIP_KEYS = {
 class Leaderboard(view_utils.BaseView):
     """Leaderboard View with dropdowns."""
 
+    interaction: discord.Interaction[PBot]
+
     def __init__(
         self, interaction: discord.Interaction[PBot], clans: list[Clan]
     ) -> None:
@@ -79,68 +80,70 @@ class Leaderboard(view_utils.BaseView):
         e = discord.Embed(colour=discord.Colour.purple())
         e.title = f"Clan Battle Season {self.clans[0].season_number} Ranking"
         e.set_thumbnail(url=League.HURRICANE.thumbnail)
+        e.description = ""
 
-        rows = []
-        opts = []
-        for num, clan in enumerate(self.clans):
+        self.pages = embed_utils.paginate(self.clans, 10)
+        clans = self.pages[self.index]
+
+        parent = self.update
+        dd = []
+        for clan in clans:
             r = "⛔" if clan.is_clan_disbanded else str(clan.public_rating)
             rank = f"#{clan.rank}."
             region = clan.region
 
-            lbt = clan.last_battle_at.relative
-            rows.append(
-                f"{rank} {region.emote} **[{clan.tag}]** {clan.name}\n"
-                f"`{r.rjust(4)}` {clan.battles_count} Battles, Last: {lbt}\n"
-            )
+            text = f"{rank} {region.emote} **[{clan.tag}]** {clan.name}\n"
+            text += f"`{r.rjust(4)}` {clan.battles_count} Battles"
 
-            opt = SelectOption(
-                label=f"{clan.tag} ({clan.region.name})",
-                description=clan.name,
-                emoji=clan.league.emote,
-                value=str(num),
-            )
+            if clan.last_battle_at:
+                lbt = clan.last_battle_at.relative
+                text += f", Last: {lbt}"
+            e.description += text + "\n"
 
-            v = clan.view(
-                self.interaction, parent=(self, "Back to Leaderboard")
-            )
-            opts.append((opt, {}, v.from_dropdown))
-
-        self.pages = embed_utils.rows_to_embeds(e, rows)
+            v = ClanView(self.interaction, clan, parent=parent).from_dropdown
+            label = f"{clan.tag} ({clan.region.name})"
+            btn = view_utils.Funcable(label, v)
+            btn.description = clan.name
+            btn.emoji = clan.league.emote
+            dd.append(btn)
 
         self.add_page_buttons()
-        self.add_item(FuncDropdown(options=opts, placeholder="View Clan Info"))
-        return await self.bot.reply(
-            self.interaction, embed=self.pages[self.index], view=self
-        )
+        self.add_function_row(dd, 1, "Go To Clan")
+
+        r = self.interaction.edit_original_response
+        return await r(embed=e, view=self)
 
 
 class PlayerView(view_utils.BaseView):
     """A View representing a World of Warships player"""
 
     bot: PBot
+    interaction: discord.Interaction[PBot]
 
     def __init__(
         self,
         interaction: discord.Interaction[PBot],
         player: Player,
-        mode: GameMode,
-        div_size: int,
-        ship: Optional[Ship] = None,
         **kwargs,
     ) -> None:
         super().__init__(interaction, **kwargs)
 
         # Passed
         self.player: Player = player
-        self.div_size: int = div_size
-        self.mode: GameMode = mode
-        self.ship: Optional[Ship] = ship
-
-        # Used
-        self.cb_season: Optional[int] = None
 
     async def base_embed(self) -> discord.Embed:
         """Base Embed used for all sub embeds."""
+
+        if not self.player.stats:
+            accid = self.player.account_id
+            dom = self.player.region.domain
+            url = f"https://vortex.worldofwarships.{dom}/api/accounts/{accid}/"
+
+            async with self.interaction.client.session.get(url) as resp:
+                if resp.status != 200:
+                    raise ConnectionError("Error %s on %s", resp.status, url)
+                self.stats = await resp.json()
+
         e = discord.Embed()
 
         p = self.player
@@ -158,66 +161,13 @@ class PlayerView(view_utils.BaseView):
             e.set_footer(text="This player has hidden their stats.")
         return e
 
-    @staticmethod
-    def sum_stats(dicts: list[dict]) -> dict:
-        """Sum The Stats from multiple game modes."""
-        output = {}
-
-        dicts = [flatten_dict.flatten(d, reducer="dot") for d in dicts]
-
-        for key in dicts[0].keys():
-            if "ship_id" in key:
-                pass
-            elif "max" in key:
-                ship_keys = SHIP_KEYS
-
-                paired_keys = [
-                    (n.get(key, 0), n.get(ship_keys[key]))
-                    for n in dicts
-                    if n.get(key, 0)
-                ]
-                filter_keys = filter(lambda x: x[1] is not None, paired_keys)
-                try:
-                    value = sorted(filter_keys, key=lambda x: x[0])[0]
-                except IndexError:
-                    value = (0, None)
-                output.update({key: value[0], ship_keys[key]: value[1]})
-            else:
-                value = sum(
-                    [
-                        x
-                        for x in [n.get(key, 0) for n in dicts]
-                        if x is not None
-                    ],
-                    0,
-                )
-                output.update({key: value})
-        output = flatten_dict.unflatten(output, splitter="dot")
-        return output
-
     async def filter_stats(self) -> tuple[str, dict]:
         """Fetch the appropriate stats for the mode tag"""
-        if self.ship not in self.player.statistics:
+        if self.ship not in self.player.stats:
             await self.player.get_stats(self.ship)
 
-        s = self.player.statistics[self.ship]
+        s = self.player.stats[self.ship]
         match self.mode.tag, self.div_size:
-            case "PVP", 1:
-                return "Random Battles (Solo)", s["pvp_solo"]
-            case "PVP", 2:
-                return "Random Battles (2-person Division)", s["pvp_div2"]
-            case "PVP", 3:
-                return "Random Battles (3-person Division)", s["pvp_div3"]
-            case "PVP", _:
-                return "Random Battles (Overall)", s["pvp"]
-            case "COOPERATIVE", 1:
-                return "Co-op Battles (Solo)", s["pve_solo"]
-            case "COOPERATIVE", 2:
-                return "Co-op Battles (2-person Division)", s["pve_div2"]
-            case "COOPERATIVE", 3:
-                return "Co-op Battles (3-person Division)", s["pve_div3"]
-            case "COOPERATIVE", _:
-                return "Co-op Battles (Overall)", s["pve"]  # All
             case "RANKED", 1:
                 return "Ranked Battles (Solo)", s["rank_solo"]
             case "RANKED", 2:
@@ -246,15 +196,32 @@ class PlayerView(view_utils.BaseView):
 
     async def clan_battles(self, season: int) -> discord.InteractionMessage:
         """Attempt to fetch player's Clan Battles data."""
-
         if self.player.clan is None:
             raise AttributeError
+
+        self.handle_buttons(self.clan_battles)
+
+        if self.player.clan.season_number is None:
+            await self.player.clan.get_data()
+            sn = self.player.clan.season_number
+        else:
+            sn = None
 
         if season not in self.player.clan_battle_stats:
             await self.player.clan.get_member_clan_battle_stats(season)
 
-        stats = self.player.clan_battle_stats[season]
+        dd = []
+        if sn is not None:
+            func = self.clan_battles
+            for x in range(sn):
 
+                item = view_utils.Funcable(f"Season {x}", func)
+                item.emoji = self.mode.emoji
+                item.args = [x]
+                dd.append(item)
+        self.add_function_row(dd, 1, "Change Season")
+
+        stats = self.player.clan_battle_stats[season]
         logging.info(f"Found clan battle stats {stats}")
 
         e = await self.base_embed()
@@ -268,7 +235,6 @@ class PlayerView(view_utils.BaseView):
             f"**Average Damage**: {avg}\n"
             f"**Average Kills**: {kll}\n"
         )
-        self._disabled = self.clan_battles
         return await self.update(e)
 
     async def weapons(self) -> discord.InteractionMessage:
@@ -394,8 +360,11 @@ class PlayerView(view_utils.BaseView):
             desc.append(f"**Last Logout**: {self.player.logout_at.relative}")
 
         # This is stored 1 level up.
-        distance = self.player.statistics[None]["distance"]
-        desc.append(f"**Total Distance Travelled**: {format(distance, ',')}km")
+        if self.ship is None:
+            distance = self.player.stats[None]["distance"]
+            desc.append(
+                f"**Total Distance Travelled**: {format(distance, ',')}km"
+            )
 
         if self.player.clan:
             clan = self.player.clan
@@ -413,7 +382,8 @@ class PlayerView(view_utils.BaseView):
                 )
 
             if clan.renamed_at:
-                c_desc.append(f"**Renamed**: {clan.renamed_at.relative}")
+                ts = timed_events.Timestamp(clan.renamed_at).relative
+                c_desc.append(f"**Renamed**: {ts}")
             e.add_field(name=clan.title, value="\n".join(c_desc), inline=False)
 
         e.description = "\n".join(desc)
@@ -575,10 +545,9 @@ class PlayerView(view_utils.BaseView):
             pass
 
         e.description = "\n".join(desc)
-        self._disabled = None
         return await self.update(embed=e)
 
-    async def handle_buttons(self, current_function: typing.Callable) -> None:
+    def handle_buttons(self, current_function: typing.Callable) -> int:
         row_0: list[view_utils.Funcable] = []
 
         # Summary
@@ -597,75 +566,112 @@ class PlayerView(view_utils.BaseView):
             cln.emoji = self.player.clan.league.emote
             row_0.append(cln)
 
-        if self.mode.tag != "Clan":
+        self.add_function_row(row_0)
+        row = 1
+
+        game_modes: list[view_utils.Funcable] = []
+        for i in self.bot.modes:
+            if i.tag in ["EVENT", "BRAWL", "PVE_PREMADE"]:
+                continue
+            # We can't fetch CB data without a clan.
+            if i.tag == "CLAN" and not self.player.clan:
+                continue
+
+            func = {"CLAN": self.clan_battles}[i.tag]
+
+            btn = view_utils.Funcable(f"{i.name} ({i.tag})", func)
+            btn.description = i.description
+            btn.emoji = i.emoji
+            game_modes.append(btn)
+
+        if game_modes:
+            self.add_function_row(game_modes, row, "Change Game Mode")
+            row += 1
+
+        div_buttons = []
+        if current_function != self.clan_battles:
             # Weapons Button
             btn = view_utils.Funcable("Armaments", self.weapons)
             btn.disabled = current_function == self.weapons
-            btn.emoji = Artillery.emoji
+            btn.emoji = modules.Artillery.emoji
             row_0.append(btn)
 
-        self.add_function_row(row_0)
+            # Div Size Buttons
+            emoji = self.mode.emoji
+            for i in range(0, 3):
+                name = f"{i}" if i != 0 else "Overall"
+
+                args = [i]
+                btn = view_utils.Funcable(name, current_function, args=args)
+                div_buttons.append(btn)
+
+        if div_buttons:
+            self.add_function_row(div_buttons, row)
+            row += 1
+        return row
+
+    async def brawl(self) -> discord.InteractionMessage:
+        self.handle_buttons(self.brawl)
+
+    async def coop(self, div_size: int = 0) -> discord.InteractionMessage:
+        self.handle_buttons(self.coop)
+
+        e = await self.base_embed()
+        s = self.player.statistics[self.ship]
+
+        if self.ship not in self.player.statistics:
+            await self.player.get_stats(self.ship)
+
+        if div_size == 1:
+            stats = s["pve_solo"]
+            e.title = "Co-op Battles (Solo)"
+        elif div_size == 2:
+            stats = s["pve_div2"]
+            e.title = "Co-op Battles (2-person Division)"
+        elif div_size == 3:
+            stats = s["pve_div3"]
+            e.title = "Co-op Battles (3-person Division)"
+        else:
+            stats = s["pve"]
+            e.title = "Co-op Battles"
+
+    # Not in API
+    # async def event(self) -> discord.InteractionMessage:
+    #     self.handle_buttons(self.event)
+
+    async def operations(self) -> discord.InteractionMessage:
+        pass
+
+    async def randoms(self, div_size: int = 0) -> discord.InteractionMessage:
+        self.handle_buttons(self.randoms)
+
+        if self.ship not in self.player.statistics:
+            await self.player.get_stats(self.ship)
+
+        s = self.player.statistics[self.ship]
+
+        e = await self.base_embed()
+
+        if div_size == 1:
+            stats = s["pvp_solo"]
+            e.title = "Random Battles (Solo)"
+        elif div_size == 2:
+            stats = s["pvp_div2"]
+            e.title = "Random Battles (2-person Division)"
+        elif div_size == 3:
+            stats = s["pvp_div3"]
+            e.title = "Random Battles (3-person Division)"
+        else:
+            stats = s["pvp"]
+            e.title = "Random Battles"
 
     async def update(self, embed: discord.Embed) -> discord.InteractionMessage:
         """Send the latest version of the embed to view"""
         self.clear_items()
 
         f = self.mode_stats
-        options: list[view_utils.Funcable] = []
-        for num, i in enumerate(
-            [
-                i
-                for i in self.bot.modes
-                if i.tag not in ["EVENT", "BRAWL", "PVE_PREMADE"]
-            ]
-        ):
-            # We can't fetch CB data without a clan.
-            if i.tag == "CLAN" and not self.player.clan:
-                continue
 
-            opt = SelectOption(
-                label=f"{i.name} ({i.tag})",
-                description=i.description,
-                emoji=i.emoji,
-                value=num,
-            )
-            options.append((opt, {"mode": i}, f))
-        self.add_item(
-            FuncDropdown(placeholder="Change Game Mode", options=options)
-        )
-
-        buttons = []
-        ds = self.div_size
         match self.mode.tag:
-            # Event and Brawl aren't in API.
-            case "BRAWL" | "EVENT":
-                pass
-            # Pre-made & Clan don't have div sizes.
-            case "CLAN":
-                opts = []
-
-                if (
-                    self.player.clan is not None
-                    and self.player.clan.season_number is None
-                ):
-                    await self.player.clan.get_data()
-
-                if self.player.clan:
-                    sn = self.player.clan.season_number
-                else:
-                    sn = None
-
-                dd = []
-                if sn is not None:
-                    func = self.clan_battles
-                    for x in range(sn):
-
-                        item = view_utils.Funcable(f"Season {x}", func)
-                        item.emoji = self.mode.emoji
-                        item.args = [x]
-                        dd.append(item)
-                self.add_function_row(dd, 1, "Change Season")
-
             case "PVE" | "PVE_PREMADE":
                 easy = next(i for i in self.bot.modes if i.tag == "PVE")
                 hard = next(
@@ -701,49 +707,6 @@ class PlayerView(view_utils.BaseView):
                         disabled=ds == 1,
                     )
                 )
-            case _:
-                emoji = self.mode.emoji
-                self.add_item(
-                    FuncButton(
-                        function=f,
-                        kwargs={"div_size": 0},
-                        label="Overall",
-                        row=1,
-                        disabled=ds == 0,
-                        emoji=emoji,
-                    )
-                )
-                self.add_item(
-                    FuncButton(
-                        function=f,
-                        kwargs={"div_size": 1},
-                        label="Solo",
-                        row=1,
-                        disabled=ds == 1,
-                        emoji=emoji,
-                    )
-                )
-                self.add_item(
-                    FuncButton(
-                        function=f,
-                        kwargs={"div_size": 2},
-                        label="Division (2)",
-                        row=1,
-                        disabled=ds == 2,
-                        emoji=emoji,
-                    )
-                )
-                self.add_item(
-                    FuncButton(
-                        function=f,
-                        kwargs={"div_size": 3},
-                        label="Division (3)",
-                        row=1,
-                        disabled=ds == 3,
-                        emoji=emoji,
-                    )
-                )
-
         r = self.interaction.edit_original_response
         return await r(embed=embed, view=self)
 
@@ -767,7 +730,8 @@ class ClanView(view_utils.BaseView):
 
         desc = []
         if c.updated_at is not None:
-            desc.append(f"**Information updated**: {c.updated_at.relative}\n")
+            ts = timed_events.Timestamp(c.updated_at).relative
+            desc.append(f"**Information updated**: {ts}\n")
 
         if self.clan.leader_name:
             desc.append(f"**Leader**: {c.leader_name}")
@@ -791,9 +755,12 @@ class ClanView(view_utils.BaseView):
             if self.clan.cb_rating != self.clan.max_cb_rating:
                 cb_desc.append(f"**Highest Rating**: {c.max_cb_rating}")
 
+            lbt = c.last_battle_at
+            if lbt:
+                ts = timed_events.Timestamp(lbt).relative
+                cb_desc.append(f"**Last Battle**: {ts}")
+
             # Win Rate
-            lbt = c.last_battle_at.relative
-            cb_desc.append(f"**Last Battle**: {lbt}")
             wr = round(self.clan.wins_count / self.clan.battles_count * 100, 2)
             rest = f"{c.wins_count} / {c.battles_count}"
             cb_desc.append(f"**Win Rate**: {wr}% ({rest})")
@@ -819,24 +786,22 @@ class ClanView(view_utils.BaseView):
                 value="This clan is marked as 'banned'",
             )
 
-        self._disabled = self.overview
         e.set_footer(text=self.clan.description)
         return await self.update(embed=e)
 
     async def members(self) -> discord.InteractionMessage:
         """Display an embed of the clan members"""
-        self._disabled = self.members
         e = self.clan.embed
         e.title = f"Clan Members ({self.clan.members_count} Total)"
 
-        members = sorted(self.clan.members, key=lambda x: x.nickname)
-        members = [
+        mems = sorted(self.clan.members, key=lambda x: x.nickname)
+        mems = [
             f"`🟢` {i.nickname}" if i.is_online else i.nickname
-            for i in members
+            for i in mems
             if not i.is_banned
         ]
 
-        e.description = discord.utils.escape_markdown(", ".join(members))
+        e.description = discord.utils.escape_markdown(", ".join(mems))
 
         if banned := [i for i in self.clan.members if i.is_banned]:
             e.add_field(name="Banned Members", value=", ".join(banned))
@@ -877,7 +842,7 @@ class ClanView(view_utils.BaseView):
         max_wr: Player = max(self.clan.members, key=lambda p: p.win_rate)
         max_games: Player = max(self.clan.members, key=lambda p: p.battles)
         m_p: Player = max(self.clan.members, key=lambda p: p.battles_per_day)
-        m_a_k = max(self.clan.members, key=lambda p: p.max_avg_kills)
+        m_a_k = max(self.clan.members, key=lambda p: p.average_kills)
 
         e.add_field(
             name="Top Players",
@@ -903,7 +868,7 @@ class ClanView(view_utils.BaseView):
     async def new_members(self) -> discord.InteractionMessage:
         """Get a list of the clan's newest members"""
         self._disabled = self.new_members
-        e = self.clan.base_embed
+        e = self.clan.embed()
         e.title = "Newest Clan Members"
         members = sorted(
             self.clan.members,
@@ -956,7 +921,9 @@ class ClanView(view_utils.BaseView):
 
 
 # Autocomplete.
-async def mode_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
+async def mode_ac(
+    ctx: discord.Interaction[PBot], cur: str
+) -> list[discord.app_commands.Choice[str]]:
     """Fetch a Game Mode"""
     choices = []
 
@@ -966,13 +933,17 @@ async def mode_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
             continue
         if cur not in i.name.casefold():
             continue
-        choices.append(Choice(name=i.name, value=i.tag))
-    return choices[:25]
+        choices.append(discord.app_commands.Choice(name=i.name, value=i.tag))
+
+        if len(choices) == 25:
+            break
+
+    return choices
 
 
 async def player_ac(
-    interaction: Interaction[PBot], current: str
-) -> list[Choice[str]]:
+    interaction: discord.Interaction[PBot], current: str
+) -> list[discord.app_commands.Choice[str]]:
     """Fetch player's account ID by searching for their name."""
     bot: PBot = interaction.client
     p = {"application_id": bot.wg_id, "search": current, "limit": 25}
@@ -1015,15 +986,17 @@ async def clan_ac(
     interaction: discord.Interaction[PBot], current: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete for a list of clan names"""
-    bot: PBot = interaction.client
-
     region = getattr(interaction.namespace, "region", None)
-    region = next((i for i in Region if i.db_key == region), Region.EU)
+    rgn = next((i for i in Region if i.db_key == region), Region.EU)
 
-    link = CLAN_SEARCH.replace("eu", region.domain)
-    p = {"search": current, "limit": 25, "application_id": bot.wg_id}
+    link = CLAN_SEARCH.replace("eu", rgn.domain)
+    p = {
+        "search": current,
+        "limit": 25,
+        "application_id": interaction.client.wg_id,
+    }
 
-    async with bot.session.get(link, params=p) as resp:
+    async with interaction.client.session.get(link, params=p) as resp:
         match resp.status:
             case 200:
                 clans = await resp.json()
@@ -1040,29 +1013,6 @@ async def clan_ac(
                 name=f"[{clan.tag}] {clan.name}", value=str(clan.clan_id)
             )
         )
-    return choices
-
-
-async def ship_ac(
-    interaction: discord.Interaction[PBot], current: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Autocomplete for the list of maps in World of Warships"""
-
-    current = current.casefold()
-    choices = []
-    for i in sorted(interaction.client.ships, key=lambda s: s.name):
-        if not i.ship_id_str:
-            continue
-        if current not in i.ac_row:
-            continue
-
-        value = i.ship_id_str
-        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=value)
-        choices.append(choice)
-
-        if len(choices) == 25:
-            break
-
     return choices
 
 
@@ -1165,7 +1115,7 @@ class Warships(commands.Cog):
                 ship.type = self.bot.get_ship_type(data.pop("type"))
 
                 modules = data.pop("modules")
-                ship._modules = modules
+                ship.available_modules = modules
                 for k, v in data.items():
                     setattr(ship, k, v)
                 ships.append(ship)
@@ -1258,24 +1208,6 @@ class Warships(commands.Cog):
             interaction, code, regions=["cis"], contents=contents
         )
 
-    @discord.app_commands.command()
-    @discord.app_commands.autocomplete(name=ship_ac)
-    @discord.app_commands.describe(name="Search for a ship by it's name")
-    async def ship(
-        self, interaction: discord.Interaction[PBot], name: str
-    ) -> discord.InteractionMessage:
-        """Search for a ship in the World of Warships API"""
-
-        await interaction.response.defer()
-
-        if not self.bot.ships:
-            raise ConnectionError("Unable to fetch ships from API")
-
-        if (ship := self.bot.get_ship(name)) is None:
-            raise LookupError(f"Did not find map matching {name}, sorry.")
-
-        return await ship.view(interaction).overview()
-
     # TODO: Test - Clan Battles
     @discord.app_commands.command()
     @discord.app_commands.autocomplete(
@@ -1293,9 +1225,9 @@ class Warships(commands.Cog):
         self,
         interaction: discord.Interaction[PBot],
         region: REGION,
-        player_name: Range[str, 3],
+        player_name: discord.app_commands.Range[str, 3],
         mode: str = "PVP",
-        division: Range[int, 0, 3] = 0,
+        division: discord.app_commands.Range[int, 0, 3] = 0,
         ship: Optional[str] = None,
     ) -> discord.InteractionMessage:
         """Search for a player's Stats"""
@@ -1312,7 +1244,7 @@ class Warships(commands.Cog):
         v = PlayerView(interaction, player, g_mode, division, g_ship)
         return await v.mode_stats(g_mode)
 
-    clan = Group(name="clan", description="Get Clans")
+    clan = discord.app_commands.Group(name="clan", description="Get Clans")
 
     @clan.command()
     @discord.app_commands.describe(
@@ -1323,7 +1255,7 @@ class Warships(commands.Cog):
         self,
         interaction: discord.Interaction[PBot],
         region: REGION,
-        query: Range[str, 2],
+        query: discord.app_commands.Range[str, 2],
     ) -> discord.InteractionMessage:
         """Get information about a World of Warships clan"""
         _ = region  # Just to shut the linter up.
@@ -1382,7 +1314,7 @@ class Warships(commands.Cog):
                 colour=discord.Colour.purple(),
             )
             return await view_utils.Paginator(
-                interaction, emmbed_utils.rows_to_embeds(e, rows, rows=1)
+                interaction, embed_utils.rows_to_embeds(e, rows, rows=1)
             ).update()
         else:
             rgn = next(i for i in Region if i.db_key == region)
@@ -1412,7 +1344,7 @@ class Warships(commands.Cog):
         self,
         interaction: discord.Interaction[PBot],
         region: Optional[REGION] = None,
-        season: typing.Range[int, 1, 20] = 20,
+        season: discord.app_commands.Range[int, 1, 20] = 20,
     ) -> discord.InteractionMessage:
         """Get the Season Clan Battle Leaderboard"""
         url = "https://clans.worldofwarships.eu/api/ladder/structure/"

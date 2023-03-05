@@ -151,7 +151,7 @@ class Mod(Cog):
 
     @discord.app_commands.command()
     @guild_only()
-    @default_permissions(manage_messages=True)
+    @discord.app_commands.default_permissions(manage_messages=True)
     @discord.app_commands.autocomplete(colour=colour_ac)
     @discord.app_commands.describe(
         destination="Choose Target Channel", colour="Choose embed colour"
@@ -197,7 +197,7 @@ class Mod(Cog):
         await interaction.response.send_modal(modal)
 
     @discord.app_commands.command()
-    @default_permissions(manage_messages=True)
+    @discord.app_commands.default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
     @discord.app_commands.describe(
         message="Enter a message to send as the bot",
@@ -236,7 +236,7 @@ class Mod(Cog):
             return await interaction.edit_original_response(content=err)
 
     @discord.app_commands.command()
-    @default_permissions(manage_messages=True)
+    @discord.app_commands.default_permissions(manage_messages=True)
     @bot_has_permissions(manage_messages=True)
     @discord.app_commands.describe(
         number="Enter the maximum number of messages to delete."
@@ -261,7 +261,7 @@ class Mod(Cog):
             pass
 
     @discord.app_commands.command()
-    @default_permissions(moderate_members=True)
+    @discord.app_commands.default_permissions(moderate_members=True)
     @bot_has_permissions(moderate_members=True)
     @discord.app_commands.describe(
         member="Pick a user to untimeout",

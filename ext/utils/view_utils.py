@@ -11,21 +11,23 @@ from discord import (
     Embed,
     SelectOption,
 )
-from discord.ui import Button, Select, Modal, View, TextInput
+from discord.ui import Select, TextInput
 
 import discord
 
 if TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
-    from discord import Message, Interaction
+    from discord import Message
 
 
 logger = logging.getLogger("view_utils")
 
 
-class BaseView(View):
+class BaseView(discord.ui.View):
     """Error Handler."""
+
+    update: Callable
 
     def __init__(
         self,
@@ -36,10 +38,9 @@ class BaseView(View):
     ):
 
         self.bot: Bot | PBot = interaction.client
-        self.interaction: Interaction[Bot | PBot] = interaction
+        self.interaction: discord.Interaction[Bot | PBot] = interaction
 
         self.index: int = 0
-        self.update: Callable
         self.pages: list[Any] = []
         self.parent: Optional[FuncButton] = parent
 
@@ -53,7 +54,9 @@ class BaseView(View):
 
         super().__init__(timeout=timeout)
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
+    async def interaction_check(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> bool:
         """Make sure only the person running the command can select options"""
         return self.interaction.user.id == interaction.user.id
 
@@ -116,7 +119,7 @@ class BaseView(View):
         return await r(content=txt, embed=None)
 
 
-class First(Button):
+class First(discord.ui.Button):
     """Get the first item in a Pagination View"""
 
     view: BaseView
@@ -125,7 +128,7 @@ class First(Button):
         super().__init__(emoji="⏮", row=row)
 
     async def callback(
-        self, interaction: Interaction
+        self, interaction: discord.Interaction[Bot | PBot]
     ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
         await interaction.response.defer()
@@ -133,7 +136,7 @@ class First(Button):
         return await self.view.update()
 
 
-class Previous(Button):
+class Previous(discord.ui.Button):
     """Get the previous item in a Pagination View"""
 
     view: BaseView
@@ -143,7 +146,7 @@ class Previous(Button):
         super().__init__(emoji="◀", row=row, disabled=d)
 
     async def callback(
-        self, interaction: Interaction
+        self, interaction: discord.Interaction[Bot | PBot]
     ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
 
@@ -155,7 +158,7 @@ class Previous(Button):
         return await self.view.update()
 
 
-class Jump(Button):
+class Jump(discord.ui.Button):
     """Jump to a specific page in a Pagination view"""
 
     view: BaseView
@@ -180,12 +183,14 @@ class Jump(Button):
         except AttributeError:
             self.disabled = True
 
-    async def callback(self, interaction: Interaction[Bot | PBot]) -> None:
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
         """When button is clicked…"""
         return await interaction.response.send_modal(JumpModal(self.view))
 
 
-class JumpModal(Modal):
+class JumpModal(discord.ui.Modal):
     """Type page number in box, set index to that page."""
 
     page = TextInput(label="Enter a page number")
@@ -196,7 +201,7 @@ class JumpModal(Modal):
         self.page.placeholder = f"1 - {len(view.pages)}"
 
     async def on_submit(
-        self, interaction: Interaction
+        self, interaction: discord.Interaction[Bot | PBot]
     ) -> discord.InteractionMessage:
         """Validate entered data & set parent index."""
 
@@ -213,7 +218,7 @@ class JumpModal(Modal):
             return await update()
 
 
-class Next(Button):
+class Next(discord.ui.Button):
     """Get the next item in a Pagination View"""
 
     view: BaseView
@@ -224,7 +229,7 @@ class Next(Button):
         super().__init__(emoji="▶", row=row, disabled=d)
 
     async def callback(
-        self, interaction: Interaction
+        self, interaction: discord.Interaction[Bot | PBot]
     ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
 
@@ -234,7 +239,7 @@ class Next(Button):
         return await self.view.update()
 
 
-class Last(Button):
+class Last(discord.ui.Button):
     """Get the last item in a Pagination View"""
 
     view: BaseView
@@ -245,7 +250,7 @@ class Last(Button):
         self.disabled = pg_len == view.index
 
     async def callback(
-        self, interaction: Interaction
+        self, interaction: discord.Interaction[Bot | PBot]
     ) -> discord.InteractionMessage:
         """Do this when button is pressed"""
 
@@ -254,7 +259,7 @@ class Last(Button):
         return await self.view.update()
 
 
-class Stop(Button):
+class Stop(discord.ui.Button):
     """A generic button to stop a View"""
 
     view: BaseView
@@ -262,8 +267,11 @@ class Stop(Button):
     def __init__(self, row=3) -> None:
         super().__init__(emoji="🚫", row=row)
 
-    async def callback(self, _: Interaction) -> None:
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
         """Do this when button is pressed"""
+        await interaction.response.defer()
         try:
             await self.view.interaction.delete_original_response()
         except NotFound:
@@ -275,7 +283,7 @@ class Stop(Button):
         self.view.stop()
 
 
-class PageSelect(Select):
+class PageSelect(discord.ui.Select):
     """Page Selector Dropdown"""
 
     view: BaseView
@@ -289,7 +297,7 @@ class PageSelect(Select):
         super().__init__(placeholder=placeholder, options=options, row=row)
 
     async def callback(
-        self, interaction: Interaction
+        self, interaction: discord.Interaction[Bot | PBot]
     ) -> discord.InteractionMessage:
         """Set View Index"""
 
@@ -299,7 +307,7 @@ class PageSelect(Select):
         return await self.view.update()
 
 
-class ItemSelect(Select):
+class ItemSelect(discord.ui.Select):
     """A Select that sets the view value to one selected item"""
 
     view: BaseView
@@ -307,7 +315,9 @@ class ItemSelect(Select):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
         """Response object for view"""
         await interaction.response.defer()
         self.view.value = self.values
@@ -317,7 +327,7 @@ class ItemSelect(Select):
 @dataclass
 class Funcable:
     """A 'Selectable Function' to be used with generate_function_row to
-    create either a FuncDropdown or row of FuncButtons"""
+    create either a FuncSelect or row of FuncButtons"""
 
     def __init__(
         self,
@@ -325,9 +335,9 @@ class Funcable:
         function: Callable,
         args: list = [],
         keywords: dict = {},
-        emoji: Optional[str] = None,
+        emoji: Optional[str] = "🔘",
         description: Optional[str] = None,
-        style: ButtonStyle = ButtonStyle.gray,
+        style: discord.ButtonStyle = discord.ButtonStyle.gray,
         disabled: bool = False,
     ):
 
@@ -342,7 +352,7 @@ class Funcable:
         self.keywords: dict = {} if keywords is None else keywords
 
 
-class FuncSelect(Select):
+class FuncSelect(discord.ui.Select):
     """A Select that ties to individually passed functions"""
 
     def __init__(
@@ -365,7 +375,9 @@ class FuncSelect(Select):
                 value=str(num),
             )
 
-    async def callback(self, interaction: Interaction) -> Any:
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> Any:
         """The handler for the FuncSelect Dropdown"""
 
         await interaction.response.defer()
@@ -373,7 +385,7 @@ class FuncSelect(Select):
         return await value.function(*value.args, **value.keywords)
 
 
-class FuncButton(Button):
+class FuncButton(discord.ui.Button):
     """A Generic Button with a passed through function."""
 
     def __init__(
@@ -390,7 +402,9 @@ class FuncButton(Button):
         self.args: list = args
         self.kwargs: dict = kw
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
         """The Callback performs the passed function with any passed
         args/kwargs"""
         await interaction.response.defer()
@@ -417,7 +431,9 @@ class FuncDropdown(Select):
             row=row,
         )
 
-    async def callback(self, interaction: Interaction) -> Message:
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> Message:
         """Set View Index"""
 
         await interaction.response.defer()
@@ -454,7 +470,7 @@ class Confirmation(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction[Bot | PBot],
+        interaction: discord.Interaction[Bot | PBot],
         label_a: str = "Yes",
         label_b: str = "No",
         style_a: discord.ButtonStyle = discord.ButtonStyle.grey,
@@ -469,7 +485,7 @@ class Confirmation(BaseView):
         self.value: bool
 
 
-class BoolButton(Button):
+class BoolButton(discord.ui.Button):
     """Set View value"""
 
     view: Confirmation
@@ -484,7 +500,9 @@ class BoolButton(Button):
         super().__init__(label=label, style=style)
         self.value: bool = value
 
-    async def callback(self, interaction: discord.Interaction) -> None:
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
         """On Click Event"""
         await interaction.response.defer()
         self.view.value = self.value

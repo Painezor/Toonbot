@@ -1,24 +1,20 @@
 """Ship Objects and associated classes"""
 from __future__ import annotations
 
-import logging
-from copy import deepcopy
 from types import DynamicClassAttribute
-from typing import Type, Optional
 import typing
 import enum
 
 import unidecode as unidecode
 import discord
 
-if typing.TYPE_CHECKING:
-    from painezBot import PBot
+from ext.painezbot_utils.modules import Module
 
 
 class Nation(enum.Enum):
     """An Enum representing different nations."""
 
-    def __new__(cls, *args, **kwargs) -> Nation:
+    def __new__(cls) -> Nation:
         value = len(cls.__members__) + 1
         obj = object.__new__(cls)
         obj._value_ = value
@@ -44,57 +40,6 @@ class Nation(enum.Enum):
     USA = ("American", "usa", "🇺🇸")
 
 
-class Fitting:
-    """A Ship Configuration"""
-
-    bot: PBot
-
-    def __init__(self, ship: Ship, data: dict = {}) -> None:
-        self.ship: Ship = ship
-        self.__class__.bot = ship.bot
-
-        # Current Configuration
-        self.modules: dict[Type[Module], int] = {}
-
-        # Parsed Data
-        self.data: dict = data
-
-    async def get_params(self) -> dict:
-        """Get the ship's specs with the currently selected modules."""
-        p = {"application_id": self.bot.wg_id, "ship_id": self.ship.ship_id}
-
-        tuples = [
-            ("artillery_id", Artillery),
-            ("dive_bomber_id", DiveBomber),
-            ("engine_id", Engine),
-            ("fire_control_id", FireControl),
-            ("hull_id", Hull),
-            ("fighter_id", RocketPlane),
-            ("torpedoes_id", Torpedoes),
-            ("torpedo_bomber_id", TorpedoBomber),
-        ]
-        # ('flight_control_id', FlightControl),
-        p.update(
-            {
-                k: self.modules.get(v)
-                for k, v in tuples
-                if self.modules.get(v, None) is not None
-            }
-        )
-
-        url = "https://api.worldofwarships.eu/wows/encyclopedia/shipprofile/"
-        async with self.bot.session.get(url, params=p) as resp:
-            match resp.status:
-                case 200:
-                    json = await resp.json()
-                case _:
-                    err = f"HTTP ERROR {resp.status} accessing {url}"
-                    raise ConnectionError(err)
-
-        self.data = json["data"][str(self.ship.ship_id)]
-        return self.data
-
-
 class ShipType:
     """Submarine, Cruiser, etc."""
 
@@ -111,16 +56,14 @@ class Ship:
     """A World of Warships Ship."""
 
     # Class attr.
-    bot: typing.ClassVar[PBot]
 
-    def __init__(self, bot: PBot) -> None:
-        self.__class__.bot = bot
+    def __init__(self) -> None:
         self.name: str = "Unknown Ship"
-        self.ship_id: Optional[int] = None
-        self.ship_id_str: Optional[str] = None
+        self.ship_id: typing.Optional[int] = None
+        self.ship_id_str: typing.Optional[str] = None
 
         # Initial Data
-        self.description: Optional[str] = None  # Ship description
+        self.description: typing.Optional[str] = None  # Ship description
         # Indicates that ship iS WIP
         self.has_demo_profile: bool = False
         self.is_premium: bool = False  # Indicates if the ship is Premium ship
@@ -129,17 +72,16 @@ class Ship:
         self.mod_slots: int = 0  # Number of slots for upgrades
         self._modules: dict = {}  # Dict of Lists of available modules.
         self.modules_tree: dict = {}  #
-        self.nation: Optional[Nation] = None  # Ship Nation
+        self.nation: typing.Optional[Nation] = None  # Ship Nation
         self.next_ships: dict = {}  # {k: ship_id as str, v: xp as int }
         self.price_credit: int = 0  # Cost in credits
         self.price_gold: int = 0  # Cost in doubloons
-        self.tier: int  # Tier of the ship (1 - 11 for super)
+        self.tier: int = 0  # Tier of the ship (1 - 11 for super)
         self.type: ShipType  # Type of ship
         self.upgrades: list[int] = []  # List of compatible Modifications IDs
 
         # Fetched Modules
-        self.modules: dict[int, Module] = {}
-
+        self.available_modules: dict[int, Module]
         # Params Data
         self.default_profile: dict = {}
 
@@ -173,115 +115,6 @@ class Ship:
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
         return f"{self.tier}: {decoded} {nation} {type_}".casefold()
-
-    @property
-    def default_fit(self) -> Fitting:
-        """Generate a fitting from the default modules of this ship."""
-        tree = self.modules_tree
-        fit = Fitting(self, data=self.default_profile)
-
-        dic = {int(k): v["type"] for k, v in tree.items() if v["is_default"]}
-
-        for module_id, module_type in dic.items():
-            match module_type:
-                case "Artillery":
-                    fit.modules[Artillery] = module_id
-                case "DiveBomber":
-                    fit.modules[DiveBomber] = module_id
-                case "Engine":
-                    fit.modules[Engine] = module_id
-                case "Hull":
-                    fit.modules[Hull] = module_id
-                case "Fighter":
-                    fit.modules[RocketPlane] = module_id
-                case "Suo":
-                    fit.modules[FireControl] = module_id
-                case "Torpedoes":
-                    fit.modules[Torpedoes] = module_id
-                case "TorpedoBomber":
-                    fit.modules[TorpedoBomber] = module_id
-                case _:
-                    m = module_type
-                    i = module_id
-                    err = f'Unhandled Module type "{m}" default fit, id: {i}'
-                    logging.error(err)
-        return fit
-
-    async def fetch_modules(self) -> dict[int, Module]:
-        """Grab all data related to the ship from the API"""
-        # Get needed module IDs
-        m = [s.module_id for s in self.bot.modules]
-        existing = [x for x in self._modules.values() if x.module_id in m]
-
-        # We use a deepcopy, because we're editing values with data from
-        # modules tree, but each module can be used on a number of different
-        # ships, and we do not want to contaminate *their* data.
-        self.modules.update({k.module_id: deepcopy(k) for k in existing})
-
-        m = self.bot.modules
-        if targets := [str(i) for i in self._modules.values() if i not in m]:
-            # We want the module IDs as str for the purposes of params
-            p = {
-                "application_id": self.bot.wg_id,
-                "module_id": ",".join(targets),
-            }
-            url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
-            async with self.bot.session.get(url, params=p) as resp:
-                match resp.status:
-                    case 200:
-                        data = await resp.json()
-                    case _:
-                        s = resp.status
-                        n = self.name
-                        err = f"{s} error fetching modules for {n} on {url}"
-                        raise ConnectionError(err)
-
-            for module_id, data in data["data"].items():
-                args = {
-                    k: data.pop(k)
-                    for k in [
-                        "name",
-                        "image",
-                        "tag",
-                        "module_id_str",
-                        "module_id",
-                        "price_credit",
-                    ]
-                }
-
-                module_type = data.pop("type")
-                kwargs = data.pop("profile").popitem()[1]
-                args.update(kwargs)
-
-                match module_type:
-                    case "Artillery":
-                        module = Artillery(**args)
-                    case "DiveBomber":
-                        module = DiveBomber(**args)
-                    case "Engine":
-                        module = Engine(**args)
-                    case "Fighter":
-                        module = RocketPlane(**args)
-                    case "Suo":
-                        module = FireControl(**args)
-                    case "Hull":
-                        module = Hull(**args)
-                    case "TorpedoBomber":
-                        module = TorpedoBomber(**args)
-                    case "Torpedoes":
-                        module = Torpedoes(**args)
-                    case _:
-                        logging.error(f"Unhandled Module type {module_type}")
-                        module = Module(**args)
-
-                self.bot.modules.append(module)
-                self.modules.update({int(module_id): deepcopy(module)})
-
-        for k, v in self.modules_tree.items():
-            module = self.modules.get(int(k))
-            for sub_key, sub_value in v.items():
-                setattr(module, sub_key, sub_value)
-        return self.modules
 
 
 class ShipSentinel(enum.Enum):
@@ -346,305 +179,3 @@ class ShipSentinel(enum.Enum):
     # Submarines ...
     U_2501 = (4179015472, "U-2501", 10)
     CACHALOT = (4078352368, "Cachalot", 6)
-
-
-class Module:
-    """A Module that can be mounted on a ship"""
-
-    emoji = "<:auxiliary:991806987362902088>"
-
-    def __init__(
-        self,
-        name: str,
-        image: str,
-        tag: str,
-        module_id: int,
-        module_id_str: str,
-        price_credit: int,
-    ) -> None:
-        self.image: str = image
-        self.name: str = name
-        self.module_id: int = module_id
-        self.module_id_str: str = module_id_str
-        self.price_credit: int = price_credit
-        self.tag: str = tag
-
-        # Extra
-        self.is_default: bool = False
-        self.price_xp: int = 0
-
-    @property
-    def select_option(self) -> discord.SelectOption:
-        """Get a Dropdown Select Option for this Module"""
-        name = f"{self.name} ({self.__class__.__name__})"
-
-        if self.is_default:
-            d = "Stock Module"
-        else:
-            d = []
-            if self.price_credit != 0:
-                d.append(f"{format(self.price_credit, ',')} credits")
-            if self.price_xp != 0:
-                d.append(f"{format(self.price_xp, ',')} xp")
-
-            d = ", ".join(d) if d else "No Cost"
-        return discord.SelectOption(
-            label=name,
-            value=str(self.module_id),
-            emoji=self.emoji,
-            description=d,
-        )
-
-
-class Artillery(Module):
-    """An 'Artillery' Module"""
-
-    emoji = "<:Artillery:991026648935718952>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.gun_rate: float = kwargs.pop("gun_rate", 0)  # Fire Rate
-        self.max_damage_AP: int = kwargs.pop(
-            "max_damage_AP", 0
-        )  # Maximum Armour Piercing Damage
-        self.max_damage_HE: int = kwargs.pop(
-            "max_damage_HE", 0
-        )  # Maximum High Explosive Damage
-        self.rotation_time: float = kwargs.pop(
-            "rotation_time", 0
-        )  # Turret Traverse Time in seconds
-
-
-class DiveBomber(Module):
-    """A 'Dive Bomber' Module"""
-
-    emoji = "<:DiveBomber:991027856496791682>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.bomb_burn_probability: float = kwargs.pop(
-            "bomb_burn_probability", 0.0
-        )  # FIre Chance, e.g. 52.0
-        self.accuracy: dict[str, float] = kwargs.pop(
-            "accuracy", {"min": 0.0, "max": 0.0}
-        )  # Accuracy, float.
-        self.max_damage: int = kwargs.pop("max_damage", 0)  # Max Bomb Damage
-        self.max_health: int = kwargs.pop("max_health", 0)  # Max Plane HP
-        self.cruise_speed: int = kwargs.pop(
-            "cruise_speed", 0
-        )  # Max Plane Speed in knots
-
-
-class Engine(Module):
-    """An 'Engine' Module"""
-
-    emoji = "<:Engine:991025095772373032>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.max_speed: float = kwargs.pop(
-            "max_speed", 0
-        )  # Maximum Speed in kts
-
-
-class RocketPlane(Module):
-    """A 'Fighter' Module"""
-
-    emoji = "<:RocketPlane:991027006554656898>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.cruise_speed: int = kwargs.pop("cruise_speed", 0)  # Speed in kts
-        self.max_health: int = kwargs.pop("max_health", 0)  # HP e.g. 1440
-
-        # Garbage
-        self.avg_damage: int = kwargs.pop("avg_damage", 0)
-        self.max_ammo: int = kwargs.pop("max_ammo", 0)
-
-
-class FireControl(Module):
-    """A 'Fire Control' Module"""
-
-    emoji = "<:FireControl:991026256722161714>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.distance: int = kwargs.pop("distance", 0)
-        self.distance_increase: int = kwargs.pop("distance_increase", 0)
-
-
-class Hull(Module):
-    """A 'Hull' Module"""
-
-    emoji = "<:Hull:991022247546347581>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.health: int = kwargs.pop("health", 0)
-        self.anti_aircraft_barrels: int = kwargs.pop(
-            "anti_aircraft_barrels", 0
-        )
-        self.range: dict[str, int] = kwargs.pop(
-            "range"
-        )  # This info is complete Garbage. Min - Max Armour.
-
-        self.artillery_barrels: int = kwargs.pop(
-            "artillery_barrels", 0
-        )  # Number of Main Battery Slots
-        self.atba_barrels: int = kwargs.pop(
-            "atba_barrels", 0
-        )  # Number of secondary battery mounts.
-        self.torpedoes_barrels: int = kwargs.pop(
-            "torpedoes_barrels", 0
-        )  # Number of torpedo launchers.
-        self.hangar_size: int = kwargs.pop(
-            "planes_amount", 0
-        )  # Not returned by API.
-
-
-class Torpedoes(Module):
-    """A 'Torpedoes' Module"""
-
-    emoji = "<:Torpedoes:990731144565764107>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.distance: Optional[int] = kwargs.pop(
-            "distance", 0
-        )  # Maximum Range of torpedo
-        self.max_damage: Optional[int] = kwargs.pop(
-            "max_damage", 0
-        )  # Maximum damage of a torpedo
-        self.shot_speed: Optional[float] = kwargs.pop(
-            "shot_speed", 0
-        )  # Reload Speed of the torpedo
-        self.torpedo_speed: Optional[int] = kwargs.pop(
-            "torpedo_speed", 0
-        )  # Maximum speed of the torpedo (knots)
-
-
-class TorpedoBomber(Module):
-    """A 'Torpedo Bomber' Module"""
-
-    emoji = "<:TorpedoBomber:991028330251829338>"
-
-    def __init__(
-        self,
-        name,
-        image,
-        tag,
-        module_id,
-        module_id_str,
-        price_credit,
-        **kwargs,
-    ) -> None:
-        super().__init__(
-            name, image, tag, module_id, module_id_str, price_credit
-        )
-
-        self.cruise_speed: int = kwargs.pop(
-            "cruise_speed", 0
-        )  # Cruise Speed in knots, e.g. 120
-        self.torpedo_damage: int = kwargs.pop(
-            "torpedo_damage", 0
-        )  # Max Damage, e.g.  6466
-        self.max_damage: int = kwargs.pop(
-            "max_damage", 0
-        )  # Exactly the same as torpedo_damage.
-        self.max_health: int = kwargs.pop(
-            "max_health", 0
-        )  # Plane HP, e.g. 1800
-        self.torpedo_max_speed: int = kwargs.pop(
-            "torpedo_max_speed", 0
-        )  # Torpedo Speed in knots, e.g. 35
-
-        # Garbage
-        self.distance: float = kwargs.pop("distance", 0.0)  # "Firing Range" ?
-        # noinspection SpellCheckingInspection
-        self.torpedo_name: str = kwargs.pop(
-            "torpedo_name", None
-        )  # """IDS_PAPT108_LEXINGTON_STOCK"""

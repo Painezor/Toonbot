@@ -1,23 +1,21 @@
 """Various image manipulation """
 from __future__ import annotations
 
-from asyncio import to_thread
-from io import BytesIO
-from json import dumps
+import io
 import json
-from random import choice
-from typing import Optional, TYPE_CHECKING
+import random
+import asyncio
+from typing import Optional
 import typing
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
-from discord import Embed, Attachment, Interaction, User, Message, File
+from discord import Embed, Attachment, Message, File
 import discord
-from discord.app_commands import guild_only, Group
-from discord.ext.commands import Cog
+from discord.ext import commands
 
 from ext.utils import view_utils
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 
@@ -30,10 +28,10 @@ class ImageView(view_utils.BaseView):
 
     def __init__(
         self,
-        interaction: Interaction[Bot],
-        user: Optional[User] = None,
-        link: Optional[str] = None,
-        file: Optional[Attachment] = None,
+        interaction: discord.Interaction[Bot],
+        user: typing.Optional[discord.User] = None,
+        link: typing.Optional[str] = None,
+        file: typing.Optional[discord.Attachment] = None,
     ) -> None:
 
         if link is not None:
@@ -47,21 +45,25 @@ class ImageView(view_utils.BaseView):
                 "png"
             ).url
 
-        self.image: Optional[bytes] = None
+        self.image: typing.Optional[bytes] = None
         self.coordinates: dict = {}
 
-        self.output: BytesIO
+        self.output: io.BytesIO
 
         # Cache these, so if people re-click...
-        self._with_bob: BytesIO
-        self._with_eyes: BytesIO
-        self._with_knob: BytesIO
-        self._with_ruins: BytesIO
+        self._with_bob: io.BytesIO
+        self._with_eyes: io.BytesIO
+        self._with_knob: io.BytesIO
+        self._with_ruins: io.BytesIO
 
         super().__init__(interaction)
 
-    async def get_faces(self) -> Optional[Message]:
-        """Retrieve face features from Project Oxford"""
+    async def get_faces(self) -> None:
+        """Retrieve face features from Project Oxford,
+        Returns True if fine."""
+
+        session = self.interaction.client.session
+
         # Prepare POST
         h = {
             "Content-Type": "application/json",
@@ -72,54 +74,38 @@ class ImageView(view_utils.BaseView):
             "returnFaceLandmarks": "True",
             "returnFaceAttributes": "headPose",
         }
-        d = dumps({"url": self.target_url})
+        d = json.dumps({"url": self.target_url})
         url = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
 
         # Get Project Oxford reply
-        async with self.bot.session.post(
-            url, params=p, headers=h, data=d
-        ) as resp:
-            match resp.status:
-                case 200:
-                    self.coordinates = await resp.json()
-                case 400:
-                    return await self.bot.error(
-                        self.interaction, await resp.json()
-                    )
-                case _:
-                    err = f"{resp.status} error on facial recognition API."
-                    return await self.interaction.followup.send(
-                        err, ephemeral=True
-                    )
+        async with session.post(url, params=p, headers=h, data=d) as resp:
+            if resp.status != 200:
+                raise ConnectionError(f"{await resp.json()}")
+            self.coordinates = await resp.json()
 
         # Get target image as file
-        async with self.bot.session.get(self.target_url) as resp:
-            match resp.status:
-                case 200:
-                    self.image = await resp.content.read()
-                case _:
-                    return await self.bot.error(
-                        self.interaction,
-                        f"Error {resp.status} opening {self.target_url}.",
-                    )
+        async with session.get(self.target_url) as resp:
+            if resp.status == 200:
+                self.image = await resp.content.read()
+            else:
+                raise ConnectionError(f"Can't open image at {self.target_url}")
 
-    async def push_ruins(self) -> Message:
+    async def push_ruins(self) -> discord.InteractionMessage:
         """Push the Local man ruins everything image to view"""
         if self.image is None:
-            if isinstance(err := await self.get_faces(), Message):
-                return err
+            await self.get_faces()
 
-        def draw():
+        def draw() -> io.BytesIO:
             """Generates the Image"""
             if self._with_ruins is not None:
                 return self._with_ruins
 
             self.image = typing.cast(bytes, self.image)
-            img = ImageOps.fit(Image.open(BytesIO(self.image)), (256, 256))
+            img = ImageOps.fit(Image.open(io.BytesIO(self.image)), (256, 256))
             base = Image.open("Images/local man.png")
             base.paste(img, box=(175, 284, 431, 540))
 
-            base.save(output := BytesIO(), "PNG")
+            base.save(output := io.BytesIO(), "PNG")
             output.seek(0)
 
             # Cleanup
@@ -129,22 +115,21 @@ class ImageView(view_utils.BaseView):
             self._with_ruins = output
             return output
 
-        self.output = await to_thread(draw)
+        self.output = await asyncio.to_thread(draw)
         return await self.update()
 
-    async def push_eyes(self) -> Message:
+    async def push_eyes(self) -> discord.InteractionMessage:
         """Draw the googly eyes"""
         if self.image is None:
-            if isinstance(err := await self.get_faces(), Message):
-                return err
+            await self.get_faces()
 
-        def draw_eyes() -> BytesIO:
+        def draw_eyes() -> io.BytesIO:
             """Draws the eyes"""
             if self._with_eyes is not None:
                 return self._with_eyes
 
             self.image = typing.cast(bytes, self.image)
-            im = Image.open(BytesIO(self.image))
+            im = Image.open(io.BytesIO(self.image))
             for i in self.coordinates:
                 # Get eye bounds
                 lix = int(i["faceLandmarks"]["eyeLeftInner"]["x"])
@@ -181,30 +166,28 @@ class ImageView(view_utils.BaseView):
                 im.paste(right, box=(rix, rty), mask=right)
 
             # Prepare for sending and return
-            im.save(output := BytesIO(), "PNG")
+            im.save(output := io.BytesIO(), "PNG")
             output.seek(0)
             im.close()
 
             self._with_eyes = output
             return output
 
-        self.output = await to_thread(draw_eyes)
+        self.output = await asyncio.to_thread(draw_eyes)
         return await self.update()
 
-    async def push_knob(self) -> Message:
+    async def push_knob(self) -> discord.InteractionMessage:
         """Push the bob ross image to View"""
         if self.image is None:
-            maybe_error = await self.get_faces()
-            if isinstance(maybe_error, Message):
-                return maybe_error
+            await self.get_faces()
 
-        def draw_knob() -> BytesIO:
+        def draw_knob() -> io.BytesIO:
             """Draw a knob in someone's mouth for the knob command"""
             if self._with_knob is not None:
                 return self._with_knob
 
             self.image = typing.cast(bytes, self.image)
-            im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
+            im = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
             knob = Image.open("Images/knob.png")
 
             for coordinates in self.coordinates:
@@ -225,7 +208,7 @@ class ImageView(view_utils.BaseView):
                 tk = ImageOps.fit(knob, (w, h)).rotate(angle)
                 im.paste(tk, box=(int(lip_x - w / 2), int(lip_y)), mask=tk)
 
-            im.save(output := BytesIO(), "PNG")
+            im.save(output := io.BytesIO(), "PNG")
             output.seek(0)
 
             # Cleanup.
@@ -235,23 +218,21 @@ class ImageView(view_utils.BaseView):
             self._with_knob = output
             return output
 
-        self.output = await to_thread(draw_knob)
+        self.output = await asyncio.to_thread(draw_knob)
         return await self.update()
 
-    async def push_bob(self) -> Message:
+    async def push_bob(self) -> discord.InteractionMessage:
         """Push the bob ross image to View"""
         if self.image is None:
-            maybe_error = await self.get_faces()
-            if isinstance(maybe_error, Message):
-                return maybe_error
+            await self.get_faces()
 
-        def draw() -> BytesIO:
+        def draw() -> io.BytesIO:
             """Add bob ross overlay to image."""
             if self._with_bob is not None:
                 return self._with_bob
 
             self.image = typing.cast(bytes, self.image)
-            im = Image.open(BytesIO(self.image)).convert(mode="RGBA")
+            im = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
             bob = Image.open("Images/ross face.png")
             for coordinates in self.coordinates:
                 x = int(coordinates["faceRectangle"]["left"])
@@ -274,7 +255,7 @@ class ImageView(view_utils.BaseView):
                     box=(top_left, bottom_left, top_right, bottom_right),
                     mask=this,
                 )
-            im.save(output := BytesIO(), "PNG")
+            im.save(output := io.BytesIO(), "PNG")
             output.seek(0)
 
             # Cleanup.
@@ -283,10 +264,10 @@ class ImageView(view_utils.BaseView):
             self._with_bob = output
             return output
 
-        self.output = await to_thread(draw)
+        self.output = await asyncio.to_thread(draw)
         return await self.update()
 
-    async def update(self) -> Message:
+    async def update(self) -> discord.InteractionMessage:
         """Push the latest versio of the view to the user"""
         self.clear_items()
 
@@ -306,20 +287,24 @@ class ImageView(view_utils.BaseView):
 
         self.add_function_row(funcs)
 
-        e: Embed = Embed(colour=0xFFFFFF, description=i.user.mention)
+        e = discord.Embed(colour=0xFFFFFF, description=i.user.mention)
         e.add_field(name="Source Image", value=self.target_url)
         e.set_image(url="attachment://img")
-        file = File(fp=self.output, filename="img")
-        return await self.bot.reply(i, file=file, embed=e, view=self)
+        file = discord.File(fp=self.output, filename="img")
+
+        edit = self.interaction.edit_original_response
+        return await edit(attachments=[file], embed=e, view=self)
 
 
-class Images(Cog):
+class Images(commands.Cog):
     """Image manipulation commands"""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-    images = Group(name="images", description="image manipulation commands")
+    images = discord.app_commands.Group(
+        name="images", description="image manipulation commands"
+    )
 
     @images.command()
     @discord.app_commands.describe(
@@ -329,60 +314,64 @@ class Images(Cog):
     )
     async def eyes(
         self,
-        interaction: Interaction[Bot],
-        user: Optional[User],
+        interaction: discord.Interaction[Bot],
+        user: Optional[discord.User],
         link: Optional[str],
         file: Optional[Attachment],
     ) -> Message:
         """Draw Googly eyes on an image. Mention a user to use their avatar.
         Only works for human faces."""
         await interaction.response.defer(thinking=True)
-        return await ImageView(
-            interaction, link=link, user=user, file=file
-        ).push_eyes()
+        return await ImageView(interaction, user, link, file).push_eyes()
 
     @images.command()
     @discord.app_commands.describe(
-        user="pick a user", link="provide a link", file="upload a file"
+        user="Select a user",
+        link="Provide a link to an image",
+        file="Upload a file",
     )
     async def ruins(
         self,
-        interaction: Interaction[Bot],
-        user: Optional[User],
+        interaction: discord.Interaction[Bot],
+        user: Optional[discord.User],
         link: Optional[str],
-        file: Optional[Attachment],
-    ) -> Message:
+        file: Optional[discord.Attachment],
+    ) -> discord.InteractionMessage:
         """Local man ruins everything"""
         await interaction.response.defer(thinking=True)
         return await ImageView(interaction, user, link, file).push_ruins()
 
     @images.command()
     @discord.app_commands.describe(
-        user="pick a user", link="provide a link", file="upload a file"
+        user="Select a user",
+        link="Provide a link to an image",
+        file="Upload a file",
     )
     async def bob_ross(
         self,
-        interaction: Interaction[Bot],
-        user: Optional[User],
+        interaction: discord.Interaction[Bot],
+        user: Optional[discord.User],
         link: Optional[str],
-        file: Optional[Attachment],
-    ) -> Message:
+        file: Optional[discord.Attachment],
+    ) -> discord.InteractionMessage:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
 
         await interaction.response.defer()
         return await ImageView(interaction, user, link, file).push_bob()
 
     @images.command()
-    @guild_only()
-    async def tinder(self, interaction: Interaction[Bot]) -> Message:
+    @discord.app_commands.guild_only()
+    async def tinder(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Try to Find your next date."""
         av = await interaction.user.display_avatar.with_format("png").read()
 
         if interaction.guild is None:
             raise
 
-        for x in range(10):
-            match = choice(interaction.guild.members)
+        for _ in range(10):
+            match = random.choice(interaction.guild.members)
             name = match.display_name
             try:
                 target = await match.display_avatar.with_format("png").read()
@@ -394,7 +383,7 @@ class Images(Cog):
                 interaction, "Nobody swiped right on you."
             )
 
-        def draw_tinder(image: bytes, avatar: bytes, user_name) -> BytesIO:
+        def draw(image: bytes, avatar: bytes, user_name: str) -> io.BytesIO:
             """Draw Images for the tinder command"""
             # Open The Tinder Image File
             im = Image.open("Images/tinder.png").convert(mode="RGBA")
@@ -406,14 +395,14 @@ class Images(Cog):
 
             # Open the User's Avatar, fit to size, apply mask.
             av = ImageOps.fit(
-                Image.open(BytesIO(avatar)).convert(mode="RGBA"), (185, 185)
+                Image.open(io.BytesIO(avatar)).convert(mode="RGBA"), (185, 185)
             )
             av.putalpha(mask)
             im.paste(av, box=(100, 223, 285, 408), mask=mask)
 
             # Open the second user's avatar, do same.
             other = ImageOps.fit(
-                Image.open(BytesIO(image)).convert(mode="RGBA"),
+                Image.open(io.BytesIO(image)).convert(mode="RGBA"),
                 (185, 185),
                 centering=(0.5, 0.0),
             )
@@ -433,13 +422,13 @@ class Images(Cog):
                 (300 - w / 2, 180), text, font=font, fill="#ffffff"
             )
 
-            im.save(out := BytesIO(), "PNG")
+            im.save(out := io.BytesIO(), "PNG")
             im.close()
             out.seek(0)
             return out
 
         u = interaction.user.mention
-        output = await to_thread(draw_tinder, target, av, name)
+        output = await asyncio.to_thread(draw, target, av, name)
         if match.id == interaction.user.id:
             caption = f"{u} matched with themself, How pathetic."
         elif match.id == self.bot.application_id:
