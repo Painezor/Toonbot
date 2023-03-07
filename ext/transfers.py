@@ -618,7 +618,7 @@ class Transfers(commands.Cog):
             tc = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
             tc = TransferChannel(channel)
-            if not await tc.view.creation_dialogue:
+            if not await tc.view.creation_dialogue():
                 e = discord.Embed(title="Ticker Creation Cancelled")
                 r = interaction.edit_original_response
                 return await r(embed=e, view=None)

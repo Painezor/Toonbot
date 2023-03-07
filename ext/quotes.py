@@ -213,15 +213,14 @@ class QuotesView(view_utils.BaseView):
             | discord.StageChannel
             | discord.CategoryChannel,
         ):
-            btn = discord.ui.Button(row=3, emoji="🔗")
-            btn.style = discord.ButtonStyle.link
-
             gid = quote["guild_id"]
             cid = quote["channel_id"]
             mid = quote["message_id"]
 
-            btn.url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
-            btn.row = 3
+            url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
+            btn = discord.ui.Button(row=3, emoji="🔗", url=url)
+            btn.style = discord.ButtonStyle.link
+
             self.jump_button = btn
             self.add_item(self.jump_button)
 
@@ -290,9 +289,9 @@ async def quote_add(
     if not message.content:
         return await bot.error(ctx, "That message has no content.")
 
-    sql = """INSERT INTO quotes (channel_id, guild_id, message_id, author_user_
-id, submitter_user_id, message_content, timestamp) VALUES ($1, $2, $3, $4, $5,
- $6, $7) RETURNING *"""
+    sql = """INSERT INTO quotes (channel_id, guild_id, message_id,
+    author_user_id, submitter_user_id, message_content, timestamp)
+    VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *"""
 
     guild = message.guild.id if message.guild else None
     async with bot.db.acquire(timeout=60) as connection:
@@ -333,8 +332,8 @@ async def quote_ac(
     results = []
 
     client = ctx.client
-    for r in client.quotes:
-        if ctx.guild and r["guild_id"] != ctx.guild:
+    for r in sorted(client.quotes, key=lambda r: r["quote_id"]):
+        if ctx.guild and r["guild_id"] != ctx.guild.id:
             continue
 
         if ctx.namespace.user is not None:
@@ -455,13 +454,15 @@ class QuoteDB(commands.Cog):
         if member.id in self.bot.quote_blacklist:
             raise TargetOptedOutError(member)
 
-        sql = """SELECT * FROM quotes WHERE author_user_id = $1
-                 ORDER BY random()"""
+        sql = """SELECT * FROM quotes WHERE author_user_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 r = await connection.fetch(sql, member.id)
 
-        return await QuotesView(interaction, r).update()
+        view = QuotesView(interaction, r)
+        view.all_quotes = r
+        view.index = random.randrange(len(view.all_quotes) - 1)
+        return await view.update()
 
     @quotes.command()
     @discord.app_commands.describe(quote_id="Enter quote ID#")

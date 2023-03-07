@@ -149,7 +149,7 @@ class Player(SearchResult):
 
         if self.team is not None:
             desc.append(self.team.markdown)
-        return " ".join([i for i in desc if i is not None])
+        return " ".join([str(i) for i in desc if i is not None])
 
 
 class Referee(SearchResult):

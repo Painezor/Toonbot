@@ -13,14 +13,13 @@ import typing
 import discord
 from discord.ext import commands, tasks
 from lxml import html, etree
-from ext.fixtures import fetch_comp
-from ext.ticker import lg_ac
 
 import ext.toonbot_utils.flashscore as fs
 from ext.toonbot_utils.gamestate import GameState
 from ext.toonbot_utils.matchevents import EventType
 
 from ext.utils import view_utils, embed_utils
+from ext.fixtures import CompetitionTransformer
 
 if typing.TYPE_CHECKING:
     from core import Bot
@@ -29,8 +28,13 @@ logger = logging.getLogger("scores")
 
 # Constants.
 NO_GAMES_FOUND = (
-    "No games found for your tracked leagues today!\n\nYou can"
-    " add more leagues with `/livescores add`"
+    "No games found for your tracked leagues today!\n\nYou can "
+    "add more leagues with `/livescores add`"
+)
+
+NOPERMS = (
+    "\n```yaml\nThis livescores channel will not work currently, "
+    "I am missing the following permissions.\n"
 )
 
 
@@ -50,30 +54,16 @@ class ScoreChannel:
         games = self.bot.games.copy()
 
         # TODO: Switch to use comp.id in tracked
+        comps = set(i.competition for i in games)
 
-        for comp in set(i.competition for i in games if i.competition):
-            for tracked in self.leagues:
-                if tracked == comp.title:
-                    embeds += comp.score_embeds
-                    break
+        for comp in comps:
+            if comp is None:
+                continue
+            if comp.id is None:
+                continue
 
-                elif f"{tracked} -" in comp.title:
-                    # For Competitions Such as
-                    # EUROPE: Champions League - Playoffs,
-                    # where we want fixtures of a part # of a tournament,
-                    # we need to do additional checks. We are not,
-                    # for example, interested in U18, or
-                    # women's tournaments unless explicitly tracked
-                    for x in ["women", "u18"]:  # List of ignored substrings
-                        if x in comp.title.casefold() and x not in tracked:
-                            # Break without doing anything
-                            # this sub-tournament was not requested.
-                            break
-                    else:
-                        # If we do not break, we can fetch the score embeds
-                        #  for that league.
-                        embeds += comp.score_embeds
-                        break
+            if comp.id in self.leagues:
+                embeds += comp.score_embeds
 
         if not embeds:
             return [
@@ -85,57 +75,12 @@ class ScoreChannel:
 
     async def get_leagues(self) -> list[str]:
         """Fetch target leagues for the ScoreChannel from the database"""
-
-        sql = """SELECT league FROM scores_leagues WHERE channel_id = $1"""
+        sql = """SELECT link FROM scores_leagues WHERE channel_id = $1"""
 
         async with self.bot.db.acquire(timeout=60) as c:
             async with c.transaction():
                 records = await c.fetch(sql, self.channel.id)
-        self.leagues = [r["league"] for r in records]
-        return self.leagues
-
-    async def reset_leagues(self) -> list[str]:
-        """Reset the Score Channel to the list of default leagues."""
-        async with self.bot.db.acquire(timeout=60) as c:
-            async with c.transaction():
-                sql = """DELETE FROM scores_leagues WHERE channel_id = $1"""
-                await c.execute(sql, self.channel.id)
-
-                sql = """INSERT INTO scores_leagues (channel_id, league)
-                         VALUES ($1, $2)"""
-
-                r = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
-                await c.executemany(sql, r)
-        self.leagues = fs.DEFAULT_LEAGUES
-        return self.leagues
-
-    async def add_leagues(self, leagues: list[str]) -> list[str]:
-        """Add a league to the ScoreChannel's tracked list"""
-
-        sql = """INSERT INTO scores_leagues (channel_id, league)
-                 VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                rows = [(self.channel.id, x) for x in leagues]
-                await connection.executemany(sql, rows)
-
-        self.leagues += [i for i in leagues if i not in self.leagues]
-        return self.leagues
-
-    async def remove_leagues(self, leagues: list[str]) -> list[str]:
-        """Remove a list of leagues for the channel from the database"""
-
-        sql = """DELETE from scores_leagues
-                 WHERE (channel_id, league) = ($1, $2)"""
-
-        rows = [(self.channel.id, x) for x in leagues]
-
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.executemany(sql, rows)
-
-        self.leagues = [i for i in self.leagues if i not in leagues]
+        self.leagues = [r["link"] for r in records]
         return self.leagues
 
     async def update(self) -> list[discord.Message | None]:
@@ -203,10 +148,6 @@ class ScoreChannel:
                 count += 1
         return self.messages
 
-    def view(self, interaction: discord.Interaction[Bot]) -> ScoresConfig:
-        """Get a view representing this score channel"""
-        return ScoresConfig(interaction, self)
-
 
 class ScoresConfig(view_utils.BaseView):
     """Generic Config View"""
@@ -217,9 +158,88 @@ class ScoresConfig(view_utils.BaseView):
         super().__init__(interaction)
         self.sc: ScoreChannel = channel
 
-    async def update(
-        self, content: typing.Optional[str] = None
+    async def add_league(self, league: str) -> discord.InteractionMessage:
+        """Add a league to the ScoreChannel's tracked list"""
+
+        sql = """INSERT INTO scores_leagues (channel_id, url)
+                 VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+
+        async with self.bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                await connection.execute(sql, self.sc.channel.id, league)
+
+        self.sc.leagues.append(league)
+        e = discord.Embed(title="Tracked League Added")
+        e.description = f"{self.sc.channel.mention}\n\n{league}"
+        u = self.interaction.user
+        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
+        await self.interaction.followup.send(embed=e)
+        return await self.update()
+
+    async def reset_leagues(self) -> discord.InteractionMessage:
+
+        async with self.bot.db.acquire(timeout=60) as c:
+            async with c.transaction():
+                sql = """DELETE FROM scores_leagues WHERE channel_id = $1"""
+                await c.execute(sql, self.sc.channel.id)
+
+                sql = """INSERT INTO scores_leagues (channel_id, url)
+                         VALUES ($1, $2)"""
+                r = [(self.sc.channel.id, x) for x in fs.DEFAULT_LEAGUES]
+                await c.executemany(sql, r)
+        self.sc.leagues = fs.DEFAULT_LEAGUES
+
+        e = discord.Embed(title="Tracked Leagues Reset")
+        e.description = f"{self.sc.channel.mention}"
+        u = self.interaction.user
+        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
+        await self.interaction.edit_original_response(embed=e)
+        return await self.update()
+
+    async def remove_leagues(
+        self, leagues: list[str]
     ) -> discord.InteractionMessage:
+        """Bulk remove leagues from a live scores channel"""
+        # Ask user to confirm their choice.
+        view = view_utils.Confirmation(
+            self.interaction,
+            label_a="Remove",
+            label_b="Cancel",
+            style_a=discord.ButtonStyle.red,
+        )
+
+        lg_txt = "\n".join(sorted(leagues))
+        c = self.sc.channel.mention
+        txt = f"Remove these leagues from {c}? ```yaml\n{lg_txt}```"
+
+        edit = self.interaction.edit_original_response
+        await edit(content=txt, embed=None, view=view)
+        await view.wait()
+
+        if not view.value:
+            return await self.update()
+
+        sql = """DELETE from scores_leagues
+                 WHERE (channel_id, url) = ($1, $2)"""
+
+        rows = [(self.sc.channel.id, x) for x in leagues]
+
+        async with self.bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                await connection.executemany(sql, rows)
+
+        self.sc.leagues = [i for i in self.sc.leagues if i not in leagues]
+
+        m = self.sc.channel.mention
+        msg = f"Removed {m} tracked leagues: ```yaml\n{lg_txt}```"
+        e = discord.Embed(description=msg, colour=discord.Colour.red())
+
+        u = self.interaction.user
+        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
+        await self.interaction.followup.send(content=msg)
+        return await self.update()
+
+    async def update(self) -> discord.InteractionMessage:
         """Push the newest version of view to message"""
         self.clear_items()
 
@@ -239,12 +259,8 @@ class ScoresConfig(view_utils.BaseView):
             missing.append("manage_messages")
 
         if missing:
-            v = (
-                "```yaml\nThis livescores channel will not work currently,"
-                " I am missing the following permissions.\n"
-            )
             embed.add_field(
-                name="Missing Permissions", value=f"{v} {missing}```"
+                name="Missing Permissions", value=f"{NOPERMS} {missing}```"
             )
 
         if leagues := await self.sc.get_leagues():
@@ -268,35 +284,7 @@ class ScoresConfig(view_utils.BaseView):
             embed.description = d
 
         edit = self.interaction.edit_original_response
-        return await edit(content=content, embed=embed, view=self)
-
-    async def remove_leagues(
-        self, leagues: list[str]
-    ) -> discord.InteractionMessage:
-        """Bulk remove leagues from a live scores channel"""
-        # Ask user to confirm their choice.
-        view = view_utils.Confirmation(
-            self.interaction,
-            label_a="Remove",
-            label_b="Cancel",
-            style_a=discord.ButtonStyle.red,
-        )
-
-        lg_txt = "\n".join(sorted(leagues))
-        c = self.sc.channel.mention
-        txt = f"Remove these leagues from {c}? ```yaml\n{lg_txt}```"
-
-        edit = self.interaction.edit_original_response
-        await edit(content=txt, embed=None, view=view)
-        await view.wait()
-
-        if not view.value:
-            return await self.update(content="No leagues were removed")
-
-        await self.sc.remove_leagues(leagues)
-        m = self.sc.channel.mention
-        msg = f"Removed {m} tracked leagues: ```yaml\n{lg_txt}```"
-        return await self.update(content=msg)
+        return await edit(embed=embed, view=self)
 
 
 class ResetLeagues(discord.ui.Button):
@@ -314,9 +302,7 @@ class ResetLeagues(discord.ui.Button):
         v = typing.cast(ScoresConfig, self.view)
 
         await interaction.response.defer()
-        await v.sc.reset_leagues()
-        msg = f"Tracked leagues for {v.sc.channel.mention} reset"
-        return await v.update(msg)
+        return await v.reset_leagues()
 
 
 class RemoveLeague(discord.ui.Select):
@@ -353,12 +339,12 @@ class Scores(commands.Cog):
     async def cog_load(self) -> None:
         """Load our database into the bot"""
         await self.load_database()
-        self.bot.score_loop = self.score_loop.start()
+        self.bot.scores = self.score_loop.start()
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
-        if self.bot.score_loop is not None:
-            self.bot.score_loop.cancel()
+        if self.bot.scores is not None:
+            self.bot.scores.cancel()
 
         [i.cancel() for i in self.tasks]
 
@@ -403,26 +389,34 @@ class Scores(commands.Cog):
 
         comps = self.bot.competitions
 
-        sql = """UPDATE scores_leagues SET league_id = $1 WHERE league = $2"""
+        sql = """UPDATE scores_leagues SET url = $1 WHERE league = $2"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 for r in records:
                     channel_leagues[r["channel_id"]].append(r["league"])
 
-                    if r["league_id"] is None:
-                        lg = next(i for i in comps if i.title == r["league"])
-
-                        await connection.execute(sql, lg.id, r["league"])
+                    if r["url"] is None:
+                        try:
+                            lg = next(
+                                i for i in comps if i.title == r["league"]
+                            )
+                        except StopIteration:
+                            pass
+                        else:
+                            await connection.execute(sql, lg.url, r["league"])
 
         chans = self.bot.score_channels
+        bad = set()
         for channel_id, leagues in channel_leagues.items():
 
             channel = self.bot.get_channel(channel_id)
 
             if not isinstance(channel, discord.TextChannel):
+                bad.add(channel_id)
                 continue
 
             if channel.is_news():
+                bad.add(channel_id)
                 continue
 
             try:
@@ -431,6 +425,13 @@ class Scores(commands.Cog):
                 sc = ScoreChannel(channel)
                 chans.append(sc)
             sc.leagues = sorted(leagues)
+
+        # Cleanup Old.
+        sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
+        if chans:
+            async with self.bot.db.acquire() as connection:
+                async with connection.transaction():
+                    await connection.executemany(sql, bad)
         return chans
 
     # Core Loop
@@ -875,8 +876,7 @@ class Scores(commands.Cog):
             sc = ScoreChannel(channel)
             self.bot.score_channels.append(sc)
 
-        txt = f"Fetching config for {sc.channel.mention}…"
-        return await sc.view(interaction).update(txt)
+        return await ScoresConfig(interaction, sc).update()
 
     @livescores.command()
     @discord.app_commands.describe(name="Enter a name for the channel")
@@ -924,7 +924,7 @@ class Scores(commands.Cog):
                 await connection.execute(q, channel.guild.id, channel.id)
 
         self.bot.score_channels.append(sc := ScoreChannel(channel))
-        await sc.reset_leagues()
+
         try:
             await sc.channel.send(
                 f"{interaction.user.mention} Welcome to your new livescores "
@@ -934,21 +934,31 @@ class Scores(commands.Cog):
             msg = f"{channel.mention} created successfully."
         except discord.Forbidden:
             msg = f"{channel.mention} created, but I need send_messages perms."
-        return await interaction.edit_original_response(content=msg)
+        await interaction.followup.send(msg)
+
+        return await ScoresConfig(interaction, sc).reset_leagues()
 
     @livescores.command()
-    @discord.app_commands.autocomplete(league=lg_ac)
     @discord.app_commands.describe(
-        league="league name to search for or direct flashscore link",
+        competition="league name to search for or direct flashscore link",
         channel="Target Channel",
     )
     async def add_league(
         self,
         interaction: discord.Interaction[Bot],
-        league: str,
+        competition: discord.app_commands.Transform[
+            fs.Competition, CompetitionTransformer
+        ],
         channel: typing.Optional[discord.TextChannel],
     ) -> discord.InteractionMessage:
         """Add a league to an existing live-scores channel"""
+
+        if competition.title == "WORLD: Club Friendly":
+            err = "You can't add club friendlies as a competition, sorry."
+            raise ValueError(err)
+
+        if competition.url is None:
+            raise LookupError("%s url is None", competition)
 
         await interaction.response.defer(thinking=True)
 
@@ -960,35 +970,9 @@ class Scores(commands.Cog):
             sc = next(i for i in chn if i.channel.id == channel.id)
         except StopIteration:
             err = f"{channel.mention} is not a live-scores channel."
-            return await self.bot.error(interaction, err)
+            raise ValueError(err)
 
-        # Get the league object
-        comp = self.bot.get_competition(league)
-        if comp:
-            res = comp
-        elif "http" not in league:
-            res = await fetch_comp(interaction, league)
-        else:
-            if "flashscore" not in league:
-                err = "Invalid link provided."
-                return await self.bot.error(interaction, err)
-
-            qry = str(league).strip("[]<>")  # idiots
-            res = await fs.Competition.by_link(self.bot, qry)
-
-            if res is None:
-                err = f"Failed to get data for {qry} channel not modified."
-                return await self.bot.error(interaction, err)
-
-        if res.title == "WORLD: Club Friendly":
-            err = "You can't add club friendlies as a competition, sorry."
-            return await self.bot.error(interaction, err)
-
-        await sc.add_leagues([res.title])
-        view = sc.view(interaction)
-        s = sc.channel.mention
-        reply = f"Added tracked league for {s}```yaml\n{res}```"
-        return await view.update(content=reply)
+        return await ScoresConfig(interaction, sc).add_league(competition.url)
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()

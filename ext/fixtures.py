@@ -10,6 +10,7 @@
 # TODO: TeamView.squad => Enumerate when not sorting by squad number.
 # TODO: Hybridise .news
 # TODO: File=None in all r()
+# TODO: Globally Nuke _ac for Transformers
 
 
 from __future__ import annotations
@@ -19,12 +20,11 @@ import io
 import logging
 import datetime
 from importlib import reload
-from typing import TYPE_CHECKING, Literal, Callable, Any, Optional
+from typing import Literal, Callable, Any, Optional
 import typing
 
 # D.py
 import discord
-from discord.app_commands import Choice, Group
 from discord.ext import commands
 
 # Custom Utils
@@ -35,7 +35,7 @@ from ext.utils import view_utils, embed_utils, image_utils, timed_events
 
 from playwright.async_api import TimeoutError as pw_TimeoutError
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
     from playwright.async_api import Page
 
@@ -74,6 +74,7 @@ async def set_default(
         return
 
     if (def_id := default.id) is None or (name := default.name) is None:
+        interaction.extras["default"] = None
         return
 
     name = f"⭐ Server default: {name}"[:100]
@@ -83,139 +84,176 @@ async def set_default(
 
 
 # Autocompletes
-async def fx_ac(
-    interaction: discord.Interaction[Bot], current: str
-) -> list[Choice[str]]:
-    """Check if user's typing is in list of live games"""
-    cur = current.casefold()
+class FixtureTransformer(discord.app_commands.Transformer):
+    async def autocomplete(
+        self, interaction: discord.Interaction[Bot], current: str
+    ) -> list[discord.app_commands.Choice[str]]:
+        """Check if user's typing is in list of live games"""
+        cur = current.casefold()
 
-    choices = []
-    for i in interaction.client.games:
-        if cur and cur not in i.ac_row:
-            continue
+        choices = []
+        for i in interaction.client.games:
+            if cur and cur not in i.ac_row:
+                continue
 
-        if i.id is None:
-            continue
+            if i.id is None:
+                continue
 
-        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=i.id)
+            name = i.ac_row[:100]
+            choice = discord.app_commands.Choice(name=name, value=i.id)
 
-        if len(choices) == 25:
-            break
+            choices.append(choice)
 
-        choices.append(choice)
+            if len(choices) == 25:
+                break
 
-    if current:
-        v = f"🔎 Search for '{current}'"
+        if current:
+            v = f"🔎 Search for '{current}'"
 
-        srch = [discord.app_commands.Choice(name=v, value=current)]
-        choices = choices[:24] + srch
-    return choices
+            srch = [discord.app_commands.Choice(name=v, value=current)]
+            choices = choices[:24] + srch
+        return choices
 
+    async def transform(
+        self, interaction: discord.Interaction[Bot], value: str
+    ) -> typing.Optional[fs.Fixture]:
+        await interaction.response.defer(thinking=True)
 
-async def team_ac(
-    interaction: discord.Interaction[Bot], current: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Autocomplete from list of stored teams"""
-    teams = interaction.client.teams
-    teams: list[fs.Team] = sorted(teams, key=lambda x: x.name)
+        if fix := interaction.client.get_fixture(value):
+            return fix
 
-    # Run Once - Set Default for interaction.
-    if "default" not in interaction.extras:
-        await set_default(interaction, "default_team")
+        if not (fsr := interaction.client.get_team(value)):
+            teams = await fs.search(interaction, value, mode="team")
+            teams = typing.cast(list[fs.Team], teams)
 
-    curr = current.casefold()
+            await (v := TeamSelect(interaction, teams)).update()
+            await v.wait()
 
-    choices = []
-    for t in teams:
-        if t.id is None:
-            continue
-
-        if curr not in t.title.casefold():
-            continue
-
-        c = discord.app_commands.Choice(name=t.name[:100], value=t.id)
-        choices.append(c)
-
-        if len(choices) == 25:
-            break
-
-    if interaction.extras["default"] is not None:
-        choices = [interaction.extras["default"]] + choices
-
-    if current:
-        v = f"🔎 Search for '{current}'"
-
-        srch = [discord.app_commands.Choice(name=v, value=current)]
-        choices = choices[:24] + srch
-    return choices
+            if not v.value:
+                return None
+            fsr = next(i for i in teams if i.id == v.value[0])
+        return await choose_recent_fixture(interaction, fsr)
 
 
-async def comp_ac(
-    interaction: discord.Interaction[Bot], current: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Autocomplete from list of stored competitions"""
-    lgs = sorted(interaction.client.competitions, key=lambda x: x.title)
+class TeamTransformer(discord.app_commands.Transformer):
+    async def autocomplete(
+        self,
+        interaction: discord.Interaction[Bot],
+        current: str,
+    ) -> list[discord.app_commands.Choice[str]]:
+        """Autocomplete from list of stored teams"""
+        teams = interaction.client.teams
+        teams: list[fs.Team] = sorted(teams, key=lambda x: x.name)
 
-    if "default" not in interaction.extras:
-        await set_default(interaction, "default_league")
+        # Run Once - Set Default for interaction.
+        if "default" not in interaction.extras:
+            await set_default(interaction, "default_team")
 
-    curr = current.casefold()
+        curr = current.casefold()
 
-    choices = []
+        choices = []
+        for t in teams:
+            if t.id is None:
+                continue
 
-    for lg in lgs:
-        if curr not in lg.title.casefold() or lg.id is None:
-            continue
+            if curr not in t.title.casefold():
+                continue
 
-        opt = discord.app_commands.Choice(name=lg.title[:100], value=lg.id)
+            c = discord.app_commands.Choice(name=t.name[:100], value=t.id)
+            choices.append(c)
 
-        choices.append(opt)
+            if len(choices) == 25:
+                break
 
-        if len(choices) == 25:
-            break
+        if interaction.extras["default"] is not None:
+            choices = [interaction.extras["default"]] + choices
 
-    if interaction.extras["default"] is not None:
-        choices = [interaction.extras["default"]] + choices[:24]
+        if current:
+            v = f"🔎 Search for '{current}'"
 
-    if current:
-        v = f"🔎 Search for '{current}'"
+            srch = [discord.app_commands.Choice(name=v, value=current)]
+            choices = choices[:24] + srch
+        return choices
 
-        srch = [discord.app_commands.Choice(name=v, value=current)]
-        choices = choices[:24] + srch
-    return choices
+    async def transform(
+        self, interaction: discord.Interaction[Bot], value: str
+    ) -> typing.Optional[fs.Team]:
+        await interaction.response.defer(thinking=True)
+
+        if fsr := interaction.client.get_team(value):
+            return fsr
+
+        teams = await fs.search(interaction, value, mode="team")
+        teams = typing.cast(list[fs.Team], teams)
+
+        await (v := TeamSelect(interaction, teams)).update()
+        await v.wait()
+
+        if not v.value:
+            return None
+        return next(i for i in teams if i.id == v.value[0])
+
+
+class CompetitionTransformer(discord.app_commands.Transformer):
+    async def autocomplete(
+        self,
+        interaction: discord.Interaction[Bot],
+        current: str,
+    ) -> list[discord.app_commands.Choice[str]]:
+        """Autocomplete from list of stored competitions"""
+        lgs = sorted(interaction.client.competitions, key=lambda x: x.title)
+
+        if "default" not in interaction.extras:
+            await set_default(interaction, "default_league")
+
+        curr = current.casefold()
+
+        choices = []
+
+        for lg in lgs:
+            if curr not in lg.title.casefold() or lg.id is None:
+                continue
+
+            opt = discord.app_commands.Choice(name=lg.title[:100], value=lg.id)
+
+            choices.append(opt)
+
+            if len(choices) == 25:
+                break
+
+        if interaction.extras["default"] is not None:
+            choices = [interaction.extras["default"]] + choices[:24]
+
+        if current:
+            v = f"🔎 Search for '{current}'"
+
+            srch = [discord.app_commands.Choice(name=v, value=current)]
+            choices = choices[:24] + srch
+        return choices
+
+    async def transform(
+        self, interaction: discord.Interaction[Bot], value: str
+    ) -> typing.Optional[fs.Competition]:
+        await interaction.response.defer(thinking=True)
+
+        if fsr := interaction.client.get_competition(value):
+            return fsr
+
+        if "http" in value:
+            return await fs.Competition.by_link(interaction.client, value)
+
+        comps = await fs.search(interaction, value, mode="comp")
+        comps = typing.cast(list[fs.Competition], comps)
+
+        await (v := CompetitionSelect(interaction, comps)).update()
+        await v.wait()
+
+        if not v.value:
+            raise TimeoutError
+        return next(i for i in comps if i.id == v.value[0])
 
 
 # Searching
-async def fetch_comp(i: discord.Interaction[Bot], comp: str) -> fs.Competition:
-    if fsr := i.client.get_competition(comp):
-        return fsr
-
-    comps = await fs.search(i, comp, mode="comp")
-    comps = typing.cast(list[fs.Competition], comps)
-
-    await (v := CompetitionSelect(i, comps)).update()
-    await v.wait()
-
-    if not v.value:
-        raise TimeoutError
-    return next(i for i in comps if i.id == v.value[0])
-
-
-async def fetch_team(i: discord.Interaction[Bot], team: str) -> fs.Team:
-    if fsr := i.client.get_team(team):
-        return fsr
-
-    teams = await fs.search(i, team, mode="team")
-    teams = typing.cast(list[fs.Team], teams)
-
-    await (v := TeamSelect(i, teams)).update()
-    await v.wait()
-
-    if not v.value:
-        raise TimeoutError
-    return next(i for i in teams if i.id == v.value[0])
-
-
 class ItemView(view_utils.BaseView):
 
     bot: Bot
@@ -1353,8 +1391,8 @@ class ItemView(view_utils.BaseView):
             embed = self.pages[-1]
         self.add_page_buttons(0)
 
-        r = self.interaction.edit_original_response
-        return await r(content=None, embed=embed, attachments=[], view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(content=None, embed=embed, attachments=[], view=self)
 
 
 class CompetitionView(ItemView):
@@ -1652,58 +1690,56 @@ class Fixtures(commands.Cog):
     )
 
     @default.command(name="team")
-    @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
-    async def d_team(self, ctx: discord.Interaction[Bot], team: str) -> None:
+    async def d_team(
+        self,
+        interaction: discord.Interaction[Bot],
+        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
+    ) -> discord.InteractionMessage:
         """Set the default team for your flashscore lookups"""
-        await ctx.response.defer(thinking=True)
+        e = await team.base_embed()
+        e.description = f"Commands will use {team.markdown} as default team"
 
-        if ctx.guild is None:
-            return
-
-        fsr = await fetch_team(ctx, team)
-
-        e = await fsr.base_embed()
-        e.description = f"Commands will use {fsr.markdown} as default team"
+        if interaction.guild is None:
+            raise
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """INSERT INTO guild_settings (guild_id)
                          VALUES ($1) ON CONFLICT DO NOTHING"""
-                await connection.execute(sql, ctx.guild.id)
+                await connection.execute(sql, interaction.guild.id)
 
                 q = """INSERT INTO fixtures_defaults (guild_id, default_team)
                        VALUES ($1,$2) ON CONFLICT (guild_id)
                        DO UPDATE SET default_team = $2
                        WHERE excluded.guild_id = $1"""
-                await connection.execute(q, ctx.guild.id, fsr.id)
-        await ctx.edit_original_response(embed=e)
+                await connection.execute(q, interaction.guild.id, team.id)
+        return await interaction.edit_original_response(embed=e)
 
     @default.command(name="competition")
-    @discord.app_commands.autocomplete(competition=comp_ac)
     @discord.app_commands.describe(competition=COMPETITION)
     async def d_comp(
-        self, ctx: discord.Interaction[Bot], competition: str
+        self,
+        interaction: discord.Interaction[Bot],
+        competition: discord.app_commands.Transform[
+            fs.Competition, CompetitionTransformer
+        ],
     ) -> None:
         """Set the default competition for your flashscore lookups"""
-        await ctx.response.defer(thinking=True)
-
-        if ctx.guild is None:
+        if interaction.guild is None:
             raise
-
-        fsr = await fetch_comp(ctx, competition)
-
+        fsr = competition
         q = """INSERT INTO fixtures_defaults (guild_id, default_league)
                 VALUES ($1,$2) ON CONFLICT (guild_id)
                 DO UPDATE SET default_league = $2
                 WHERE excluded.guild_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(q, ctx.guild.id, fsr.id)
+                await connection.execute(q, interaction.guild.id, fsr.id)
 
         e = await fsr.base_embed()
         e.description = f"Default Competition is now {fsr.markdown}"
-        await ctx.edit_original_response(embed=e)
+        await interaction.edit_original_response(embed=e)
 
     match = discord.app_commands.Group(
         name="match",
@@ -1712,216 +1748,178 @@ class Fixtures(commands.Cog):
 
     # FIXTURE commands
     @match.command(name="table")
-    @discord.app_commands.autocomplete(fixture=fx_ac)
-    @discord.app_commands.describe(fixture=FIXTURE)
+    @discord.app_commands.describe(match=FIXTURE)
     async def fx_table(
-        self, ctx: discord.Interaction[Bot], fixture: str
+        self,
+        interaction: discord.Interaction[Bot],
+        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
     ) -> discord.InteractionMessage:
         """Look up the table for a fixture."""
-        await ctx.response.defer(thinking=True)
-
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await fetch_team(ctx, fixture)
-            fix = await choose_recent_fixture(ctx, team)
-        return await FixtureView(ctx, fix).standings()
+        return await FixtureView(interaction, match).standings()
 
     @match.command()
-    @discord.app_commands.autocomplete(fixture=fx_ac)
-    @discord.app_commands.describe(fixture=FIXTURE)
+    @discord.app_commands.describe(match=FIXTURE)
     async def stats(
-        self, ctx: discord.Interaction[Bot], fixture: str
+        self,
+        interaction: discord.Interaction[Bot],
+        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
     ) -> discord.InteractionMessage:
         """Look up the stats for a fixture."""
-        await ctx.response.defer(thinking=True)
-
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await fetch_team(ctx, fixture)
-            fix = await choose_recent_fixture(ctx, team)
-        return await FixtureView(ctx, fix).stats()
+        return await FixtureView(interaction, match).stats()
 
     @match.command()
-    @discord.app_commands.autocomplete(fixture=fx_ac)
-    @discord.app_commands.describe(fixture=FIXTURE)
+    @discord.app_commands.describe(match=FIXTURE)
     async def lineups(
-        self, ctx: discord.Interaction[Bot], fixture: str
+        self,
+        interaction: discord.Interaction[Bot],
+        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
     ) -> discord.InteractionMessage:
         """Look up the lineups and/or formations for a Fixture."""
-        await ctx.response.defer(thinking=True)
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await fetch_team(ctx, fixture)
-            fix = await choose_recent_fixture(ctx, team)
-        return await FixtureView(ctx, fix).lineups()
+        return await FixtureView(interaction, match).lineups()
 
     @match.command()
-    @discord.app_commands.autocomplete(fixture=fx_ac)
-    @discord.app_commands.describe(fixture=FIXTURE)
+    @discord.app_commands.describe(match=FIXTURE)
     async def summary(
-        self, ctx: discord.Interaction[Bot], fixture: str
+        self,
+        interaction: discord.Interaction[Bot],
+        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
     ) -> discord.InteractionMessage:
         """Get a summary for a fixture"""
-        await ctx.response.defer(thinking=True)
-
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await fetch_team(ctx, fixture)
-            fix = await choose_recent_fixture(ctx, team)
-        return await FixtureView(ctx, fix).summary()
+        return await FixtureView(interaction, match).summary()
 
     @match.command(name="h2h")
-    @discord.app_commands.autocomplete(fixture=fx_ac)
-    @discord.app_commands.describe(fixture=FIXTURE)
+    @discord.app_commands.describe(match=FIXTURE)
     async def h2h(
-        self, interaction: discord.Interaction[Bot], fixture: str
+        self,
+        interaction: discord.Interaction[Bot],
+        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
     ) -> discord.InteractionMessage:
         """Lookup the head-to-head details for a Fixture"""
-        await interaction.response.defer(thinking=True)
-
-        if (fix := self.bot.get_fixture(fixture)) is None:
-            team = await fetch_team(interaction, fixture)
-            fix = await choose_recent_fixture(interaction, team)
-        return await FixtureView(interaction, fix).h2h()
+        return await FixtureView(interaction, match).h2h()
 
     team = discord.app_commands.Group(
         name="team", description="Get information about a team "
     )
 
     @team.command(name="fixtures")
-    @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_fixtures(
-        self, interaction: discord.Interaction[Bot], team: str
+        self,
+        interaction: discord.Interaction[Bot],
+        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
     ) -> discord.InteractionMessage:
         """Fetch upcoming fixtures for a team."""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_team(interaction, team)
-        return await TeamView(interaction, fsr).fixtures()
+        return await TeamView(interaction, team).fixtures()
 
     @team.command(name="results")
-    @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_results(
-        self, interaction: discord.Interaction[Bot], team: str
+        self,
+        interaction: discord.Interaction[Bot],
+        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
     ) -> discord.InteractionMessage:
         """Get recent results for a Team"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_team(interaction, team)
-        return await TeamView(interaction, fsr).results()
+        return await TeamView(interaction, team).results()
 
     @team.command(name="table")
-    @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_table(
-        self, interaction: discord.Interaction[Bot], team: str
+        self,
+        interaction: discord.Interaction[Bot],
+        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
     ) -> discord.InteractionMessage:
         """Get the Table of one of a Team's competitions"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_team(interaction, team)
-        return await TeamView(interaction, fsr).standings()
+        return await TeamView(interaction, team).standings()
 
     @team.command(name="news")
-    @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_news(
-        self, interaction: discord.Interaction[Bot], team: str
+        self,
+        interaction: discord.Interaction[Bot],
+        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
     ) -> discord.InteractionMessage:
         """Get the latest news for a team"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_team(interaction, team)
-        return await TeamView(interaction, fsr).news()
+        return await TeamView(interaction, team).news()
 
     @team.command(name="squad")
-    @discord.app_commands.autocomplete(team=team_ac)
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_squad(
-        self, interaction: discord.Interaction[Bot], team: str
+        self,
+        interaction: discord.Interaction[Bot],
+        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
     ) -> discord.InteractionMessage:
         """Lookup a team's squad members"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_team(interaction, team)
-        return await TeamView(interaction, fsr).squad()
+        return await TeamView(interaction, team).squad()
 
-    league = Group(
+    league = discord.app_commands.Group(
         name="competition",
         description="Get information about a competition from flashscore",
     )
 
     @league.command(name="fixtures")
-    @discord.app_commands.autocomplete(competition=comp_ac)
     @discord.app_commands.describe(competition=COMPETITION)
     async def comp_fixtures(
-        self, interaction: discord.Interaction[Bot], competition: str
+        self,
+        interaction: discord.Interaction[Bot],
+        competition: discord.app_commands.Transform[
+            fs.Competition, CompetitionTransformer
+        ],
     ) -> discord.InteractionMessage:
         """Fetch upcoming fixtures for a competition."""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_comp(interaction, competition)
-        return await CompetitionView(interaction, fsr).fixtures()
+        return await CompetitionView(interaction, competition).fixtures()
 
     @league.command(name="results")
-    @discord.app_commands.autocomplete(competition=comp_ac)
     @discord.app_commands.describe(competition=COMPETITION)
     async def comp_results(
-        self, interaction: discord.Interaction[Bot], competition: str
+        self,
+        interaction: discord.Interaction[Bot],
+        competition: discord.app_commands.Transform[
+            fs.Competition, CompetitionTransformer
+        ],
     ) -> discord.InteractionMessage:
         """Get recent results for a competition"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_comp(interaction, competition)
-        return await CompetitionView(interaction, fsr).results()
+        return await CompetitionView(interaction, competition).results()
 
     @league.command(name="scorers")
-    @discord.app_commands.autocomplete(competition=comp_ac)
     @discord.app_commands.describe(competition=COMPETITION)
     async def comp_scorers(
-        self, ctx: discord.Interaction[Bot], competition: str
+        self,
+        ctx: discord.Interaction[Bot],
+        competition: discord.app_commands.Transform[
+            fs.Competition, CompetitionTransformer
+        ],
     ) -> discord.InteractionMessage:
         """Get top scorers from a competition."""
-        await ctx.response.defer(thinking=True)
-        fsr = await fetch_comp(ctx, competition)
-        return await CompetitionView(ctx, fsr).scorers()
+        return await CompetitionView(ctx, competition).scorers()
 
     @league.command(name="table")
-    @discord.app_commands.autocomplete(competition=comp_ac)
-    @discord.app_commands.describe(
-        competition="Enter the name of a competition"
-    )
+    @discord.app_commands.describe(competition=COMPETITION)
     async def comp_table(
-        self, interaction: discord.Interaction[Bot], competition: str
+        self,
+        interaction: discord.Interaction[Bot],
+        competition: discord.app_commands.Transform[
+            fs.Competition, CompetitionTransformer
+        ],
     ) -> discord.InteractionMessage:
         """Get the Table of a competition"""
-        await interaction.response.defer(thinking=True)
-        fsr = await fetch_comp(interaction, competition)
-        return await CompetitionView(interaction, fsr).standings()
+        return await CompetitionView(interaction, competition).standings()
 
     @discord.app_commands.command()
     @discord.app_commands.describe(competition=COMPETITION)
-    @discord.app_commands.autocomplete(competition=comp_ac)
     async def scores(
-        self, ctx: discord.Interaction[Bot], competition: Optional[str]
+        self,
+        ctx: discord.Interaction[Bot],
+        competition: discord.app_commands.Transform[
+            fs.Competition, CompetitionTransformer
+        ],
     ) -> discord.InteractionMessage:
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""
-
-        await ctx.response.defer(thinking=True)
-
         if not self.bot.games:
             return await self.bot.error(ctx, "No live games found")
 
         if competition:
-            if res := self.bot.get_competition(competition):
-                games = await fs.parse_games(self.bot, res, "/fixtures/")
-            else:
-                games = self.bot.games
-                lwr = competition.casefold()
-
-                res = list(
-                    filter(
-                        lambda i: i.competition
-                        and lwr in i.competition.title.casefold(),
-                        games,
-                    )
-                )
-
-                if not res:
-                    err = f"No live games found for `{competition}`"
-                    return await self.bot.error(ctx, err)
+            games = await fs.parse_games(self.bot, competition, "/fixtures/")
         else:
             games = self.bot.games
 

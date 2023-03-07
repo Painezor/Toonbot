@@ -45,25 +45,24 @@ INJURY_EMOJI = "<:injury:682714608972464187>"
 INBOUND_EMOJI = "<:inbound:1079808760194814014>"
 OUTBOUND_EMOJI = "<:outbound:1079808772559609928>"
 DEFAULT_LEAGUES = [
-    "WORLD: Friendly international",
-    "EUROPE: Champions League",
-    "EUROPE: Euro",
-    "EUROPE: Europa League",
-    "EUROPE: UEFA Nations League",
-    "ENGLAND: Premier League",
-    "ENGLAND: Championship",
-    "ENGLAND: League One",
-    "ENGLAND: FA Cup",
-    "ENGLAND: EFL Cup",
-    "FRANCE: Ligue 1",
-    "FRANCE: Coupe de France",
-    "GERMANY: Bundesliga",
-    "ITALY: Serie A",
-    "NETHERLANDS: Eredivisie",
-    "SCOTLAND: Premiership",
-    "SPAIN: Copa del Rey",
-    "SPAIN: LaLiga",
-    "USA: MLS",
+    "https://www.flashscore.com/football/world/friendly-international/",
+    "https://www.flashscore.com/football/europe/champions-league/",
+    "https://www.flashscore.com/football/europe/euro/",
+    "https://www.flashscore.com/football/europe/europa-league/",
+    "https://www.flashscore.com/football/europe/uefa-nations-league/",
+    "https://www.flashscore.com/football/england/premier-league/",
+    "https://www.flashscore.com/football/england/championship/",
+    "https://www.flashscore.com/football/england/league-one/",
+    "https://www.flashscore.com/football/england/fa-cup/",
+    "https://www.flashscore.com/football/england/efl-cup/",
+    "https://www.flashscore.com/football/france/ligue-1/",
+    "https://www.flashscore.com/football/france/coupe-de-france/",
+    "https://www.flashscore.com/football/germany/bundesliga/",
+    "https://www.flashscore.com/football/italy/serie-a/",
+    "https://www.flashscore.com/football/netherlands/eredivisie/",
+    "https://www.flashscore.com/football/spain/copa-del-rey/",
+    "https://www.flashscore.com/football/spain/laliga/",
+    "https://www.flashscore.com/football/usa/mls/",
 ]
 WORLD_CUP_LEAGUES = [
     "EUROPE: World Cup",
@@ -78,7 +77,6 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
     """Get a list of match events"""
 
     events = []
-    logger.info("parsing match events on %s", fixture.url)
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
         # Detection of Teams
         team_detection = i.attrib["class"]
@@ -112,10 +110,6 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
         svg_text = "".join(node.xpath(".//svg//text()")).strip()
         svg_class = "".join(node.xpath(".//svg/@class")).strip()
         sub_i = "".join(node.xpath(".//div[@class='smv__subIncident']/text()"))
-
-        logger.info("text: %s, class: %s", svg_text, svg_class)
-        if sub_i:
-            logger.info("sub_incident: %s", sub_i)
 
         # Try to figure out what kind of event this is.
         if svg_class == "soccer":
@@ -165,7 +159,12 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
             event = m_evt.Substitution()
 
         else:
+            logger.info("parsing match events on %s", fixture.url)
             logger.error("Match Event Not Handled correctly.")
+            logger.info("text: %s, class: %s", svg_text, svg_class)
+            if sub_i:
+                logger.info("sub_incident: %s", sub_i)
+
             event = m_evt.MatchEvent()
 
         # Event Player.
@@ -263,9 +262,7 @@ async def parse_games(
 
     xp = './/div[contains(@class, "sportName soccer")]/div'
     if not (games := tree.xpath(xp)):
-        raise LookupError(f"No fixtures found on {object.url + sub_page}")
-
-    logger.info("TODO: Fetch team IDs & urls on %s", object.url)
+        return []
 
     for i in games:
         try:
@@ -479,7 +476,9 @@ class Team(FlashScoreItem):
         return output
 
     @classmethod
-    def from_fixture_html(cls, bot: Bot, tree, home: bool = True) -> Team:
+    async def from_fixture_html(
+        cls, bot: Bot, tree, home: bool = True
+    ) -> Team:
 
         attr = "home" if home else "away"
 
@@ -507,13 +506,15 @@ class Team(FlashScoreItem):
                     break
             else:
                 team = Team(team_id, name, FLASHSCORE + url)
-                bot.teams.append(team)
 
         if team.logo_url is None:
             logo = div.xpath('.//img[@class="participant__image"]/@src')
             logo = "".join(logo)
             if logo:
                 team.logo_url = FLASHSCORE + logo
+
+        if team not in bot.teams:
+            await save_team(bot, team)
 
         return team
 
@@ -756,38 +757,54 @@ class Fixture:
         logger.info("Got page on url %s", self.url)
         # Handle Teams
 
-        self.home = Team.from_fixture_html(bot, tree)
-        self.away = Team.from_fixture_html(bot, tree, home=False)
+        self.home = await Team.from_fixture_html(bot, tree)
+        self.away = await Team.from_fixture_html(bot, tree, home=False)
 
         # TODO: Fetch Competition Info
         div = tree.xpath(".//span[@class='tournamentHeader__country']")
         logger.info("Fetching competition...")
-        if div:
-            div = div[0]
 
-            url = "".join(div.xpath(".//@href"))
-            comp_id = url.split("/")[-2]
-            country = "".join(div.xpath("./text()"))
-            name = "".join(div.xpath(".//a/text()"))
+        div = div[0]
 
-            logger.info("Competition comp_id=%s, url=%s", url, comp_id)
-            if country:
-                country.split(":")[0]
+        url = "".join(div.xpath(".//@href"))
+        country = "".join(div.xpath("./text()"))
+        name = "".join(div.xpath(".//a/text()"))
 
-            if (comp := bot.get_competition(comp_id)) is not None:
-                logger.info("Found matching comp for %s", comp_id)
+        logger.info("Competition url=%s", url)
+        if country:
+            country.split(":")[0]
+
+        for i in bot.competitions:
+            if i.url and url in i.url:
+                comp = i
+                logger.info("Found matching comp [url] for %s", i.url)
+                break
+        else:
+            async with semaphore:
+                page = await bot.browser.new_page()
+                await page.goto(FLASHSCORE + url)
+                bar = page.locator(".tabs__tab").nth(0)
+                await bar.wait_for()
+                href = await bar.get_attribute("href")
+
+                logo_url = page.locator("heading__logo").nth(0)
+                src = await logo_url.get_attribute("src")
+
+            if href:
+                fs_id = href.split("/")[1]
             else:
-                for i in bot.competitions:
-                    if i.url and url in i.url:
-                        comp = i
-                        break
-                else:
-                    url = FLASHSCORE + url
-                    comp = Competition(comp_id, name, country, url)
+                fs_id = None
 
-            self.competition = comp
+            url = FLASHSCORE + url
+            comp = Competition(fs_id, name, country, url)
+            if src is not None:
+                comp.logo_url = FLASHSCORE + src
 
-        # TODO: Referee, Stadium
+        self.competition = comp
+
+        if comp not in bot.competitions:
+            await save_comp(bot, comp)
+
         if None in [self.referee, self.stadium]:
             text = tree.xpath('.//div[@class="mi__data"]/span/text()')
 
@@ -1160,7 +1177,7 @@ async def search(
                         except IndexError:
                             pass
                         team.gender = x["gender"]["name"]
-                        await save_team(interaction, team)
+                        await save_team(interaction.client, team)
                     results.append(team)
                 case "TournamentTemplate":
                     if mode == "team":
@@ -1174,7 +1191,7 @@ async def search(
                             comp.logo_url = x["images"][0]["path"]
                         except IndexError:
                             pass
-                        await save_comp(interaction, comp)
+                        await save_comp(interaction.client, comp)
                     results.append(comp)
                 case _:
                     continue  # This is a player, we don't want those.
@@ -1185,23 +1202,21 @@ async def search(
 
 
 # DB Management
-async def save_team(interaction: discord.Interaction[Bot], t: Team) -> None:
+async def save_team(bot: Bot, t: Team) -> None:
     """Save the Team to the Bot Database"""
     sql = """INSERT INTO fs_teams (id, name, logo_url, url)
              VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
-    async with interaction.client.db.acquire(timeout=60) as conn:
+    async with bot.db.acquire(timeout=60) as conn:
         async with conn.transaction():
             await conn.execute(sql, t.id, t.name, t.logo_url, t.url)
-    interaction.client.teams.append(t)
+    bot.teams.append(t)
 
 
-async def save_comp(
-    interaction: discord.Interaction[Bot], c: Competition
-) -> None:
+async def save_comp(bot: Bot, c: Competition) -> None:
     """Save the competition to the bot database"""
     sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
                  VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"""
-    async with interaction.client.db.acquire(timeout=60) as conn:
+    async with bot.db.acquire(timeout=60) as conn:
         async with conn.transaction():
             await conn.execute(sql, c.id, c.country, c.name, c.logo_url, c.url)
-    interaction.client.competitions.append(c)
+    bot.competitions.append(c)

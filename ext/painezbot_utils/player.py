@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, ClassVar
+from typing import Optional
 
+import logging
 import typing
 
 from ext.painezbot_utils.region import Region
@@ -24,6 +25,8 @@ if typing.TYPE_CHECKING:
 
 
 API = "https://api.worldofwarships."
+
+logger = logging.getLogger('player')
 
 
 class Achievement:
@@ -59,32 +62,31 @@ class GameMode:
 class Player:
     """A World of Warships player."""
 
-    bot: ClassVar[PBot]
+    bot: typing.ClassVar[PBot]
 
     def __init__(self, account_id: int, **kwargs) -> None:
         self.account_id: int = account_id
         self.nickname: str = kwargs.pop("nickname", None)
 
-        # Additional Fetched Data.
+        # Fetched Data -> Operations data.
         self.stats: dict = {}
 
         # CB Season Stats
-        self.clan_battle_stats: dict[
-            int, PlayerCBStats
-        ] = {}  # Keyed By Season ID.
+        self.clan: Optional[Clan] = None
+        # Keyed By Season ID.
+        self.clan_battle_stats: dict[int, PlayerCBStats] = {}
 
     @property
     def region(self) -> Region:
         """Get a Region object based on the player's ID number."""
-        match self.account_id:
-            case self.account_id if 0 < self.account_id < 500000000:
-                return Region.CIS
-            case self.account_id if 500000000 < self.account_id < 999999999:
-                return Region.EU
-            case self.account_id if 1000000000 < self.account_id < 1999999999:
-                return Region.NA
-            case _:
-                return Region.SEA
+        if 0 < self.account_id < 500000000:
+            return Region.CIS
+        elif 500000000 < self.account_id < 999999999:
+            return Region.EU
+        elif 1000000000 < self.account_id < 1999999999:
+            return Region.NA
+        else:
+            return Region.SEA
 
     @property
     def community_link(self) -> str:
@@ -100,7 +102,6 @@ class Player:
         prefix = {
             Region.NA: "na.",
             Region.SEA: "asia.",
-            Region.CIS: "ru.",
             Region.EU: "",
         }[self.region]
         return (
@@ -134,11 +135,10 @@ class Player:
         }
 
         async with self.bot.session.get(link, params=p) as resp:
-            match resp.status:
-                case 200:
-                    json = await resp.json()
-                case _:
-                    return None
+            if resp.status != 200:
+                logger.error("%s on %s", resp.status, link)
+                return None
+            json = await resp.json()
 
         if (data := json["data"].pop(str(self.account_id))) is None:
             self.clan = None
@@ -152,9 +152,6 @@ class Player:
         clan = self.bot.get_clan(clan_id)
         if clan:
             clan_data = data.pop("clan")
-            crt = clan_data.pop("created_at")
-            clan.created_at = datetime.utcfromtimestamp(crt)
-            clan.members_count = clan_data.pop("members_count")
             clan.name = clan_data.pop("name")
             clan.tag = clan_data.pop("tag")
 
@@ -169,65 +166,19 @@ class Player:
             url = API + self.region.domain + "/wows/account/info/"
             p.update(
                 {
-                    "extra": "statistics.pvp_solo,"
-                    "statistics.pvp_div2, "
-                    "statistics.pvp_div3, "
-                    "statistics.rank_solo, "
-                    "statistics.rank_div2, "
-                    "statistics.rank_div3, "
-                    "statistics.pve, "
-                    "statistics.pve_div2, "
-                    "statistics.pve_div3, "
-                    "statistics.pve_solo, "
-                    "statistics.oper_solo, "
-                    "statistics.oper_div, "
+                    "extra": "statistics.oper_solo, statistics.oper_div, "
                     "statistics.oper_div_hard"
                 }
             )
         else:
             url = API + self.region.domain + "/wows/ships/stats/"
             p.update({"ship_id": ship.ship_id})
-            p.update(
-                {
-                    "extra": "pvp_solo, pvp_div2, pvp_div3, "
-                    "rank_solo, rank_div2, rank_div3, "
-                    "pve, pve_div2, pve_div3, pve_solo, "
-                    "oper_solo, oper_div, oper_div_hard"
-                }
-            )
+            p.update({"extra": "oper_solo, oper_div, oper_div_hard"})
 
         async with self.bot.session.get(url, params=p) as resp:
-            match resp.status:
-                case 200:
-                    json = await resp.json()
-                case _:
-                    try:
-                        raise ConnectionError(resp.status)
-                    finally:
-                        return
+            if resp.status != 200:
+                raise ConnectionError(resp.status)
+            json = await resp.json()
 
-        try:
-            stats = json["data"].pop(
-                str(self.account_id)
-            )  # Why the fuck is this randomly a string now, seriously WG?
-        except KeyError:
-            raise KeyError(f'Unable to find key "data" in {json}')
-
-        self.created_at = Timestamp(
-            datetime.utcfromtimestamp(stats["created_at"])
-        )
-        self.last_battle_time = Timestamp(
-            datetime.utcfromtimestamp(stats["last_battle_time"])
-        )
-        self.stats_updated_at = Timestamp(
-            datetime.utcfromtimestamp(stats["stats_updated_at"])
-        )
-        self.logout_at = Timestamp(
-            datetime.utcfromtimestamp(stats["logout_at"])
-        )
-        self.hidden_profile = stats["hidden_profile"]
-        if ship is None:
-            self.stats[None] = stats["statistics"]
-        else:
-            self.stats[ship] = stats
+        self.stats = json["data"].pop(str(self.account_id))
         return

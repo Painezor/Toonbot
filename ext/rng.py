@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Optional
 
 from discord import Embed, Colour, TextStyle
 import discord
-from discord.app_commands import command, describe
 from discord.ext.commands import Cog
 from discord.ui import Button, Modal, TextInput
 
@@ -194,7 +193,7 @@ class Random(Cog):
         v.add_item(Stop(row=1))
         return await v.update()
 
-    @command(name="8ball")
+    @discord.app_commands.command(name="8ball")
     @discord.app_commands.describe(question="enter a question")
     async def eight_ball(
         self, interaction: Interaction[Bot], question: str

@@ -16,9 +16,7 @@ from asyncprawcore import TooLarge
 from discord import Attachment, Embed, Message, Interaction
 
 import discord
-from discord.app_commands import guilds, default_permissions
-from discord.ext.commands import Cog
-from discord.ext.tasks import loop
+from discord.ext import commands, tasks
 from lxml import html
 
 import ext.toonbot_utils.flashscore as fs
@@ -33,6 +31,8 @@ REDDIT_THUMBNAIL = (
     "http://vignette2.wikia.nocookie.net/valkyriecrusade/"
     "images/b/b5/Reddit-The-Official-App-Icon.png"
 )
+
+logger = logging.getLogger("sidebar")
 
 
 def rows_to_md_table(header, strings, per=20, max_length=10240):
@@ -63,7 +63,7 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
     return markdown
 
 
-class NUFCSidebar(Cog):
+class NUFCSidebar(commands.Cog):
     """Edit the r/NUFC sidebar"""
 
     def __init__(self, bot: Bot) -> None:
@@ -74,7 +74,7 @@ class NUFCSidebar(Cog):
         """Cancel the sidebar task when Cog is unloaded."""
         self.bot.sidebar.cancel()
 
-    @loop(hours=6)
+    @tasks.loop(hours=6)
     async def sidebar_loop(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
         if not self.bot.browser or not self.bot.teams:
@@ -86,7 +86,7 @@ class NUFCSidebar(Cog):
         page = await subreddit.wiki.get_page("config/sidebar")
         await page.edit(content=markdown)
 
-        logging.info(f"{datetime.now()} The sidebar of r/NUFC was updated.")
+        logger.info(f"{datetime.now()} The sidebar of r/NUFC was updated.")
 
     @sidebar_loop.before_loop
     async def fetch_team_data(self) -> None:
@@ -121,36 +121,22 @@ class NUFCSidebar(Cog):
 
         url = "http://www.bbc.co.uk/sport/football/premier-league/table"
         async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    return
+            if resp.status != 200:
+                raise ConnectionError()
+            tree = html.fromstring(await resp.text())
 
         pad = "|:--:" * 6
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{pad}\n"
 
-        xp = './/table[contains(@class,"gs-o-table")]//tbody/tr'
-        for i in tree.xpath(xp)[:20]:
+        xp = ".//table//tr"
+        for i in tree.xpath(xp):
             p = i.xpath(".//td//text()")
-            rank = p[0].strip()  # Ranking
-            movement = p[1].strip()
-
-            match movement:
-                case "team hasn't moved":
-                    table += f"{rank} | "
-                case "team has moved up":
-                    table += f"🔺 {rank} | "
-                case "team has moved down":
-                    table += f"🔻 {rank} | "
-                case _:
-                    logging.error("Bad movement team %s", movement)
-                    table += "rank | "
             team = p[2].strip()
             # Insert subreddit link from db
 
+            rdt = self.bot.reddit_teams
             try:
-                team = next(i for i in self.bot.reddit_teams if i.name == team)
+                team = next(i for i in rdt if i["name"] == team)
                 team = f"{team['name']}]({team['subreddit']}"
             except StopIteration:
                 pass
@@ -161,6 +147,8 @@ class NUFCSidebar(Cog):
             t = team.casefold()
             table += " | ".join([f"**{i}**" if q in t else i for i in cols])
             table += "\n"
+
+            logger.info(table)
 
         # Get match threads
         last_opponent = qry.split(" ")[0]
@@ -280,7 +268,10 @@ class NUFCSidebar(Cog):
                 except StopIteration:
                     a_ico = ""
 
-                ko = f.kickoff
+                if f.kickoff:
+                    ko = f.kickoff.strftime("%d/%m/%Y %H:%M")
+                else:
+                    ko = ""
                 sc = f.score
                 rows.append(
                     f"{ko} | {h_ico} [{h} {sc} {a}]({f.url}) {a_ico}\n"
@@ -312,7 +303,7 @@ class NUFCSidebar(Cog):
                     h_ico = home["icon"]
                     h = home["short_name"]
                 except StopIteration:
-                    h_ico = "#temp"
+                    h_ico = ""
 
                 a = r.away.name
                 try:
@@ -321,10 +312,13 @@ class NUFCSidebar(Cog):
                     a = away["short_name"]
                 except StopIteration:
                     # '/' Denotes away ::after img
-                    a_ico = "#temp/"
+                    a_ico = ""
 
                 s = r.score
-                ko = r.kickoff
+                if r.kickoff:
+                    ko = r.kickoff.strftime("%d/%m/%Y %H:%M")
+                else:
+                    ko = "?"
                 rows.append(f"{ko} | {h_ico} [{h} {s} {a}]({r.url}) {a_ico}\n")
 
             hdr = "\n Date | Result\n--:|:--\n"
@@ -334,7 +328,7 @@ class NUFCSidebar(Cog):
         return markdown
 
     @discord.app_commands.command()
-    @guilds(332159889587699712)
+    @discord.app_commands.guilds(332159889587699712)
     @discord.app_commands.default_permissions(manage_channels=True)
     @discord.app_commands.describe(
         image="Upload a new sidebar image", caption="Set a new Sidebar Caption"

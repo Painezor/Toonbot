@@ -102,7 +102,7 @@ class Bot(commands.AutoShardedBot):
         self.teams: list[fs.Team] = []
         self.competitions: list[fs.Competition] = []
         self.score_channels: list[ScoreChannel] = []
-        self.score_loop: typing.Optional[asyncio.Task] = None
+        self.scores: typing.Optional[asyncio.Task] = None
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
@@ -121,7 +121,9 @@ class Bot(commands.AutoShardedBot):
         # Sidebar
         self.reddit_teams: list[asyncpg.Record] = []
         self.sidebar: asyncio.Task
-        self.reddit = asyncpraw.Reddit(**credentials["Reddit"])
+
+        rdt = asyncpraw.Reddit(**credentials["Reddit"])
+        self.reddit: asyncpraw.Reddit = rdt
 
         # Streams
         self.streams: dict[int, list[Stream]] = collections.defaultdict(list)
@@ -161,9 +163,15 @@ class Bot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s\n%s", c, err)
         return
 
-    def get_competition(self, comp_id: str) -> typing.Optional[fs.Competition]:
+    def get_competition(
+        self, identifier: str
+    ) -> typing.Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
-        return next((i for i in self.competitions if i.id == comp_id), None)
+        for i in self.competitions:
+            if i.id == identifier:
+                return i
+            if i.url is not None and identifier in i.url:
+                return i
 
     def get_team(self, team_id: str) -> typing.Optional[fs.Team]:
         """Retrieve a Team from the ones stored in the bot."""

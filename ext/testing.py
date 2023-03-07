@@ -39,7 +39,7 @@ class Test(commands.Cog):
             logging.debug(resp.json())
 
     @discord.app_commands.command()
-    @guilds(250252535699341312)
+    @discord.app_commands.guilds(250252535699341312)
     async def lootboxes(self, interaction: Interaction):
         """Get lootbox data."""
 

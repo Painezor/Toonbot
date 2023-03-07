@@ -37,7 +37,10 @@ COGS = [
     # Slash commands.
     "ext.admin",
     "ext.bans",
+    "ext.clans",
+    "ext.codes",
     "ext.devblog",
+    "ext.fitting",
     "ext.helpme",
     "ext.images",
     "ext.info",
@@ -144,25 +147,16 @@ class PBot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s\n%s", c, err)
         return
 
-    def get_clan(self, clan_id: int) -> Clan:
+    def get_clan(self, clan_id: int) -> typing.Optional[Clan]:
         """Get a Clan object from Stored Clans"""
-        try:
-            clan = next(i for i in self.clans if i.clan_id == clan_id)
-        except StopIteration:
-            clan = Clan(self, clan_id)
-            self.clans.append(clan)
-        return clan
+        return next((i for i in self.clans if i.clan_id == clan_id), None)
 
-    def get_player(self, account_id: int) -> Player:
+    def get_player(self, account_id: int) -> typing.Optional[Player]:
         """Get a Player object from stored or generate a one."""
-        try:
-            return next(i for i in self.players if i.account_id == account_id)
-        except StopIteration:
-            p = Player(account_id)
-            self.players.append(p)
-            return p
+        plr = self.players
+        return next((i for i in plr if i.account_id == account_id), None)
 
-    def get_ship(self, identifier: str | int) -> Ship:
+    def get_ship(self, identifier: str | int) -> typing.Optional[Ship]:
         """Get a Ship object from a list of the bots ships"""
         for i in self.ships:
             if i.ship_id_str is None:
@@ -173,8 +167,7 @@ class PBot(commands.AutoShardedBot):
 
             if i.ship_id == identifier:
                 return i
-
-        raise LookupError(f"Unrecognised ShipID {identifier}")
+        return None
 
     def get_ship_type(self, match: str) -> ShipType:
         """Get a ShipType object matching a string"""

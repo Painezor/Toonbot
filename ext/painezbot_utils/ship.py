@@ -14,7 +14,7 @@ from ext.painezbot_utils.modules import Module
 class Nation(enum.Enum):
     """An Enum representing different nations."""
 
-    def __new__(cls) -> Nation:
+    def __new__(cls, *args, **kwargs) -> Nation:
         value = len(cls.__members__) + 1
         obj = object.__new__(cls)
         obj._value_ = value

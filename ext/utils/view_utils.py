@@ -4,21 +4,14 @@ from __future__ import annotations
 import traceback
 import logging
 from dataclasses import dataclass
-from typing import Callable, TYPE_CHECKING, Any, Optional
-from discord import (
-    ButtonStyle,
-    NotFound,
-    Embed,
-    SelectOption,
-)
-from discord.ui import Select, TextInput
+from typing import Callable, Any, Optional
 
 import discord
+import typing
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
-    from discord import Message
 
 
 logger = logging.getLogger("view_utils")
@@ -165,7 +158,7 @@ class Jump(discord.ui.Button):
 
     def __init__(self, view: BaseView, row: int = 0):
         # Super Init first so we can access the view's properties.
-        super().__init__(style=ButtonStyle.blurple, emoji="🔎", row=row)
+        super().__init__(style=discord.ButtonStyle.blurple, emoji="🔎", row=row)
 
         index = view.index
         pages = view.pages
@@ -193,7 +186,7 @@ class Jump(discord.ui.Button):
 class JumpModal(discord.ui.Modal):
     """Type page number in box, set index to that page."""
 
-    page = TextInput(label="Enter a page number")
+    page = discord.ui.TextInput(label="Enter a page number")
 
     def __init__(self, view: BaseView, title: str = "Jump to page") -> None:
         super().__init__(title=title)
@@ -274,7 +267,7 @@ class Stop(discord.ui.Button):
         await interaction.response.defer()
         try:
             await self.view.interaction.delete_original_response()
-        except NotFound:
+        except discord.NotFound:
             pass
 
         # Handle any cleanup.
@@ -344,7 +337,7 @@ class Funcable:
         self.label: str = label
         self.emoji: Optional[str] = emoji
         self.description: Optional[str] = description
-        self.style: ButtonStyle = style
+        self.style: discord.ButtonStyle = style
         self.disabled: bool = disabled
 
         self.function: Callable = function
@@ -411,43 +404,13 @@ class FuncButton(discord.ui.Button):
         return await self.function(*self.args, **self.kwargs)
 
 
-# TODO: Deprecate FuncDropdown in favour of Funcable and generate_function_row
-class FuncDropdown(Select):
-    """Perform function based on user's dropdown choice"""
-
-    # [Select Option, Dict of args to setattr, Function to apply.]
-
-    def __init__(
-        self,
-        options: list[tuple[SelectOption, dict, Callable]],
-        placeholder: Optional[str] = None,
-        row: int = 3,
-    ) -> None:
-
-        self.raw = options
-        super().__init__(
-            placeholder=placeholder,
-            options=[o[0] for o in options][:25],
-            row=row,
-        )
-
-    async def callback(
-        self, interaction: discord.Interaction[Bot | PBot]
-    ) -> Message:
-        """Set View Index"""
-
-        await interaction.response.defer()
-
-        for k, v in self.raw[index := int(self.values[0])][1].items():
-            setattr(self.view, k, v)
-        return await self.raw[index][2]()
-
-
 class Paginator(BaseView):
     """Generic Paginator that returns nothing."""
 
     def __init__(
-        self, interaction: discord.Interaction[Bot | PBot], embeds: list[Embed]
+        self,
+        interaction: discord.Interaction[Bot | PBot],
+        embeds: list[discord.Embed],
     ) -> None:
         super().__init__(interaction)
 

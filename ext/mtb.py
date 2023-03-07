@@ -3,21 +3,16 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-from multiprocessing.sharedctypes import Value
-from typing import TYPE_CHECKING
 import typing
 
 import asyncpg
-import asyncpraw
 import discord
-from discord import Embed
-from discord.ext import commands
-from discord.ext import tasks
+from discord.ext import commands, tasks
 from lxml import html
 
-from ext.toonbot_utils import flashscore
+from ext.toonbot_utils import flashscore as fs
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 
@@ -29,12 +24,12 @@ class MatchThread:
     information about a match."""
 
     def __init__(
-        self, bot: Bot, fixture: flashscore.Fixture, settings, record
+        self, bot: Bot, fixture: fs.Fixture, settings, record
     ) -> None:
         self.bot: Bot = bot
-        self.fixture = fixture
-        self.settings = settings
-        self.record = record
+        self.fixture: fs.Fixture = fixture
+        self.settings: asyncpg.Record = settings
+        self.mtb_history: asyncpg.Record = record
 
         # Fetch once
         self.tv = None
@@ -46,7 +41,7 @@ class MatchThread:
         self.stop = False
 
     @property
-    def base_embed(self) -> Embed:
+    def base_embed(self) -> discord.Embed:
         """Generic Embed for MTB notifications"""
         e = discord.Embed(color=0xFF4500)
         th = (
@@ -71,7 +66,7 @@ class MatchThread:
         if ko is None:
             raise ValueError("Kickoff is None")
 
-        if self.record["pre_match_url"] is None:
+        if self.mtb_history["pre_match_url"] is None:
             if (offset := self.settings["pre_match_offset"]) is None:
                 offset = 3
             offset = datetime.timedelta(days=offset)
@@ -87,7 +82,7 @@ class MatchThread:
                 async with connection.transaction():
                     sql = """UPDATE mtb_history SET pre_match_url = $1 WHERE
                              (subreddit, fs_link) = ($2, $3)"""
-                    self.record = await connection.fetchrow(
+                    self.mtb_history = await connection.fetchrow(
                         sql,
                         pre.url,
                         self.settings["subreddit"],
@@ -95,7 +90,7 @@ class MatchThread:
                     )
         else:
             pre = await self.bot.reddit.submission(
-                url=self.record["pre_match_url"]
+                url=self.mtb_history["pre_match_url"]
             )
             await pre.edit(markdown)
 
@@ -122,7 +117,7 @@ class MatchThread:
         title, markdown = await self.write_markdown()
 
         # Post initial thread or resume existing thread.
-        if self.record["match_thread_url"] is None:
+        if self.mtb_history["match_thread_url"] is None:
             match = await subreddit.submit(selftext=markdown, title=title)
             await match.load()
             if c:
@@ -135,14 +130,14 @@ class MatchThread:
                     sql = """UPDATE mtb_history SET match_thread_url = $1
                           WHERE (subreddit, fs_link) = ($2, $3) RETURNING *"""
 
-                    self.record = await connection.fetchrow(
+                    self.mtb_history = await connection.fetchrow(
                         sql,
                         match.url,
                         self.settings["subreddit"],
                         self.fixture.url,
                     )
         else:
-            r = self.record["match_thread_url"]
+            r = self.mtb_history["match_thread_url"]
             match = await self.bot.reddit.submission(url=r)
             await match.edit(markdown)
 
@@ -167,7 +162,7 @@ class MatchThread:
         # Make post-match thread
         title, markdown = await self.write_markdown(post_match=True)
         # Create post match thread, insert link into DB.
-        if self.record["post_match_url"] is None:
+        if self.mtb_history["post_match_url"] is None:
             post = await subreddit.submit(selftext=markdown, title=title)
             await post.load()
 
@@ -177,12 +172,12 @@ class MatchThread:
                             (subreddit, fs_link) = ($2, $3)"""
                     f = self.fixture.url
                     sr = self.settings["subreddit"]
-                    self.record = await con.fetchrow(sql, post.url, sr, f)
+                    self.mtb_history = await con.fetchrow(sql, post.url, sr, f)
             if c:
                 await c.send(f"{sr} Post-Match Thread: <{post.url}> | <{f}>")
 
         else:
-            p = self.record["post_match_url"]
+            p = self.mtb_history["post_match_url"]
             post = await self.bot.reddit.submission(url=p)
 
         # Re-write post with actual link in it.
@@ -191,7 +186,7 @@ class MatchThread:
 
         # Edit match markdown to include the post-match link.
         _, markdown = await self.write_markdown()
-        mt = self.record["match_thread_url"]
+        mt = self.mtb_history["match_thread_url"]
         match = await self.bot.reddit.submission(url=mt)
         await match.edit(markdown)
 
@@ -199,13 +194,13 @@ class MatchThread:
         markdown = pre.selftext
         try:
             markdown = markdown.replace(
-                "*Pre*", f"[Pre]({self.record['pre_match_url']})"
+                "*Pre*", f"[Pre]({self.mtb_history['pre_match_url']})"
             )
             markdown = markdown.replace(
-                "*Match*", f"[Match]({self.record['match_thread_url']})"
+                "*Match*", f"[Match]({self.mtb_history['match_thread_url']})"
             )
             markdown = markdown.replace(
-                "*Post*", f"[Post]({self.record['post_match_url']})"
+                "*Post*", f"[Post]({self.mtb_history['post_match_url']})"
             )
         except AttributeError:
             pass
@@ -213,7 +208,9 @@ class MatchThread:
 
         if c:
             f = self.fixture.url
-            await c.send(f"{sub} Match Thread Completed: {post.url} | <{f}>")
+            await c.send(
+                f"{subreddit} Match Thread Completed: {post.url} | <{f}>"
+            )
 
     async def pre_match(self):
         """Create a pre-match thread"""
@@ -385,23 +382,19 @@ class MatchThread:
             markdown += "####" + " | ".join(ven) + "\n\n"
 
         # Match Threads Bar.
-        archive = (
-            f"[Archive]({self.archive_link}"
-            if hasattr(self, "archive_link")
-            else ""
-        )
+        archive = f"[Archive]({self.mtb_history['archive_link']}"
         try:
-            pre = f"[Pre]({self.record['pre_match_url']})"
+            pre = f"[Pre]({self.mtb_history['pre_match_url']})"
         except (AttributeError, TypeError):
             pre = "*Pre*"
 
         try:
-            match = f"[Match]({self.record['match_thread_url']})"
+            match = f"[Match]({self.mtb_history['match_thread_url']})"
         except (AttributeError, TypeError):
             match = "*Match*"
 
         try:
-            post = f"[Post]({self.record['post_match_url']})"
+            post = f"[Post]({self.mtb_history['post_match_url']})"
         except (AttributeError, TypeError):
             post = "*Post*"
 
@@ -492,11 +485,11 @@ class MatchThreadCommands(commands.Cog):
             if (team := self.bot.get_team(r["team_flashscore_id"])) is None:
                 continue
 
-            for fixture in await team.fixtures():
+            for fixture in await fs.parse_games(self.bot, team, "/fixtures/"):
                 await self.spool_thread(fixture, r)
 
     async def spool_thread(
-        self, f: flashscore.Fixture, settings: asyncpg.Record
+        self, f: fs.Fixture, settings: asyncpg.Record
     ) -> None:
         """Create match threads for all scheduled games."""
 

@@ -1,18 +1,26 @@
-from collections import defaultdict
+from __future__ import annotations
+
+import collections
 import discord
 from discord.ext import commands
 
 import typing
 import logging
+from ext.painezbot_utils.clan import ClanBuilding
+from ext.painezbot_utils.player import GameMode
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
 
 from ext.utils import view_utils
-from ext.painezbot_utils import ship as _ship
+from ext.painezbot_utils.ship import Nation, Ship, ShipType
 from ext.painezbot_utils import modules
 
 logger = logging.getLogger("fitting")
+
+INFO = "https://api.worldofwarships.eu/wows/encyclopedia/info/"
+SHIPS = "https://api.worldofwarships.eu/wows/encyclopedia/ships/"
+MODES = "https://api.worldofwarships.eu/wows/encyclopedia/battletypes/"
 
 
 class ShipView(view_utils.BaseView):
@@ -24,16 +32,15 @@ class ShipView(view_utils.BaseView):
     def __init__(
         self,
         interaction: discord.Interaction[PBot],
-        ship: _ship.Ship,
+        ship: Ship,
         **kwargs,
     ) -> None:
         super().__init__(interaction, **kwargs)
-        self.ship: _ship.Ship = ship
+        self.ship: Ship = ship
         self.modules: dict[
             typing.Type[modules.Module], int
         ] = self.default_fit()
         self.data: dict = {}
-        self.default_fit
         self.available_modules: dict[int, modules.Module] = {}
 
     async def fetch_modules(self) -> dict[int, modules.Module]:
@@ -288,7 +295,7 @@ class ShipView(view_utils.BaseView):
                 "```diff\n- This ship does not have any AA Capabilities.```"
             ]
         else:
-            aa_guns: dict[str, list] = defaultdict(list)
+            aa_guns: dict[str, list] = collections.defaultdict(list)
             for v in aa["slots"].values():
                 value = (
                     f'{v["guns"]}x{v["caliber"]}mm ({v["avg_damage"]} dps)\n'
@@ -636,9 +643,106 @@ class Fittings(commands.Cog):
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
 
+    async def cog_load(self) -> None:
+        """Fetch Generics from API and store to bot."""
+        p = {"application_id": self.bot.wg_id, "language": "en"}
+        if not self.bot.ship_types:
+            async with self.bot.session.get(INFO, params=p) as resp:
+                match resp.status:
+                    case 200:
+                        data = await resp.json()
+                    case _:
+                        err = f"{resp.status} fetching ship type data {INFO}"
+                        raise ConnectionError(err)
+
+            for k, v in data["data"]["ship_types"].items():
+                images = data["data"]["ship_type_images"][k]
+                s_t = ShipType(k, v, images)
+                self.bot.ship_types.append(s_t)
+
+        if not self.bot.modes:
+            async with self.bot.session.get(MODES, params=p) as resp:
+                match resp.status:
+                    case 200:
+                        data = await resp.json()
+                    case _:
+                        return
+
+            for k, v in data["data"].items():
+                self.bot.modes.append(GameMode(**v))
+
+        if not self.bot.ships:
+            self.bot.ships = await self.cache_ships()
+
+        # if not self.bot.clan_buildings:
+        #     self.bot.clan_buildings = await self.cache_clan_base()
+
+    async def cache_clan_base(self) -> list[ClanBuilding]:
+        """Cache the CLan Buildings from the API"""
+        raise NotImplementedError  # TODO: Cache Clan Base
+        # buildings = json.pop()
+        # output = []
+        # for i in buildings:
+        #
+        # self.building_id: int = building_id
+        # self.building_type_id: int = kwargs.pop('building_type_id', None)
+        # self.bonus_type: Optional[str] = kwargs.pop('bonus_type', None)
+        # self.bonus_value: Optional[int] = kwargs.pop('bonus_value', None)
+        # self.cost: Optional[int] = kwargs.pop('cost', None)  # Price in Oil
+        # self.max_members: Optional[int] = kwargs.pop('max_members', None)
+        #
+        # max_members = buildings.pop()
+        #
+        # b = ClanBuilding()
+
+    async def cache_ships(self) -> list[Ship]:
+        """Cache the ships from the API."""
+        # Run Once.
+        if self.bot.ships:
+            return self.bot.ships
+
+        max_iter: int = 1
+        count: int = 1
+        ships: list[Ship] = []
+        while count <= max_iter:
+            # Initial Pull.
+            p = {
+                "application_id": self.bot.wg_id,
+                "language": "en",
+                "page_no": count,
+            }
+            async with self.bot.session.get(SHIPS, params=p) as resp:
+                match resp.status:
+                    case 200:
+                        items = await resp.json()
+                        count += 1
+                    case _:
+                        raise ConnectionError(
+                            f"{resp.status} Error accessing {SHIPS}"
+                        )
+
+            max_iter = items["meta"]["page_total"]
+
+            for ship, data in items["data"].items():
+                ship = Ship()
+
+                nation = data.pop("nation", None)
+                if nation:
+                    ship.nation = next(i for i in Nation if nation == i.match)
+
+                ship.type = self.bot.get_ship_type(data.pop("type"))
+
+                modules = data.pop("modules")
+                ship.available_modules = modules
+                for k, v in data.items():
+                    setattr(ship, k, v)
+                ships.append(ship)
+        return ships
+
     @discord.app_commands.command()
     @discord.app_commands.autocomplete(name=ship_ac)
     @discord.app_commands.describe(name="Search for a ship by it's name")
+    @discord.app_commands.guilds(250252535699341312)
     async def ship(
         self, interaction: discord.Interaction[PBot], name: str
     ) -> discord.InteractionMessage:

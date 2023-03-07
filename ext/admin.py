@@ -163,10 +163,11 @@ class Admin(commands.Cog):
     @discord.app_commands.guilds(250252535699341312)
     async def quit(self, interaction: discord.Interaction[Bot | PBot]) -> None:
         """Log the bot out gracefully."""
+        await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise commands.NotOwner
 
-        await interaction.response.send_message(content="Logging out.")
+        await interaction.edit_original_response(content="Logging out.")
         return await self.bot.close()
 
     @discord.app_commands.command(name="debug")
