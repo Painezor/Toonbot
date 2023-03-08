@@ -71,4 +71,3 @@ class Region(enum.Enum):
     EU = ("eu", "eu", "<:EU:993495456988545124>", 0x0000FF, "eu", "eu")
     NA = ("na", "com", "<:NA:993495467788869663>", 0x00FF00, "na", "us")
     SEA = ("sea", "asia", "<:ASIA:993495476978589786>", 0x00FFFF, "asia", "sg")
-    CIS = ("cis", "ru", "<:CIS:993495488248680488>", 0xFF0000, "ru", "ru")

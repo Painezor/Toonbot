@@ -522,7 +522,6 @@ class TwitchTracker(commands.Cog):
 
         for i in ccs:
             realm = {
-                "RU": Region.CIS,
                 "ASIA": Region.SEA,
                 "NA": Region.NA,
                 "EU": Region.EU,

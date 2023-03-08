@@ -279,7 +279,7 @@ class Clan:
         """Get a Region object based on the player's ID number."""
         match self.clan_id:
             case self.clan_id if 0 < self.clan_id < 500000000:
-                return Region.CIS
+                raise ValueError("CIS is no longer supported")
             case self.clan_id if 500000000 < self.clan_id < 999999999:
                 return Region.EU
             case self.clan_id if 1000000000 < self.clan_id < 1999999999:

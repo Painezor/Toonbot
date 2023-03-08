@@ -33,28 +33,38 @@ _ticker_tasks = set()
 
 logger = logging.getLogger("ticker.py")
 
+NOPERMS = (
+    "```yaml\nThis ticker channel will not work currently"
+    "I am missing the following permissions.\n"
+)
+
+semaphore = asyncio.Semaphore(2)
+
 
 async def get_table(bot: Bot, link: str):
 
-    page = await bot.browser.new_page()
-    await page.goto(link, timeout=5000)
+    async with semaphore:
+        page = await bot.browser.new_page()
+        try:
+            await page.goto(link, timeout=5000)
 
-    # Chaining Locators is fucking aids.
-    # Thank you for coming to my ted talk.
-    inner = page.locator(".tableWrapper")
-    outer = page.locator("div", has=inner)
-    table_div = page.locator("div", has=outer).last
+            # Chaining Locators is fucking stupid.
+            # Thank you for coming to my ted talk.
+            inner = page.locator(".tableWrapper")
+            outer = page.locator("div", has=inner)
+            table_div = page.locator("div", has=outer).last
 
-    try:
-        await table_div.wait_for(state="visible", timeout=5000)
-    except pw_TimeoutError:
-        return ""
+            try:
+                await table_div.wait_for(state="visible", timeout=5000)
+            except pw_TimeoutError:
+                return ""
 
-    js = "ads => ads.forEach(x => x.remove());"
-    await page.eval_on_selector_all(fs.ADS, js)
+            js = "ads => ads.forEach(x => x.remove());"
+            await page.eval_on_selector_all(fs.ADS, js)
 
-    image = await table_div.screenshot(type="png")
-    await page.close()
+            image = await table_div.screenshot(type="png")
+        finally:
+            await page.close()
     return await bot.dump_image(io.BytesIO(image))
 
 
@@ -78,6 +88,8 @@ async def lg_ac(
     return choices
 
 
+# TODO: League AC to transformer.
+# TODO: Populate url field.
 # TODO: Migrate Event embed generation to the individual Events
 class TickerEvent:
     """Handles dispatching and editing messages for a fixture event."""
@@ -281,7 +293,7 @@ class TickerChannel:
 
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
-        self.leagues: list[str] = []
+        self.leagues: set[fs.Competition] = set()
         self.settings: dict = {}
         self.dispatched: dict[TickerEvent, discord.Message] = {}
 
@@ -340,53 +352,18 @@ class TickerChannel:
                     continue
                 self.settings[k] = v
 
-        self.leagues = [r["league"] for r in leagues]
+        sql = """UPDATE ticker_leagues SET url = $1 WHERE league = $2"""
+        connection = await self.bot.db.acquire()
+        async with connection.transaction():
+            for r in leagues:
+                if comp := self.bot.get_competition(r["league"]):
+                    if r["url"] is None:
+                        url = comp.url
+                        if url is None:
+                            continue
+                        await connection.execute(sql, url, r["league"])
+                    self.leagues.add(comp)
         return self.settings
-
-    async def create_ticker(self) -> TickerChannel:
-        """Create a ticker for the target channel"""
-        guild = self.channel.guild.id
-
-        rows = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
-
-        async with self.bot.db.acquire(timeout=60) as connection:
-            # Verify that this is not a livescores channel.
-            async with connection.transaction():
-
-                q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
-
-                invalidate = await connection.fetchrow(q, self.channel.id)
-                if invalidate:
-                    raise IsLiveScoreError
-
-                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
-                         ON CONFLICT DO NOTHING"""
-                await connection.execute(sql, guild)
-
-                q = """INSERT INTO ticker_channels (guild_id, channel_id)
-                       VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-                await connection.execute(q, guild, self.channel.id)
-
-                qq = """INSERT INTO ticker_settings (channel_id) VALUES ($1)
-                        ON CONFLICT DO NOTHING"""
-                await connection.execute(qq, self.channel.id)
-
-                qqq = """INSERT INTO ticker_leagues (channel_id, url)
-                         VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-                await connection.executemany(qqq, rows)
-        return self
-
-    async def remove_leagues(self, leagues: list[str]) -> list[str]:
-        """Remove a list of leagues for the channel from the database"""
-        sql = """DELETE from ticker_leagues
-                 WHERE (channel_id, url) = ($1, $2)"""
-        rows = [(self.channel.id, x) for x in leagues]
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.executemany(sql, rows)
-
-        self.leagues = [i for i in self.leagues if i not in leagues]
-        return self.leagues
 
 
 class ToggleButton(discord.ui.Button):
@@ -458,19 +435,23 @@ class ResetLeagues(discord.ui.Button):
         """Click button reset leagues"""
         await interaction.response.defer()
 
-        sql = """INSERT INTO ticker_leagues (channel_id, url)
-                 VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-
-        rows = [(self.view.tc.channel.id, x) for x in fs.DEFAULT_LEAGUES]
         async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.executemany(sql, rows)
+                sql = """DELETE FROM ticker_leagues WHERE channel_id = $1"""
+                await connection.execute(sql, self.view.tc.channel.id)
 
-        self.view.tc.leagues = fs.DEFAULT_LEAGUES
+                sql = """INSERT INTO ticker_leagues (channel_id, url)
+                    VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+                r = [(self.view.tc.channel.id, x) for x in fs.DEFAULT_LEAGUES]
+                await connection.executemany(sql, r)
 
-        ch = self.view.tc.channel.mention
-        e = discord.Embed(colour=discord.Colour.red())
-        e.description = f"Tracked leagues for {ch} reset"
+        for x in fs.DEFAULT_LEAGUES:
+            if (comp := interaction.client.get_competition(x)) is None:
+                continue
+            self.view.tc.leagues.add(comp)
+
+        e = discord.Embed(title="Ticker: Tracked Leagues Reset")
+        e.description = self.view.tc.channel.mention
         u = interaction.user
         e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
         await interaction.followup.send(embed=e)
@@ -512,16 +493,15 @@ class RemoveLeague(discord.ui.Select):
 
     view: TickerConfig
 
-    def __init__(self, leagues: list[str], row: int = 2) -> None:
-        leagues = sorted(set(leagues))
-        super().__init__(
-            placeholder="Remove tracked league(s)",
-            row=row,
-            max_values=len(leagues),
-        )
-        # No idea how we're getting duplicates here but fuck it I don't care.
+    def __init__(self, leagues: list[fs.Competition], row: int = 2) -> None:
+        ph = "Remove tracked league(s)"
+        super().__init__(placeholder=ph, row=row, max_values=len(leagues))
+
         for lg in leagues:
-            self.add_option(label=lg)
+            if lg.url is None:
+                continue
+
+            self.add_option(label=lg.title, description=lg.url, value=lg.url)
 
     async def callback(
         self, interaction: discord.Interaction[Bot]
@@ -529,7 +509,41 @@ class RemoveLeague(discord.ui.Select):
         """When a league is selected, delete channel / league row from DB"""
 
         await interaction.response.defer()
-        return await self.view.remove_leagues(self.values)
+
+        view = view_utils.Confirmation(
+            interaction, "Remove", "Cancel", discord.ButtonStyle.red
+        )
+
+        lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
+        c = self.view.tc.channel.mention
+
+        e = discord.Embed(title="Transfer Ticker", colour=discord.Colour.red())
+        e.description = f"Remove these leagues from {c}?\n{lg_text}"
+        await self.view.interaction.edit_original_response(embed=e, view=view)
+        await view.wait()
+
+        if not view.value:
+            return await self.view.update()
+
+        sql = """DELETE from ticker_leagues
+                 WHERE (channel_id, url) = ($1, $2)"""
+        rows = [(self.view.tc.channel.id, x) for x in self.values]
+        async with interaction.client.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                await connection.executemany(sql, rows)
+
+        for i in self.view.tc.leagues.copy():
+            if i.url in self.values:
+                self.view.tc.leagues.remove(i)
+
+        m = self.view.tc.channel.mention
+        msg = f"Removed {m} tracked leagues: ```yaml\n{lg_text}```"
+        e = discord.Embed(description=msg, colour=discord.Colour.red())
+
+        u = interaction.user
+        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
+        await self.view.interaction.followup.send(content=msg)
+        return await self.view.update()
 
 
 class TickerConfig(view_utils.BaseView):
@@ -544,84 +558,15 @@ class TickerConfig(view_utils.BaseView):
         super().__init__(interaction)
         self.tc: TickerChannel = tc
 
-    async def remove_leagues(
-        self, leagues: list[str]
-    ) -> discord.InteractionMessage:
-        """Bulk remove leagues from a ticker channel"""
-        # Ask user to confirm their choice.
-        i = self.interaction
-        view = view_utils.Confirmation(
-            i, "Remove", "Cancel", discord.ButtonStyle.red
-        )
-        lg_text = "```yaml\n" + "\n".join(sorted(leagues)) + "```"
-
-        ch = self.tc.channel
-
-        e = discord.Embed(title="Transfer Ticker", colour=discord.Colour.red())
-        e.description = f"Remove these leagues from {ch.mention}?\n{lg_text}"
-        await self.interaction.edit_original_response(embed=e, view=view)
-        await view.wait()
-
-        if not view.value:
-            return await self.update(content="No leagues were removed")
-
-        await self.tc.remove_leagues(leagues)
-        return await self.update(
-            content=f"Removed {ch.mention} tracked leagues: {lg_text}"
-        )
-
-    async def creation_dialogue(self) -> bool:
-        """Send a dialogue to check if the user wishes
-        to create a new ticker."""
-        # Ticker Verify -- NOT A SCORES CHANNEL
-        if self.tc.channel.id in [
-            i.channel.id for i in self.bot.score_channels
-        ]:
-            err = "You cannot create a ticker in a livescores channel."
-            await self.bot.error(self.interaction, err)
-            return False
-
-        c = self.tc.channel.mention
-        btn = discord.ButtonStyle.green
-        view = view_utils.Confirmation(
-            self.interaction, "Create ticker", "Cancel", btn
-        )
-        notkr = f"{c} does not have a ticker, would you like to create one?"
-        await self.interaction.edit_original_response(content=notkr, view=view)
-        await view.wait()
-
-        if not view.value:
-            txt = f"Cancelled ticker creation for {c}"
-            self.stop()
-            view.clear_items()
-            await self.bot.error(self.interaction, txt)
-            return False
-
-        try:
-            await self.tc.create_ticker()
-        except IsLiveScoreError:
-            err = "You cannot add tickers to a livescores channel."
-            await self.bot.error(self.interaction, err)
-            return False
-
-        self.bot.ticker_channels.append(self.tc)
-        await self.update(content=f"A ticker was created for {c}")
-        return True
-
-    async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+    async def update(self) -> discord.InteractionMessage:
         """Regenerate view and push to message"""
         self.clear_items()
 
         if not self.tc.settings:
             await self.tc.get_settings()
 
-        c = discord.Colour.dark_teal()
-        embed = discord.Embed(colour=c, title="Match Event Ticker config")
-
-        if self.bot.user:
-            embed.set_thumbnail(url=self.bot.user.display_avatar.url)
+        embed = discord.Embed(colour=discord.Colour.dark_teal())
+        embed.title = "Match Event Ticker config"
 
         t = "Button Colour Key\nRed: Off, Green: On, Blue: Extended"
         embed.set_footer(text=t)
@@ -636,10 +581,7 @@ class TickerConfig(view_utils.BaseView):
             missing.append("embed_links")
 
         if missing:
-            v = (
-                "```yaml\nThis ticker channel will not work currently"
-                f"I am missing the following permissions.\n{missing}```"
-            )
+            v = f"{NOPERMS} {missing}```"
             embed.add_field(name="Missing Permissions", value=v)
 
         edit = self.interaction.edit_original_response
@@ -647,31 +589,20 @@ class TickerConfig(view_utils.BaseView):
             self.add_item(ResetLeagues())
             self.add_item(DeleteTicker())
             embed.description = f"{ch.mention} has no tracked leagues."
-            return await edit(content=content, embed=embed, view=self)
+            return await edit(embed=embed, view=self)
 
-        header = f"Tracked leagues for {ch.mention}```yaml\n"
+        embed.description = f"Tracked leagues for {ch.mention}```yaml\n"
+        leagues = sorted(self.tc.leagues, key=lambda x: x.title)
 
-        rows = sorted(self.tc.leagues)
-        embeds = embed_utils.rows_to_embeds(embed, rows, 10, header, "```")
-
-        self.pages = embeds
-
+        self.pages = embed_utils.paginate(leagues)
         self.add_page_buttons()
 
-        try:
-            embed = self.pages[self.index]
-        except IndexError:
-            embed = self.pages[-1]
+        leagues: list[fs.Competition]
+        leagues = [i.url for i in self.pages[self.index] if i.url is not None]
 
-        if len(self.tc.leagues) > 25:
-            # Get everything after index * 25 (page len), then up to
-            # 25 items from that page.
-            remove_list = self.tc.leagues[self.index * 25 :][:25]
-        else:
-            remove_list = self.tc.leagues
+        embed.description += "\n".join([str(i.url) for i in leagues])
 
-        if remove_list:
-            self.add_item(RemoveLeague(remove_list, row=1))
+        self.add_item(RemoveLeague(leagues, row=1))
 
         count = 0
         for k, v in self.tc.settings.items():
@@ -684,7 +615,7 @@ class TickerConfig(view_utils.BaseView):
 
             count += 1
 
-        return await edit(content=content, embed=embed, view=self)
+        return await edit(embed=embed, view=self)
 
 
 class Ticker(commands.Cog):
@@ -700,22 +631,90 @@ class Ticker(commands.Cog):
         """Reset the cache on load."""
         await self.update_cache()
 
-    async def update_cache(self) -> None:
+    async def create(
+        self,
+        interaction: discord.Interaction[Bot],
+        channel: discord.TextChannel,
+    ) -> discord.InteractionMessage:
+        """Send a dialogue to create a new ticker."""
+        # Ticker Verify -- NOT A SCORES CHANNEL
+        async with self.bot.db.acquire(timeout=60) as connection:
+            # Verify that this is not a livescores channel.
+            async with connection.transaction():
+
+                q = """SELECT * FROM scores_channels WHERE channel_id = $1"""
+
+                invalidate = await connection.fetchrow(q, channel.id)
+            if invalidate:
+                err = "You cannot create a ticker in a livescores channel."
+                return await self.bot.error(interaction, err)
+
+        c = channel.mention
+        btn = discord.ButtonStyle.green
+        view = view_utils.Confirmation(
+            interaction, "Create ticker", "Cancel", btn
+        )
+        notkr = f"{c} does not have a ticker, would you like to create one?"
+        await interaction.edit_original_response(content=notkr, view=view)
+        await view.wait()
+
+        if not view.value:
+            txt = f"Cancelled ticker creation for {c}"
+            return await self.bot.error(interaction, txt)
+
+        guild = channel.guild.id
+
+        rows = [(channel.id, x) for x in fs.DEFAULT_LEAGUES]
+
+        async with self.bot.db.acquire(timeout=60) as connection:
+            # Verify that this is not a livescores channel.
+            async with connection.transaction():
+                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
+                         ON CONFLICT DO NOTHING"""
+                await connection.execute(sql, guild)
+
+                q = """INSERT INTO ticker_channels (guild_id, channel_id)
+                       VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+                await connection.execute(q, guild, channel.id)
+
+                qq = """INSERT INTO ticker_settings (channel_id) VALUES ($1)
+                        ON CONFLICT DO NOTHING"""
+                await connection.execute(qq, channel.id)
+
+                qqq = """INSERT INTO ticker_leagues (channel_id, url)
+                         VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+                await connection.executemany(qqq, rows)
+
+        tc = TickerChannel(channel)
+        self.bot.ticker_channels.append(tc)
+        return await TickerConfig(interaction, tc).update()
+
+    async def update_cache(self) -> list[TickerChannel]:
         """Store a list of all Ticker Channels into the bot"""
         sql = """SELECT DISTINCT channel_id FROM transfers_channels"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql)
 
+        bad = set()
         for r in records:
             ch = self.bot.get_channel(r["channel_id"])
             if ch is None:
+                bad.add(r["channel_id"])
                 continue
+
             ch = typing.cast(discord.TextChannel, ch)
 
             tc = TickerChannel(ch)
             await tc.get_settings()
             self.bot.ticker_channels.append(tc)
+
+        sql = """DELETE FROM ticker_channelss WHERE channel_id = $1"""
+        if self.bot.ticker_channels:
+            async with self.bot.db.acquire() as connection:
+                async with connection.transaction():
+                    await connection.executemany(sql, bad)
+        return self.bot.ticker_channels
 
     @commands.Cog.listener()
     async def on_fixture_event(
@@ -735,7 +734,7 @@ class Ticker(commands.Cog):
         sql = f"""SELECT {c}, ticker_settings.channel_id FROM ticker_settings
                   LEFT JOIN ticker_leagues ON ticker_settings.channel_id =
                   ticker_leagues.channel_id WHERE {not_nulls}
-                  AND (link = $1::text)"""
+                  AND (url = $1::text)"""
 
         url = fixture.competition.url
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -805,26 +804,21 @@ class Ticker(commands.Cog):
 
         await interaction.response.defer(thinking=True)
         if channel is None:
-            ch = interaction.channel
-            if ch is None:
-                raise
-            channel = typing.cast(discord.TextChannel, ch)
+            channel = typing.cast(discord.TextChannel, interaction.channel)
 
         # Validate channel is a ticker channel.
         tkrs = self.bot.ticker_channels
         try:
             tc = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
-            tc = TickerChannel(channel)
+            return await self.create(interaction, channel)
 
-            success = await TickerConfig(interaction, tc).creation_dialogue()
-            if success:
-                self.bot.ticker_channels.append(tc)
         return await TickerConfig(interaction, tc).update()
 
     @ticker.command()
     @discord.app_commands.describe(
-        competition="Search for a league by name", channel="Add to which channel?"
+        competition="Search for a league by name",
+        channel="Add to which channel?",
     )
     async def add_league(
         self,
@@ -832,33 +826,25 @@ class Ticker(commands.Cog):
         competition: discord.app_commands.Transform[
             fs.Competition, CompetitionTransformer
         ],
-        channel: typing.Optional[discord.TextChannel] = None,
+        channel: typing.Optional[discord.TextChannel],
     ) -> discord.InteractionMessage:
         """Add a league to your Match Event Ticker"""
 
-        await interaction.response.defer(thinking=True)
-
-        if channel is None:
-            ch = interaction.channel
-            if ch is None:
-                raise
-
-            channel = typing.cast(discord.TextChannel, ch)
-
-        tkrs = self.bot.ticker_channels
-        try:
-            t_chan = next(i for i in tkrs if i.channel.id == channel.id)
-        except StopIteration:
-            t_chan = TickerChannel(channel)
-
-            suc = await TickerConfig(interaction, t_chan).creation_dialogue()
-            if not suc:
-                return self.bot.error(interaction, "Ticker creation cancelled")
-
-            self.bot.ticker_channels.append(t_chan)
+        if competition.title == "WORLD: Club Friendly":
+            err = "You can't add club friendlies as a competition, sorry."
+            raise ValueError(err)
 
         if competition.url is None:
-            raise ValueError("%s has no url", competition)
+            raise LookupError("%s url is None", competition)
+
+        if channel is None:
+            channel = typing.cast(discord.TextChannel, interaction.channel)
+
+        chn = self.bot.ticker_channels
+        try:
+            tc = next(i for i in chn if i.channel.id == channel.id)
+        except StopIteration:
+            return await self.create(interaction, channel)
 
         # Find the Competition Object.
         sql = """INSERT INTO ticker_leagues (channel_id, url)
@@ -868,10 +854,12 @@ class Ticker(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, channel.id, competition.url)
 
-        t_chan.leagues.append(competition.url)
-
-        txt = f"Added {competition.url} to {channel.mention} tracked leagues"
-        return await TickerConfig(interaction, t_chan).update(txt)
+        tc.leagues.add(competition)
+        e = discord.Embed(title="Ticker: Tracked League Added")
+        e.description = f"{tc.channel.mention}\n\n{competition.url}"
+        u = interaction.user
+        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
+        return await interaction.edit_original_response(embed=e)
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()

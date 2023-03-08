@@ -26,7 +26,7 @@ if typing.TYPE_CHECKING:
 
 API = "https://api.worldofwarships."
 
-logger = logging.getLogger('player')
+logger = logging.getLogger("player")
 
 
 class Achievement:
@@ -80,7 +80,7 @@ class Player:
     def region(self) -> Region:
         """Get a Region object based on the player's ID number."""
         if 0 < self.account_id < 500000000:
-            return Region.CIS
+            raise ValueError("CIS Is no longer supported.")
         elif 500000000 < self.account_id < 999999999:
             return Region.EU
         elif 1000000000 < self.account_id < 1999999999:

@@ -64,13 +64,6 @@ DEFAULT_LEAGUES = [
     "https://www.flashscore.com/football/spain/laliga/",
     "https://www.flashscore.com/football/usa/mls/",
 ]
-WORLD_CUP_LEAGUES = [
-    "EUROPE: World Cup",
-    "ASIA: World Cup",
-    "AFRICA: World Cup",
-    "NORTH & CENTRAL AMERICA: World Cup",
-    "SOUTH AMERICA: World Cup",
-]
 
 
 def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
@@ -377,8 +370,6 @@ async def parse_games(
 class FlashScoreItem:
     """A generic object representing the result of a Flashscore search"""
 
-    bot: typing.ClassVar[Bot]
-
     def __init__(
         self,
         fsid: typing.Optional[str],
@@ -595,13 +586,15 @@ class Competition(FlashScoreItem):
         url: typing.Optional[str],
     ) -> None:
 
+        if url is not None:
+            url = url.strip("/")
         if name and country and not url:
             nom = name.casefold().replace(" ", "-").replace(".", "")
             ctr = country.casefold().replace(" ", "-").replace(".", "")
             url = FLASHSCORE + f"/football/{ctr}/{nom}"
         elif url and country and FLASHSCORE not in url:
             ctr = country.casefold().replace(" ", "-").replace(".", "")
-            url = f"{FLASHSCORE}/{ctr}/{url}/"
+            url = f"{FLASHSCORE}/football/{ctr}/{url}"
         elif fsid and not url:
             # https://www.flashscore.com/?r=1:jLsL0hAF ??
             url = f"https://www.flashscore.com/?r=2:{url}"
@@ -645,7 +638,7 @@ class Competition(FlashScoreItem):
         logo = tree.xpath('.//div[contains(@class,"__logo")]/@style')
 
         try:
-            comp.logo_url = logo[0].split("(")[1].strip(")")
+            comp.logo_url = LOGO_URL + logo[0].split("(")[1].strip(")")
         except IndexError:
             if ".png" in logo:
                 comp.logo_url = logo
@@ -754,7 +747,6 @@ class Fixture:
                 tree = html.fromstring(await page.content())
             finally:
                 await page.close()
-        logger.info("Got page on url %s", self.url)
         # Handle Teams
 
         self.home = await Team.from_fixture_html(bot, tree)
@@ -766,7 +758,7 @@ class Fixture:
 
         div = div[0]
 
-        url = "".join(div.xpath(".//@href"))
+        url = FLASHSCORE + "".join(div.xpath(".//@href"))
         country = "".join(div.xpath("./text()"))
         name = "".join(div.xpath(".//a/text()"))
 
@@ -774,31 +766,33 @@ class Fixture:
         if country:
             country.split(":")[0]
 
-        for i in bot.competitions:
-            if i.url and url in i.url:
-                comp = i
-                logger.info("Found matching comp [url] for %s", i.url)
-                break
+        if comp := bot.get_competition(url):
+            self.comp = comp
+            logger.info("Found comp by url %s", comp.url)
+            return
+        elif comp := bot.get_competition(f"{country.upper()}: {name}"):
+            self.comp = comp
+            logger.info("Found comp by title %s", comp.url)
+            return
+
+        async with semaphore:
+            page = await bot.browser.new_page()
+            await page.goto(url)
+            bar = page.locator(".tabs__tab").nth(0)
+            await bar.wait_for()
+            href = await bar.get_attribute("href")
+
+            logo_url = page.locator("heading__logo").nth(0)
+            src = await logo_url.get_attribute("src")
+
+        if href:
+            fs_id = href.split("/")[1]
         else:
-            async with semaphore:
-                page = await bot.browser.new_page()
-                await page.goto(FLASHSCORE + url)
-                bar = page.locator(".tabs__tab").nth(0)
-                await bar.wait_for()
-                href = await bar.get_attribute("href")
-
-                logo_url = page.locator("heading__logo").nth(0)
-                src = await logo_url.get_attribute("src")
-
-            if href:
-                fs_id = href.split("/")[1]
-            else:
-                fs_id = None
-
-            url = FLASHSCORE + url
-            comp = Competition(fs_id, name, country, url)
-            if src is not None:
-                comp.logo_url = FLASHSCORE + src
+            fs_id = None
+        comp = Competition(fs_id, name, country, url)
+        if src is not None:
+            comp.logo_url = FLASHSCORE + src
+            logger.info("Found comp logo url %s", comp.logo_url)
 
         self.competition = comp
 

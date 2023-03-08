@@ -53,7 +53,7 @@ COGS = [
     "ext.sidebar",
     "ext.stadiums",
     "ext.streams",
-    "ext.ticker",
+    # "ext.ticker",
     "ext.transfers",
     "ext.tv",
     "ext.translations",
@@ -170,7 +170,11 @@ class Bot(commands.AutoShardedBot):
         for i in self.competitions:
             if i.id == identifier:
                 return i
+            if i.url == identifier:
+                return i
             if i.url is not None and identifier in i.url:
+                return i
+            if i.title == identifier:
                 return i
 
     def get_team(self, team_id: str) -> typing.Optional[fs.Team]:

@@ -17,8 +17,6 @@ from discord import (
     HTTPException,
 )
 from discord.app_commands import (
-    guild_only,
-    default_permissions,
     Choice,
 )
 from discord.ext.commands import Cog
@@ -56,7 +54,7 @@ class ToggleButton(Button):
 
         super().__init__(label=label, emoji=region.emote, style=colour)
 
-    async def callback(self, interaction: Interaction[PBot]) -> None:
+    async def callback(self, interaction: discord.Interaction[PBot]) -> None:
         """Set view value to button value"""
 
         await interaction.response.defer()
@@ -96,7 +94,6 @@ class Article:
         # A flag for each region the article has been found in.
         self.eu: bool = False
         self.na: bool = False
-        self.cis: bool = False
         self.sea: bool = False
 
         self.date: Optional[datetime.datetime] = None
@@ -104,13 +101,13 @@ class Article:
     async def save_to_db(self) -> None:
         """Store the article in the database for quicker retrieval in future"""
         sql = """INSERT INTO news_articles (title, description, partial,
-                 link, image, category, date, eu, na, cis, sea)
+                 link, image, category, date, eu, na, sea)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                  ON CONFLICT (partial) DO UPDATE SET (title, description, link,
-                 image, category, date, eu, na, cis, sea) = (EXCLUDED.title,
+                 image, category, date, eu, na, sea) = (EXCLUDED.title,
                  EXCLUDED.description, EXCLUDED.link, EXCLUDED.image,
                  EXCLUDED.category, EXCLUDED.date, EXCLUDED.eu, EXCLUDED.na,
-                 EXCLUDED.cis, EXCLUDED.sea) """
+                 EXCLUDED.sea) """
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(
@@ -124,7 +121,6 @@ class Article:
                     self.date,
                     self.eu,
                     self.na,
-                    self.cis,
                     self.sea,
                 )
 
@@ -210,7 +206,6 @@ class NewsChannel:
         eu=False,
         na=False,
         sea=False,
-        cis=False,
     ) -> None:
         self.channel: TextChannel = channel
         self.bot: PBot = bot
@@ -219,7 +214,6 @@ class NewsChannel:
         self.eu: bool = eu
         self.na: bool = na
         self.sea: bool = sea
-        self.cis: bool = cis
 
         # A list of partial links for articles to see if this
         # channel has already sent one.
@@ -467,7 +461,11 @@ class NewsTracker(Cog):
             channel = typing.cast(discord.TextChannel, channel)
 
             c = NewsChannel(
-                self.bot, channel, r["eu"], r["na"], r["sea"], r["cis"]
+                self.bot,
+                channel,
+                r["eu"],
+                r["na"],
+                r["sea"],
             )
             self.bot.news_channels.append(c)
 
@@ -492,13 +490,13 @@ class NewsTracker(Cog):
 
     # Command for tracker management.
     @discord.app_commands.command()
-    @guild_only()
+    @discord.app_commands.guild_only()
     @discord.app_commands.default_permissions(manage_channels=True)
     @discord.app_commands.describe(channel="Select a channel to edit")
     async def news_tracker(
         self,
-        interaction: Interaction[PBot],
-        channel: Optional[TextChannel] = None,
+        interaction: discord.Interaction[PBot],
+        channel: typing.Optional[discord.TextChannel] = None,
     ) -> None:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""

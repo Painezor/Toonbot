@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from core import Bot
 
 
-NUFC_DISCORD_LINK = "nufc"  # TuuJgrA
+NUFC_DISCORD_LINK = "newcastleutd"  # TuuJgrA
 
 REDDIT_THUMBNAIL = (
     "http://vignette2.wikia.nocookie.net/valkyriecrusade/"
@@ -88,15 +88,6 @@ class NUFCSidebar(commands.Cog):
 
         logger.info(f"{datetime.now()} The sidebar of r/NUFC was updated.")
 
-    @sidebar_loop.before_loop
-    async def fetch_team_data(self) -> None:
-        """Grab information about teams from local database."""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                self.bot.reddit_teams = await connection.fetch(
-                    """SELECT * FROM team_data"""
-                )
-
     async def make_sidebar(
         self,
         subreddit: str = "NUFC",
@@ -125,79 +116,67 @@ class NUFCSidebar(commands.Cog):
                 raise ConnectionError()
             tree = html.fromstring(await resp.text())
 
+        sql = """SELECT * FROM team_data"""
+        async with self.bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                rt = await connection.fetch(sql)
+
         pad = "|:--:" * 6
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{pad}\n"
 
-        xp = ".//table//tr"
+        xp = ".//tbody/tr"
         for i in tree.xpath(xp):
             p = i.xpath(".//td//text()")
-            team = p[2].strip()
+
+            team = p[1].strip()
             # Insert subreddit link from db
 
-            rdt = self.bot.reddit_teams
             try:
-                team = next(i for i in rdt if i["name"] == team)
-                team = f"{team['name']}]({team['subreddit']}"
+                team = next(i for i in rt if i["name"] == team)
+                team = f"[{team['name']}]({team['subreddit']})"
             except StopIteration:
                 pass
 
-            cols = [team] + p[3:7] + p[9:11]  # [t] [p, w, d, l] [gd, pts]
+            # [rank] [t] [p, w, d, l] [gd, pts]
+            cols = [p[0], team] + p[2:6] + p[8:10]
 
             q = qry.casefold()
             t = team.casefold()
             table += " | ".join([f"**{i}**" if q in t else i for i in cols])
             table += "\n"
 
-            logger.info(table)
-
         # Get match threads
         last_opponent = qry.split(" ")[0]
         nufc_sub = await self.bot.reddit.subreddit("NUFC")
-        async for i in nufc_sub.search(
-            'flair:"Pre-match thread"', sort="new", syntax="lucene"
-        ):
-            if last_opponent in i.title:
-                pre = f"[Pre]({i.url.split('?ref=')[0]})"
-                break
-        else:
-            pre = "Pre"
-        async for i in nufc_sub.search(
-            'flair:"Match thread"', sort="new", syntax="lucene"
-        ):
-            if not i.title.startswith("Match"):
-                continue
-            if last_opponent in i.title:
-                match = f"[Match]({i.url.split('?ref=')[0]})"
-                break
-        else:
-            match = "Match"
 
-        async for i in nufc_sub.search(
-            'flair:"Post-match thread"', sort="new", syntax="lucene"
-        ):
-            if last_opponent in i.title:
-                post = f"[Post]({i.url.split('?ref=')[0]})"
-                break
-        else:
-            post = "Post"
+        pre = "Pre"
+        match = "Match"
+        post = "Post"
 
+        async for i in await nufc_sub.search(
+            last_opponent, sort="new", time_filter="month"
+        ):
+            logger.info("Sidebar: Searching for match threads %s", i)
+            if i.title.startswith("Pre"):
+                if last_opponent in i.title:
+                    pre = f"[Pre]({i.url.split('?ref=')[0]})"
+
+            if i.title.startswith("Match"):
+                if last_opponent in i.title:
+                    match = f"[Match]({i.url.split('?ref=')[0]})"
+
+            if i.title.startsiwth("Post"):
+                if last_opponent in i.title:
+                    post = f"[Post]({i.url.split('?ref=')[0]})"
         # Top bar
         match_threads = f"\n\n### {pre} - {match} - {post}"
         fixture = next(i for i in results + fixtures)
         home = next(
-            (
-                i
-                for i in self.bot.reddit_teams
-                if i["name"] == fixture.home.name
-            ),
+            (i for i in rt if i["name"] == fixture.home.name),
             None,
         )
         away = next(
-            (
-                i
-                for i in self.bot.reddit_teams
-                if i["name"] == fixture.away.name
-            ),
+            (i for i in rt if i["name"] == fixture.away.name),
             None,
         )
 
@@ -246,7 +225,7 @@ class NUFCSidebar(commands.Cog):
                     s.stylesheet().stylesheet, reason="Upload a badge"
                 )
 
-        pool = self.bot.reddit_teams
+        pool = rt
         if fixtures:
             rows = []
 

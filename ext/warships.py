@@ -438,7 +438,7 @@ class PlayerView(view_utils.BaseView):
                 embed.description += f" (Max: {max_damage}"
                 if ship_id := stats.pop("max_damage_dealt_vehicle", None):
                     if (ship := self.bot.get_ship(ship_id)) is None:
-                        ship = f"{ship_id}NOT_IN_API"
+                        ship = f"{ship_id}"
                     else:
                         ship = ship.name
                     embed.description += f" - {ship}"
@@ -454,7 +454,7 @@ class PlayerView(view_utils.BaseView):
                 embed.description += f" (Max: {max_kills}"
                 if ship_id := stats.pop("max_frags_vehicle", None):
                     if (ship := self.bot.get_ship(ship_id)) is None:
-                        ship = f"{ship_id}NOT_IN_API"
+                        ship = f"{ship_id}"
                     else:
                         ship = ship.name
                     embed.description += f" - {ship}"
@@ -468,11 +468,13 @@ class PlayerView(view_utils.BaseView):
                 output += f"**{alias} Kills**: {kills}"
                 if max_kills := stats.pop(f"max_frags_by_{api_key}", {}):
                     output += f" (Max: {max_kills}"
-                    if shp := stats.pop(f"max_frags_by_{api_key}_vehicle", 0):
-                        ship = f"{shp}NOT_IN_API"
-                    else:
-                        ship = shp.name
-                    output += f" - {ship}"
+                    shp_id = stats.pop(f"max_frags_by_{api_key}_vehicle", None)
+                    if shp_id:
+                        if (ship := self.bot.get_ship(shp_id)) is None:
+                            ship = f"{shp_id}"
+                        else:
+                            ship = ship.name
+                        output += f" - {ship}"
                     output += ")"
                 output += "\n"
 
@@ -512,8 +514,11 @@ class PlayerView(view_utils.BaseView):
             embed.description += f"**Planes Killed**: {aa}"
             if max_aa := stats.pop("max_planes_killed", None):
                 embed.description += f" (Max: {max_aa}"
-                if max_aa_ship := stats.pop("max_planes_killed_vehicle", None):
-                    ship = self.bot.get_ship(max_aa_ship).name
+                if ship_id := stats.pop("max_planes_killed_vehicle", None):
+                    if (ship := self.bot.get_ship(ship_id)) is None:
+                        ship = f"{ship_id}"
+                    else:
+                        ship = ship.name
                     embed.description += f" - {ship}"
                 embed.description += ")"
             embed.description += "\n"

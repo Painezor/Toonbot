@@ -361,7 +361,7 @@ class ItemView(view_utils.BaseView):
                     f.emoji = "🏅"
 
                     if link:
-                        link = f"{self.object.url}/standings/{link}"
+                        link = f"{self.object.url}standings/{link}"
                     f.args = [link]
 
                 elif text == "Squad":
@@ -1866,6 +1866,7 @@ class Fixtures(commands.Cog):
         ],
     ) -> discord.InteractionMessage:
         """Fetch upcoming fixtures for a competition."""
+        logger.info("Transformer Returned %s", competition.__dict__)
         return await CompetitionView(interaction, competition).fixtures()
 
     @league.command(name="results")

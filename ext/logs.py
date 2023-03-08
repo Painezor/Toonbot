@@ -1523,37 +1523,40 @@ class AuditLogs(commands.Cog):
         if not channels:
             return
 
-        before = discord.Embed(colour=discord.Colour.dark_gray())
+        # Key, Before, After
+        diff: dict[str, tuple[typing.Any, typing.Any]] = {}
+        for k, v in bf.__dict__.items():
+            if af.__dict__[k] != v:
+                diff.update({k: (v, af.__dict__[k])})
+
+        logger.info("Member Update diff:", diff)
+
+        e = discord.Embed(colour=discord.Colour.dark_gray())
         ico = bf.display_avatar.url
-        before.set_author(name=f"{bf.name} ({bf.id})", icon_url=ico)
-        after = discord.Embed(colour=discord.Colour.light_gray())
+        e.set_author(name=f"{af} ({af.id})", icon_url=ico)
 
-        before.description = ""
-        after.description = ""
+        e.description = ""
+        e.timestamp = discord.utils.utcnow()
 
-        after.timestamp = discord.utils.utcnow()
+        if name := diff.pop("name", None):
+            e.description += f"**Name**: {name[0]} -> {name[1]}\n"
 
-        if bf.name != af.name:
-            before.description += f"**Name**: {bf.name}\n"
-            after.description += f"**Name**: {af.name}\n"
+        if discs := diff.pop("discriminator", None):
+            e.description += f"**Discriminator**: {discs[0]} -> {discs[1]}\n"
 
-        if bf.discriminator != af.discriminator:
-            before.description += f"**Discriminator**: {bf.discriminator}\n"
-            after.description += f"**Discriminator**: {af.discriminator}\n"
-
-        if bf.display_avatar.url != af.display_avatar.url:
-            b = bf.display_avatar.url
-            before.description += f"**Avatar**: [Link]({b})\n"
+        if avs := diff.pop("display_avatar"):
+            b = avs[0].url
+            a = avs[1].url
+            e.description += f"**Avatar**: [Old]({b}) -> [New]({a})\n"
             if b:
-                before.set_thumbnail(url=b)
-            a = af.display_avatar.url
-            if a:
-                after.set_thumbnail(url=a)
-            after.description += f"**Avatar**: [Link]({a})\n"
+                e.set_thumbnail(url=b)
+
+        if diff:
+            logging.info('Member_update changes remain %s', diff)
 
         for ch in channels:
             try:
-                await ch.send(embeds=[before, after])
+                await ch.send(embed=e)
             except (discord.Forbidden, discord.NotFound):
                 continue
 
