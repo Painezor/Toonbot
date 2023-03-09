@@ -21,6 +21,8 @@ FAVICON = (
 )
 TF = "https://www.transfermarkt.co.uk"
 
+logger = logging.getLogger('transfermarkt')
+
 
 class SearchResult:
     """A result from a transfermarkt search"""
@@ -801,7 +803,7 @@ class SearchView(view_utils.BaseView):
         try:
             matches = int("".join([i for i in header if i.isdecimal()]))
         except ValueError:
-            logging.error(f"ValueError when parsing header, {header}")
+            logger.error(f"ValueError when parsing header, {header}")
             matches = 0
 
         e = discord.Embed(title=f"{matches} results for {self.query}")
@@ -936,8 +938,12 @@ class PlayerSearch(SearchView):
                 player.team = team
             except IndexError:
                 pass
+            
+            try:
+                player.age = int("".join(i.xpath(".//td[4]/text()")))
+            except ValueError:
+                pass
 
-            player.age = int("".join(i.xpath(".//td[4]/text()")))
             player.position = "".join(i.xpath(".//td[2]/text()"))
 
             xp = './/td/img[@class="flaggenrahmen"]/@title'
@@ -1007,7 +1013,10 @@ class StaffSearch(SearchView):
 
             xp = './/img[@class="bilderrahmen-fixed"]/@src'
             staff.picture = "".join(i.xpath(xp))
-            staff.age = int("".join(i.xpath(".//td[3]/text()")))
+            try:
+                staff.age = int("".join(i.xpath(".//td[3]/text()")))
+            except ValueError:
+                pass
             staff.job = "".join(i.xpath(".//td[5]/text()"))
             staff.country = i.xpath('.//img[@class="flaggenrahmen"]/@title')
 

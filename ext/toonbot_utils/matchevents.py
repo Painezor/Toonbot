@@ -276,118 +276,44 @@ class EventType(Enum):
         self,
         value: str,
         colour: Colour,
-        db_fields: list[str],
         valid_events: Type[MatchEvent],
     ):
         self._value_ = value
         self.colour = colour
-        self.db_fields = db_fields
         self.valid_events = valid_events
 
     # Goals
-    GOAL = "Goal", Colour.dark_green(), ["goal"], Goal | VAR
-    VAR_GOAL = "VAR Goal", Colour.og_blurple(), ["var"], VAR
-    GOAL_OVERTURNED = "Goal Overturned", Colour.og_blurple(), ["var"], VAR
+    GOAL = "Goal", Colour.dark_green(), Goal | VAR
+    VAR_GOAL = "VAR Goal", Colour.og_blurple(), VAR
+    GOAL_OVERTURNED = "Goal Overturned", Colour.og_blurple(), VAR
 
     # Cards
-    RED_CARD = "Red Card", Colour.red(), ["var"], RedCard | VAR
-    VAR_RED_CARD = "VAR Red Card", Colour.og_blurple(), ["var"], VAR
-    RED_CARD_OVERTURNED = (
-        "Red Card Overturned",
-        Colour.og_blurple(),
-        ["var"],
-        VAR,
-    )
+    RED_CARD = "Red Card", Colour.red(), RedCard | VAR
+    VAR_RED_CARD = "VAR Red Card", Colour.og_blurple(), VAR
+    RED_CARD_OVERTURNED = "Red Card Overturned", Colour.og_blurple(), VAR
 
     # State Changes
-    DELAYED = "Match Delayed", Colour.orange(), ["delayed"], None
-    INTERRUPTED = (
-        "Match Interrupted",
-        Colour.dark_orange(),
-        ["delayed"],
-        None,
-    )
-    CANCELLED = "Match Cancelled", Colour.red(), ["delayed"], None
-    POSTPONED = "Match Postponed", Colour.red(), ["delayed"], None
-    ABANDONED = "Match Abandoned", Colour.red(), ["full_time"], None
-    RESUMED = "Match Resumed", Colour.light_gray(), ["kick_off"], None
+    DELAYED = "Match Delayed", Colour.orange(), None
+    INTERRUPTED = "Match Interrupted", Colour.dark_orange(), None
+    CANCELLED = "Match Cancelled", Colour.red(), None
+    POSTPONED = "Match Postponed", Colour.red(), None
+    ABANDONED = "Match Abandoned", Colour.red(), None
+    RESUMED = "Match Resumed", Colour.light_gray(), None
 
     # Period Changes
-    KICK_OFF = "Kick Off", Colour.green(), ["kick_off"], None
-    HALF_TIME = "Half Time", 0x00FFFF, ["half_time"], None
-    SECOND_HALF_BEGIN = (
-        "Second Half",
-        Colour.light_gray(),
-        ["second_half_begin"],
-        None,
-    )
-    PERIOD_BEGIN = (
-        "Period #PERIOD#",
-        Colour.light_gray(),
-        ["second_half_begin"],
-        None,
-    )
-    PERIOD_END = (
-        "Period #PERIOD# Ends",
-        Colour.light_gray(),
-        ["half_time"],
-        None,
-    )
+    KICK_OFF = "Kick Off", Colour.green(), None
+    HALF_TIME = "Half Time", 0x00FFFF, None
+    SECOND_HALF_BEGIN = "Second Half", Colour.light_gray(), None
+    PERIOD_BEGIN = "Period #PERIOD#", Colour.light_gray(), None
+    PERIOD_END = "Period #PERIOD# Ends", Colour.light_gray(), None
 
-    FULL_TIME = "Full Time", Colour.teal(), ["full_time"], None
-    FINAL_RESULT_ONLY = (
-        "Final Result",
-        Colour.teal(),
-        ["final_result_only"],
-        None,
-    )
-    SCORE_AFTER_EXTRA_TIME = (
-        "Score After Extra Time",
-        Colour.teal(),
-        ["full_time"],
-        None,
-    )
-
-    NORMAL_TIME_END = (
-        "End of normal time",
-        Colour.greyple(),
-        ["extra_time"],
-        None,
-    )
-    EXTRA_TIME_BEGIN = (
-        "ET: First Half",
-        Colour.lighter_grey(),
-        ["extra_time"],
-        None,
-    )
-    HALF_TIME_ET_BEGIN = (
-        "ET: Half Time",
-        Colour.light_grey(),
-        ["half_time", "extra_time"],
-        None,
-    )
-    HALF_TIME_ET_END = (
-        "ET: Second Half",
-        Colour.dark_grey(),
-        ["second_half_begin", "extra_time"],
-        None,
-    )
-    EXTRA_TIME_END = (
-        "ET: End of Extra Time",
-        Colour.darker_gray(),
-        ["extra_time"],
-        None,
-    )
-
-    PENALTIES_BEGIN = (
-        "Penalties Begin",
-        Colour.dark_gold(),
-        ["penalties"],
-        None,
-    )
-    PENALTY_RESULTS = (
-        "Penalty Results",
-        Colour.gold(),
-        ["penalties"],
-        None,
-    )
+    FULL_TIME = "Full Time", Colour.teal(), None
+    FINAL_RESULT_ONLY = "Final Result", Colour.teal(), None
+    SCORE_AFTER_EXTRA_TIME = "Score After Extra Time", Colour.teal(), None
+    NORMAL_TIME_END = "End of normal time", Colour.greyple(), None
+    EXTRA_TIME_BEGIN = "ET: First Half", Colour.lighter_grey(), None
+    HALF_TIME_ET_BEGIN = "ET: Half Time", Colour.light_grey(), None
+    HALF_TIME_ET_END = "ET: Second Half", Colour.dark_grey(), None
+    EXTRA_TIME_END = "ET: End of Extra Time", Colour.darker_gray(), None
+    PENALTIES_BEGIN = "Penalties Begin", Colour.dark_gold(), None
+    PENALTY_RESULTS = "Penalty Results", Colour.gold(), None

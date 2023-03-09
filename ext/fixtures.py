@@ -123,7 +123,7 @@ class FixtureTransformer(discord.app_commands.Transformer):
             return fix
 
         if not (fsr := interaction.client.get_team(value)):
-            teams = await fs.search(interaction, value, mode="team")
+            teams = await fs.search(value, "team", interaction=interaction)
             teams = typing.cast(list[fs.Team], teams)
 
             await (v := TeamSelect(interaction, teams)).update()
@@ -183,7 +183,7 @@ class TeamTransformer(discord.app_commands.Transformer):
         if fsr := interaction.client.get_team(value):
             return fsr
 
-        teams = await fs.search(interaction, value, mode="team")
+        teams = await fs.search(value, "team", interaction=interaction)
         teams = typing.cast(list[fs.Team], teams)
 
         await (v := TeamSelect(interaction, teams)).update()
@@ -242,7 +242,7 @@ class CompetitionTransformer(discord.app_commands.Transformer):
         if "http" in value:
             return await fs.Competition.by_link(interaction.client, value)
 
-        comps = await fs.search(interaction, value, mode="comp")
+        comps = await fs.search(value, "comp", interaction=interaction)
         comps = typing.cast(list[fs.Competition], comps)
 
         await (v := CompetitionSelect(interaction, comps)).update()
@@ -1019,8 +1019,6 @@ class ItemView(view_utils.BaseView):
                 text.append(f"\n{fs.INJURY_EMOJI} *{i.injury}*")
 
             flag = i.flag
-            parent = self.squad
-
             parent = view_utils.FuncButton(self.squad, emoji="🏃‍♂️")
             v = PlayerView(self.interaction, i, parent=parent).update
             dropdown.append(view_utils.Funcable(i.name, v, emoji=flag))

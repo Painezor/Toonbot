@@ -8,7 +8,7 @@ import enum
 import unidecode as unidecode
 import discord
 
-from ext.painezbot_utils.modules import Module
+from ext.painezbot_utils.module import Module
 
 
 class Nation(enum.Enum):

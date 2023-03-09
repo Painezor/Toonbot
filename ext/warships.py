@@ -765,6 +765,8 @@ class Warships(commands.Cog):
         v = PlayerView(interaction, player, g_ship)
         if g_mode.tag == "PVP":
             return await v.randoms(division)
+        else:
+            raise NotImplementedError(g_mode.tag)
 
 
 async def setup(bot: PBot):

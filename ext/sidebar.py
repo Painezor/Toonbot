@@ -153,9 +153,8 @@ class NUFCSidebar(commands.Cog):
         match = "Match"
         post = "Post"
 
-        async for i in await nufc_sub.search(
-            last_opponent, sort="new", time_filter="month"
-        ):
+        src = last_opponent
+        async for i in nufc_sub.search(src, sort="new", time_filter="month"):
             logger.info("Sidebar: Searching for match threads %s", i)
             if i.title.startswith("Pre"):
                 if last_opponent in i.title:
@@ -165,7 +164,7 @@ class NUFCSidebar(commands.Cog):
                 if last_opponent in i.title:
                     match = f"[Match]({i.url.split('?ref=')[0]})"
 
-            if i.title.startsiwth("Post"):
+            if i.title.startswith("Post"):
                 if last_opponent in i.title:
                     post = f"[Post]({i.url.split('?ref=')[0]})"
         # Top bar
@@ -356,14 +355,15 @@ class NUFCSidebar(commands.Cog):
             )
 
             e.set_image(url=image.url)
-            file = await image.to_file()
+            file = [await image.to_file()]
         else:
-            file = None
+            file = []
 
         # Build
         wiki = await subreddit.wiki.get_page("config/sidebar")
         await wiki.edit(content=await self.make_sidebar())
-        return await self.bot.reply(interaction, embed=e, file=file)
+        edit = interaction.edit_original_response
+        return await edit(embed=e, attachments=file)
 
 
 async def setup(bot: Bot) -> None:

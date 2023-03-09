@@ -55,24 +55,29 @@ class ScoreChannel:
         for i in self.leagues:
             embeds += i.score_embeds
 
-        if not embeds:
-            return [
-                discord.Embed(
-                    title="No Games Found", description=NO_GAMES_FOUND
-                )
-            ]
-        return embeds
+        if embeds:
+            return embeds
+
+        e = discord.Embed(title="No Games Found")
+        e.description = NO_GAMES_FOUND
+        return [e]
 
     async def get_leagues(self) -> set[fs.Competition]:
         """Fetch target leagues for the ScoreChannel from the database"""
-        sql = """SELECT url FROM scores_leagues WHERE channel_id = $1"""
+        sql = """SELECT * FROM scores_leagues WHERE channel_id = $1"""
 
         async with self.bot.db.acquire(timeout=60) as c:
             async with c.transaction():
                 records = await c.fetch(sql, self.channel.id)
 
         for r in records:
-            comp = self.bot.get_competition(r["url"])
+            if r["url"]:
+                comp = self.bot.get_competition(r["url"])
+            elif r["league"]:
+                comp = self.bot.get_competition(r["league"])
+            else:
+                comp = None
+
             if comp is None:
                 continue
 
@@ -190,10 +195,9 @@ class ScoresConfig(view_utils.BaseView):
         self.add_page_buttons()
 
         leagues: list[fs.Competition]
-        leagues = [i.url for i in self.pages[self.index] if i.url is not None]
+        lg_txt = [i.title for i in self.pages[self.index] if i.url is not None]
 
-        embed.description += "\n".join([str(i.url) for i in leagues])
-
+        embed.description += "\n".join([str(i) for i in lg_txt])
         self.add_item(RemoveLeague(leagues, row=1))
 
         return await edit(embed=embed, view=self)
@@ -252,6 +256,9 @@ class RemoveLeague(discord.ui.Select):
             if lg.url is None:
                 continue
 
+            opt = discord.SelectOption(label=lg.title, value=lg.url)
+            opt.description = lg.url
+            opt.emoji = lg.flag
             self.add_option(label=lg.title, description=lg.url, value=lg.url)
 
     async def callback(
@@ -259,12 +266,10 @@ class RemoveLeague(discord.ui.Select):
     ) -> discord.InteractionMessage:
         """When a league is selected"""
         await interaction.response.defer()
-        view = view_utils.Confirmation(
-            interaction,
-            "Remove",
-            "Cancel",
-            discord.ButtonStyle.red,
-        )
+
+        red = discord.ButtonStyle.red
+        intr = self.view.interaction
+        view = view_utils.Confirmation(intr, "Remove", "Cancel", red)
 
         lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
         c = self.view.sc.channel.mention
@@ -293,7 +298,7 @@ class RemoveLeague(discord.ui.Select):
         m = self.view.sc.channel.mention
         msg = f"Removed {m} tracked leagues: ```yaml\n{lg_text}```"
         e = discord.Embed(description=msg, colour=discord.Colour.red())
-
+        e.title = "LiveScores"
         u = interaction.user
         e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
         await self.view.interaction.followup.send(content=msg)
@@ -361,12 +366,10 @@ class Scores(commands.Cog):
                 records = await connection.fetch(sql)
 
         # Generate {channel_id: [league1, league2, league3, …]}
-
-        comps = self.bot.competitions
-
         chans = self.bot.score_channels
         bad = set()
 
+        sql = """UPDATE scores_leagues SET url = $1 WHERE channel_id = $2"""
         for r in records:
             channel = self.bot.get_channel(r["channel_id"])
 
@@ -378,24 +381,34 @@ class Scores(commands.Cog):
                 bad.add(r["channel_id"])
                 continue
 
-            try:
-                comp = next(i for i in comps if i.url == r["url"])
-            except StopIteration:
-                continue
+            if r["url"] is None:
+                comp = self.bot.get_competition(r["league"])
+                if comp:
+                    cid = r["channel_id"]
+                    async with self.bot.db.acquire() as connection:
+                        async with connection.transaction():
+                            await connection.execute(sql, comp.url, cid)
+            else:
+                comp = self.bot.get_competition(r["url"])
 
             try:
                 sc = next(i for i in chans if i.channel.id == r["channel_id"])
             except StopIteration:
                 sc = ScoreChannel(channel)
                 chans.append(sc)
-            sc.leagues.add(comp)
+
+            if comp is None:
+                logger.error("Could not get_competition for %s", r["league"])
+            else:
+                sc.leagues.add(comp)
 
         # Cleanup Old.
         sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
         if chans:
-            async with self.bot.db.acquire() as connection:
-                async with connection.transaction():
-                    await connection.executemany(sql, bad)
+            for i in bad:
+                async with self.bot.db.acquire() as connection:
+                    async with connection.transaction():
+                        await connection.execute(sql, i)
         return chans
 
     # Core Loop
@@ -535,6 +548,7 @@ class Scores(commands.Cog):
     # Core Loop
     async def fetch_games(self) -> list[fs.Fixture]:
         """Grab current scores from flashscore using aiohttp"""
+        logger.info("Entered fetch_games")
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             match resp.status:
                 case 200:
@@ -562,34 +576,8 @@ class Scores(commands.Cog):
 
             # Check if the chunk to be parsed has is a header.
             # If it is, we need to create a new competition object.
-            # TODO: Handle Competition Fetching & Team Fetching from Flashscore
-            if competition_name := "".join(tree.xpath(".//h4/text()")).strip():
-                # Loop over bot.competitions to see if we can find the right
-                # Competition object for base_embed.
-
-                if exact := [i for i in comps if i.title == competition_name]:
-                    competition = exact[0]
-                else:
-                    country, name = competition_name.rsplit(":", 1)
-                    # Partial Matches
-                    partial = [x for x in comps if x.title in competition_name]
-                    for ss in ["women", "u18"]:  # Filter…
-                        if ss in competition_name.casefold():
-                            partial = [
-                                i for i in partial if ss in i.name.casefold()
-                            ]
-
-                    if partial:
-                        partial.sort(key=lambda x: len(x.name))
-                        competition = partial[0]
-                    else:
-
-                        if country:
-                            country = country.strip()
-                        if name:
-                            name = name.strip()
-                        competition = fs.Competition(None, name, country, None)
-                        self.bot.competitions.append(competition)
+            if tree.xpath(".//h4/text()"):
+                continue
 
             try:
                 link = "".join(tree.xpath(".//a/@href"))
@@ -639,18 +627,13 @@ class Scores(commands.Cog):
                 home = fs.Team(None, home_name, None)
                 away = fs.Team(None, away_name, None)
                 fx = fs.Fixture(home, away, match_id, url)
-                rf_task = self.bot.loop.create_task(fx.fetch_data(self.bot))
-                self.tasks.add(rf_task)
-                rf_task.add_done_callback(self.tasks.discard)
+                await self.bot.loop.create_task(fx.fetch_data(self.bot))
+                await asyncio.sleep(0)
                 self.bot.games.append(fx)
 
                 old_state = None
             else:
                 old_state = fx.state
-
-            # Set the competition of the fixture
-            if fx.competition is None:
-                fx.competition = competition
 
             # Handling red cards is done relatively simply, do this first.
             cards = tree.xpath("./img/@class")
@@ -723,6 +706,7 @@ class Scores(commands.Cog):
             score_line = "".join(tree.xpath(".//a/text()")).split(":")
 
             h_score, a_score = score_line
+            override = None
             if a_score != "-":
                 override = "".join([i for i in a_score if not i.isdigit()])
                 h_score = int(h_score)
@@ -745,60 +729,49 @@ class Scores(commands.Cog):
                             ev = EventType.VAR_GOAL
                         self.bot.dispatch(f, ev, fx, home=False)
                     fx.away_score = a_score
-            else:
-                override = None
+
+            if state == "sched":
+                override = "sched"
 
             if override:
                 try:
                     fx.time = {
                         "aet": GameState.AFTER_EXTRA_TIME,
                         "pen": GameState.AFTER_PENS,
+                        "sched": GameState.SCHEDULED,
                         "wo": GameState.WALKOVER,
                     }[override.casefold()]
                 except KeyError:
                     logger.error(f"Unhandled override: {override}")
-            else:
+            elif len(time) == 1:
                 # From the link of the score, we can gather info about the time
                 # valid states are: sched, live, fin
-                match len(time), state:
-                    case 1, "live":
-                        match time[0]:
-                            case "Half Time":
-                                fx.time = GameState.HALF_TIME
-                            case "Break Time":
-                                fx.time = GameState.BREAK_TIME
-                            case "Penalties":
-                                fx.time = GameState.PENALTIES
-                            case "Extra Time":
-                                fx.time = GameState.EXTRA_TIME
-                            case "Live":
-                                fx.time = GameState.FINAL_RESULT_ONLY
-                            case _:
-                                if "'" not in time[0]:
-                                    logger.error("1 part time %1", time)
-                                fx.time = time[0]
-                    case 1, "sched":
-                        fx.time = GameState.SCHEDULED
-                    case 1, "fin":
-                        fx.time = GameState.FULL_TIME
-                    case 2, _:
-                        # If we have a 2 part item, the second part will
-                        # provide additional information
-                        match time[-1]:
-                            case "Cancelled":
-                                fx.time = GameState.CANCELLED
-                            case "Postponed":
-                                fx.time = GameState.POSTPONED
-                            case "Delayed":
-                                fx.time = GameState.DELAYED
-                            case "Interrupted":
-                                fx.time = GameState.INTERRUPTED
-                            case "Abandoned":
-                                fx.time = GameState.ABANDONED
-                            case "Extra Time":
-                                fx.time = GameState.EXTRA_TIME
-                            case _:
-                                logger.error(f"2 part time found {time}")
+                t = time[0]
+                if t == "Live":
+                    fx.time = GameState.FINAL_RESULT_ONLY
+                elif t == "Half Time":
+                    fx.time = GameState.HALF_TIME
+                else:
+                    if "'" not in t and ":" not in t:
+                        logger.error("1 part time %s", t)
+                    else:
+                        fx.time = t
+            elif len(time) == 2:
+                t = time[-1]
+                if t == "Cancelled":
+                    fx.time = GameState.CANCELLED
+                elif t == "Postponed":
+                    fx.time = GameState.POSTPONED
+                elif t == "Delayed":
+                    fx.time = GameState.DELAYED
+                elif t == "Interrupted":
+                    fx.time = GameState.INTERRUPTED
+                elif t == "Abandoned":
+                    fx.time = GameState.ABANDONED
+                elif t == "Extra Time":
+                    fx.time = GameState.EXTRA_TIME
+                else:
+                    logger.error(f"2 part time found {time}")
 
             if old_state is not None:
                 self.dispatch_states(fx, old_state)
@@ -935,12 +908,14 @@ class Scores(commands.Cog):
             err = f"{channel.mention} is not a live-scores channel."
             raise ValueError(err)
 
-        sql = """INSERT INTO scores_leagues (channel_id, url)
-                 VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+        sql = """INSERT INTO scores_leagues (channel_id, url, league)
+                 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
 
+        url = competition.url
+        title = competition.title
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(sql, sc.channel.id, competition.url)
+                await connection.execute(sql, sc.channel.id, url, title)
 
         sc.leagues.add(competition)
         e = discord.Embed(title="LiveScores: Tracked League Added")

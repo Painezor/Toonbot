@@ -146,7 +146,6 @@ class Admin(commands.Cog):
         self, interaction: discord.Interaction[Bot | PBot]
     ) -> discord.InteractionMessage:
         """Clear the command window."""
-
         await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise commands.NotOwner

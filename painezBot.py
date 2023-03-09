@@ -23,7 +23,7 @@ if typing.TYPE_CHECKING:
     from ext.painezbot_utils.clan import Clan, ClanBuilding
     from ext.painezbot_utils.player import GameMode, Player
     from ext.painezbot_utils.ship import Ship, ShipType
-    from ext.painezbot_utils.modules import Module
+    from ext.painezbot_utils.module import Module
     from ext.twitch import Contributor, TBot, TrackerChannel
 
 

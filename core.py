@@ -53,7 +53,7 @@ COGS = [
     "ext.sidebar",
     "ext.stadiums",
     "ext.streams",
-    # "ext.ticker",
+    "ext.ticker",
     "ext.transfers",
     "ext.tv",
     "ext.translations",
@@ -167,14 +167,18 @@ class Bot(commands.AutoShardedBot):
         self, identifier: str
     ) -> typing.Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
+        if identifier is None:
+            return None
+
         for i in self.competitions:
             if i.id == identifier:
                 return i
             if i.url == identifier:
                 return i
-            if i.url is not None and identifier in i.url:
-                return i
-            if i.title == identifier:
+            if i.url is not None:
+                if identifier in i.url or i.url in identifier:
+                    return i
+            if i.title.casefold() == identifier.casefold():
                 return i
 
     def get_team(self, team_id: str) -> typing.Optional[fs.Team]:

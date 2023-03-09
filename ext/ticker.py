@@ -6,7 +6,6 @@ import asyncio
 import io
 import typing
 import logging
-import asyncpg
 
 from playwright.async_api import TimeoutError as pw_TimeoutError
 
@@ -294,8 +293,19 @@ class TickerChannel:
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
         self.leagues: set[fs.Competition] = set()
-        self.settings: dict = {}
         self.dispatched: dict[TickerEvent, discord.Message] = {}
+
+        self.goals: typing.Optional[bool] = None
+        self.kick_offs: typing.Optional[bool] = None
+        self.full_times: typing.Optional[bool] = None
+        self.half_times: typing.Optional[bool] = None
+        self.second_halfs: typing.Optional[bool] = None
+        self.red_cards: typing.Optional[bool] = None
+        self.final_results: typing.Optional[bool] = None
+        self.penalties: typing.Optional[bool] = None
+        self.delays: typing.Optional[bool] = None
+        self.vars: typing.Optional[bool] = None
+        self.extra_times: typing.Optional[bool] = None
 
     # Send messages
     async def output(
@@ -308,15 +318,6 @@ class TickerChannel:
         # Check if we need short or long embed.
         # For each stored db_field value,
         # we check against our own settings field.
-        if not self.settings:
-            await self.get_settings()
-
-        for x in event.event_type.db_fields:
-            if not self.settings[x]:
-                e = e
-                break
-        else:
-            e = full_embed if full_embed is not None else e
 
         try:
             try:
@@ -333,7 +334,7 @@ class TickerChannel:
         return message
 
     # Database management.
-    async def get_settings(self) -> dict:
+    async def set_attrs(self) -> None:
         """Retrieve the settings of the TickerChannel from the database"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -350,20 +351,20 @@ class TickerChannel:
             for k, v in stg.items():
                 if k == "channel_id":
                     continue
-                self.settings[k] = v
+                setattr(self, k, v)
 
         sql = """UPDATE ticker_leagues SET url = $1 WHERE league = $2"""
-        connection = await self.bot.db.acquire()
-        async with connection.transaction():
-            for r in leagues:
-                if comp := self.bot.get_competition(r["league"]):
-                    if r["url"] is None:
-                        url = comp.url
-                        if url is None:
-                            continue
-                        await connection.execute(sql, url, r["league"])
-                    self.leagues.add(comp)
-        return self.settings
+        async with self.bot.db.acquire() as connection:
+            async with connection.transaction():
+                for r in leagues:
+                    if comp := self.bot.get_competition(r["league"]):
+                        if r["url"] is None:
+                            url = comp.url
+                            if url is None:
+                                continue
+                            await connection.execute(sql, url, r["league"])
+                        self.leagues.add(comp)
+        return
 
 
 class ToggleButton(discord.ui.Button):
@@ -387,9 +388,7 @@ class ToggleButton(discord.ui.Button):
 
         title = db_key.replace("_", " ").title()
 
-        if title == "Goal":
-            title = "Goals"
-        elif title == "Red Card":
+        if title == "Redcard":
             title = "Red Cards"
         elif title == "Var":
             title = "VAR Reviews"
@@ -415,7 +414,7 @@ class ToggleButton(discord.ui.Button):
             async with connection.transaction():
                 await connection.execute(sql, new_value, ch)
 
-        self.view.tc.settings[self.db_key] = new_value
+        setattr(self.view.tc, self.db_key, new_value)
         return await self.view.update()
 
 
@@ -426,7 +425,7 @@ class ResetLeagues(discord.ui.Button):
 
     def __init__(self) -> None:
         super().__init__(
-            label="Reset to default leagues", style=discord.ButtonStyle.primary
+            label="Reset Ticker", style=discord.ButtonStyle.primary
         )
 
     async def callback(
@@ -470,22 +469,36 @@ class DeleteTicker(discord.ui.Button):
         self, interaction: discord.Interaction[Bot]
     ) -> discord.InteractionMessage:
         """Click button delete ticker"""
-
         await interaction.response.defer()
+
+        intr = self.view.interaction
+        style = discord.ButtonStyle.red
+        view = view_utils.Confirmation(intr, "Confirm", "Cancel", style)
+
+        ch = self.view.tc.channel.mention
+        e = discord.Embed(colour=discord.Colour.red())
+        e.description = (
+            f"Are you sure you wish to delete the ticker from {ch}?"
+            "\n\nThis action cannot be undone."
+        )
+
+        await intr.edit_original_response(view=view, embed=e)
+
+        if not view.value:
+            return await self.view.update()
+
         sql = """DELETE FROM ticker_channels WHERE channel_id = $1"""
         async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(sql, self.view.tc.channel.id)
+
         interaction.client.ticker_channels.remove(self.view.tc)
 
         e = discord.Embed(colour=discord.Colour.red())
-
-        ch = self.view.tc.channel.mention
         e.description = f"The Ticker for {ch} was deleted."
         u = interaction.user
         e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
-        await interaction.followup.send(embed=e)
-        return await interaction.edit_original_response(embed=e, view=None)
+        return await intr.edit_original_response(embed=e, view=None)
 
 
 class RemoveLeague(discord.ui.Select):
@@ -501,6 +514,9 @@ class RemoveLeague(discord.ui.Select):
             if lg.url is None:
                 continue
 
+            opt = discord.SelectOption(label=lg.title, value=lg.url)
+            opt.description = lg.url
+            opt.emoji = lg.flag
             self.add_option(label=lg.title, description=lg.url, value=lg.url)
 
     async def callback(
@@ -510,14 +526,14 @@ class RemoveLeague(discord.ui.Select):
 
         await interaction.response.defer()
 
-        view = view_utils.Confirmation(
-            interaction, "Remove", "Cancel", discord.ButtonStyle.red
-        )
+        red = discord.ButtonStyle.red
+        itr = self.view.interaction
+        view = view_utils.Confirmation(itr, "Remove", "Cancel", red)
 
         lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
         c = self.view.tc.channel.mention
 
-        e = discord.Embed(title="Transfer Ticker", colour=discord.Colour.red())
+        e = discord.Embed(title="Ticker", colour=discord.Colour.red())
         e.description = f"Remove these leagues from {c}?\n{lg_text}"
         await self.view.interaction.edit_original_response(embed=e, view=view)
         await view.wait()
@@ -539,7 +555,7 @@ class RemoveLeague(discord.ui.Select):
         m = self.view.tc.channel.mention
         msg = f"Removed {m} tracked leagues: ```yaml\n{lg_text}```"
         e = discord.Embed(description=msg, colour=discord.Colour.red())
-
+        e.title = "Ticker"
         u = interaction.user
         e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
         await self.view.interaction.followup.send(content=msg)
@@ -561,9 +577,6 @@ class TickerConfig(view_utils.BaseView):
     async def update(self) -> discord.InteractionMessage:
         """Regenerate view and push to message"""
         self.clear_items()
-
-        if not self.tc.settings:
-            await self.tc.get_settings()
 
         embed = discord.Embed(colour=discord.Colour.dark_teal())
         embed.title = "Match Event Ticker config"
@@ -605,13 +618,24 @@ class TickerConfig(view_utils.BaseView):
         self.add_item(RemoveLeague(leagues, row=1))
 
         count = 0
-        for k, v in self.tc.settings.items():
-            # We don't need a button for channel_id,
-            # it's just the database key.
-            if k == "channel_id":
-                continue
+
+        for k in [
+            "goals",
+            "kick_offs",
+            "full_times",
+            "half_times",
+            "second_halfs",
+            "red_cards",
+            "final_results",
+            "penalties",
+            "delays",
+            "vars",
+            "extra_times",
+        ]:
             row = 2 + count // 5
-            self.add_item(ToggleButton(db_key=k, value=v, row=row))
+            self.add_item(
+                ToggleButton(db_key=k, value=getattr(self.tc, k), row=row)
+            )
 
             count += 1
 
@@ -686,12 +710,13 @@ class Ticker(commands.Cog):
                 await connection.executemany(qqq, rows)
 
         tc = TickerChannel(channel)
+        await tc.set_attrs()
         self.bot.ticker_channels.append(tc)
         return await TickerConfig(interaction, tc).update()
 
     async def update_cache(self) -> list[TickerChannel]:
         """Store a list of all Ticker Channels into the bot"""
-        sql = """SELECT DISTINCT channel_id FROM transfers_channels"""
+        sql = """SELECT DISTINCT channel_id FROM ticker_channels"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql)
@@ -706,10 +731,10 @@ class Ticker(commands.Cog):
             ch = typing.cast(discord.TextChannel, ch)
 
             tc = TickerChannel(ch)
-            await tc.get_settings()
+            await tc.set_attrs()
             self.bot.ticker_channels.append(tc)
 
-        sql = """DELETE FROM ticker_channelss WHERE channel_id = $1"""
+        sql = """DELETE FROM ticker_channels WHERE channel_id = $1"""
         if self.bot.ticker_channels:
             async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
@@ -728,63 +753,43 @@ class Ticker(commands.Cog):
         if not fixture.competition:
             return
 
-        flds = event_type.db_fields
-        c: str = ", ".join(flds)
-        not_nulls = " AND ".join([f"({x} IS NOT NULL)" for x in flds])
-        sql = f"""SELECT {c}, ticker_settings.channel_id FROM ticker_settings
-                  LEFT JOIN ticker_leagues ON ticker_settings.channel_id =
-                  ticker_leagues.channel_id WHERE {not_nulls}
-                  AND (url = $1::text)"""
-
         url = fixture.competition.url
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records = await connection.fetch(sql, url)
 
-        if records:
-            match event_type:
-                case m_evt.EventType.GOAL | m_evt.EventType.FULL_TIME:
-                    url = f"{fixture.competition.url}/standings/"
-                    fixture.competition.table = await get_table(self.bot, url)
+        if url is None:
+            return
 
         channels: list[TickerChannel] = []
-        long: bool = False
+        for i in self.bot.ticker_channels:
+            if fixture.competition in i.leagues:
+                channels.append(i)
 
-        r: asyncpg.Record
-        score_channels = [i.channel.id for i in self.bot.score_channels]
-        tickers = self.bot.ticker_channels.copy()
+        long = False
 
-        for r in records:
-            # Validate this channel is suitable for message output.
-            ch_id = r["channel_id"]
-            if ch_id in score_channels:
-                continue
+        if event_type == m_evt.EventType.KICK_OFF:
+            channels = [i for i in channels if i.kick_offs is not None]
 
-            channel = self.bot.get_channel(ch_id)
-            if channel is None:
-                continue
+        elif event_type == m_evt.EventType.GOAL:
+            channels = [i for i in channels if i.goals is not None]
 
-            channel = typing.cast(discord.TextChannel, channel)
+            if channels:
+                fixture.competition.table = await get_table(self.bot, url)
 
-            if channel.is_news():
-                continue
+            long: bool = any([i.goals is True for i in channels])
 
-            perms = channel.permissions_for(channel.guild.me)
-            if not perms.send_messages or not perms.embed_links:
-                continue
+        elif event_type == m_evt.EventType.FULL_TIME:
+            channels = [i for i in channels if i.goals is not None]
 
-            if all(x for x in r):
-                long = True
+            if channels:
+                fixture.competition.table = await get_table(self.bot, url)
 
-            try:
-                tc = next(i for i in tickers if i.channel.id == channel.id)
-            except StopIteration:
-                tc = TickerChannel(channel)
-                self.bot.ticker_channels.append(tc)
-            channels.append(tc)
+            long: bool = any([i.full_times is True for i in channels])
 
-        if channels:
-            return TickerEvent(fixture, event_type, channels, long, home)
+        else:
+            logger.info("Ticker -- Unhandled Event Type %s", event_type)
+
+        if not channels:
+            return
+        return TickerEvent(fixture, event_type, channels, long, home)
 
     ticker = discord.app_commands.Group(
         name="ticker",
@@ -807,12 +812,11 @@ class Ticker(commands.Cog):
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
         # Validate channel is a ticker channel.
-        tkrs = self.bot.ticker_channels
         try:
+            tkrs = self.bot.ticker_channels
             tc = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
             return await self.create(interaction, channel)
-
         return await TickerConfig(interaction, tc).update()
 
     @ticker.command()

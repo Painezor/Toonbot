@@ -14,7 +14,7 @@ if typing.TYPE_CHECKING:
 
 from ext.utils import view_utils
 from ext.painezbot_utils.ship import Nation, Ship, ShipType
-from ext.painezbot_utils import modules
+from ext.painezbot_utils import module as modules
 
 logger = logging.getLogger("fitting")
 
@@ -41,6 +41,7 @@ class ShipView(view_utils.BaseView):
             typing.Type[modules.Module], int
         ] = self.default_fit()
         self.data: dict = {}
+
         self.available_modules: dict[int, modules.Module] = {}
 
     async def fetch_modules(self) -> dict[int, modules.Module]:
@@ -470,6 +471,9 @@ class ShipView(view_utils.BaseView):
             vals: list[tuple] = []
             for ship_id, xp in self.ship.next_ships.items():  # ShipID, XP Cost
                 nxt = self.bot.get_ship(int(ship_id))
+                if nxt is None:
+                    continue
+
                 cr = format(nxt.price_credit, ",")
                 xp = format(xp, ",")
                 t = (

@@ -1,14 +1,16 @@
 """A Utility tool for fetching and structuring data from Flashscore"""
 from __future__ import annotations
-import asyncio  # Cyclic Type Hinting
+import asyncio
+from io import TextIOBase  # Cyclic Type Hinting
 
 import logging
 from datetime import datetime, timezone
+from multiprocessing.sharedctypes import Value
 from urllib.parse import quote
 
 import discord
 from lxml import html
-from playwright.async_api import Page
+from playwright.async_api import Page, TimeoutError as pw_TimeoutError
 
 from ext.toonbot_utils.gamestate import GameState
 from ext.utils import embed_utils, flags, timed_events
@@ -236,13 +238,17 @@ async def parse_games(
 ) -> list[Fixture]:
     """Parse games from raw HTML from fixtures or results function"""
     page: Page = await bot.browser.new_page()
+
+    if object.url is None:
+        raise ValueError("No URL found in %s", object)
     try:
-        if not object.url:
-            raise ValueError(f"No URL found on FSItem {object}")
         await page.goto(object.url + sub_page, timeout=5000)
         loc = page.locator(".sportName.soccer")
         await loc.wait_for()
         tree = html.fromstring(await page.content())
+    except pw_TimeoutError:
+        logger.error("Timed out parsing games on %s", object.url + sub_page)
+        return []
     finally:
         await page.close()
 
@@ -399,7 +405,7 @@ class FlashScoreItem:
     def markdown(self) -> str:
         """Shorthand for FSR mark-down link"""
         if self.url is not None:
-            return f"[{self.name or 'Unknown Item'}]({self.url})"
+            return f"[{self.title or 'Unknown Item'}]({self.url})"
         return self.name or "Unknown Item"
 
     @property
@@ -408,11 +414,8 @@ class FlashScoreItem:
 
     async def base_embed(self) -> discord.Embed:
         """A discord Embed representing the flashscore search result"""
-
         e = discord.Embed()
-        e.set_author(name=self.title, icon_url=self.logo_url)
         e.description = ""
-
         if self.logo_url is not None:
             if "flashscore" in self.logo_url:
                 logo = self.logo_url
@@ -424,7 +427,9 @@ class FlashScoreItem:
                     clr = await embed_utils.get_colour(logo)
                     self.embed_colour = clr
                 e.colour = clr
-                e.set_thumbnail(url=logo)
+            e.set_author(name=self.title, icon_url=logo, url=self.url)
+        else:
+            e.set_author(name=self.title, url=self.url)
         return e
 
 
@@ -586,8 +591,13 @@ class Competition(FlashScoreItem):
         url: typing.Optional[str],
     ) -> None:
 
+        # Sanitise inputs.
+        if country is not None and ":" in country:
+            country = country.split(":")[0]
+
         if url is not None:
-            url = url.strip("/")
+            url = url.rstrip("/")
+
         if name and country and not url:
             nom = name.casefold().replace(" ", "-").replace(".", "")
             ctr = country.casefold().replace(" ", "-").replace(".", "")
@@ -729,7 +739,6 @@ class Fixture:
         return f"{time}: {self.bold_markdown}"
 
     async def fetch_data(self, bot: Bot):
-        logger.info("Entered Fetch_data on url %s", self.url)
         if self.url is None:
             return
 
@@ -737,6 +746,7 @@ class Fixture:
         # DO all set and forget shit.
 
         async with semaphore:
+            # Release so we don't block heartbeat
             page = await bot.browser.new_page()
             try:
                 await page.goto(self.url)
@@ -754,50 +764,49 @@ class Fixture:
 
         # TODO: Fetch Competition Info
         div = tree.xpath(".//span[@class='tournamentHeader__country']")
-        logger.info("Fetching competition...")
 
         div = div[0]
 
-        url = FLASHSCORE + "".join(div.xpath(".//@href"))
+        url = FLASHSCORE + "".join(div.xpath(".//@href")).rstrip("/")
         country = "".join(div.xpath("./text()"))
         name = "".join(div.xpath(".//a/text()"))
 
-        logger.info("Competition url=%s", url)
         if country:
-            country.split(":")[0]
+            country = country.split(":")[0]
 
         if comp := bot.get_competition(url):
             self.comp = comp
-            logger.info("Found comp by url %s", comp.url)
             return
+
         elif comp := bot.get_competition(f"{country.upper()}: {name}"):
             self.comp = comp
-            logger.info("Found comp by title %s", comp.url)
             return
 
-        async with semaphore:
-            page = await bot.browser.new_page()
-            await page.goto(url)
-            bar = page.locator(".tabs__tab").nth(0)
-            await bar.wait_for()
-            href = await bar.get_attribute("href")
-
-            logo_url = page.locator("heading__logo").nth(0)
-            src = await logo_url.get_attribute("src")
-
-        if href:
-            fs_id = href.split("/")[1]
         else:
             fs_id = None
-        comp = Competition(fs_id, name, country, url)
-        if src is not None:
-            comp.logo_url = FLASHSCORE + src
-            logger.info("Found comp logo url %s", comp.logo_url)
+            async with semaphore:
+                page = await bot.browser.new_page()
+                src = None
+                try:
+                    await page.goto(url)
+                    bar = page.locator(".tabs__tab").nth(0)
+                    await bar.wait_for()
+
+                    logo_url = page.locator(".heading__logo").first
+                    src = await logo_url.get_attribute("src", timeout=1000)
+                except pw_TimeoutError:
+                    logger.error("Timed out heading__logo %s", url)
+                finally:
+                    await page.close()
+
+            comp = Competition(fs_id, name, country, url)
+            if src is not None:
+                comp.logo_url = FLASHSCORE + src
+                logger.info("Found comp logo url %s", comp.logo_url)
+
+            await search(comp.title, "comp", bot=bot)
 
         self.competition = comp
-
-        if comp not in bot.competitions:
-            await save_comp(bot, comp)
 
         if None in [self.referee, self.stadium]:
             text = tree.xpath('.//div[@class="mi__data"]/span/text()')
@@ -824,10 +833,7 @@ class Fixture:
             if "+" in self.time:
                 return GameState.STOPPAGE_TIME
             else:
-                if int(self.time.strip("'")) < 90:
-                    return GameState.LIVE
-                else:
-                    return GameState.EXTRA_TIME
+                return GameState.LIVE
         else:
             return self.time
 
@@ -1120,26 +1126,30 @@ locales = {
 
 
 async def search(
-    interaction: discord.Interaction[Bot],
     query: str,
     mode: typing.Literal["comp", "team"],
+    interaction: typing.Optional[discord.Interaction[Bot]] = None,
+    bot: typing.Optional[Bot] = None,
 ) -> list[Competition | Team]:
     """Fetch a list of items from flashscore matching the user's query"""
     replace = query.translate(dict.fromkeys(map(ord, "'[]#<>"), None))
     query = quote(replace)
 
-    bot = interaction.client
+    if interaction is not None:
+        bot = interaction.client
 
-    try:
-        lang_id = locales[interaction.locale]
-    except KeyError:
         try:
-            if interaction.guild_locale is None:
-                lang_id = 1
-            else:
-                lang_id = locales[interaction.guild_locale]
+            lang_id = locales[interaction.locale]
         except KeyError:
-            lang_id = 1
+            try:
+                if interaction.guild_locale is None:
+                    lang_id = 1
+                else:
+                    lang_id = locales[interaction.guild_locale]
+            except KeyError:
+                lang_id = 1
+    else:
+        lang_id = 1
 
     # Type IDs: 1 - Team | Tournament, 2 - Team, 3 - Player 4 - PlayerInTeam
     url = (
@@ -1147,48 +1157,69 @@ async def search(
         f"&lang-id={lang_id}&type-ids=1,2,3,4&sport-ids=1"
     )
 
+    if bot is None:
+        raise AttributeError("Pass either bot or Interaction")
+
     async with bot.session.get(url) as resp:
-        match resp.status:
-            case 200:
-                res = typing.cast(dict, await resp.json())
-            case _:
-                err = f"{resp.status} error searching flashscore {query}"
-                raise LookupError(err)
+        if resp.status != 200:
+            err = f"{resp.status} error searching flashscore {query}"
+            raise LookupError(err)
+        res = typing.cast(dict, await resp.json())
 
     results: list[Competition | Team] = []
+
     for x in res:
-        for t in x["participantTypes"]:
-            match t["name"]:
-                case "National" | "Team":
-                    if mode == "comp":
-                        continue
+        logger.info(x)
 
-                    if not (team := bot.get_team(x["id"])):
+        if x["participantTypes"] is None:
+            if x["type"]["name"] == "TournamentTemplate":
+                id_ = x["id"]
+                name = x["name"]
+                ctry = x["defaultCountry"]["name"]
+                url = x["url"]
+                comp = Competition(id_, name, ctry, url)
 
-                        team = Team(x["id"], x["name"], x["url"])
-                        try:
-                            team.logo_url = x["images"][0]["path"]
-                        except IndexError:
-                            pass
-                        team.gender = x["gender"]["name"]
-                        await save_team(interaction.client, team)
-                    results.append(team)
-                case "TournamentTemplate":
-                    if mode == "team":
-                        continue
+                if x["images"]:
+                    logo_url = x["images"][0]["path"]
+                    comp.logo_url = logo_url
+                await save_comp(bot, comp)
+                results.append(comp)
+            else:
+                zz = x["participantTypes"]
+                logging.info("unhandled particpant types %s", zz)
+        else:
+            for t in x["participantTypes"]:
+                match t["name"]:
+                    case "National" | "Team":
+                        if mode == "comp":
+                            continue
 
-                    if not (comp := bot.get_competition(x["id"])):
-                        ctry = x["defaultCountry"]["name"]
-                        nom = x["name"]
-                        comp = Competition(x["id"], nom, ctry, x["url"])
-                        try:
-                            comp.logo_url = x["images"][0]["path"]
-                        except IndexError:
-                            pass
-                        await save_comp(interaction.client, comp)
-                    results.append(comp)
-                case _:
-                    continue  # This is a player, we don't want those.
+                        if not (team := bot.get_team(x["id"])):
+
+                            team = Team(x["id"], x["name"], x["url"])
+                            try:
+                                team.logo_url = x["images"][0]["path"]
+                            except IndexError:
+                                pass
+                            team.gender = x["gender"]["name"]
+                            await save_team(bot, team)
+                        results.append(team)
+                    case "TournamentTemplate":
+                        if mode == "team":
+                            continue
+
+                        if not (comp := bot.get_competition(x["id"])):
+                            ctry = x["defaultCountry"]["name"]
+                            nom = x["name"]
+                            comp = Competition(x["id"], nom, ctry, x["url"])
+                            try:
+                                comp.logo_url = x["images"][0]["path"]
+                            except IndexError:
+                                pass
+                            await save_comp(bot, comp)
+                        results.append(comp)
+                    case _:
+                        continue  # This is a player, we don't want those.
 
     if not results:
         raise LookupError("Flashscore Search: No results found for %s", query)
@@ -1199,7 +1230,10 @@ async def search(
 async def save_team(bot: Bot, t: Team) -> None:
     """Save the Team to the Bot Database"""
     sql = """INSERT INTO fs_teams (id, name, logo_url, url)
-             VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
+             VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET 
+             (name, logo_url, url) 
+             = (EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
+             """
     async with bot.db.acquire(timeout=60) as conn:
         async with conn.transaction():
             await conn.execute(sql, t.id, t.name, t.logo_url, t.url)
@@ -1209,8 +1243,14 @@ async def save_team(bot: Bot, t: Team) -> None:
 async def save_comp(bot: Bot, c: Competition) -> None:
     """Save the competition to the bot database"""
     sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
-                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING"""
+             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
+             (country, name, logo_url, url) = 
+             (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
+             """
+
+    logger.info("Entered Save comp with competition %s", c.__dict__)
     async with bot.db.acquire(timeout=60) as conn:
         async with conn.transaction():
             await conn.execute(sql, c.id, c.country, c.name, c.logo_url, c.url)
     bot.competitions.append(c)
+    logger.info("saved competition.")
