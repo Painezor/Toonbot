@@ -65,6 +65,7 @@ def stringify_seconds(value: int) -> str:
         return {
             0: "`None`",
             60: "1 Minute",
+            120: "2 minutes",
             1800: "30 Minutes",
             3600: "1 Hour",
             7200: "2 Hours",
@@ -735,8 +736,11 @@ def iter_embed(
         elif key == "roles":
             # List of roles being added or removed.
             roles: list[discord.Role | discord.Object] = value
-            text = ", ".join(f"<@&{i.id}>" for i in roles)
-            embed.description += f"{text}\n\n"
+            rls = ", ".join(f"<@&{i.id}>" for i in roles)
+            if main:
+                embed.description +=  f"Roles Removed: {rls}"
+            else:
+                embed.description +=  f"Roles Added: {rls}"
 
         elif key == "rtc_region":
             # Voice Chat Region
@@ -863,7 +867,7 @@ def iter_embed(
             uses: int = value
             embed.description += f"**Uses**: {uses}\n"
 
-        elif key == "vanity_code_url":
+        elif key == "vanity_url_code":
             # Server Custom invite
             vanity: str = value
             embed.description += f"**Vanity URL**: {vanity}\n"
@@ -877,7 +881,8 @@ def iter_embed(
         elif key == "video_quality_mode":
             # VC Video Quality
             vq: discord.VideoQualityMode = value
-            embed.description += f"**Videeo Quality**: {vq.name.title()}\n"
+            if vq:
+                embed.description += f"**Videeo Quality**: {vq.name.title()}\n"
 
         elif key == "widget_channel":
             widge: discord.TextChannel | discord.Object = value
@@ -1480,12 +1485,14 @@ class AuditLogs(commands.Cog):
         atts = []
         if before.attachments != after.attachments:
             att = [i for i in before.attachments if i not in after.attachments]
-            gone = discord.Embed(title="Removed Attachemnts")
+            gone = discord.Embed(title="Removed Attachments")
             gone.description = ""
-            for num, i in enumerate(att):
+            for num, i in enumerate(att, 1):
                 type_ = i.content_type
                 url = i.proxy_url
-                val = f"{num}. {i.filename} ({type_})[{url}] ({i.size})\n"
+
+                size = i.size / 1000
+                val = f"{num}. {i.filename} [{type_}({url}) ({size}kb)\n"
                 gone.description += val
                 try:
                     atts.append(await i.to_file(spoiler=True, use_cached=True))
@@ -1524,13 +1531,6 @@ class AuditLogs(commands.Cog):
             return
 
         # Key, Before, After
-        diff: dict[str, tuple[typing.Any, typing.Any]] = {}
-        for k, v in bf.__dict__.items():
-            if af.__dict__[k] != v:
-                diff.update({k: (v, af.__dict__[k])})
-
-        logger.info("Member Update diff:", diff)
-
         e = discord.Embed(colour=discord.Colour.dark_gray())
         ico = bf.display_avatar.url
         e.set_author(name=f"{af} ({af.id})", icon_url=ico)
@@ -1538,21 +1538,22 @@ class AuditLogs(commands.Cog):
         e.description = ""
         e.timestamp = discord.utils.utcnow()
 
-        if name := diff.pop("name", None):
-            e.description += f"**Name**: {name[0]} -> {name[1]}\n"
+        if bf.name != af.name:
+            e.description += f"**Name**: {bf.name} -> {af.name}\n"
 
-        if discs := diff.pop("discriminator", None):
-            e.description += f"**Discriminator**: {discs[0]} -> {discs[1]}\n"
+        if bf.discriminator != af.discriminator:
+            bf_d = bf.discriminator
+            af_d = af.discriminator
+            e.description += f"**Discriminator**: {bf_d} -> {af_d}\n"
 
-        if avs := diff.pop("display_avatar"):
-            b = avs[0].url
-            a = avs[1].url
+        if bf.display_avatar != af.display_avatar:
+            b = bf.display_avatar
+            a = af.display_avatar
             e.description += f"**Avatar**: [Old]({b}) -> [New]({a})\n"
             if b:
                 e.set_thumbnail(url=b)
-
-        if diff:
-            logging.info('Member_update changes remain %s', diff)
+            if a:
+                e.set_thumbnail(url=a)
 
         for ch in channels:
             try:

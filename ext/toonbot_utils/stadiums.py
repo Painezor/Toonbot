@@ -114,7 +114,7 @@ class Stadium:
             './/tr/th[contains(text(), "Capacity")]'
             "/following-sibling::td//text()"
         )
-        self.capacity = int("".join(tree.xpath(xp)))
+        self.capacity = int("".join(tree.xpath(xp)).replace(",", ""))
 
         xp = './/tr/th[contains(text(), "Cost")]/following-sibling::td//text()'
         self.cost = "".join(tree.xpath(xp))

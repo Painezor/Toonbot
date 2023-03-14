@@ -22,33 +22,25 @@ class Memes(commands.Cog):
     )
 
     @mem_grp.command()
-    async def dead(
-        self, interaction: discord.Interaction
-    ) -> discord.InteractionMessage:
+    async def dead(self, interaction: discord.Interaction) -> None:
         """STOP, STOP HE'S ALREADY DEAD"""
         vid = "https://www.youtube.com/watch?v=mAUY1J8KizU"
-        return await self.bot.reply(interaction, vid)
+        return await interaction.response.send_message(vid)
 
     @mem_grp.command(name="f")
-    async def press_f(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def press_f(self, interaction: discord.Interaction[Bot]) -> None:
         """Press F to pay respects"""
         img = "https://i.imgur.com/zrNE05c.gif"
-        return await self.bot.reply(interaction, img)
+        return await interaction.response.send_message(img)
 
     @mem_grp.command()
-    async def helmet(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def helmet(self, interaction: discord.Interaction[Bot]) -> None:
         """Helmet"""
         helmet = discord.File(fp="Images/helmet.jpg")
-        return await self.bot.reply(interaction, file=helmet)
+        return await interaction.response.send_message(file=helmet)
 
     @mem_grp.command()
-    async def lenny(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def lenny(self, interaction: discord.Interaction[Bot]) -> None:
         """( ͡° ͜ʖ ͡°)"""
         lennys = [
             "( ͡° ͜ʖ ͡°)",
@@ -72,15 +64,15 @@ class Memes(commands.Cog):
             "ʕ ͡° ͜ʖ ͡°ʔ",
             "( ͡° ͜ʖ ͡ °)",
         ]
-        return await self.bot.reply(interaction, content=choice(lennys))
+        return await interaction.response.send_message(choice(lennys))
 
     @mem_grp.command()
     async def thatsthejoke(
         self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """That's the joke"""
         vid = "https://www.youtube.com/watch?v=xECUrlnXCqk"
-        return await self.bot.reply(interaction, vid)
+        return await interaction.response.send_message(vid)
 
 
 async def setup(bot: Bot) -> None:

@@ -51,10 +51,10 @@ class ImageView(view_utils.BaseView):
         self.output: io.BytesIO
 
         # Cache these, so if people re-click...
-        self._with_bob: io.BytesIO
-        self._with_eyes: io.BytesIO
-        self._with_knob: io.BytesIO
-        self._with_ruins: io.BytesIO
+        self._with_bob: typing.Optional[io.BytesIO] = None
+        self._with_eyes: typing.Optional[io.BytesIO] = None
+        self._with_knob: typing.Optional[io.BytesIO] = None
+        self._with_ruins: typing.Optional[io.BytesIO] = None
 
         super().__init__(interaction)
 

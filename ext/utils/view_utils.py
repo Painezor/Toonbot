@@ -63,17 +63,18 @@ class BaseView(discord.ui.View):
 
     def add_page_buttons(self, row: int = 0) -> list[discord.ui.Item]:
         """Helper function to bulk add page buttons (Prev, Jump, Next, Stop)"""
+        # Clear Old Items on our row.
+        [self.remove_item(i) for i in self.children if i.row == row]
+
         if self.parent:
+            self.parent.row = row
             self.add_item(self.parent)
 
-        pages = len(self.pages)
-        if pages > 1:
-            self.add_item(Previous(self, row=row))
-            self.add_item(Jump(self, row=row))
-
-            n = Next(self, row=row)
-            self.add_item(n)
-        self.add_item(Stop(row=row))
+        if len(self.pages) > 1:
+            self.add_item(Previous(self, row))
+            self.add_item(Jump(self, row))
+            self.add_item(Next(self, row))
+        self.add_item(Stop(row))
         return self.children
 
     def add_function_row(
@@ -102,14 +103,17 @@ class BaseView(discord.ui.View):
 
     async def on_error(
         self, _: discord.Interaction[Bot], error: Exception, item
-    ) -> discord.InteractionMessage:
+    ) -> typing.Optional[discord.InteractionMessage]:
         """Log the stupid fucking error"""
         logger.error(error)
         logger.error("This error brought to you by item %s", item)
         traceback.print_exc()
         r = self.interaction.edit_original_response
         txt = f"Something broke\n```py\n{error}```"
-        return await r(content=txt, embed=None)
+        try:
+            return await r(content=txt, embed=None)
+        except discord.NotFound:
+            self.stop()
 
 
 class First(discord.ui.Button):

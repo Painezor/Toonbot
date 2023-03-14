@@ -100,7 +100,7 @@ class Bot(commands.AutoShardedBot):
         # Livescores
         self.games: list[fs.Fixture] = []
         self.teams: list[fs.Team] = []
-        self.competitions: list[fs.Competition] = []
+        self.competitions: set[fs.Competition] = set()
         self.score_channels: list[ScoreChannel] = []
         self.scores: typing.Optional[asyncio.Task] = None
 
@@ -163,23 +163,31 @@ class Bot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s\n%s", c, err)
         return
 
-    def get_competition(
-        self, identifier: str
-    ) -> typing.Optional[fs.Competition]:
+    def get_competition(self, value: str) -> typing.Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
-        if identifier is None:
+        if value is None:
             return None
 
         for i in self.competitions:
-            if i.id == identifier:
+            if i.id == value:
                 return i
-            if i.url == identifier:
+
+            if i.title.casefold() == value.casefold():
                 return i
-            if i.url is not None:
-                if identifier in i.url or i.url in identifier:
+
+            if i.url == value:
+                return i
+
+        for i in self.competitions:
+            if i.url is not None and "http" in value:
+                if value in i.url:
+                    logger.info(
+                        "Partial url: %s to %s (%s)",
+                        value,
+                        i.id,
+                        i.title,
+                    )
                     return i
-            if i.title.casefold() == identifier.casefold():
-                return i
 
     def get_team(self, team_id: str) -> typing.Optional[fs.Team]:
         """Retrieve a Team from the ones stored in the bot."""

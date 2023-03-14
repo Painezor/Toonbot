@@ -1,32 +1,25 @@
 """Handler Cog for dispatched Fixture events, and database handling
    for channels using it."""
+# TODO: Migrate Event embed generation to the individual Events
 from __future__ import annotations  # Cyclic Type hinting
 
 import asyncio
 import io
-import typing
 import logging
-
-from playwright.async_api import TimeoutError as pw_TimeoutError
+import typing
 
 import discord
 from discord.ext import commands
-from ext.fixtures import CompetitionTransformer
+from playwright.async_api import TimeoutError as pw_TimeoutError
 
 import ext.toonbot_utils.flashscore as fs
-
-from ext.toonbot_utils.gamestate import GameState
 import ext.toonbot_utils.matchevents as m_evt
+from ext.fixtures import CompetitionTransformer
+from ext.toonbot_utils.gamestate import GameState
 from ext.utils import embed_utils, view_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
-
-
-class IsLiveScoreError(Exception):
-    """Raise this when someone tries to create a ticker
-    in a livescore channel."""
-
 
 _ticker_tasks = set()
 
@@ -37,12 +30,12 @@ NOPERMS = (
     "I am missing the following permissions.\n"
 )
 
-semaphore = asyncio.Semaphore(2)
+table_sem = asyncio.Semaphore(2)
 
 
 async def get_table(bot: Bot, link: str):
 
-    async with semaphore:
+    async with table_sem:
         page = await bot.browser.new_page()
         try:
             await page.goto(link, timeout=5000)
@@ -67,29 +60,6 @@ async def get_table(bot: Bot, link: str):
     return await bot.dump_image(io.BytesIO(image))
 
 
-async def lg_ac(
-    interaction: discord.Interaction[Bot], cur: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Autocomplete from list of stored leagues"""
-    cur = cur.casefold()
-
-    choices = []
-    for i in interaction.client.competitions:
-        if not i.id:
-            continue
-
-        if cur in i.title.casefold():
-            name = i.title[:100]
-            choices.append(discord.app_commands.Choice(name=name, value=i.id))
-
-        if len(choices) == 25:
-            break
-    return choices
-
-
-# TODO: League AC to transformer.
-# TODO: Populate url field.
-# TODO: Migrate Event embed generation to the individual Events
 class TickerEvent:
     """Handles dispatching and editing messages for a fixture event."""
 
@@ -295,6 +265,7 @@ class TickerChannel:
         self.leagues: set[fs.Competition] = set()
         self.dispatched: dict[TickerEvent, discord.Message] = {}
 
+        # Settings
         self.goals: typing.Optional[bool] = None
         self.kick_offs: typing.Optional[bool] = None
         self.full_times: typing.Optional[bool] = None
@@ -311,13 +282,21 @@ class TickerChannel:
     async def output(
         self,
         event: TickerEvent,
-        e: discord.Embed,
+        short_embed: discord.Embed,
         full_embed: typing.Optional[discord.Embed] = None,
     ) -> typing.Optional[discord.Message]:
         """Send the appropriate embed to this channel"""
         # Check if we need short or long embed.
         # For each stored db_field value,
         # we check against our own settings field.
+
+        type_ = event.event_type
+
+        if type_ == m_evt.EventType.KICK_OFF:
+            e = short_embed
+        else:
+            e = short_embed
+            logger.error("unhandled embed decision for evt %s", type_)
 
         try:
             try:
@@ -338,14 +317,10 @@ class TickerChannel:
         """Retrieve the settings of the TickerChannel from the database"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                stg = await connection.fetchrow(
-                    """SELECT * FROM ticker_settings WHERE channel_id = $1""",
-                    self.channel.id,
-                )
-                leagues = await connection.fetch(
-                    """SELECT * FROM ticker_leagues WHERE channel_id = $1""",
-                    self.channel.id,
-                )
+                sql = """SELECT * FROM ticker_settings WHERE channel_id = $1"""
+                stg = await connection.fetchrow(sql, self.channel.id)
+                sql = """SELECT * FROM ticker_leagues WHERE channel_id = $1"""
+                leagues = await connection.fetch(sql, self.channel.id)
 
         if stg is not None:
             for k, v in stg.items():
@@ -353,18 +328,11 @@ class TickerChannel:
                     continue
                 setattr(self, k, v)
 
-        sql = """UPDATE ticker_leagues SET url = $1 WHERE league = $2"""
-        async with self.bot.db.acquire() as connection:
-            async with connection.transaction():
-                for r in leagues:
-                    if comp := self.bot.get_competition(r["league"]):
-                        if r["url"] is None:
-                            url = comp.url
-                            if url is None:
-                                continue
-                            await connection.execute(sql, url, r["league"])
-                        self.leagues.add(comp)
-        return
+        for record in leagues:
+            if comp := self.bot.get_competition(record["url"]):
+                self.leagues.add(comp)
+            else:
+                logger.error("Could not find comp %s", record)
 
 
 class ToggleButton(discord.ui.Button):
@@ -553,7 +521,7 @@ class RemoveLeague(discord.ui.Select):
                 self.view.tc.leagues.remove(i)
 
         m = self.view.tc.channel.mention
-        msg = f"Removed {m} tracked leagues: ```yaml\n{lg_text}```"
+        msg = f"Removed {m} tracked leagues:\n{lg_text}"
         e = discord.Embed(description=msg, colour=discord.Colour.red())
         e.title = "Ticker"
         u = interaction.user
@@ -604,16 +572,16 @@ class TickerConfig(view_utils.BaseView):
             embed.description = f"{ch.mention} has no tracked leagues."
             return await edit(embed=embed, view=self)
 
-        embed.description = f"Tracked leagues for {ch.mention}```yaml\n"
+        embed.description = f"Tracked leagues for {ch.mention}\n\n"
         leagues = sorted(self.tc.leagues, key=lambda x: x.title)
 
         self.pages = embed_utils.paginate(leagues)
         self.add_page_buttons()
 
         leagues: list[fs.Competition]
-        leagues = [i.url for i in self.pages[self.index] if i.url is not None]
+        lg_text = [f"{i.flag} {i.markdown}" for i in self.pages[self.index]]
 
-        embed.description += "\n".join([str(i.url) for i in leagues])
+        embed.description += "\n".join(lg_text)
 
         self.add_item(RemoveLeague(leagues, row=1))
 
@@ -678,8 +646,10 @@ class Ticker(commands.Cog):
         view = view_utils.Confirmation(
             interaction, "Create ticker", "Cancel", btn
         )
-        notkr = f"{c} does not have a ticker, would you like to create one?"
-        await interaction.edit_original_response(content=notkr, view=view)
+
+        e = discord.Embed(title="Create a ticker")
+        e.description = f"{c} has no ticker, would you like to create one?"
+        await interaction.edit_original_response(embed=e, view=view)
         await view.wait()
 
         if not view.value:
@@ -687,8 +657,6 @@ class Ticker(commands.Cog):
             return await self.bot.error(interaction, txt)
 
         guild = channel.guild.id
-
-        rows = [(channel.id, x) for x in fs.DEFAULT_LEAGUES]
 
         async with self.bot.db.acquire(timeout=60) as connection:
             # Verify that this is not a livescores channel.
@@ -707,6 +675,7 @@ class Ticker(commands.Cog):
 
                 qqq = """INSERT INTO ticker_leagues (channel_id, url)
                          VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+                rows = [(channel.id, x) for x in fs.DEFAULT_LEAGUES]
                 await connection.executemany(qqq, rows)
 
         tc = TickerChannel(channel)
@@ -738,7 +707,8 @@ class Ticker(commands.Cog):
         if self.bot.ticker_channels:
             async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
-                    await connection.executemany(sql, bad)
+                    for _id in bad:
+                        await connection.execute(sql, _id)
         return self.bot.ticker_channels
 
     @commands.Cog.listener()
@@ -776,6 +746,27 @@ class Ticker(commands.Cog):
 
             long: bool = any([i.goals is True for i in channels])
 
+        elif event_type == m_evt.EventType.VAR_GOAL:
+            channels = [
+                i
+                for i in channels
+                if i.goals is not None and i.vars is not None
+            ]
+
+            long: bool = any(
+                [i.goals is True and i.vars is True for i in channels]
+            )
+
+        elif event_type == m_evt.EventType.HALF_TIME:
+            channels = [i for i in channels if i.half_times is not None]
+
+            long: bool = any([i.half_times is True for i in channels])
+
+        elif event_type == m_evt.EventType.SECOND_HALF_BEGIN:
+            channels = [i for i in channels if i.second_halfs is not None]
+
+            long: bool = any([i.second_halfs is True for i in channels])
+
         elif event_type == m_evt.EventType.FULL_TIME:
             channels = [i for i in channels if i.goals is not None]
 
@@ -783,6 +774,16 @@ class Ticker(commands.Cog):
                 fixture.competition.table = await get_table(self.bot, url)
 
             long: bool = any([i.full_times is True for i in channels])
+
+        elif event_type == m_evt.EventType.RED_CARD:
+            channels = [i for i in channels if i.red_cards is not None]
+
+            long: bool = any([i.red_cards is True for i in channels])
+
+        elif event_type == m_evt.EventType.FINAL_RESULT_ONLY:
+            channels = [i for i in channels if i.final_results is not None]
+
+            long: bool = any([i.final_results is True for i in channels])
 
         else:
             logger.info("Ticker -- Unhandled Event Type %s", event_type)

@@ -65,7 +65,7 @@ class DiscordColours(Enum):
     YELLOW = "yellow"
 
 
-async def colour_ac(_: Interaction[Bot], current: str) -> list[Choice]:
+async def colour_ac(_: discord.Interaction[Bot], current: str) -> list[Choice]:
     """Return from list of colours"""
     return [
         Choice(name=i.value, value=i.value)
@@ -92,16 +92,16 @@ class EmbedModal(Modal, title="Send an Embed"):
         placeholder="Enter url for thumbnail image",
     )
 
-    image = TextInput(
+    image = discord.ui.TextInput(
         label="Image", placeholder="Enter url for large image", required=False
     )
 
     def __init__(
         self,
         bot: Bot | PBot,
-        interaction: Interaction[Bot | PBot],
-        destination: TextChannel,
-        colour: Colour,
+        interaction: discord.Interaction[Bot | PBot],
+        destination: discord.TextChannel,
+        colour: discord.Colour,
     ) -> None:
 
         super().__init__()
@@ -109,11 +109,12 @@ class EmbedModal(Modal, title="Send an Embed"):
         self.bot: Bot | PBot = bot
         self.interaction: Interaction[Bot | PBot] = interaction
         self.destination: TextChannel = destination
-        self.colour: Colour = colour
+        self.colour: discord.Colour = colour
 
-    async def on_submit(self) -> None:
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         """Send the embed"""
-        e = Embed(title=self.e_title, colour=self.colour)
+        await interaction.response.send_message("Sent!", ephemeral=True)
+        e = discord.Embed(title=self.e_title, colour=self.colour)
 
         g = typing.cast(Guild, self.interaction.guild)
 
@@ -135,12 +136,9 @@ class EmbedModal(Modal, title="Send an Embed"):
 
         try:
             await self.destination.send(embed=e)
-            await self.bot.reply(
-                self.interaction, "Message sent.", ephemeral=True
-            )
         except discord.HTTPException:
             err = "I can't send messages to that channel."
-            await self.bot.error(self.interaction, err)
+            await self.bot.error(interaction, err)
 
 
 class Mod(Cog):
@@ -150,7 +148,6 @@ class Mod(Cog):
         self.bot: PBot | Bot = bot
 
     @discord.app_commands.command()
-    @guild_only()
     @discord.app_commands.default_permissions(manage_messages=True)
     @discord.app_commands.autocomplete(colour=colour_ac)
     @discord.app_commands.describe(
@@ -163,34 +160,14 @@ class Mod(Cog):
         colour: str = "random",
     ) -> None:
         """Send an embedded announcement as the bot in a specified channel"""
-
-        await interaction.response.defer(thinking=True, ephemeral=True)
-
         if destination is None:
             destination = typing.cast(TextChannel, interaction.channel)
 
-        if interaction.guild is None:
-            return await self.bot.error(interaction, "Can't be used in DMs")
-
         # TODO: Fuck this, go add all of the actual dcolos to the damn Enum.
         clr = next(
-            (i.name for i in DiscordColours if i.value == colour), "random"
+            (i.value for i in DiscordColours if i.value == colour), "random"
         )
         cl: Colour = getattr(Colour, clr)()
-
-        if destination.guild.id != interaction.guild.id:
-            err = "You cannot send messages to other servers."
-            return await self.bot.error(interaction, err)
-
-        perms = destination.permissions_for(interaction.guild.me)
-        loc = destination.mention
-
-        if not perms.send_messages:
-            err = f"Bot missing permission: {loc} ❌ send_messages"
-            return await self.bot.error(interaction, err)
-        if not perms.embed_links:
-            err = f"Bot missing permission: {loc} ❌ embed_links"
-            return await self.bot.error(interaction, err)
 
         modal = EmbedModal(self.bot, interaction, destination, cl)
 

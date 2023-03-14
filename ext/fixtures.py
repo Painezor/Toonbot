@@ -93,7 +93,8 @@ class FixtureTransformer(discord.app_commands.Transformer):
 
         choices = []
         for i in interaction.client.games:
-            if cur and cur not in i.ac_row:
+            ac = i.ac_row.casefold()
+            if cur and cur not in ac:
                 continue
 
             if i.id is None:
@@ -249,7 +250,7 @@ class CompetitionTransformer(discord.app_commands.Transformer):
         await v.wait()
 
         if not v.value:
-            raise TimeoutError
+            return None
         return next(i for i in comps if i.id == v.value[0])
 
 
@@ -424,6 +425,9 @@ class ItemView(view_utils.BaseView):
         if not isinstance(self, CompetitionView):
             raise NotImplementedError
 
+        if self._cached_function != self.archive:
+            self.index = 0
+
         if self.page is None:
             self.page = await self.bot.browser.new_page()
 
@@ -464,10 +468,11 @@ class ItemView(view_utils.BaseView):
             else:
                 rows.append(f"[{c_name}]({c_link})")
 
-        row = await self.handle_tabs()
         parent = view_utils.FuncButton(self.archive)
 
         self.pages = embed_utils.rows_to_embeds(embed, rows, 20)
+        row = await self.handle_tabs()
+
         embed = self.pages[self.index]
         comps = embed_utils.paginate(comps, 20)[self.index]
         teams = embed_utils.paginate(teams, 20)[self.index]
@@ -492,8 +497,8 @@ class ItemView(view_utils.BaseView):
             row += 1
 
         self._cached_function = self.archive
-        r = self.interaction.edit_original_response
-        await r(embed=embed, view=self, attachments=[])
+        edit = self.interaction.edit_original_response
+        await edit(embed=embed, view=self, attachments=[])
 
     # Fixture Only
     async def h2h(
@@ -616,10 +621,10 @@ class ItemView(view_utils.BaseView):
 
         await self.page.goto(f"{self.object.url}/fixtures", timeout=5000)
         await self.page.locator("#live-table").wait_for()
-        await self.handle_tabs()
 
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, rows)
+        await self.handle_tabs()
         self._cached_function = None
         return await self.update()
 
@@ -638,7 +643,6 @@ class ItemView(view_utils.BaseView):
         e.url = f"{self.fixture.url}#/match-summary/lineups"
         await self.page.goto(e.url, timeout=5000)
         await self.page.eval_on_selector_all(fs.ADS, JS)
-        await self.handle_tabs()
         screenshots = []
 
         if await (fm := self.page.locator(".lf__fieldWrap")).count():
@@ -656,6 +660,7 @@ class ItemView(view_utils.BaseView):
             file = []
         e.set_image(url="attachment://lineups.png")
 
+        await self.handle_tabs()
         r = self.interaction.edit_original_response
         return await r(embed=e, attachments=file, view=self)
 
@@ -670,6 +675,7 @@ class ItemView(view_utils.BaseView):
         logger.info(f"Fixture {self.fixture.score_line} has Photos tab")
 
         r = self.interaction.edit_original_response
+        await self.handle_tabs()
         await r(embed=e, attachments=[], view=self)
 
     # Subclassed on Fixture & Team
@@ -694,7 +700,6 @@ class ItemView(view_utils.BaseView):
 
         e.url = f"{self.fixture.url}#/report/"
         await self.page.goto(e.url, timeout=5000)
-        await self.handle_tabs()
         loc = ".reportTab"
         tree = html.fromstring(await self.page.inner_html(loc))
 
@@ -711,6 +716,7 @@ class ItemView(view_utils.BaseView):
 
         hdr = f"**{title}**\n\n"
         self.pages = embed_utils.rows_to_embeds(e, content, 5, hdr, "", 2500)
+        await self.handle_tabs()
         return await self.update()
 
     # Competition, Team
@@ -732,7 +738,6 @@ class ItemView(view_utils.BaseView):
 
         await self.page.goto(f"{self.object.url}/results", timeout=5000)
         await self.page.locator("#live-table").wait_for()
-        await self.handle_tabs()
 
         rows = [i.finished for i in rows] if rows else ["No Results Found :("]
         embed = await self.object.base_embed()
@@ -742,6 +747,7 @@ class ItemView(view_utils.BaseView):
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, rows)
         self._cached_function = None
+        await self.handle_tabs()
         return await self.update()
 
     # Competition, Fixture, Team
@@ -843,32 +849,6 @@ class ItemView(view_utils.BaseView):
         loc = self.page.locator(".lineup").nth(tab_number)
         await loc.wait_for()
 
-        row = await self.handle_tabs()
-
-        subloc = self.page.locator("role=tablist")
-        for i in range(await loc.count()):
-            btns[row] = []
-
-            sub = subloc.nth(i).locator("button")
-            for o in range(await sub.count()):
-
-                text = await sub.nth(o).text_content()
-
-                if not text:
-                    continue
-
-                if tab_number == o:
-                    e.title += f" ({text})"
-                    await sub.nth(o).click(force=True)
-
-                f = view_utils.Funcable(text, self.squad)
-                a = "aria-current"
-                b = await sub.nth(o).get_attribute(a) is not None
-                f.disabled = b
-                f.args = [tab_number]
-                btns[row].append(f)
-            row += 1
-
         # to_click refers to a button press.
         tree = html.fromstring(await loc.inner_html())
 
@@ -948,6 +928,32 @@ class ItemView(view_utils.BaseView):
 
         # Paginate this shit.
         self.pages = embed_utils.paginate(players, 40)
+        row = await self.handle_tabs()
+
+        subloc = self.page.locator("role=tablist")
+        for i in range(await loc.count()):
+            btns[row] = []
+
+            sub = subloc.nth(i).locator("button")
+            for o in range(await sub.count()):
+
+                text = await sub.nth(o).text_content()
+
+                if not text:
+                    continue
+
+                if tab_number == o:
+                    e.title += f" ({text})"
+                    await sub.nth(o).click(force=True)
+
+                f = view_utils.Funcable(text, self.squad)
+                a = "aria-current"
+                b = await sub.nth(o).get_attribute(a) is not None
+                f.disabled = b
+                f.args = [tab_number]
+                btns[row].append(f)
+            row += 1
+
         players = self.pages[self.index]
 
         for label, filt, emoji in [
@@ -1023,7 +1029,6 @@ class ItemView(view_utils.BaseView):
             v = PlayerView(self.interaction, i, parent=parent).update
             dropdown.append(view_utils.Funcable(i.name, v, emoji=flag))
 
-        self.add_page_buttons(0)
         self._cached_function = self.squad
 
         r = self.interaction.edit_original_response
@@ -1054,44 +1059,8 @@ class ItemView(view_utils.BaseView):
         e.url = f"{self.object.url}/transfers/"
         await self.page.goto(e.url, timeout=5000)
         await self.page.wait_for_selector("section#transfers", timeout=5000)
-        row = await self.handle_tabs()
 
-        tf_buttons = []
-        filters = self.page.locator("button.filter__filter")
-        for o in range(await filters.count()):
-
-            text = await filters.nth(o).text_content()
-            if o == click_number:
-                await filters.nth(o).click(force=True)
-
-            if not text:
-                continue
-
-            show_more = self.page.locator("Show more")
-            max_clicks = 20
-            for _ in range(max_clicks):
-                if await show_more.count():
-                    await show_more.click()
-
-            a = "filter__filter--selected"
-            b = await filters.nth(o).get_attribute(a) is not None
-            f = view_utils.Funcable(text, self.transfers, disabled=b)
-            f.disabled = b
-            match o:
-                case 0:
-                    f.args = [0, "All", True]
-                case 1:
-                    f.args = [1, "Arrivals", True]
-                case 2:
-                    f.args = [2, "Departures", True]
-                case _:
-                    logger.info("Extra Buttons Found: transf %s", text)
-            tf_buttons.append(f)
-
-        self.add_function_row(tf_buttons, row, "Filter Transfers")
-        row += 1
         tree = html.fromstring(await self.page.inner_html(".transferTab"))
-
         players: list[fs.Player] = []
         teams: list[fs.Team] = []
         embed_rows: list[str] = []
@@ -1145,6 +1114,43 @@ class ItemView(view_utils.BaseView):
             embed_rows.append(f"{pmd} {emoji} {tmd}\n{date} {tf_type}\n")
 
         self.pages = embed_utils.rows_to_embeds(e, embed_rows, 5)
+        row = await self.handle_tabs()
+
+        tf_buttons = []
+        filters = self.page.locator("button.filter__filter")
+        for o in range(await filters.count()):
+
+            text = await filters.nth(o).text_content()
+            if o == click_number:
+                await filters.nth(o).click(force=True)
+
+            if not text:
+                continue
+
+            show_more = self.page.locator("Show more")
+            max_clicks = 20
+            for _ in range(max_clicks):
+                if await show_more.count():
+                    await show_more.click()
+
+            a = "filter__filter--selected"
+            b = await filters.nth(o).get_attribute(a) is not None
+            f = view_utils.Funcable(text, self.transfers, disabled=b)
+            f.disabled = b
+
+            try:
+                f.args = {
+                    0: [0, "All", True],
+                    1: [1, "Arrivals", True],
+                    2: [2, "Departures", True],
+                }[o]
+            except KeyError:
+                logger.error("Transfers Extra Buttons Found: transf %s", text)
+            tf_buttons.append(f)
+
+        self.add_function_row(tf_buttons, row, "Filter Transfers")
+        row += 1
+
         teams = embed_utils.paginate(teams, 5)[self.index]
         players = embed_utils.paginate(players, 5)[self.index]
         embed = self.pages[self.index]
@@ -1162,7 +1168,6 @@ class ItemView(view_utils.BaseView):
                 dropdown.append(f)
             self.add_function_row(dropdown, row, "Go to Team")
 
-        self.add_page_buttons(0)
         self._cached_function = self.transfers
 
         r = self.interaction.edit_original_response
@@ -1173,6 +1178,7 @@ class ItemView(view_utils.BaseView):
         self, link: Optional[str] = None
     ) -> discord.InteractionMessage:
         """Send Specified Table to view"""
+        self.pages = []  # discard.
 
         e = await self.object.base_embed()
         e.title = "Standings"
@@ -1189,7 +1195,7 @@ class ItemView(view_utils.BaseView):
 
         # Chaining Locators is fucking aids.
         # Thank you for coming to my ted talk.
-        inner = self.page.locator(".tableWrapper")
+        inner = self.page.locator(".tableWrapper, .draw__wrapper")
         outer = self.page.locator("div", has=inner)
         table_div = self.page.locator("div", has=outer).last
 
@@ -1198,14 +1204,11 @@ class ItemView(view_utils.BaseView):
         except pw_TimeoutError:
             # Entry point not handled on fixtures from leagues.
             await self.handle_tabs()
-            r = self.interaction.edit_original_response
-            e.description = "❌ No Table Available"
-            await r(embed=e, view=self)
+            edit = self.interaction.edit_original_response
+            e.description = "❌ No Standings Available"
+            await edit(embed=e, view=self)
 
-        if isinstance(self, FixtureView | CompetitionView | TeamView):
-            row = await self.handle_tabs()
-        else:
-            row = 0
+        row = await self.handle_tabs()
         rows = {}
 
         loc = self.page.locator(".subTabs")
@@ -1235,12 +1238,12 @@ class ItemView(view_utils.BaseView):
 
         await self.page.eval_on_selector_all(fs.ADS, JS)
         image = await table_div.screenshot(type="png")
-        file = discord.File(fp=io.BytesIO(image), filename="table.png")
+        file = discord.File(fp=io.BytesIO(image), filename="standings.png")
 
-        e.set_image(url="attachment://table.png")
+        e.set_image(url="attachment://standings.png")
 
-        r = self.interaction.edit_original_response
-        return await r(embed=e, attachments=[file], view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(embed=e, attachments=[file], view=self)
 
     # Fixture Only
     async def stats(self, half: int = 0) -> discord.InteractionMessage:
@@ -1250,15 +1253,15 @@ class ItemView(view_utils.BaseView):
 
         e = await self.fixture.base_embed()
 
-        match half:
-            case 0:
-                e.title = "Stats"
-            case 1:
-                e.title = "First Half Stats"
-            case 2:
-                e.title = "Second Half Stats"
-            case _:
-                logger.error(f"Fix Half found for fixture {self.fixture.url}")
+        try:
+            e.title = {
+                0: "Stats",
+                1: "First Half Stats",
+                2: "Second Half Stats",
+            }[half]
+        except KeyError:
+            uri = self.fixture.url
+            logger.error("bad Half %s fixture %s", half, uri)
 
         if self.page is None:
             self.page = await self.bot.browser.new_page()
@@ -1383,11 +1386,16 @@ class ItemView(view_utils.BaseView):
         if self._cached_function is not None:
             return await self._cached_function()
 
+        for i in self.children:
+            if i.row == 0:
+                self.remove_item(i)
+        self.add_page_buttons()
         try:
             embed = self.pages[self.index]
         except IndexError:
             embed = self.pages[-1]
-        self.add_page_buttons(0)
+
+        await self.handle_tabs()
 
         edit = self.interaction.edit_original_response
         return await edit(content=None, embed=embed, attachments=[], view=self)
@@ -1904,23 +1912,17 @@ class Fixtures(commands.Cog):
         return await CompetitionView(interaction, competition).standings()
 
     @discord.app_commands.command()
-    @discord.app_commands.describe(competition=COMPETITION)
     async def scores(
         self,
-        ctx: discord.Interaction[Bot],
-        competition: discord.app_commands.Transform[
-            fs.Competition, CompetitionTransformer
-        ],
+        interaction: discord.Interaction[Bot],
     ) -> discord.InteractionMessage:
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""
+        await interaction.response.defer(thinking=True)
         if not self.bot.games:
-            return await self.bot.error(ctx, "No live games found")
+            return await self.bot.error(interaction, "No live games found")
 
-        if competition:
-            games = await fs.parse_games(self.bot, competition, "/fixtures/")
-        else:
-            games = self.bot.games
+        games = self.bot.games
 
         comp = None
         header = f"Scores as of: {timed_events.Timestamp().long}\n"
@@ -1945,7 +1947,7 @@ class Fixtures(commands.Cog):
                 e = base_embed.copy()
                 e.description = f"\n**{x}**\n{y}\n"
         embeds.append(e)
-        return await view_utils.Paginator(ctx, embeds).update()
+        return await view_utils.Paginator(interaction, embeds).update()
 
 
 async def setup(bot: Bot):

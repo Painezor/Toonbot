@@ -8,20 +8,21 @@ from datetime import datetime
 from math import ceil
 from pathlib import Path
 from re import sub, DOTALL
-from typing import TYPE_CHECKING, Optional
+import typing
 
 from PIL import Image
 from asyncpraw.models import Subreddit
 from asyncprawcore import TooLarge
-from discord import Attachment, Embed, Message, Interaction
+from discord import Attachment, Message, Interaction
 
 import discord
 from discord.ext import commands, tasks
 from lxml import html
 
 import ext.toonbot_utils.flashscore as fs
+import importlib
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 
@@ -69,6 +70,7 @@ class NUFCSidebar(commands.Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         self.bot.sidebar = self.sidebar_loop.start()
+        importlib.reload(fs)
 
     async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
@@ -155,18 +157,20 @@ class NUFCSidebar(commands.Cog):
 
         src = last_opponent
         async for i in nufc_sub.search(src, sort="new", time_filter="month"):
-            logger.info("Sidebar: Searching for match threads %s", i)
-            if i.title.startswith("Pre"):
+            if i.title.strip("[").startswith("Pre"):
                 if last_opponent in i.title:
                     pre = f"[Pre]({i.url.split('?ref=')[0]})"
+                    logger.info("Got prematch %s", i.title)
 
-            if i.title.startswith("Match"):
+            if i.title.strip("[").startswith("Match"):
                 if last_opponent in i.title:
                     match = f"[Match]({i.url.split('?ref=')[0]})"
+                    logger.info("Got match %s", i.title)
 
-            if i.title.startswith("Post"):
+            if i.title.strip("[").startswith("[Post"):
                 if last_opponent in i.title:
                     post = f"[Post]({i.url.split('?ref=')[0]})"
+                    logger.info("Got postmatch %s", i.title)
         # Top bar
         match_threads = f"\n\n### {pre} - {match} - {post}"
         fixture = next(i for i in results + fixtures)
@@ -314,8 +318,8 @@ class NUFCSidebar(commands.Cog):
     async def sidebar(
         self,
         interaction: Interaction[Bot],
-        caption: Optional[str],
-        image: Optional[Attachment],
+        caption: typing.Optional[str],
+        image: typing.Optional[Attachment],
     ) -> Message:
         """Upload an image to the sidebar, or edit the caption."""
         if not caption and not image:
@@ -324,7 +328,7 @@ class NUFCSidebar(commands.Cog):
             )
         await interaction.response.defer(thinking=True)
         # Check if message has an attachment, for the new sidebar image.
-        e: Embed = Embed(color=0xFF4500, url="http://www.reddit.com/r/NUFC")
+        e = discord.Embed(color=0xFF4500, url="http://www.reddit.com/r/NUFC")
         e.set_author(icon_url=REDDIT_THUMBNAIL, name="r/NUFC Sidebar updated")
 
         subreddit = await self.bot.reddit.subreddit("NUFC")

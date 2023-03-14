@@ -188,7 +188,7 @@ class RemoveLeague(discord.ui.Select):
         c = self.view.tc.channel.mention
 
         e = discord.Embed(title="Transfers", colour=discord.Colour.red())
-        e.description = f"Remove these leagues from {c}? ```yaml\n{lg_text}```"
+        e.description = f"Remove these leagues from {c}? {lg_text}"
         await self.view.interaction.edit_original_response(embed=e, view=view)
         await view.wait()
 
@@ -208,7 +208,7 @@ class RemoveLeague(discord.ui.Select):
                 self.view.tc.leagues.remove(i)
 
         m = self.view.tc.channel.mention
-        msg = f"Removed {m} tracked leagues: ```yaml\n{lg_text}```"
+        msg = f"Removed {m} tracked leagues:\n{lg_text}"
         e = discord.Embed(description=msg, colour=discord.Colour.red())
         e.title = "Transfers"
         u = interaction.user
@@ -305,17 +305,19 @@ class Transfers(commands.Cog):
     ) -> discord.InteractionMessage:
         """Create a ticker for the channel"""
 
-        ch = channel.mention
+        c = channel.mention
         btn = discord.ButtonStyle.green
         view = view_utils.Confirmation(
             interaction, "Create ticker", "Cancel", btn
         )
-        notkr = f"{ch} does not have a transfer ticker, create one?"
-        await interaction.edit_original_response(content=notkr, view=view)
+
+        e = discord.Embed(title="Create a ticker")
+        e.description = f"{c} has no transfer ticker, create one?"
+        await interaction.edit_original_response(embed=e, view=view)
         await view.wait()
 
         if not view.value:
-            txt = f"Cancelled transferr ticker creation for {ch}"
+            txt = f"Cancelled transfer ticker creation for {c}"
             return await self.bot.error(interaction, txt)
 
         lg = tfm.DEFAULT_LEAGUES
@@ -554,8 +556,6 @@ class Transfers(commands.Cog):
         channel: Optional[discord.TextChannel],
     ) -> discord.InteractionMessage:
         """Add a league to your transfer ticker channel(s)"""
-
-        await interaction.response.defer(thinking=True)
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
