@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Optional
 
 import discord
 from discord import Embed, Interaction, Message
-from discord.app_commands import Choice
 from discord.ext import commands
 from lxml import html
 
@@ -70,12 +69,14 @@ class TVSelect(view_utils.BaseView):
             e.description += f"{team}\n"
         self.add_item(d)
         self.add_page_buttons(1)
-        return await self.interaction.client.reply(embed=e, view=self)
+
+        edit = self.interaction.edit_original_response
+        return await edit(embed=e, view=self)
 
 
 async def tv_ac(
-    interaction: Interaction[Bot], current: str
-) -> list[Choice[str]]:
+    interaction: discord.Interaction[Bot], current: str
+) -> list[discord.app_commands.Choice[str]]:
     """Return list of live teams"""
     cr = current.casefold()
 

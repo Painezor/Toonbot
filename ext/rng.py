@@ -3,16 +3,16 @@ from __future__ import annotations
 
 from collections import Counter
 from random import choice, randint, randrange, shuffle
-from typing import TYPE_CHECKING, Optional
+import typing
 
 from discord import Embed, Colour, TextStyle
 import discord
 from discord.ext.commands import Cog
 from discord.ui import Button, Modal, TextInput
 
-from ext.utils.view_utils import Stop, BaseView
+from ext.utils import view_utils
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
     from discord import Interaction, Message
 
@@ -28,7 +28,7 @@ COIN = (
 # Send modal for custom roll
 
 
-class DiceBox(BaseView):
+class DiceBox(view_utils.BaseView):
     """A View with buttons for various dice"""
 
     def __init__(self, interaction: Interaction[Bot]) -> None:
@@ -55,7 +55,8 @@ class DiceBox(BaseView):
                 f"{', '.join(str(i) for i in row)} (Sum: {sum(row)})\n"
             )
 
-        return await self.bot.reply(self.interaction, view=self, embed=e)
+        edit = self.interaction.edit_original_response
+        return await edit(view=self, embed=e)
 
 
 class DiceButton(Button):
@@ -82,7 +83,7 @@ class DiceButton(Button):
         return await self.view.update()
 
 
-class CoinView(BaseView):
+class CoinView(view_utils.BaseView):
     """A View with a counter for 2 results"""
 
     def __init__(self, interaction: Interaction[Bot], count: int = 1) -> None:
@@ -91,9 +92,12 @@ class CoinView(BaseView):
         for x in range(count):
             self.flip_results.append(choice(["H", "T"]))
 
-    async def update(self, content: Optional[str] = None) -> Message:
+    async def update(
+        self, content: typing.Optional[str] = None
+    ) -> discord.InteractionMessage:
         """Update embed and push to view"""
-        e = Embed(colour=Colour.og_blurple(), title=self.flip_results[-1])
+        e = discord.Embed(title=self.flip_results[-1])
+        e.colour = discord.Colour.og_blurple()
         e.set_thumbnail(url=COIN)
         e.set_author(name="Coin Flip")
 
@@ -102,8 +106,8 @@ class CoinView(BaseView):
         for c in counter.most_common():
             e.description += f"\n**Total {c[0]}**: {c[1]}"
 
-        i = self.interaction
-        return await self.bot.reply(i, content, view=self, embed=e)
+        edit = self.interaction.edit_original_response
+        return await edit(content=content, view=self, embed=e)
 
 
 class FlipButton(Button):
@@ -142,12 +146,12 @@ class ChoiceModal(Modal):
     def __init__(self) -> None:
         super().__init__(title="Make a Decision")
 
-    async def on_submit(self, interaction: Interaction[Bot]) -> Message:
+    async def on_submit(self, interaction: discord.Interaction[Bot]) -> None:
         """When the Modal is submitted, send a random choice back"""
 
         u = interaction.user
 
-        e: Embed = Embed(colour=u.colour, title=self.question)
+        e = discord.Embed(colour=u.colour, title=self.question)
         e.set_author(icon_url=u.display_avatar.url, name="Choose")
 
         choices = str(self.answers).split("\n")
@@ -161,8 +165,7 @@ class ChoiceModal(Modal):
             output.append(", ".join(f"*{i}*" for i in choices))
 
         e.description = "\n".join(output)
-        bot: Bot = interaction.client
-        return await bot.reply(interaction, embed=e)
+        return await interaction.response.send_message(embed=e)
 
 
 class Random(Cog):
@@ -190,14 +193,14 @@ class Random(Cog):
 
         for _ in [5, 10, 100, 1000]:
             v.add_item(FlipButton(label=f"Flip {_}", count=_))
-        v.add_item(Stop(row=1))
+        v.add_page_buttons(1)
         return await v.update()
 
     @discord.app_commands.command(name="8ball")
     @discord.app_commands.describe(question="enter a question")
     async def eight_ball(
-        self, interaction: Interaction[Bot], question: str
-    ) -> Message:
+        self, interaction: discord.Interaction[Bot], question: str
+    ) -> None:
         """Magic Geordie 8ball"""
         res = [
             "probably",
@@ -229,16 +232,12 @@ class Random(Cog):
             "dain't bet on it like",
         ]
 
-        e = Embed(
-            title="8 Ball",
-            colour=0x000001,
-            description=f"**{question}**\n{choice(res)}",
-        )
+        e = discord.Embed(title="8 Ball", colour=0x000001)
+        e.description=f"**{question}**\n{choice(res)}"
 
-        e.set_author(
-            icon_url=interaction.user.display_avatar.url, name=interaction.user
-        )
-        return await self.bot.reply(interaction, embed=e)
+        usr = interaction.user
+        e.set_author(icon_url=usr.display_avatar.url, name=usr)
+        return await interaction.response.send_message(embed=e)
 
     @discord.app_commands.command()
     @discord.app_commands.describe(dice="enter a roll (format: 1d20+3)")
