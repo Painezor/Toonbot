@@ -2,19 +2,16 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from random import choice
 import random
-from typing import TYPE_CHECKING
 import typing
 
 import discord
-
 from discord.ext import commands
 from ext.logs import stringify_seconds
 
 from ext.utils.view_utils import BaseView
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 EMOJI = "<:mbemba:332196308825931777>"
@@ -365,7 +362,7 @@ class NUFC(commands.Cog):
         if isinstance(interaction.user, discord.User):
             return
 
-        if choice([False * 5, True]):
+        if random.choice([False * 5, True]):
             e = discord.Embed(colour=discord.Colour.red(), title="Bang")
             e.description = f"Timed out for {stringify_seconds(timeout)}"
 

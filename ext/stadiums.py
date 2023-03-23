@@ -65,7 +65,7 @@ async def get_stadiums(
     """Fetch a list of Stadium objects matching a user query"""
     uri = f"https://www.footballgroundmap.com/search/{quote_plus(query)}"
 
-    async with interaction.client.session.get(uri) as resp:
+    async with interaction.client.session.get(url=uri) as resp:
         tree = html.fromstring(await resp.text())
 
     stadiums: list[stads.Stadium] = []
