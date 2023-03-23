@@ -9,7 +9,6 @@ import discord
 from asyncpg import Record
 from discord import (
     Embed,
-    Interaction,
     Message,
     Colour,
     TextChannel,
@@ -19,18 +18,46 @@ from discord import (
 from discord.app_commands import (
     Choice,
 )
-from discord.ext.commands import Cog
-from discord.ext.tasks import loop
+from discord.ext import commands, tasks
 from discord.ui import Button
 from discord.utils import utcnow
 from lxml import html
 from playwright.async_api import TimeoutError
 
 from ext.painezbot_utils.region import Region
-from ext.utils.view_utils import Stop, BaseView
+from ext.utils import view_utils
 
 if TYPE_CHECKING:
     from painezBot import PBot
+
+
+async def save_article(bot: PBot, article: Article) -> None:
+    """Store the article in the database for quicker retrieval in future"""
+    sql = """INSERT INTO news_articles 
+                (title, description, partial, link, image, category, date, 
+                eu, na, sea)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (partial) 
+                DO UPDATE SET 
+                (title, description, link, image, category, date, eu, na, sea) 
+                = (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link, 
+                EXCLUDED.image, EXCLUDED.category, EXCLUDED.date, 
+                EXCLUDED.eu, EXCLUDED.na, EXCLUDED.sea) """
+    async with bot.db.acquire(timeout=60) as connection:
+        async with connection.transaction():
+            await connection.execute(
+                sql,
+                article.title,
+                article.description,
+                article.partial,
+                article.link,
+                article.image,
+                article.category,
+                article.date,
+                article.eu,
+                article.na,
+                article.sea,
+            )
 
 
 class ToggleButton(Button):
@@ -97,32 +124,6 @@ class Article:
         self.sea: bool = False
 
         self.date: Optional[datetime.datetime] = None
-
-    async def save_to_db(self) -> None:
-        """Store the article in the database for quicker retrieval in future"""
-        sql = """INSERT INTO news_articles (title, description, partial,
-                 link, image, category, date, eu, na, sea)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                 ON CONFLICT (partial) DO UPDATE SET (title, description, link,
-                 image, category, date, eu, na, sea) = (EXCLUDED.title,
-                 EXCLUDED.description, EXCLUDED.link, EXCLUDED.image,
-                 EXCLUDED.category, EXCLUDED.date, EXCLUDED.eu, EXCLUDED.na,
-                 EXCLUDED.sea) """
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.execute(
-                    sql,
-                    self.title,
-                    self.description,
-                    self.partial,
-                    self.link,
-                    self.image,
-                    self.category,
-                    self.date,
-                    self.eu,
-                    self.na,
-                    self.sea,
-                )
 
     async def generate_embed(self) -> Embed:
         """Handle dispatching of news article."""
@@ -203,9 +204,9 @@ class NewsChannel:
         self,
         bot: PBot,
         channel: TextChannel,
-        eu=False,
-        na=False,
-        sea=False,
+        eu: bool = False,
+        na: bool = False,
+        sea: bool = False,
     ) -> None:
         self.channel: TextChannel = channel
         self.bot: PBot = bot
@@ -249,34 +250,25 @@ class NewsChannel:
         self.sent_articles[article] = message
         return message
 
-    async def send_config(self, interaction: Interaction[PBot]) -> None:
+    async def send_config(
+        self, interaction: discord.Interaction[PBot]
+    ) -> None:
         """Send the config view to the requesting user"""
         view = NewsConfig(interaction, self.channel)
         return await view.update()
 
 
-class NewsConfig(BaseView):
+class NewsConfig(view_utils.BaseView):
     """News Tracker Config View"""
 
     def __init__(
-        self, interaction: Interaction[PBot], channel: TextChannel
+        self, interaction: discord.Interaction[PBot], channel: TextChannel
     ) -> None:
         super().__init__(interaction)
         self.channel: TextChannel = channel
         self.bot: PBot = interaction.client
 
-    async def on_timeout(self) -> None:
-        """Hide menu on timeout."""
-        await self.bot.reply(self.interaction, view=None, followup=False)
-
-    @property
-    def base_embed(self) -> Embed:
-        """Generic Embed for Config Views"""
-        return Embed(
-            colour=Colour.dark_teal(), title="World of Warships News Tracker"
-        )
-
-    async def update(self, content: Optional[str] = None) -> None:
+    async def update(self, content: typing.Optional[str] = None) -> None:
         """Regenerate view and push to message"""
         self.clear_items()
 
@@ -285,7 +277,7 @@ class NewsConfig(BaseView):
             async with connection.transaction():
                 record = await connection.fetchrow(sql, self.channel.id)
 
-        e: Embed = Embed(colour=Colour.dark_teal())
+        e = discord.Embed(colour=discord.Colour.dark_teal())
         e.title = "World of Warships News Tracker config"
         e.description = (
             "```yaml\nClick on the buttons below to enable "
@@ -294,11 +286,11 @@ class NewsConfig(BaseView):
             ".```"
         )
 
-        ico = self.bot.user.display_avatar.url if self.bot.user else None
-        e.set_thumbnail(url=ico)
-
         for k, v in sorted(record.items()):
             if k == "channel_id":
+                continue
+
+            if k == "cis":
                 continue
 
             region = next(i for i in Region if k == i.db_key)
@@ -310,11 +302,15 @@ class NewsConfig(BaseView):
                 e.description += f"\n❌ {re} News is not tracked."
 
             self.add_item(ToggleButton(self.bot, region=region, value=v))
-        self.add_item(Stop())
-        await self.bot.reply(self.interaction, content, embed=e, view=self)
+        self.add_page_buttons()
+
+        edit = self.interaction.edit_original_response
+        await edit(content=content, embed=e, view=self)
 
 
-async def news_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
+async def news_ac(
+    ctx: discord.Interaction[PBot], cur: str
+) -> list[Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
     choices = []
     cache = ctx.client.news_cache
@@ -331,11 +327,16 @@ async def news_ac(ctx: Interaction[PBot], cur: str) -> list[Choice[str]]:
         if cur not in text:
             continue
 
-        choices.append(Choice(name=text[:100], value=i.link))
-    return choices[:25]
+        name = text[:100]
+        choices.append(discord.app_commands.Choice(name=name, value=i.link))
+
+        if len(choices) == 25:
+            break
+
+    return choices
 
 
-class NewsTracker(Cog):
+class NewsTracker(commands.Cog):
     """NewsTracker Commands"""
 
     def __init__(self, bot: PBot) -> None:
@@ -346,7 +347,7 @@ class NewsTracker(Cog):
         """Stop previous runs of tickers upon Cog Reload"""
         self.bot.news.cancel()
 
-    @loop(minutes=1)
+    @tasks.loop(minutes=1)
     async def news_loop(self) -> None:
         """Loop to get the latest EU news articles"""
 
@@ -413,7 +414,7 @@ class NewsTracker(Cog):
                 await article.generate_embed()
 
                 # If we are simply populating, we are not interested.
-                await article.save_to_db()
+                await save_article(self.bot, article)
 
                 for channel in self.bot.news_channels:
                     try:
@@ -472,7 +473,9 @@ class NewsTracker(Cog):
     @discord.app_commands.command()
     @discord.app_commands.describe(text="Search by article title")
     @discord.app_commands.autocomplete(text=news_ac)
-    async def newspost(self, interaction: Interaction[PBot], text: str):
+    async def newspost(
+        self, interaction: discord.Interaction[PBot], text: str
+    ):
         """Search for a recent World of Warships news article"""
 
         await interaction.response.defer(thinking=True)
@@ -484,9 +487,8 @@ class NewsTracker(Cog):
             return await self.bot.error(interaction, err)
 
         await article.generate_embed()
-        await self.bot.reply(
-            interaction, view=article.view, embed=article.embed
-        )
+        edit = interaction.edit_original_response
+        return await edit(view=article.view, embed=article.embed)
 
     # Command for tracker management.
     @discord.app_commands.command()
@@ -520,7 +522,7 @@ class NewsTracker(Cog):
         return await target.send_config(interaction)
 
     # Event Listeners for database cleanup.
-    @Cog.listener()
+    @commands.Cog.listener()
     async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
         q = """DELETE FROM news_trackers WHERE channel_id = $1"""

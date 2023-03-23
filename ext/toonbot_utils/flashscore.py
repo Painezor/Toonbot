@@ -32,13 +32,13 @@ ADS = (
     ".isSticky, "
     ".ot-sdk-container, "
     ".otPlaceholder, "
-    ".onetrust-consent-sdk, "
     ".rollbar, "
     ".selfPromo, "
     "#box-over-content, "
     "#box-over-content-detail, "
-    "#box-over-content-a,"
-    "#lsid-window-mask"
+    "#box-over-content-a, "
+    "#lsid-window-mask, "
+    "#onetrust-consent-sdk"
 )
 
 FLASHSCORE = "https://www.flashscore.com"
@@ -84,15 +84,10 @@ def parse_events(fixture: Fixture, tree) -> list[m_evt.MatchEvent]:
                 except IndexError:
                     # If Penalties are still in progress, it's actually
                     # in format ['Penalties', '1 - 2']
-                    logger.error("ValueError splitting pens %s", text)
-                    logger.error(fixture.url)
                     _, pen_string = text
                     h, a = pen_string.split(" - ")
                     fixture.penalties_home = h
                     fixture.penalties_away = a
-            else:
-                logger.info("Header Row on parse_events %s", text)
-
             continue
 
         try:
@@ -548,6 +543,9 @@ class Player:
         self.reds: typing.Optional[int] = None
         self.injury: typing.Optional[str] = None
 
+        # From top scorers pages.
+        self.rank: typing.Optional[int] = None
+
     @property
     def name(self) -> str:
         if self.forename is None:
@@ -738,15 +736,6 @@ class Fixture:
 
         return f"{time}: {self.bold_markdown}"
 
-    def active(self, ordinal: int) -> bool:
-        """Is this game still valid"""
-        if self.ordinal is None:
-            if self.kickoff is None:
-                self.ordinal = ordinal
-            else:
-                self.ordinal = self.kickoff.toordinal()
-        return bool(ordinal <= self.ordinal)
-
     @property
     def state(self) -> GameState | None:
         """Get a GameState value from stored _time"""
@@ -856,21 +845,19 @@ class Fixture:
         if self.state is not None:
             output.append(f"`{self.state.emote}")
 
-        if isinstance(self.time, str):
-            output.append(f"{self.time}`")
-        else:
-            if self.state:
+            if isinstance(self.time, str):
+                output.append(self.time)
+            else:
                 if self.state != GameState.SCHEDULED:
-                    output.append(f"{self.state.shorthand}`")
-                else:
-                    output.append("`")
+                    output.append(self.state.shorthand)
+            output.append("` ")
 
         h = self.home.name
         a = self.away.name
 
         if self.home_score is None or self.away_score is None:
             time = timed_events.Timestamp(self.kickoff).time_hour
-            output.append(f"{time} [{h} v {a}]({self.url})")
+            output.append(f" {time} [{h} v {a}]({self.url})")
         else:
             # Penalty Shootout
             if self.penalties_home is not None:
@@ -880,7 +867,7 @@ class Fixture:
                 output.append(f"{h} [{s} - {s}]({self.url}){pens}{a}")
             else:
                 output.append(self.bold_markdown)
-        return " ".join(output)
+        return "".join(output)
 
     @property
     def ac_row(self) -> str:

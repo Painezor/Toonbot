@@ -137,7 +137,7 @@ class OvrMatch(commands.Cog):
 
         e.set_thumbnail(url=OVERMATCH)
         e.set_footer(text=f"{shell_calibre}mm / 14.3 = {value}mm")
-        return await self.bot.reply(interaction, embed=e)
+        return await interaction.edit_original_response(embed=e)
 
     @om.command()
     @discord.app_commands.describe(armour_thickness="Thickness of armour (mm)")

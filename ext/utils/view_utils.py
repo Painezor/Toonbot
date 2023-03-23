@@ -6,6 +6,8 @@ import logging
 from dataclasses import dataclass
 from typing import Callable, Any, Optional
 
+from ext.utils import embed_utils
+
 import discord
 import typing
 
@@ -55,13 +57,13 @@ class BaseView(discord.ui.View):
 
     async def on_timeout(self) -> Optional[discord.InteractionMessage]:
         """Cleanup"""
-        r = self.interaction.edit_original_response
+        edit = self.interaction.edit_original_response
         try:
-            return await r(view=None)
+            return await edit(view=None)
         except discord.NotFound:
             pass  # Shhhhhhh.
 
-    def add_page_buttons(self, row: int = 0) -> list[discord.ui.Item]:
+    def add_page_buttons(self, row: int = 0) -> None:
         """Helper function to bulk add page buttons (Prev, Jump, Next, Stop)"""
         # Clear Old Items on our row.
         [self.remove_item(i) for i in self.children if i.row == row]
@@ -75,7 +77,6 @@ class BaseView(discord.ui.View):
             self.add_item(Jump(self, row))
             self.add_item(Next(self, row))
         self.add_item(Stop(row))
-        return self.children
 
     def add_function_row(
         self,
@@ -318,6 +319,71 @@ class ItemSelect(discord.ui.Select):
         """Response object for view"""
         await interaction.response.defer()
         self.view.value = self.values
+        self.view.stop()
+
+
+class AdditiveItemSelect(discord.ui.Select):
+
+    view: PagedItemSelect
+
+    def __init__(
+        self, options: list[discord.SelectOption], row: int = 1
+    ) -> None:
+        super().__init__(max_values=len(options), row=row, options=options)
+
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
+        """Response object for view"""
+        await interaction.response.defer()
+
+        for i in self.options:
+            if i.value in self.view.values and i.value not in self.values:
+                self.view.values.remove(i.value)
+            elif i.value not in self.view.values and i.value in self.values:
+                self.view.values.add(i.value)
+
+
+class PagedItemSelect(BaseView):
+    def __init__(
+        self,
+        interaction: discord.Interaction[Bot | PBot],
+        items: list[discord.SelectOption],
+        timeout: int = 30,
+    ):
+        super().__init__(interaction, timeout=timeout)
+
+        self.values: set[str] = set()
+        self.items: list[discord.SelectOption] = items
+
+    async def update(self) -> discord.InteractionMessage:
+        self.clear_items()
+        self.pages = embed_utils.paginate(self.items, 25)
+        items = self.pages[self.index]
+
+        # Set Defaults based on whether it has been selected.
+        for i in items:
+            i.default = i.value in self.values
+
+        self.add_item(AdditiveItemSelect(items, row=0))
+        self.add_page_buttons(1)
+        self.add_item(ConfirmMultiple(2))
+
+        return await self.interaction.edit_original_response(view=self)
+
+
+class ConfirmMultiple(discord.ui.Button):
+
+    view: PagedItemSelect
+
+    def __init__(self, row: int = 2):
+        super().__init__(style=discord.ButtonStyle.primary, label="Save")
+        self.row = row
+
+    async def callback(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
+        await interaction.response.defer()
         self.view.stop()
 
 

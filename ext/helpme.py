@@ -113,9 +113,7 @@ class HelpMe(commands.Cog):
         return await interaction.edit_original_response(embed=e, view=v)
 
     @discord.app_commands.command()
-    async def inventory(
-        self, interaction: discord.Interaction[PBot]
-    ) -> discord.InteractionMessage:
+    async def inventory(self, interaction: discord.Interaction[PBot]) -> None:
         """Get a link to the web version of the in-game Inventory"""
         e = discord.Embed(title="World of Warships Inventory")
         e.colour = discord.Colour.lighter_grey()
@@ -124,12 +122,12 @@ class HelpMe(commands.Cog):
 
         v = discord.ui.View()
         do_buttons(v, "inventory")
-        return await self.bot.reply(interaction, embed=e, view=v)
+        return await interaction.response.send_message(embed=e, view=v)
 
     @discord.app_commands.command()
     async def logbook(
         self, interaction: discord.Interaction[PBot]
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Get a link to the web version of the in-game Captain's Logbook"""
         e = discord.Embed(
             title="World of Warships Captain's Logbook",
@@ -144,7 +142,7 @@ class HelpMe(commands.Cog):
 
         v = discord.ui.View()
         do_buttons(v, "logbook")
-        return await self.bot.reply(interaction, embed=e, view=v)
+        return await interaction.response.send_message(embed=e, view=v)
 
     # TODO: Make this into a view.
     @discord.app_commands.command()

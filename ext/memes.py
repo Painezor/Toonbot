@@ -1,7 +1,7 @@
 """Miscellaneous toys built for my own personal entertainment."""
 from __future__ import annotations
 
-from random import choice
+import random
 
 import typing
 import discord
@@ -22,7 +22,7 @@ class Memes(commands.Cog):
     )
 
     @mem_grp.command()
-    async def dead(self, interaction: discord.Interaction) -> None:
+    async def dead(self, interaction: discord.Interaction[Bot]) -> None:
         """STOP, STOP HE'S ALREADY DEAD"""
         vid = "https://www.youtube.com/watch?v=mAUY1J8KizU"
         return await interaction.response.send_message(vid)
@@ -64,7 +64,7 @@ class Memes(commands.Cog):
             "ʕ ͡° ͜ʖ ͡°ʔ",
             "( ͡° ͜ʖ ͡ °)",
         ]
-        return await interaction.response.send_message(choice(lennys))
+        return await interaction.response.send_message(random.choice(lennys))
 
     @mem_grp.command()
     async def thatsthejoke(

@@ -21,9 +21,9 @@ if typing.TYPE_CHECKING:
     from ext.maps import Map
     from ext.news_tracker import Article, NewsChannel
     from ext.painezbot_utils.clan import Clan, ClanBuilding
+    from ext.painezbot_utils.module import Module
     from ext.painezbot_utils.player import GameMode, Player
     from ext.painezbot_utils.ship import Ship, ShipType
-    from ext.painezbot_utils.module import Module
     from ext.twitch import Contributor, TBot, TrackerChannel
 
 
@@ -76,7 +76,6 @@ class PBot(commands.AutoShardedBot):
         )
 
         # Reply Handling
-        self.reply: typing.Callable
         self.error: typing.Callable
 
         # Database & API Credentials

@@ -4,26 +4,16 @@ from __future__ import annotations
 import logging
 import typing
 
-from asyncpg import Record
+import asyncpg
 from dateutil.relativedelta import relativedelta
 from discord import (
-    Embed,
-    Interaction,
     HTTPException,
-    TextChannel,
-    TextStyle,
     Message,
 )
 
 import discord
-from discord.app_commands import Group, context_menu
-from discord.ext.commands import Cog
-from discord.ui import Button, TextInput, View
+from discord.ext import commands
 from discord.utils import utcnow
-
-from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.timed_events import Timestamp
-from ext.utils.view_utils import Paginator
 
 from ext.utils import embed_utils, view_utils, timed_events
 
@@ -35,7 +25,7 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("reminders")
 
 
-async def spool_reminder(bot: Bot | PBot, r: Record):
+async def spool_reminder(bot: Bot | PBot, r: asyncpg.Record):
     """Bulk dispatch reminder messages"""
     # Get data from records
     await discord.utils.sleep_until(r["target_time"])
@@ -125,10 +115,10 @@ class RemindModal(discord.ui.Modal):
 class ReminderView(discord.ui.View):
     """View for user requested reminders"""
 
-    def __init__(self, bot: Bot | PBot, r: Record):
+    def __init__(self, bot: Bot | PBot, r: asyncpg.Record):
         super().__init__(timeout=None)
         self.bot: Bot | PBot = bot
-        self.record: Record = r
+        self.record: asyncpg.Record = r
 
     async def send_reminder(self):
         """Send message to appropriate destination"""
@@ -141,12 +131,13 @@ class ReminderView(discord.ui.View):
         if r["message_id"] is not None:
             msg = await channel.fetch_message(r["message_id"])
             if msg is not None:
-                btn = Button(label="Original Message", url=msg.jump_url)
+                lbl = "Original Message"
+                btn = discord.ui.Button(url=msg.jump_url, label=lbl)
                 self.add_item(btn)
 
-        e: Embed = Embed(colour=0x00FF00)
+        e = discord.Embed(colour=0x00FF00)
         e.set_author(name="⏰ Reminder")
-        e.description = Timestamp(r["created_time"]).date_relative
+        e.description = timed_events.Timestamp(r["created_time"]).date_relative
 
         if r["reminder_content"]:
             e.description += f"\n\n> {r['reminder_content']}"
@@ -155,7 +146,7 @@ class ReminderView(discord.ui.View):
 
         try:
             await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
-        except HTTPException:
+        except discord.HTTPException:
             u = self.bot.get_user(r["user_id"])
             if u is not None:
                 try:
@@ -168,20 +159,23 @@ class ReminderView(discord.ui.View):
             async with connection.transaction():
                 await connection.execute(sql, r["created_time"])
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
+    async def interaction_check(
+        self, interaction: discord.Interaction[Bot]
+    ) -> bool:
         """Only reminder owner can interact to hide or snooze"""
         return interaction.user.id == self.record["user_id"]
 
 
-@context_menu(name="Create reminder")
-async def create_reminder(interaction: discord.Interaction[Bot], 
-                          message: discord.Message) -> None:
+@discord.app_commands.context_menu(name="Create reminder")
+async def create_reminder(
+    interaction: discord.Interaction[Bot | PBot], message: discord.Message
+) -> None:
     """Create a reminder with a link to a message."""
     modal = RemindModal("Remind me", message)
     return await interaction.response.send_modal(modal)
 
 
-class Reminders(Cog):
+class Reminders(commands.Cog):
     """Set yourself reminders"""
 
     def __init__(self, bot: Bot | PBot) -> None:
@@ -206,17 +200,21 @@ class Reminders(Cog):
         for i in self.bot.reminders:
             i.cancel()
 
-    reminder = Group(
+    reminder = discord.app_commands.Group(
         name="reminders", description="Set Reminders for yourself"
     )
 
     @reminder.command()
-    async def create(self, interaction: Interaction) -> None:
+    async def create(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
         """Remind you of something at a specified time."""
         await interaction.response.send_modal(RemindModal("Create a reminder"))
 
     @reminder.command()
-    async def list(self, interaction: Interaction[Bot | PBot]) -> Message:
+    async def list(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> Message:
         """Check your active reminders"""
 
         sql = """SELECT * FROM reminders WHERE user_id = $1"""
@@ -224,9 +222,9 @@ class Reminders(Cog):
             async with connection.transaction():
                 rec = await connection.fetch(sql, interaction.user.id)
 
-        def short(r: Record):
+        def short(r: asyncpg.Record):
             """Get oneline version of reminder"""
-            time = Timestamp(r["target_time"]).time_relative
+            time = timed_events.Timestamp(r["target_time"]).time_relative
             guild = "@me" if r["guild_id"] is None else r["guild_id"]
 
             m = r["message_id"]
@@ -234,8 +232,10 @@ class Reminders(Cog):
             return f"**{time}**: [{r['reminder_content']}]({j})"
 
         rows = [short(r) for r in rec] if rec else ["You have no reminders"]
-        e: Embed = Embed(colour=0x7289DA, title="Your reminders")
-        return await Paginator(interaction, rows_to_embeds(e, rows)).update()
+        e = discord.Embed(colour=0x7289DA, title="Your reminders")
+
+        embeds = embed_utils.rows_to_embeds(e, rows)
+        return await view_utils.Paginator(interaction, embeds).update()
 
 
 async def setup(bot: Bot | PBot) -> None:

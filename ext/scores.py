@@ -40,10 +40,6 @@ NOPERMS = (
 FXE = "fixture_event"  # Just a string for dispatching events.
 
 
-# Do up to N fixtures at a time
-semaphore = asyncio.Semaphore(2)
-
-
 class ScoreChannel:
     """A livescore channel object, containing it's properties."""
 
@@ -64,8 +60,9 @@ class ScoreChannel:
 
         for r in records:
             if (comp := self.bot.get_competition(r["url"])) is None:
-                if (comp := self.bot.get_competition(r["league"])) is None:
-                    logger.error("Failed fetching comp %s", r)
+                lg = r["league"].rstrip("/")
+                if (comp := self.bot.get_competition(lg)) is None:
+                    logger.error("Failed fetching comp %s", lg)
                     continue
 
             self.leagues.add(comp)
@@ -74,6 +71,7 @@ class ScoreChannel:
     async def update(self) -> list[discord.Message | None]:
         """Edit a live-score channel to have the latest scores"""
         if self.channel.is_news():
+            self.bot.score_channels.remove(self)
             return []
 
         if not self.leagues:
@@ -100,6 +98,10 @@ class ScoreChannel:
 
         # Zip longest will give (, None) in slot [0] // self.messages
         # if we do not have enough messages for the embeds.
+
+        if not tuples:
+            logger.error("Something went wrong in score loop, no tuples.")
+
         count = 0
         for message, embeds in tuples:
             try:
@@ -113,15 +115,7 @@ class ScoreChannel:
                     m = await self.channel.send(embeds=embeds)
                     self.messages.append(m)
                     continue
-            except discord.Forbidden:
-                # If we don't have permissions to send Messages in the channel,
-                # remove it and stop iterating.
-                self.bot.score_channels.remove(self)
-                return []
-            except discord.HTTPException:
-                continue
 
-            try:
                 if embeds is None:
                     if not message.flags.suppress_embeds:
                         m = await message.edit(suppress=True)
@@ -131,14 +125,17 @@ class ScoreChannel:
                 cnt = collections.Counter
                 new = cnt([i.description for i in embeds])
                 old = cnt([i.description for i in message.embeds])
-                if not old == new:
+                if old != new:
                     m = await message.edit(embeds=embeds, suppress=False)
                     self.messages[count] = m
-            except discord.NotFound:
+            except (discord.Forbidden, discord.NotFound):
+                # If we don't have permissions to send Messages in the channel,
+                # remove it and stop iterating
                 self.bot.score_channels.remove(self)
                 return []
-            except discord.HTTPException:
-                continue
+            except discord.HTTPException as err:
+                logger.error("Scores err: Error %s (%s)", err.status, err.text)
+                return []
             finally:
                 count += 1
         return self.messages
@@ -315,9 +312,19 @@ class Scores(commands.Cog):
         # Weak refs.
         self.tasks: set[asyncio.Task] = set()
 
+        # Day Change tracking
+        self.last_ordinal: int = 0
+
+        # Worker Pool of pages.
+        self.score_workers = asyncio.Queue(5)
+
     async def cog_load(self) -> None:
         """Load our database into the bot"""
         self.bot.scores = self.score_loop.start()
+
+        for _ in range(5):
+            page = await self.bot.browser.new_page()
+            await self.score_workers.put(page)
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
@@ -330,6 +337,10 @@ class Scores(commands.Cog):
         self.bot.games.clear()
         self.bot.teams.clear()
         self.bot.competitions.clear()
+
+        while not self.score_workers.empty():
+            page = await self.score_workers.get()
+            await page.close()
 
     # Database load: ScoreChannels
     async def update_cache(self) -> list[ScoreChannel]:
@@ -396,7 +407,18 @@ class Scores(commands.Cog):
         ordinal = now.toordinal()
 
         # Discard yesterday's games.
-        self.bot.games = [g for g in self.bot.games if g.active(ordinal)]
+        games: list[fs.Fixture] = self.bot.games
+
+        if self.last_ordinal != ordinal:
+            logger.info("Day changed %s -> %s", self.last_ordinal, ordinal)
+            for i in games:
+                if i.kickoff is None:
+                    continue
+
+                if ordinal > i.kickoff.toordinal():
+                    logger.info("Removing old game %s", i.score_line)
+                    self.bot.games.remove(i)
+            self.last_ordinal = ordinal
 
         comps = set(i.competition for i in self.bot.games if i.competition)
 
@@ -413,10 +435,7 @@ class Scores(commands.Cog):
             rte = embed_utils.rows_to_embeds
             comp.score_embeds = rte(e, ls_txt, 50, footer=table)
 
-        logger.info("Made score embeds for %s comps", len(comps))
-
-        for sc in self.bot.score_channels.copy():
-            await sc.update()
+        [await sc.update() for sc in self.bot.score_channels.copy()]
 
     @score_loop.before_loop
     async def clear_old_scores(self):
@@ -541,19 +560,18 @@ class Scores(commands.Cog):
 
         # DO all set and forget shit.
 
-        async with semaphore:
-            # Release so we don't block heartbeat
-            await asyncio.sleep(0)
-            page = await self.bot.browser.new_page()
-            try:
-                await page.goto(fixture.url)
+        # Release so we don't block heartbeat
+        await asyncio.sleep(0)
+        page = await self.score_workers.get()
+        try:
+            await page.goto(fixture.url)
 
-                # We are now on the fixture's page. Hooray.
-                loc = page.locator(".duelParticipant")
-                await loc.wait_for(timeout=2500)
-                tree = html.fromstring(await page.content())
-            finally:
-                await page.close()
+            # We are now on the fixture's page. Hooray.
+            loc = page.locator(".duelParticipant")
+            await loc.wait_for(timeout=2500)
+            tree = html.fromstring(await page.content())
+        finally:
+            await self.score_workers.put(page)
 
         # Handle Teams
         fixture.home = await fs.Team.from_fixture_html(self.bot, tree)
@@ -590,51 +608,62 @@ class Scores(commands.Cog):
             return
 
         fs_id = None
-        async with semaphore:
-            page = await self.bot.browser.new_page()
-            src = None
+
+        page = await self.score_workers.get()
+        src = None
+
+        try:
             await page.goto(url + "/standings")
-            try:
-                bar = page.locator("text=Overall").last
-                logger.info("Current Page URL is %s", page.url)
-                await bar.wait_for(timeout=3000)
-            except pw_TimeoutError:
+
+            if await page.locator("strong", has_text="Error:").count():
+                logger.error("Errored on standings page, using draw fallback")
                 await page.goto(url + "/draw")
-                logger.info("Current Page URL is %s", page.url)
-                bar = page.locator("text=Draw").last
-                await bar.wait_for(timeout=3000)
+                await page.wait_for_url("**draw/#/**")
+            else:
+                await page.wait_for_url("**standings/#/**")
 
-            try:
-                logger.info("found %s matching elements", await bar.count())
-                sublink = await bar.get_attribute("href")
-                logger.info("href is %s", sublink)
-                if sublink is not None:
-                    fs_id = sublink.split("/")[1]
+            if "#" in page.url:
+                fs_id = page.url.split("/")[-1]
 
-                    if fs_id == "football":
-                        logger.error("bad comp_id %s from %s", fs_id, sublink)
-                    else:
-                        logger.info("Good comp_id %s from %s", fs_id, sublink)
+                if fs_id in ["live", "table", "overall"]:
+                    logger.info("Bad ID from %s", page.url)
+                else:
+                    logger.info("Id from page url %s", fs_id)
 
-                    # Name Correction
-                    name_loc = page.locator(".heading__name").first
-                    logo_url = page.locator(".heading__logo").first
+            else:
+                bar = page.locator(".tabs__tab")
+                logger.info("Current page url %s", page.url)
+                logger.info("found %s matching tabs", await bar.count())
+                for elem in await bar.all():
+                    sublink = await elem.get_attribute("href")
+                    if sublink is not None:
+                        fs_id = sublink.split("/")[1]
 
-                    maybe_name = await name_loc.text_content()
-                    if maybe_name is not None:
-                        name = maybe_name
-                    src = await logo_url.get_attribute("src", timeout=1000)
-            except pw_TimeoutError:
-                logger.error("Timed out heading__logo %s", url)
-            finally:
-                await page.close()
+                        if fs_id in ["football", "live", "overall"]:
+                            logger.error("bad id from %s", sublink)
+                        else:
+                            logger.info("++ id %s from %s", fs_id, sublink)
+                            break
 
-        logger.info("cant get_competition %s", url)
+            # Name Correction
+            name_loc = page.locator(".heading__name").first
+            logo_url = page.locator(".heading__logo").first
+
+            maybe_name = await name_loc.text_content(timeout=100)
+            if maybe_name is not None:
+                name = maybe_name
+            src = await logo_url.get_attribute("src", timeout=100)
+        except pw_TimeoutError:
+            logger.error("Timed out heading__logo %s", url)
+        finally:
+            await self.score_workers.put(page)
+
         comp = fs.Competition(fs_id, name, country, url)
         if src is not None:
             comp.logo_url = fs.FLASHSCORE + src
 
-        if fs_id is not None and fs_id != "football":
+        if fs_id is not None and fs_id not in ["football", "overall"]:
+            logger.info("Storing competition %s -> %s", fs_id, url)
             await fs.save_comp(self.bot, comp)
         else:
             self.bot.competitions.add(comp)
@@ -662,14 +691,13 @@ class Scores(commands.Cog):
             except etree.ParserError:
                 continue
 
-            # Check if the chunk to be parsed has is a header.
-            # If it is, we need to create a new competition object.
-            if comp_tag := tree.xpath(".//h4/text()"):
-                logger.info("comp tag is %s", comp_tag)
-
             link = "".join(tree.xpath(".//a/@href"))
-            match_id = link.split("/")[-2]
-            url = fs.FLASHSCORE + link
+            try:
+                match_id = link.split("/")[-2]
+                url = fs.FLASHSCORE + link
+            except IndexError:
+                # Awaiting.
+                continue
 
             # Set & forget: Competition, Teams
             if (fx := self.bot.get_fixture(match_id)) is None:
@@ -677,7 +705,8 @@ class Scores(commands.Cog):
                 xp = "./text()"
                 teams = [i.strip() for i in tree.xpath(xp) if i.strip()]
 
-                if teams[0].startswith("updates"):  # ???
+                if teams[0].startswith("updates"):
+                    # Awaiting Updates.
                     teams[0] = teams[0].replace("updates", "")
 
                 if len(teams) == 1:
@@ -710,9 +739,16 @@ class Scores(commands.Cog):
                 home = fs.Team(None, home_name, None)
                 away = fs.Team(None, away_name, None)
                 fx = fs.Fixture(home, away, match_id, url)
-                self.bot.games.append(fx)
 
-                await self.bot.loop.create_task(self.fetch_data(fx))
+                try:
+                    crt = self.bot.loop.create_task
+                    task = crt(self.fetch_data(fx), name=f"fetchdata {fx.id}")
+                    task.add_done_callback(self.tasks.discard)
+                except pw_TimeoutError:
+                    logger.error("Timeout Error on %s", fx.url)
+                    continue  #  If a fucky happens.
+
+                self.bot.games.append(fx)
                 await asyncio.sleep(0)
 
                 old_state = None
@@ -999,8 +1035,9 @@ class Scores(commands.Cog):
         try:
             sc = next(i for i in chn if i.channel.id == channel.id)
         except StopIteration:
-            err = f"{channel.mention} is not a live-scores channel."
-            raise ValueError(err)
+            e = discord.Embed(colour=discord.Colour.red())
+            e.description = f"{channel.mention} is not a live-scores channel."
+            return await interaction.edit_original_response(embed=e)
 
         sql = """INSERT INTO scores_leagues (channel_id, url, league)
                 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""

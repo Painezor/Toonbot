@@ -1,42 +1,38 @@
 """Meta information related to painezBot"""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from discord import Embed, Interaction, Message, ButtonStyle
+import typing
 import discord
-from discord.ext.commands import Cog
-from discord.ui import View, Button
+from discord.ext import commands
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from painezBot import PBot
 
-INV = (
-    "https://discord.com/api/oauth2/authorize?client_id=964870918738419752&"
-    "scope=bot%20applications.commands"
-)
+INV = """https://discord.com/api/oauth2/authorize?client_id=964870918738419752&
+scope=bot%20applications.commands"""
 
 
-class MetaPainezbot(Cog):
+class MetaPainezbot(commands.Cog):
     """ "Meta Information about painezBot"""
 
     def __init__(self, bot: PBot):
         self.bot: PBot = bot
 
     @discord.app_commands.command()
-    async def invite(self, interaction: Interaction) -> Message:
+    async def invite(self, interaction: discord.Interaction[PBot]) -> None:
         """Get the bots invite link"""
-        view = View()
-        view.add_item(
-            Button(style=ButtonStyle.url, url=INV, label="Invite me")
-        )
-        return await self.bot.reply(interaction, view=view, ephemeral=True)
+        view = discord.ui.View()
+
+        btn = discord.ui.Button(style=discord.ButtonStyle.url, url=INV)
+        btn.label = "Invite me"
+        view.add_item(btn)
+        return await interaction.response.send_message(view=view)
 
     @discord.app_commands.command()
-    async def about(self, interaction: Interaction) -> Message:
+    async def about(self, interaction: discord.Interaction[PBot]) -> None:
         """Tells you information about the bot itself."""
 
-        e: Embed = Embed(colour=0x2ECC71)
+        e = discord.Embed(colour=0x2ECC71)
         e.set_footer(text="painezBot is coded by Painezor | Created on")
 
         me = self.bot.user
@@ -53,11 +49,12 @@ class MetaPainezbot(Cog):
             "users across {len(self.bot.guilds)} servers."
         )
 
-        view = View()
+        view = discord.ui.View()
         em = "<:painezBot:928654001279471697>"
-        btn = Button(url=INV, label="Invite me to your server", emoji=em)
+        btn = discord.ui.Button(url=INV, emoji=em)
+        btn.label = "Invite me to your server"
         view.add_item(btn)
-        return await self.bot.reply(interaction, embed=e, view=view)
+        return await interaction.response.send_message(embed=e, view=view)
 
 
 async def setup(bot: PBot):

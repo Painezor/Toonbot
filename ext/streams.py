@@ -1,24 +1,22 @@
 """Allow guilds to add a list of their own streams to keep track of events."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import typing
 
 import discord
-from discord import Embed, Permissions, Member, Interaction, Message, User
-from discord.app_commands import Choice, Group
-from discord.ext.commands import Cog
+from discord.ext import commands
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 
 class Stream:
     """A generic dataclass representing a stream"""
 
-    def __init__(self, name: str, link: str, added_by: Member | User) -> None:
+    def __init__(self, name: str, link: str, added_by: discord.Member | discord.User) -> None:
         self.name: str = name
         self.link: str = link
-        self.added_by: Member | User = added_by
+        self.added_by: discord.Member | discord.User = added_by
 
     def __str__(self):
         text = self.link if self.name is None else self.name
@@ -29,7 +27,7 @@ class Stream:
         return f"{self.name} {self.link}".casefold()
 
 
-async def st_ac(ctx: Interaction[Bot], current: str) -> list[Choice[str]]:
+async def st_ac(ctx: discord.Interaction[Bot], current: str) -> list[discord.app_commands.Choice[str]]:
     """Return List of Guild Streams"""
     if ctx.guild is None:
         return []
@@ -37,25 +35,32 @@ async def st_ac(ctx: Interaction[Bot], current: str) -> list[Choice[str]]:
     strms = ctx.client.streams[ctx.guild.id]
     cur = current.casefold()
     m = [i.name[:100] for i in strms if cur in i.ac_row]
-    return [Choice(name=item, value=item) for item in m][:25]
+    
+    options = []
+    for item in m:
+        options.append(discord.app_commands.Choice(name=item, value=item))
+
+        if len(options) == 25:
+            break
+
+    return options
 
 
-class GuildStreams(Cog):
+class GuildStreams(commands.Cog):
     """Guild specific stream listings."""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
 
-    prm = Permissions(manage_messages=True)
-    streams = Group(
+    streams = discord.app_commands.Group(
         name="streams",
         description="Stream list for your server",
         guild_only=True,
-        default_permissions=prm,
+        default_permissions=discord.Permissions(manage_messages=True),
     )
 
     @streams.command()
-    async def list(self, interaction: Interaction) -> Message:
+    async def list(self, interaction: discord.Interaction[Bot]) -> None:
         """List all streams for the match added by users."""
         if interaction.guild is None:
             raise
@@ -64,45 +69,51 @@ class GuildStreams(Cog):
             err = "Nobody has added any streams yet."
             return await self.bot.error(interaction, err)
 
-        e = Embed(title="Streams")
+        e = discord.Embed(title="Streams")
         e.description = "\n".join([str(i) for i in strms])
-        return await self.bot.reply(interaction, embed=e)
+        return await interaction.response.send_message(embed=e)
 
     @streams.command(name="add")
     @discord.app_commands.describe(name="Stream Name", link="Stream Link")
-    async def add_stream(self, ctx: Interaction[Bot], link: str, name: str):
+    async def add_stream(
+        self, interaction: discord.Interaction[Bot], link: str, name: str
+    ):
         """Add a stream to the stream list."""
-        if ctx.guild is None:
+        if interaction.guild is None:
             raise
 
-        if not (guild_streams := self.bot.streams[ctx.guild.id]):
-            self.bot.streams[ctx.guild.id] = []
+        if not (guild_streams := self.bot.streams[interaction.guild.id]):
+            self.bot.streams[interaction.guild.id] = []
 
         if link in [i.link for i in guild_streams]:
-            return await self.bot.error(ctx, "Already in stream list.")
+            return await self.bot.error(interaction, "Already in stream list.")
 
-        stream = Stream(name=name, link=link, added_by=ctx.user)
-        self.bot.streams[ctx.guild.id].append(stream)
+        stream = Stream(name=name, link=link, added_by=interaction.user)
+        self.bot.streams[interaction.guild.id].append(stream)
 
-        e: Embed = Embed(title="Streams")
+        e = discord.Embed(title="Streams")
         e.description = "\n".join([str(i) for i in guild_streams])
 
         msg = f"Added <{stream.link}> to stream list."
-        await self.bot.reply(ctx, msg, embed=e)
+        return await interaction.response.send_message(content=msg, embed=e)
 
     @streams.command(name="clear")
-    async def clear_streams(self, interaction: Interaction):
+    async def clear_streams(
+        self, interaction: discord.Interaction[Bot]
+    ) -> None:
         """Remove all streams from guild stream list"""
         if interaction.guild is None:
             raise
 
         self.bot.streams[interaction.guild.id] = []
         msg = f"{interaction.guild.name} stream list cleared."
-        await self.bot.reply(interaction, msg)
+        return await interaction.response.send_message(content=msg)
 
     @streams.command(name="delete")
     @discord.app_commands.autocomplete(stream=st_ac)
-    async def delete_stream(self, interaction: Interaction[Bot], stream: str):
+    async def delete_stream(
+        self, interaction: discord.Interaction[Bot], stream: str
+    ) -> discord.InteractionMessage:
         """Delete a stream from the stream list"""
         await interaction.response.defer(thinking=True)
 
@@ -137,9 +148,9 @@ class GuildStreams(Cog):
         txt = "\n".join([f"<{i.link}>" for i in matches])
         msg = f"Removed {txt} from {interaction.guild.name} stream list"
 
-        e = Embed(title=f"{interaction.guild.name} Streams")
+        e = discord.Embed(title=f"{interaction.guild.name} Streams")
         e.description = "\n".join([str(i) for i in gs])
-        await self.bot.reply(interaction, msg, embed=e)
+        return await interaction.edit_original_response(content=msg, embed=e)
 
 
 async def setup(bot: Bot) -> None:

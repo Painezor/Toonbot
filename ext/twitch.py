@@ -24,7 +24,7 @@ with open("credentials.json") as f:
     credentials = load(f)
 
 
-CCS = "https://wows-static-content.gcdn.co/contributors-program/members.json"
+CCS = "https://wows-static-content.gcdn.co/cms-data/contributors_wg.json"
 WOWS_GAME_ID = 32502
 PARTNER_ICON = """https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab7
 7-b780518f00a3/1"""
@@ -108,33 +108,6 @@ class Contributor:
     def auto_complete(self) -> str:
         """String to search for to identify this CC"""
         return f"{self.name} {self.markdown}".casefold()
-
-    @property
-    async def embed(self) -> discord.Embed:
-        """Return an embed representing this Contributor"""
-        e = discord.Embed(title=f"{self.name} ({self.region.name})")
-        e.description = self.markdown
-        e.colour = self.region.colour
-        e.set_author(name="World of Warships Community Contributor")
-        e.set_thumbnail(url="https://i.postimg.cc/Y0r43P0m/CC-Logo-Small.png")
-
-        try:
-            twitch = next(i for i in self.links if "twitch" in i)
-            twitch_id = twitch.split("/")[-1]
-            user = await self.bot.twitch.fetch_users(names=[twitch_id])
-            user = user[0]
-            e.set_image(url=user.profile_image)
-
-            # TODO: Fetch Twitch Info into Embed
-            # TODO: Official channel Schedule
-            # https://dev.twitch.tv/docs/api/reference#get-channel-stream-schedule
-            # https://dev.twitch.tv/docs/api/reference#get-channel-emotes
-            print(dir(user))
-        except StopIteration:
-            pass
-
-        # TODO: Pull other website data where possible.
-        return e
 
 
 class Stream:
@@ -517,8 +490,6 @@ class TwitchTracker(commands.Cog):
                     raise ConnectionError("Failed to connect to %s", CCS)
 
         contributors = []
-        if Contributor.bot is None:
-            Contributor.bot = self.bot
 
         for i in ccs:
             realm = {
@@ -685,6 +656,32 @@ class TwitchTracker(commands.Cog):
         rows = embed_utils.rows_to_embeds(e, rows)
         return await view_utils.Paginator(interaction, rows).update()
 
+    async def make_cc_embed(self, cont: Contributor) -> discord.Embed:
+        """Create an embed about the CC"""
+        e = discord.Embed(title=f"{cont.name} ({cont.region.name})")
+        e.description = cont.markdown
+        e.colour = cont.region.colour
+        e.set_author(name="World of Warships Community Contributor")
+        e.set_thumbnail(url="https://i.postimg.cc/Y0r43P0m/CC-Logo-Small.png")
+
+        try:
+            twitch = next(i for i in cont.links if "twitch" in i)
+            twitch_id = twitch.split("/")[-1]
+            user = await self.bot.twitch.fetch_users(names=[twitch_id])
+            user = user[0]
+            e.set_image(url=user.profile_image)
+
+            # TODO: Fetch Twitch Info into Embed
+            # TODO: Official channel Schedule
+            # https://dev.twitch.tv/docs/api/reference#get-channel-stream-schedule
+            # https://dev.twitch.tv/docs/api/reference#get-channel-emotes
+            print(dir(user))
+        except StopIteration:
+            pass
+
+        # TODO: Pull other website data where possible.
+        return e
+
     @discord.app_commands.command()
     @discord.app_commands.describe(
         search="search by name (e.g.: painezor, yuzorah), "
@@ -709,7 +706,7 @@ class TwitchTracker(commands.Cog):
         if search is not None:
             ccs = [i for i in ccs if search == i.name]
             if len(ccs) == 1:  # Send an individual Profile
-                e = await ccs[0].embed
+                e = await self.make_cc_embed(ccs[0])
                 return await interaction.edit_original_response(embed=e)
 
         if search is not None:

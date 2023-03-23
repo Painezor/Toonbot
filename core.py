@@ -86,7 +86,6 @@ class Bot(commands.AutoShardedBot):
         )
 
         # Reply Handling
-        self.reply: typing.Callable
         self.error: typing.Callable
 
         # Database & Credentials

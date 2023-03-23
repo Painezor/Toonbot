@@ -12,9 +12,7 @@ from discord import (
     Embed,
     Colour,
     Forbidden,
-    Interaction,
     Message,
-    PartialEmoji,
     User,
     Emoji,
     Permissions,
@@ -66,7 +64,7 @@ class Info(commands.Cog):
         e.colour = user.colour
         e.set_footer(text=user.display_avatar.url)
         e.set_image(url=user.display_avatar.url)
-        return await self.bot.reply(interaction, embed=e)
+        return await interaction.edit_original_response(embed=e)
 
     info = Group(
         name="info", description="Get information about things on your server"
@@ -224,7 +222,7 @@ class Info(commands.Cog):
 
         # List[Role | Member | Object]
         if not c.overwrites:
-            return await self.bot.reply(interaction, embed=e)
+            return await interaction.edit_original_response(embed=e)
 
         target: Role | Member | discord.Object
         embeds: list[Embed] = []
@@ -250,7 +248,9 @@ class Info(commands.Cog):
 
     @info.command()
     @discord.app_commands.describe(role="select a role")
-    async def role(self, interaction: Interaction[Bot], role: Role):
+    async def role(
+        self, interaction: discord.Interaction[Bot | PBot], role: discord.Role
+    ):
         """Get information about a channel"""
 
         await interaction.response.defer(thinking=True)
@@ -328,7 +328,7 @@ class Info(commands.Cog):
     @info.command(name="emote")
     @discord.app_commands.describe(emoji="enter a list of emotes")
     async def info_emote(
-        self, interaction: Interaction[Bot], emoji: str
+        self, interaction: discord.Interaction[Bot | PBot], emoji: str
     ) -> Message:
         """View a bigger version of an Emoji"""
 
@@ -372,7 +372,9 @@ class Info(commands.Cog):
 
     @info.command()
     @guild_only()
-    async def server(self, interaction: Interaction[PBot | Bot]) -> Message:
+    async def server(
+        self, interaction: discord.Interaction[PBot | Bot]
+    ) -> discord.InteractionMessage:
         """Shows information about the server"""
 
         await interaction.response.defer(thinking=True)
@@ -517,8 +519,10 @@ class Info(commands.Cog):
 
     @info.command()
     async def user(
-        self, interaction: discord.Interaction[Bot | PBot], member: Member
-    ) -> Message:
+        self,
+        interaction: discord.Interaction[Bot | PBot],
+        member: discord.Member,
+    ) -> discord.InteractionMessage:
         """Show info about this member."""
         # Embed 1: Generic Info
 

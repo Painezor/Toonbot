@@ -89,7 +89,11 @@ class ClanView(view_utils.BaseView):
     ) -> discord.InteractionMessage:
         """When initiated from a dropdown, we only have partial data,
         so we perform a fetch and then send to update"""
-        self.clan = interaction.client.get_clan(clan_id)
+        clan = interaction.client.get_clan(clan_id)
+        if clan is None:
+            raise ValueError
+
+        self.clan = clan
         await self.clan.get_data()
         return await self.overview()
 
@@ -273,7 +277,8 @@ class ClanView(view_utils.BaseView):
 
     async def update(self, embed: discord.Embed) -> discord.InteractionMessage:
         """Push the latest version of the View to the user"""
-        return await self.bot.reply(self.interaction, embed=embed, view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(embed=embed, view=self)
 
 
 async def clan_ac(

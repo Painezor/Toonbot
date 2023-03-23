@@ -21,7 +21,7 @@ FAVICON = (
 )
 TF = "https://www.transfermarkt.co.uk"
 
-logger = logging.getLogger('transfermarkt')
+logger = logging.getLogger("transfermarkt")
 
 
 class SearchResult:
@@ -80,10 +80,6 @@ class Competition(SearchResult):
     def __bool__(self):
         return bool(self.name)
 
-    def view(self, interaction: discord.Interaction[Bot]) -> CompetitionView:
-        """Send a view of this Competition to the user."""
-        return CompetitionView(interaction, self)
-
 
 class Team(SearchResult):
     """An object representing a Team from Transfermarkt"""
@@ -125,10 +121,6 @@ class Team(SearchResult):
         e.title = self.name
         e.url = self.link
         return e
-
-    def view(self, interaction: discord.Interaction[Bot]) -> TeamView:
-        """Send a view of this Team to the user."""
-        return TeamView(interaction, self)
 
 
 class Player(SearchResult):
@@ -275,11 +267,10 @@ class TeamView(view_utils.BaseView):
         super().__init__(interaction)
         self.team: Team = team
 
-    async def update(self, content: typing.Optional[str] = None) -> None:
+    async def update(self) -> discord.InteractionMessage:
         """Send the latest version of the view"""
         self.clear_items()
 
-        # TODO: Funcables.
         items = [
             view_utils.Funcable("Transfers", self.push_transfers, emoji="🔄"),
             view_utils.Funcable("Rumours", self.push_rumours, emoji="🕵"),
@@ -290,9 +281,10 @@ class TeamView(view_utils.BaseView):
         self.add_page_buttons()
 
         e = self.pages[self.index]
-        await self.bot.reply(self.interaction, content, embed=e, view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(embed=e, view=self)
 
-    async def push_transfers(self) -> None:
+    async def push_transfers(self) -> discord.InteractionMessage:
         """Push transfers to View"""
         url = self.team.link.replace("startseite", "transfers")
 
@@ -415,7 +407,7 @@ class TeamView(view_utils.BaseView):
         self.index = 0
         return await self.update()
 
-    async def push_rumours(self) -> None:
+    async def push_rumours(self) -> discord.InteractionMessage:
         """Send transfer rumours for a team to View"""
         e = self.team.base_embed
 
@@ -470,7 +462,7 @@ class TeamView(view_utils.BaseView):
         self.index = 0
         return await self.update()
 
-    async def push_trophies(self) -> None:
+    async def push_trophies(self) -> discord.InteractionMessage:
         """Send trophies for a team to View"""
         url = self.team.link.replace("startseite", "erfolge")
 
@@ -499,7 +491,7 @@ class TeamView(view_utils.BaseView):
         self.index = 0
         return await self.update()
 
-    async def push_contracts(self) -> None:
+    async def push_contracts(self) -> discord.InteractionMessage:
         """Push a list of a team's expiring contracts to the view"""
         e = self.team.base_embed
         e.description = ""
@@ -770,12 +762,9 @@ class SearchView(view_utils.BaseView):
         """This should always be polymorphed"""
         raise NotImplementedError
 
-    async def on_timeout(self) -> None:
-        """Cleanup."""
-        self.clear_items()
-        await self.bot.reply(self.interaction, view=None, followup=False)
-
-    async def update(self, content: typing.Optional[str] = None) -> None:
+    async def update(
+        self, content: typing.Optional[str] = None
+    ) -> discord.InteractionMessage:
         """Populate Initial Results"""
         url = TF + "/schnellsuche/ergebnis/schnellsuche"
 
@@ -784,12 +773,11 @@ class SearchView(view_utils.BaseView):
         p = {"query": self.query, self.query_string: self.index + 1}
 
         async with self.bot.session.post(url, params=p) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"Error {resp.status} Connecting to Transfermarkt"
-                    return await self.bot.error(err)
+            if resp.status != 200:
+                err = f"Error {resp.status} Connecting to Transfermarkt"
+                return await self.bot.error(err)
+
+            tree = html.fromstring(await resp.text())
 
         # Get trs of table after matching header / {ms} name.
         xp = (
@@ -828,7 +816,9 @@ class SearchView(view_utils.BaseView):
 
         if self.fetch and self._results:
             self.add_item(SearchSelect(objects=self._results))
-        await self.bot.reply(self.interaction, content, embed=e, view=self)
+
+        edit = self.interaction.edit_original_response
+        return await edit(content=content, embed=e, view=self)
 
 
 class AgentSearch(SearchView):
@@ -938,7 +928,7 @@ class PlayerSearch(SearchView):
                 player.team = team
             except IndexError:
                 pass
-            
+
             try:
                 player.age = int("".join(i.xpath(".//td[4]/text()")))
             except ValueError:
@@ -1043,6 +1033,7 @@ class TeamSearch(SearchView):
     category = "Team"
     query_string = "Verein_page"
     match_string = "results: Clubs"
+    value: Team
 
     def __init__(
         self,

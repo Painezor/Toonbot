@@ -18,6 +18,9 @@ from ext.utils import view_utils
 if typing.TYPE_CHECKING:
     from core import Bot
 
+TINDER = """https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/51
+2/tinder-512.png"""
+
 
 with open("credentials.json", "r") as f:
     credentials = json.load(f)
@@ -365,6 +368,7 @@ class Images(commands.Cog):
         self, interaction: discord.Interaction[Bot]
     ) -> discord.InteractionMessage:
         """Try to Find your next date."""
+        await interaction.response.defer(thinking=True)
         av = await interaction.user.display_avatar.with_format("png").read()
 
         if interaction.guild is None:
@@ -389,28 +393,26 @@ class Images(commands.Cog):
             im = Image.open("Images/tinder.png").convert(mode="RGBA")
 
             # Prepare the Mask and set size.
-            mask = ImageOps.fit(
-                Image.open("Images/circle mask.png").convert("L"), (185, 185)
-            )
+            msk = Image.open("Images/circle mask.png").convert("L")
+            mask = ImageOps.fit(msk, (185, 185))
 
             # Open the User's Avatar, fit to size, apply mask.
-            av = ImageOps.fit(
-                Image.open(io.BytesIO(avatar)).convert(mode="RGBA"), (185, 185)
-            )
+            avt = Image.open(io.BytesIO(avatar)).convert(mode="RGBA")
+            av = ImageOps.fit(avt, (185, 185))
+
             av.putalpha(mask)
             im.paste(av, box=(100, 223, 285, 408), mask=mask)
 
             # Open the second user's avatar, do same.
-            other = ImageOps.fit(
-                Image.open(io.BytesIO(image)).convert(mode="RGBA"),
-                (185, 185),
-                centering=(0.5, 0.0),
-            )
+            oth = Image.open(io.BytesIO(image)).convert(mode="RGBA")
+            other = ImageOps.fit(oth, (185, 185), centering=(0.5, 0.0))
             other.putalpha(mask)
             im.paste(other, box=(313, 223, 498, 408), mask=mask)
 
             # Cleanup
+            msk.close()
             mask.close()
+            avt.close()
             av.close()
             other.close()
 
@@ -418,9 +420,9 @@ class Images(commands.Cog):
             text = f"You and {user_name} have liked each other."
             font = ImageFont.truetype("Whitney-Medium.ttf", 24)
             w = font.getsize(text)[0]  # Width, Height
-            ImageDraw.Draw(im).text(
-                (300 - w / 2, 180), text, font=font, fill="#ffffff"
-            )
+
+            sz = (300 - w / 2, 180)
+            ImageDraw.Draw(im).text(sz, text, font=font, fill="#ffffff")
 
             im.save(out := io.BytesIO(), "PNG")
             im.close()
@@ -430,22 +432,19 @@ class Images(commands.Cog):
         u = interaction.user.mention
         output = await asyncio.to_thread(draw, target, av, name)
         if match.id == interaction.user.id:
-            caption = f"{u} matched with themself, How pathetic."
+            cpt = f"{u} matched with themself, How pathetic."
         elif match.id == self.bot.application_id:
-            caption = f"{u} Fancy a shag?"
+            cpt = f"{u} Fancy a shag?"
         else:
-            caption = (
-                f"{interaction.user.mention} matched with {match.mention}"
-            )
-        icon = (
-            "https://cdn0.iconfinder.com/data/icons/"
-            "social-flat-rounded-rects/512/tinder-512.png"
-        )
-        e: Embed = Embed(description=caption, colour=0xFD297B)
-        e.set_author(name="Tinder", icon_url=icon)
+            cpt = f"{u} matched with {match.mention}"
+    
+        e = discord.Embed(description=cpt, colour=0xFD297B)
+        e.set_author(name="Tinder", icon_url=TINDER)
         e.set_image(url="attachment://Tinder.png")
         file = File(fp=output, filename="Tinder.png")
-        return await interaction.client.reply(interaction, file=file, embed=e)
+
+        edit = interaction.edit_original_response
+        return await edit(attachments=[file], embed=e)
 
 
 async def setup(bot: Bot) -> None:

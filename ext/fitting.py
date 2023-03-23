@@ -581,7 +581,8 @@ class ShipView(view_utils.BaseView):
 
     async def update(self, embed: discord.Embed) -> discord.InteractionMessage:
         """Push the latest version of the Ship view to the user"""
-        return await self.bot.reply(self.interaction, embed=embed, view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(embed=embed, view=self)
 
 
 class ModuleSelect(discord.ui.Select):

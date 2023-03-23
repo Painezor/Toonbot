@@ -74,7 +74,8 @@ def stringify_seconds(value: int) -> str:
             604800: "7 Days",
         }[value]
     except KeyError:
-        logger.error(f"Stringify - Unhandled Seconds: {value}")
+        if value > 60:
+            logger.error("Stringify - Unhandled Seconds: %s", value)
         return f"{value} seconds"
 
 
@@ -411,7 +412,10 @@ def iter_embed(
 
         elif key == "applied_tags":
             a_tags: list[discord.ForumTag] = value
-            txt = [f"{i.emoji} {i.name}" for i in a_tags]
+            try:
+                txt = [f"{i.emoji} {i.name}" for i in a_tags]
+            except AttributeError:
+                txt = [i.name for i in a_tags]
             embed.add_field(name="Tags Changed", value=txt)
 
         elif key == "avatar":
@@ -616,8 +620,11 @@ def iter_embed(
                 embed.description += f"**inviter**: `{inviter.mention}`\n"
 
         elif key == "location":
-            logger.info("Location found of type %s", type(value))
-            embed.description += f"**Location**: {value}\n"
+            if isinstance(value, str):
+                embed.description += f"**Location**: {value}\n"
+            else:
+                logger.info("Location %s found of type %s", value, type(value))
+            
 
         elif key == "locked":
             # Is thread locked
@@ -737,10 +744,11 @@ def iter_embed(
             # List of roles being added or removed.
             roles: list[discord.Role | discord.Object] = value
             rls = ", ".join(f"<@&{i.id}>" for i in roles)
-            if main:
-                embed.description +=  f"Roles Removed: {rls}"
-            else:
-                embed.description +=  f"Roles Added: {rls}"
+            if roles:
+                if main:
+                    embed.description += f"Roles Removed: {rls}"
+                else:
+                    embed.description += f"Roles Added: {rls}"
 
         elif key == "rtc_region":
             # Voice Chat Region
@@ -989,8 +997,8 @@ class LogsConfig(view_utils.BaseView):
             self.add_item(ToggleButton(db_key=k, value=v, row=row))
         self.add_item(view_utils.Stop(row=4))
 
-        i = self.interaction
-        return await self.bot.reply(i, content, embed=embed, view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(content=content, embed=embed, view=self)
 
 
 class AuditLogs(commands.Cog):

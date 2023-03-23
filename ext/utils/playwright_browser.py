@@ -8,5 +8,6 @@ async def make_browser() -> BrowserContext:
     pw = await async_playwright().start()
     browser = await pw.chromium.launch(headless=True)
     size = ViewportSize(height=1080, width=1920)
-    ctx = await browser.new_context(viewport=size)
-    return ctx
+    browser_context = await browser.new_context(viewport=size)
+    browser_context.set_default_timeout(5000)
+    return browser_context
