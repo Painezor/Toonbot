@@ -9,7 +9,7 @@ import typing
 
 import discord
 
-from discord.ext.commands import Cog
+from discord.ext import commands
 from ext.logs import stringify_seconds
 
 from ext.utils.view_utils import BaseView
@@ -182,16 +182,16 @@ class MbembaView(BaseView):
     def __init__(self, interaction: discord.Interaction[Bot]) -> None:
         super().__init__(interaction)
 
-    async def update(self) -> None:
+    async def update(self) -> discord.InteractionMessage:
         """Regenerate the embed and push to view."""
         self.clear_items()
         self.add_item(MbembaButton())
 
         t = random.choice(MBEMBA)
-        e = discord.Embed(title="Mbemba when")
+        e = discord.Embed(title="Mbemba when", colour=discord.Colour.purple())
         e.description = f"<:mbemba:332196308825931777> {t}"
-        e.colour = discord.Colour.purple()
-        await self.bot.reply(self.interaction, embed=e, view=self)
+        edit = self.interaction.edit_original_response
+        return await edit(embed=e, view=self)
 
 
 class MbembaButton(discord.ui.Button):
@@ -207,13 +207,13 @@ class MbembaButton(discord.ui.Button):
             emoji=EMOJI,
         )
 
-    async def callback(self, interaction: discord.Interaction) -> None:
+    async def callback(self, interaction: discord.Interaction[Bot]) -> None:
         """When clicked, re roll."""
         await interaction.response.defer()
         await self.view.update()
 
 
-class NUFC(Cog):
+class NUFC(commands.Cog):
     """r/NUFC discord commands"""
 
     def __init__(self, bot: Bot) -> None:
@@ -221,7 +221,9 @@ class NUFC(Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def mbemba(self, interaction: discord.Interaction[Bot]) -> None:
+    async def mbemba(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.InteractionMessage:
         """Mbemba When…"""
         return await MbembaView(interaction).update()
 
@@ -270,24 +272,24 @@ class NUFC(Cog):
 
         # Cleanup old roles.
         [await i.delete() for i in remove_list if not i.members]
-        await self.bot.reply(interaction, embed=e)
+        return await interaction.response.send_message(embed=e)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def shake(self, interaction: discord.Interaction) -> None:
+    async def shake(self, interaction: discord.Interaction[Bot]) -> None:
         """Well to start off with…"""
         return await interaction.response.send_message(content=SHAKE)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def gherkin(self, interaction: discord.Interaction) -> None:
+    async def gherkin(self, interaction: discord.Interaction[Bot]) -> None:
         """DON'T LET ME GOOOOOO AGAIN"""
         url = "https://www.youtube.com/watch?v=L4f9Y-KSKJ8"
         return await interaction.response.send_message(url)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def radio(self, interaction: discord.Interaction) -> None:
+    async def radio(self, interaction: discord.Interaction[Bot]) -> None:
         """Sends a link to the NUFC radio channel"""
         text = "Radio Coverage: https://www.nufc.co.uk/liveaudio.html"
         return await interaction.response.send_message(text)
@@ -334,21 +336,21 @@ class NUFC(Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def toon_toon(self, interaction: discord.Interaction) -> None:
+    async def toon_toon(self, interaction: discord.Interaction[Bot]) -> None:
         """Toon. Toon, black & white army"""
         text = "**BLACK AND WHITE ARMY**"
         return await interaction.response.send_message(text)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def goala(self, interaction: discord.Interaction) -> None:
+    async def goala(self, interaction: discord.Interaction[Bot]) -> None:
         """Party on Garth"""
         file = discord.File(fp="Images/goala.gif")
         return await interaction.response.send_message(file=file)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def ructions(self, interaction: discord.Interaction) -> None:
+    async def ructions(self, interaction: discord.Interaction[Bot]) -> None:
         """WEW. RUCTIONS."""
         file = discord.File(fp="Images/ructions.png")
         return await interaction.response.send_message(file=file)

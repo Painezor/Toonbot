@@ -2,20 +2,17 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
-from json import load
-from typing import TYPE_CHECKING, Any, Optional
+import json
+import typing
+import datetime
 
 import discord
-from discord import Embed, Interaction, Message
 from discord.ext import commands
 from lxml import html
 
-from ext.utils import view_utils
-from ext.utils.embed_utils import rows_to_embeds
-from ext.utils.timed_events import Timestamp
+from ext.utils import view_utils, embed_utils, timed_events
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 # aiohttp useragent.
@@ -42,7 +39,7 @@ class TVSelect(view_utils.BaseView):
 
     bot: Bot
 
-    def __init__(self, interaction: Interaction[Bot], teams: list):
+    def __init__(self, interaction: discord.Interaction[Bot], teams: list):
         super().__init__(interaction)
 
         self.teams: list = teams
@@ -54,13 +51,13 @@ class TVSelect(view_utils.BaseView):
         ]
 
         # Final result
-        self.value: Any = None  # As Yet Unset
+        self.value: typing.Any = None  # As Yet Unset
 
     async def update(self):
         """Handle Pagination"""
         targets: list = self.pages[self.index]
         d = view_utils.ItemSelect(placeholder="Please choose a Team")
-        e = Embed(title="Choose a Team", description="")
+        e = discord.Embed(title="Choose a Team", description="")
 
         e.description = ""
 
@@ -95,19 +92,19 @@ class Tv(commands.Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         with open("tv.json") as f:
-            self.bot.tv_dict = load(f)
+            self.bot.tv_dict = json.load(f)
 
     @discord.app_commands.command()
     @discord.app_commands.describe(team="Search for a team")
     @discord.app_commands.autocomplete(team=tv_ac)
     async def tv(
-        self, interaction: Interaction[Bot], team: Optional[str]
-    ) -> Message:
+        self, interaction: discord.Interaction[Bot], team: typing.Optional[str]
+    ) -> discord.InteractionMessage:
         """Lookup next televised games for a team"""
 
         await interaction.response.defer(thinking=True)
 
-        e: Embed = Embed(colour=0x034F76)
+        e = discord.Embed(colour=0x034F76)
         e.set_author(name="LiveSoccerTV.com")
 
         # Selection View if team is passed
@@ -163,11 +160,11 @@ class Tv(commands.Cog):
 
             try:
                 timestamp = int(i.xpath(".//@dv")[0])
-                timestamp = datetime.fromtimestamp(timestamp / 1000)
+                timestamp = datetime.datetime.fromtimestamp(timestamp / 1000)
                 if match_column == 3:
-                    ts = Timestamp(timestamp).date
+                    ts = timed_events.Timestamp(timestamp).date
                 else:
-                    ts = Timestamp(timestamp).time_hour
+                    ts = timed_events.Timestamp(timestamp).time_hour
 
             except (ValueError, IndexError):
                 xp = './/td[@class="datecell"]//span/text()'
@@ -185,7 +182,8 @@ class Tv(commands.Cog):
         if not rows:
             rows = [f"No televised matches found, check online at {e.url}"]
 
-        v = view_utils.Paginator(interaction, rows_to_embeds(e, rows))
+        embeds = embed_utils.rows_to_embeds(e, rows)
+        v = view_utils.Paginator(interaction, embeds)
         return await v.update()
 
 

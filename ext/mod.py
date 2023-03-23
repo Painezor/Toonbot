@@ -2,29 +2,18 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
 import typing
 
 from discord import (
     Guild,
-    Member,
     TextChannel,
-    Interaction,
     Colour,
-    Embed,
     TextStyle,
 )
 import discord
-from discord.app_commands import (
-    default_permissions,
-    guild_only,
-    Choice,
-)
-from discord.app_commands.checks import bot_has_permissions
-from discord.ext.commands import Cog
-from discord.ui import Modal, TextInput
+from discord.ext import commands
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
@@ -65,36 +54,30 @@ class DiscordColours(Enum):
     YELLOW = "yellow"
 
 
-async def colour_ac(_: discord.Interaction[Bot], current: str) -> list[Choice]:
+async def colour_ac(
+    _: discord.Interaction[Bot], current: str
+) -> list[discord.app_commands.Choice]:
     """Return from list of colours"""
     return [
-        Choice(name=i.value, value=i.value)
+        discord.app_commands.Choice(name=i.value, value=i.value)
         for i in DiscordColours
         if current.casefold() in i.value.casefold()
     ][:25]
 
 
-class EmbedModal(Modal, title="Send an Embed"):
+class EmbedModal(discord.ui.Modal, title="Send an Embed"):
     """A Modal to allow the author to send an embedded message"""
 
-    e_title = TextInput(label="Embed Title", placeholder="Announcement")
+    ttl = discord.ui.TextInput(label="Embed Title", placeholder="Announcement")
 
-    text = TextInput(
-        label="Embed Text",
-        placeholder="Enter your text here",
-        style=TextStyle.paragraph,
-        max_length=4000,
-    )
+    text = discord.ui.TextInput(label="Embed Text", max_length=4000)
+    text.style = TextStyle.paragraph
 
-    thumbnail = TextInput(
-        label="Thumbnail",
-        required=False,
-        placeholder="Enter url for thumbnail image",
-    )
+    thumbnail = discord.ui.TextInput(label="Thumbnail", required=False)
+    thumbnail.placeholder = "Enter url for thumbnail image"
 
-    image = discord.ui.TextInput(
-        label="Image", placeholder="Enter url for large image", required=False
-    )
+    image = discord.ui.TextInput(label="Image", required=False)
+    image.placeholder = "Enter url for large image"
 
     def __init__(
         self,
@@ -107,14 +90,16 @@ class EmbedModal(Modal, title="Send an Embed"):
         super().__init__()
 
         self.bot: Bot | PBot = bot
-        self.interaction: Interaction[Bot | PBot] = interaction
-        self.destination: TextChannel = destination
+        self.interaction: discord.Interaction[Bot | PBot] = interaction
+        self.destination: discord.TextChannel = destination
         self.colour: discord.Colour = colour
 
-    async def on_submit(self, interaction: discord.Interaction) -> None:
+    async def on_submit(
+        self, interaction: discord.Interaction[Bot | PBot]
+    ) -> None:
         """Send the embed"""
         await interaction.response.send_message("Sent!", ephemeral=True)
-        e = discord.Embed(title=self.e_title, colour=self.colour)
+        e = discord.Embed(title=self.ttl, colour=self.colour)
 
         g = typing.cast(Guild, self.interaction.guild)
 
@@ -141,7 +126,7 @@ class EmbedModal(Modal, title="Send an Embed"):
             await self.bot.error(interaction, err)
 
 
-class Mod(Cog):
+class Mod(commands.Cog):
     """Guild Moderation Commands"""
 
     def __init__(self, bot: Bot | PBot) -> None:
@@ -155,13 +140,13 @@ class Mod(Cog):
     )
     async def embed(
         self,
-        interaction: Interaction[Bot],
-        destination: Optional[TextChannel],
+        interaction: discord.Interaction[Bot | PBot],
+        destination: typing.Optional[discord.TextChannel],
         colour: str = "random",
     ) -> None:
         """Send an embedded announcement as the bot in a specified channel"""
         if destination is None:
-            destination = typing.cast(TextChannel, interaction.channel)
+            destination = typing.cast(discord.TextChannel, interaction.channel)
 
         # TODO: Fuck this, go add all of the actual dcolos to the damn Enum.
         clr = next(
@@ -175,16 +160,16 @@ class Mod(Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(manage_messages=True)
-    @bot_has_permissions(manage_messages=True)
+    @discord.app_commands.checks.bot_has_permissions(manage_messages=True)
     @discord.app_commands.describe(
         message="Enter a message to send as the bot",
         destination="Choose Target Channel",
     )
     async def say(
         self,
-        interaction: Interaction[Bot],
+        interaction: discord.Interaction[Bot | PBot],
         message: str,
-        destination: Optional[TextChannel] = None,
+        destination: typing.Optional[discord.TextChannel] = None,
     ) -> discord.Message:
         """Say something as the bot in specified channel"""
 
@@ -214,13 +199,12 @@ class Mod(Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(manage_messages=True)
-    @bot_has_permissions(manage_messages=True)
-    @discord.app_commands.describe(
-        number="Enter the maximum number of messages to delete."
-    )
-    async def clean(self, interaction: Interaction[Bot], number: int = 10):
+    @discord.app_commands.checks.bot_has_permissions(manage_messages=True)
+    @discord.app_commands.describe(number="Number of messages to delete")
+    async def clean(
+        self, interaction: discord.Interaction[Bot | PBot], number: int = 10
+    ) -> discord.InteractionMessage:
         """Deletes my messages from the last x messages in channel"""
-
         await interaction.response.defer(thinking=True)
 
         def is_me(m):
@@ -229,43 +213,43 @@ class Mod(Cog):
 
         channel = typing.cast(TextChannel, interaction.channel)
         reason = f"/clean ran by {interaction.user}"
-        try:
-            d = await channel.purge(limit=number, check=is_me, reason=reason)
 
-            msg = f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}'
-            await self.bot.reply(interaction, msg)
-        except discord.HTTPException:
-            pass
+        d = await channel.purge(limit=number, check=is_me, reason=reason)
+
+        msg = f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}'
+        return await interaction.edit_original_response(content=msg)
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(moderate_members=True)
-    @bot_has_permissions(moderate_members=True)
+    @discord.app_commands.checks.bot_has_permissions(moderate_members=True)
     @discord.app_commands.describe(
         member="Pick a user to untimeout",
         reason="Enter the reason for ending the timeout.",
     )
     async def untimeout(
         self,
-        interaction: Interaction[Bot],
-        member: Member,
+        interaction: discord.Interaction[Bot | PBot],
+        member: discord.Member,
         reason: str = "Not provided",
-    ):
+    ) -> None:
         """End the timeout for a user."""
+        e = discord.Embed(colour=discord.Colour.red())
         if not member.is_timed_out():
-            err = "That user is not timed out."
-            return await self.bot.error(interaction, err)
+            e.description = "That user is not timed out."
+            return await interaction.response.send_message(embed=e)
 
         try:
             await member.timeout(None, reason=f"{interaction.user}: {reason}")
-            e = Embed(title="User Un-Timed Out", color=Colour.dark_magenta())
+            e.title = "User Un-Timed Out"
+            e.color = discord.Colour.dark_magenta()
             e.description = f"{member.mention} is no longer timed out."
-            await self.bot.reply(interaction, embed=e)
         except discord.HTTPException:
-            await self.bot.error(interaction, "I can't un-timeout that user.")
+            e.description = "I can't un-timeout that user."
+        return await interaction.response.send_message(embed=e)
 
     # Listeners
-    @Cog.listener()
-    async def on_guild_join(self, guild: Guild) -> None:
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild: discord.Guild) -> None:
         """Create database entry for new guild"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -273,8 +257,8 @@ class Mod(Cog):
                        ON CONFLICT DO NOTHING"""
                 await connection.execute(q, guild.id)
 
-    @Cog.listener()
-    async def on_guild_remove(self, guild: Guild) -> None:
+    @commands.Cog.listener()
+    async def on_guild_remove(self, guild: discord.Guild) -> None:
         """Delete guild's info upon leaving one."""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():

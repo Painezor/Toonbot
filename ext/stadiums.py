@@ -2,23 +2,21 @@
 from __future__ import annotations
 
 import logging
-from importlib import reload
-from typing import TYPE_CHECKING, Any
+import importlib
+import typing
 from urllib.parse import quote_plus
 
 # D.py
 import discord
-from discord import Embed, Interaction, Message
-from discord.ext.commands import Cog
+from discord.ext import commands
 
 # Custom Utils
 from lxml import html
 
-import ext.toonbot_utils.flashscore as fs
-from ext.toonbot_utils.stadiums import Stadium
 from ext.utils import view_utils, image_utils
+from ext.toonbot_utils import flashscore as fs, stadiums as stads
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 logger = logging.getLogger("stadiums")
@@ -27,24 +25,28 @@ logger = logging.getLogger("stadiums")
 class StadiumSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
-    def __init__(self, interaction: Interaction[Bot], stadiums: list[Stadium]):
+    def __init__(
+        self,
+        interaction: discord.Interaction[Bot],
+        stadiums: list[stads.Stadium],
+    ):
         super().__init__(interaction)
 
-        self.stadiums: list[Stadium] = stadiums
+        self.stadiums: list[stads.Stadium] = stadiums
 
         # Pagination
         s = [stadiums[i : i + 25] for i in range(0, len(stadiums), 25)]
-        self.pages: list[list[Stadium]] = s
+        self.pages: list[list[stads.Stadium]] = s
 
         # Final result
-        self.value: Any = None
+        self.value: typing.Any = None
 
     async def update(self):
         """Handle Pagination"""
-        stadiums: list[Stadium] = self.pages[self.index]
+        stadiums: list[stads.Stadium] = self.pages[self.index]
 
         d = view_utils.ItemSelect(placeholder="Please choose a Stadium")
-        e = Embed(title="Choose a Stadium")
+        e = discord.Embed(title="Choose a Stadium")
         e.description = ""
 
         for i in stadiums:
@@ -58,15 +60,15 @@ class StadiumSelect(view_utils.BaseView):
 
 
 async def get_stadiums(
-    interaction: Interaction[Bot], query: str
-) -> list[Stadium]:
+    interaction: discord.Interaction[Bot], query: str
+) -> list[stads.Stadium]:
     """Fetch a list of Stadium objects matching a user query"""
     uri = f"https://www.footballgroundmap.com/search/{quote_plus(query)}"
 
     async with interaction.client.session.get(uri) as resp:
         tree = html.fromstring(await resp.text())
 
-    stadiums: list[Stadium] = []
+    stadiums: list[stads.Stadium] = []
 
     xp = ".//div[@class='using-grid'][1]/div[@class='grid']/div"
 
@@ -88,7 +90,7 @@ async def get_stadiums(
             if qry not in f"{name} {team}".casefold():
                 continue  # Filtering.
 
-            stadium = Stadium()
+            stadium = stads.Stadium()
             stadium.name = name
             stadium.url = "".join(s.xpath("./@href"))
             stadium.team = team
@@ -100,36 +102,40 @@ async def get_stadiums(
     return stadiums
 
 
-class Stadiums(Cog):
+class Stadiums(commands.Cog):
     """Lookups for past, present and future football matches."""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        reload(fs)
-        reload(view_utils)
-        reload(image_utils)
+        importlib.reload(fs)
+        importlib.reload(view_utils)
+        importlib.reload(image_utils)
 
     # UNIQUE commands
     @discord.app_commands.command()
     @discord.app_commands.describe(stadium="Search for a stadium by it's name")
-    async def stadium(self, ctx: Interaction[Bot], stadium: str) -> Message:
+    async def stadium(
+        self, interaction: discord.Interaction[Bot], stadium: str
+    ) -> discord.InteractionMessage:
         """Lookup information about a team's stadiums"""
 
-        await ctx.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True)
 
-        if not (std := await get_stadiums(ctx, stadium)):
+        if not (std := await get_stadiums(interaction, stadium)):
             err = f"No stadiums found matching `{stadium}`"
-            return await self.bot.error(ctx, err)
+            return await self.bot.error(interaction, err)
 
-        await (view := StadiumSelect(ctx, std)).update()
+        await (view := StadiumSelect(interaction, std)).update()
         await view.wait()
 
         if view.value is None:
             err = "Timed out waiting for you to reply"
-            return await self.bot.error(ctx, err, followup=False)
+            return await self.bot.error(interaction, err, followup=False)
 
         target = next(i for i in std if i.url == view.value[0])
-        return await self.bot.reply(ctx, embed=await target.to_embed(ctx))
+
+        embed = await target.to_embed(interaction)
+        return await interaction.edit_original_response(embed=embed)
 
 
 async def setup(bot: Bot):

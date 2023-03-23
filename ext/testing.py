@@ -40,7 +40,7 @@ class Test(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(250252535699341312)
-    async def lootboxes(self, interaction: Interaction):
+    async def lootboxes(self, interaction: Interaction[PBot]):
         """Get lootbox data."""
 
         await interaction.response.defer(thinking=True)
@@ -51,7 +51,7 @@ class Test(commands.Cog):
         )
         await page.goto(URI)
         msg = "Request complete, check console."
-        return await self.bot.reply(interaction, msg)
+        return await interaction.edit_original_response(content=msg)
 
 
 async def setup(bot: Bot | PBot):

@@ -4,8 +4,7 @@ from __future__ import annotations
 import logging
 
 import discord
-from discord import Embed, Interaction, Message, Colour, InteractionResponse
-from discord.app_commands import AppCommandError
+from discord import Embed, Message, Colour, InteractionResponse
 from discord.ext.commands import Cog
 
 from ext.utils import view_utils
@@ -21,7 +20,7 @@ logger = logging.getLogger("reply")
 
 
 async def error(
-    i: Interaction[Bot | PBot],
+    i: discord.Interaction[Bot | PBot],
     content: str,
     followup: bool = True,
     **kwargs,
@@ -39,7 +38,7 @@ async def error(
 
 
 async def reply(
-    i: Interaction[Bot | PBot], followup: bool = True, **kwargs
+    i: discord.Interaction[Bot | PBot], followup: bool = True, **kwargs
 ) -> Message | None:
     """Generic reply handler."""
     r: InteractionResponse[Bot | PBot] = i.response
@@ -75,7 +74,6 @@ class Reply(Cog):
 
     def __init__(self, bot: Bot | PBot):
         self.bot: Bot | PBot = bot
-        self.bot.reply = reply
         self.bot.error = error
 
 
