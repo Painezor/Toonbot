@@ -1,7 +1,10 @@
 """Flag emoji convertor"""
 import logging
+import unicodedata
 
 from pycountry import countries
+
+logger = logging.getLogger("flags")
 
 # TODO: string.translate mapping instead of dict.
 # Manual Country Code Flag dict
@@ -35,7 +38,6 @@ country_dict = {
     "Macedonia": "mk",
     "Mariana Islands": "mp",
     "Moldova": "md",
-    "N/A": "x",
     "Netherlands Antilles": "nl",
     "Neukaledonien": "nc",
     "Northern Ireland": "gb",
@@ -63,93 +65,79 @@ country_dict = {
     "Venezuela": "ve",
     "Vietnam": "vn",
 }
-
-UNI_DICT = {
-    "a": "🇦",
-    "b": "🇧",
-    "c": "🇨",
-    "d": "🇩",
-    "e": "🇪",
-    "f": "🇫",
-    "g": "🇬",
-    "h": "🇭",
-    "i": "🇮",
-    "j": "🇯",
-    "k": "🇰",
-    "l": "🇱",
-    "m": "🇲",
-    "n": "🇳",
-    "o": "🇴",
-    "p": "🇵",
-    "q": "🇶",
-    "r": "🇷",
-    "s": "🇸",
-    "t": "🇹",
-    "u": "🇺",
-    "v": "🇻",
-    "w": "🇼",
-    "x": "🇽",
-    "y": "🇾",
-    "z": "🇿",
+backup_dict = {
+    # UK Subflags
+    "england": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+    "en": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+    "scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+    "wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
+    "uk": "🇬🇧",
+    # World
+    "other": "🌍",
+    "world": "🌍",
+    # Language Code Hacky ISOs
+    "cs": "🇨🇿",
+    "da": "🇩🇰",
+    "ja": "🇯🇵",
+    "ko": "🇰🇷",
+    "zh": "🇨🇳",
+    # Transfer Market Misc
+    "retired": "❌",
+    "without club": "❌",
+    "n/a": "❌",
+    # Warships
+    "commonwealth": "<:Commonwealth:991329664591212554>",
+    "europe": "🇪🇺",
+    "pan_america": "<:PanAmerica:991330048390991933>",
+    "usa": "🇺🇸",
+    "ussr": "<:USSR:991330483445186580>",
 }
+
+
+def replace(inp: str) -> str:
+    return "".join(unicodedata.lookup(f"REGIONAL INDICATOR {i}") for i in inp)
 
 
 def get_flag(country: str | list[str]) -> str:
     """Get a flag emoji from a string representing a country"""
 
     if isinstance(country, str):
-        country = [country]
+        country = [country]  # Make into list.
 
     output = []
-    for c in country:
-        for x in ["Retired", "Without Club"]:
-            c = c.strip().replace(x, "")
+    for c in [i.strip() for i in country]:
 
-        c = country_dict.get(c, c)
+        if not c:
+            continue
 
-        match c.casefold():
-            case "england" | "en":
-                output.append("🏴󠁧󠁢󠁥󠁮󠁧󠁿")
-            case "scotland":
-                output.append("🏴󠁧󠁢󠁳󠁣󠁴󠁿")
-            case "wales":
-                output.append("🏴󠁧󠁢󠁷󠁬󠁳󠁿")
-            case "uk":
-                output.append("🇬🇧")
-            case "world":
-                output.append("🌍")
-            case "cs":
-                output.append("🇨🇿")
-            case "da":
-                output.append("🇩🇰")
-            case "ko":
-                output.append("🇰🇷")
-            case "zh":
-                output.append("🇨🇳")
-            case "ja":
-                output.append("🇯🇵")
-            case "usa":
-                output.append("🇺🇸")
-            case "pan_america":
-                output.append("<:PanAmerica:991330048390991933>")
-            case "commonwealth":
-                output.append("<:Commonwealth:991329664591212554>")
-            case "ussr":
-                output.append("<:USSR:991330483445186580>")
-            case "europe":
-                output.append("🇪🇺")
-            case "other":
-                output.append("🌍")
-            case _:
-                # Check if py country has country
-                try:
-                    c = countries.get(name=c.title()).alpha_2
-                except (KeyError, AttributeError):
-                    pass
+        if any(i in c for i in []):
+            output.append("❌")
+            continue
 
-                if len(c) != 2:
-                    logging.info(f"No flag country found for {c}")
-                    continue
+        # Try pycountry
+        try:
+            retrieved = countries.get(name=c).alpha_2
+            output.append(replace(retrieved))
+            continue
+        except (KeyError, AttributeError):
+            try:
+                retrieved = countries.lookup(c).alpha_2
+                output.append(replace(retrieved))
+                continue
+            except (AttributeError, LookupError):
+                pass
 
-                output.append("".join(UNI_DICT[i] for i in c.casefold() if i))
+        # Use manual fallbacks
+        try:
+            output.append(replace(country_dict[c]))
+            continue
+        except KeyError:
+            pass
+
+        # Other.
+        try:
+            output.append(backup_dict[c.casefold()])
+            continue
+        except KeyError:
+            logger.error(f"No country found for '{c}'")
     return " ".join(output)

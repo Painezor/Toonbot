@@ -377,6 +377,7 @@ def iter_embed(
                     ment = {
                         ac: "All Channels: <id:browse>",
                         discord.abc.GuildChannel: f"<#{p.target.id}>",
+                        discord.TextChannel: f"<#{p.target.id}>",
                         discord.User: f"<@{p.target.id}>",
                         discord.Member: f"<@{p.target.id}>",
                         discord.Role: f"<@&{p.target.id}>",
@@ -414,7 +415,7 @@ def iter_embed(
             a_tags: list[discord.ForumTag] = value
             try:
                 txt = [f"{i.emoji} {i.name}" for i in a_tags]
-            except AttributeError:
+            except TypeError:
                 txt = [i.name for i in a_tags]
             embed.add_field(name="Tags Changed", value=txt)
 
@@ -624,7 +625,6 @@ def iter_embed(
                 embed.description += f"**Location**: {value}\n"
             else:
                 logger.info("Location %s found of type %s", value, type(value))
-            
 
         elif key == "locked":
             # Is thread locked
@@ -901,7 +901,8 @@ def iter_embed(
             embed.description += f"**Widget Enabled**: `{widget}`\n"
 
         else:
-            logger.info("Unhandled key in changes %s (%s)", key, value)
+            evt = entry.action
+            logger.info("Unhandled key in changes %s %s (%s)", evt, key, value)
 
     # Build our Footer
     if last:

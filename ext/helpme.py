@@ -6,7 +6,7 @@ import typing
 import discord
 from discord.ext import commands
 
-from ext.painezbot_utils.region import Region
+from ext.utils.wows_api import Region
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
@@ -125,9 +125,7 @@ class HelpMe(commands.Cog):
         return await interaction.response.send_message(embed=e, view=v)
 
     @discord.app_commands.command()
-    async def logbook(
-        self, interaction: discord.Interaction[PBot]
-    ) -> None:
+    async def logbook(self, interaction: discord.Interaction[PBot]) -> None:
         """Get a link to the web version of the in-game Captain's Logbook"""
         e = discord.Embed(
             title="World of Warships Captain's Logbook",

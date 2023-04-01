@@ -1,19 +1,20 @@
 """Information about world of warships clans"""
 from __future__ import annotations
 
-import discord
-import typing
 import logging
+import typing
+
+import discord
 from discord.ext import commands
 
-from ext.painezbot_utils.region import Region
-from ext.painezbot_utils.clan import Clan, League
-from ext.utils import view_utils, timed_events, embed_utils
+from ext.utils import embed_utils, timed_events, view_utils
+from ext.utils import wows_api as api
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
 
 CLAN_SEARCH = "https://api.worldofwarships.eu/wows/clans/list/"
+WINNERS = "https://clans.worldofwarships.eu/api/ladder/winners/"
 REGION = typing.Literal["eu", "na", "sea"]
 
 logger = logging.getLogger("clans.py")
@@ -25,11 +26,11 @@ class Leaderboard(view_utils.BaseView):
     interaction: discord.Interaction[PBot]
 
     def __init__(
-        self, interaction: discord.Interaction[PBot], clans: list[Clan]
+        self, interaction: discord.Interaction[PBot], clans: list[api.Clan]
     ) -> None:
         super().__init__(interaction)
 
-        self.clans: list[Clan] = clans  # Rank, Clan
+        self.clans: list[api.Clan] = clans  # Rank, Clan
 
     async def update(self, season: int) -> discord.InteractionMessage:
         """Push the latest version of the view to the user"""
@@ -37,7 +38,7 @@ class Leaderboard(view_utils.BaseView):
 
         e = discord.Embed(colour=discord.Colour.purple())
         e.title = f"Clan Battle Season {season} Ranking"
-        e.set_thumbnail(url=League.HURRICANE.thumbnail)
+        e.set_thumbnail(url=api.League.HURRICANE.thumbnail)
         e.description = ""
 
         self.pages = embed_utils.paginate(self.clans, 10)
@@ -78,10 +79,28 @@ class ClanView(view_utils.BaseView):
     bot: PBot
 
     def __init__(
-        self, interaction: discord.Interaction[PBot], clan: Clan, **kwargs
+        self, interaction: discord.Interaction[PBot], clan: api.Clan, **kwargs
     ) -> None:
         super().__init__(interaction, **kwargs)
-        self.clan: Clan = clan
+        self.clan: api.Clan = clan
+        self.clan_details: typing.Optional[api.ClanDetails]
+        self.clan_member_vortex: list[api.ClanMemberVortexData]
+
+    async def base_embed(self) -> discord.Embed:
+        """Generic Embed for all view functions"""
+        e = discord.Embed()
+        e.set_author(name=self.clan.title)
+
+        if self.clan_details is None:
+            self.clan_details = await self.clan.fetch_details()
+
+        if self.clan_vortex_data is None:
+            self.clan_vortex_data = await self.clan.fetch_clan_vortex_data()
+
+        league = self.clan_vortex_data.league
+        e.colour = league.colour
+        e.set_thumbnail(url=league.thumbnail)
+        return e
 
     # Entry Point but not really a ClassMethod per se.
     async def from_dropdown(
@@ -94,7 +113,7 @@ class ClanView(view_utils.BaseView):
             raise ValueError
 
         self.clan = clan
-        await self.clan.get_data()
+        self.clan_details = await self.clan.fetch_details()
         return await self.overview()
 
     def handle_buttons(self, current_function: typing.Callable) -> None:
@@ -117,98 +136,102 @@ class ClanView(view_utils.BaseView):
 
     async def overview(self) -> discord.InteractionMessage:
         """Get General overview of the clan"""
-        e = self.clan.embed()
+        e = await self.base_embed()
         self.handle_buttons(self.overview)
 
-        c = self.clan.api_data
+        assert (details := self.clan_details) is not None
+        assert (vortex := self.clan_vortex_data) is not None
 
         desc = []
-        if c["updated_at"] is not None:
-            ts = timed_events.Timestamp(c.updated_at).relative
+        if details.updated_at is not None:
+            ts = timed_events.Timestamp(details.updated_at).relative
             desc.append(f"**Information updated**: {ts}\n")
 
-        if c["leader_name"]:
-            desc.append(f"**Leader**: {c.leader_name}")
+        if details.leader_name:
+            desc.append(f"**Leader**: {details.leader_name}")
 
-        if self.clan.created_at:
-            cr = self.clan.creator_name
+        if details.created_at:
+            cr = details.creator_name
 
-            ts = timed_events.Timestamp(c.created_at).relative
+            ts = timed_events.Timestamp(details.created_at).relative
             desc.append(f"**Founder**: {cr} ({ts})")
 
-        if self.clan.renamed_at:
-            ts = timed_events.Timestamp(c.renamed_at).relative
-            desc.append(f"**Former name**: [{c.old_tag}] {c.old_name} ({ts})")
+        if details.renamed_at:
+            ts = timed_events.Timestamp(details.renamed_at).relative
+            fmt = f"[{details.old_tag}] {details.old_name} ({ts})"
+            desc.append(f"**Former name**: {fmt}")
 
-        if self.clan.season_number:
-            title = f"Clan Battles Season {self.clan.season_number}"
-            cb_desc = [
-                f"**Current Rating**: {c.cb_rating} ({c.max_rating_name})"
-            ]
+        if vortex.season_number:
+            title = f"Clan Battles Season {vortex.season_number}"
 
-            if self.clan.cb_rating != self.clan.max_cb_rating:
-                cb_desc.append(f"**Highest Rating**: {c.max_cb_rating}")
+            flag = vortex.max_rating_name
+            cb_desc = [f"**Current Rating**: {vortex.cb_rating} ({flag})"]
 
-            lbt = c.last_battle_at
-            if lbt:
-                ts = timed_events.Timestamp(lbt).relative
-                cb_desc.append(f"**Last Battle**: {ts}")
+            if vortex.cb_rating != vortex.max_cb_rating:
+                rating = self.clan_vortex_data.max_cb_rating
+                cb_desc.append(f"**Highest Rating**: {rating}")
+
+            ts = timed_events.Timestamp(vortex.last_battle_at).relative
+            cb_desc.append(f"**Last Battle**: {ts}")
 
             # Win Rate
-            wr = round(self.clan.wins_count / self.clan.battles_count * 100, 2)
-            rest = f"{c.wins_count} / {c.battles_count}"
+            wr = round(vortex.wins_count / vortex.battles_count * 100, 2)
+            rest = f"{vortex.wins_count} / {vortex.battles_count}"
             cb_desc.append(f"**Win Rate**: {wr}% ({rest})")
 
             # Win streaks
-            lws = self.clan.longest_winning_streak
-            cws = c.current_winning_streak
+            lws = vortex.max_winning_streak
+            cws = vortex.current_winning_streak
             if cws:
                 if cws == lws:
                     cb_desc.append(f"**Win Streak**: {cws}")
                 else:
                     cb_desc.append(f"**Win Streak**: {cws} (Max: {lws})")
-            elif self.clan.longest_winning_streak:
+            elif vortex.max_winning_streak:
                 cb_desc.append(f"**Longest Win Streak**: {lws}")
             e.add_field(name=title, value="\n".join(cb_desc))
 
         e.set_footer(text=f"{self.clan.region.name} Clan #{self.clan.clan_id}")
         e.description = "\n".join(desc)
 
-        if self.clan.is_banned:
+        if vortex.is_banned:
             val = "This clan is marked as 'banned'"
             e.add_field(name="Banned Clan", value=val)
 
-        e.set_footer(text=self.clan.description)
+        e.set_footer(text=details.description)
         return await self.update(embed=e)
 
     async def members(self) -> discord.InteractionMessage:
         """Display an embed of the clan members"""
-        e = self.clan.embed
-        e.title = f"Clan Members ({self.clan.members_count} Total)"
+        e = await self.base_embed()
 
-        mems = sorted(self.clan.members, key=lambda x: x.nickname)
-        mems = [
+        assert (details := self.clan_details) is not None
+
+        e.title = f"Clan Members ({details.members_count} Total)"
+
+        if self.clan_member_vortex is None:
+            self.clan_member_vortex = await self.clan.get_members_vortex()
+
+        mems = sorted(self.clan_member_vortex, key=lambda x: x.nickname)
+
+        text = [
             f"`🟢` {i.nickname}" if i.is_online else i.nickname
             for i in mems
             if not i.is_banned
         ]
 
-        e.description = discord.utils.escape_markdown(", ".join(mems))
+        e.description = discord.utils.escape_markdown(", ".join(text))
 
-        if banned := [i for i in self.clan.members if i.is_banned]:
+        if banned := [i.nickname for i in mems if i.is_banned]:
             e.add_field(name="Banned Members", value=", ".join(banned))
 
         # Clan Records:
-        await self.clan.get_member_stats()
+        await self.clan.get_members_vortex()
 
-        mems = self.clan.members
-        c_wr = round(sum(c.win_rate for c in mems) / len(members), 2)
+        c_wr = round(sum(c.win_rate for c in mems) / len(mems), 2)
 
         avg_dmg = round(sum(c.average_damage for c in mems) / len(mems))
-        c_dmg = format(
-            avg_dmg,
-            ",",
-        )
+        c_dmg = format(avg_dmg, ",")
 
         avg_xp = round(sum(c.average_xp for c in mems) / len(mems), 2)
         c_xp = format(avg_xp, ",")
@@ -229,12 +252,12 @@ class ClanView(view_utils.BaseView):
             f"**Battles Per Day**: {c_gpd}",
         )
 
-        m_d: Player = max(self.clan.members, key=lambda p: p.average_damage)
-        max_xp: Player = max(self.clan.members, key=lambda p: p.average_xp)
-        max_wr: Player = max(self.clan.members, key=lambda p: p.win_rate)
-        max_games: Player = max(self.clan.members, key=lambda p: p.battles)
-        m_p: Player = max(self.clan.members, key=lambda p: p.battles_per_day)
-        m_a_k = max(self.clan.members, key=lambda p: p.average_kills)
+        m_d = max(mems, key=lambda p: p.average_damage)
+        max_xp = max(mems, key=lambda p: p.average_xp)
+        max_wr = max(mems, key=lambda p: p.win_rate)
+        max_games = max(mems, key=lambda p: p.battles)
+        m_p = max(mems, key=lambda p: p.battles_per_day)
+        m_a_k = max(mems, key=lambda p: p.average_kills)
 
         e.add_field(
             name="Top Players",
@@ -252,27 +275,28 @@ class ClanView(view_utils.BaseView):
         """Get a clan's Clan Battle History"""
         # https://clans.worldofwarships.eu/api/members/500140589/?battle_type=cvc&season=17
         # TODO: Clan Battle History
+        raise NotImplementedError
         self._disabled = self.history
-        e = self.clan.embed()
+        e = await self.base_embed()
         e.description = "```diff\n-Not Implemented Yet.```"
         return await self.update(embed=e)
 
     async def new_members(self) -> discord.InteractionMessage:
         """Get a list of the clan's newest members"""
         self._disabled = self.new_members
-        e = self.clan.embed()
+        e = await self.base_embed()
         e.title = "Newest Clan Members"
-        members = sorted(
-            self.clan.members,
-            key=lambda x: x.joined_clan_at.value,
-            reverse=True,
-        )
-        e.description = "\n".join(
-            [
-                f"{i.joined_clan_at.relative}: {i.nickname}"
-                for i in members[:10]
-            ]
-        )
+
+        if self.clan_member_vortex is None:
+            self.clan_member_vortex = await self.clan.get_members_vortex()
+
+        vtx = self.clan_member_vortex
+        members = sorted(vtx, key=lambda x: x.joined_clan_at, reverse=True)
+
+        e.description = ""
+        for i in members[:10]:
+            time = timed_events.Timestamp(i.joined_clan_at).relative
+            e.description += f"{time}: {i.nickname}"
         return await self.update(embed=e)
 
     async def update(self, embed: discord.Embed) -> discord.InteractionMessage:
@@ -286,13 +310,13 @@ async def clan_ac(
 ) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete for a list of clan names"""
     region = getattr(interaction.namespace, "region", None)
-    rgn = next((i for i in Region if i.db_key == region), Region.EU)
+    rgn = next((i for i in api.Region if i.db_key == region), api.Region.EU)
 
     link = CLAN_SEARCH.replace("eu", rgn.domain)
     p = {
         "search": current,
         "limit": 25,
-        "application_id": interaction.client.wg_id,
+        "application_id": api.WG_ID,
     }
 
     async with interaction.client.session.get(link, params=p) as resp:
@@ -304,7 +328,7 @@ async def clan_ac(
 
     choices = []
     for i in clans.pop("data", []):
-        clan = interaction.client.get_clan(i["clan_id"])
+        clan = api.Clan(i["clan_id"])
         clan.tag = i["tag"]
         clan.name = i["name"]
         choices.append(
@@ -336,14 +360,10 @@ class Clans(commands.Cog):
         _ = region  # Just to shut the linter up.
 
         await interaction.response.defer(thinking=True)
-        clan = self.bot.get_clan(int(query))
-        await clan.get_data()
-        return await ClanView(interaction, clan).overview()
+        return await ClanView(interaction, api.Clan(int(query))).overview()
 
     @clan.command()
-    @discord.app_commands.describe(
-        region="Get only winners for a specific region"
-    )
+    @discord.app_commands.describe(region="Get winners for a specific region")
     async def winners(
         self,
         interaction: discord.Interaction[PBot],
@@ -353,9 +373,7 @@ class Clans(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        async with self.bot.session.get(
-            "https://clans.worldofwarships.eu/api/ladder/winners/"
-        ) as resp:
+        async with self.bot.session.get(WINNERS) as resp:
             match resp.status:
                 case 200:
                     winners = await resp.json()
@@ -377,7 +395,7 @@ class Clans(commands.Cog):
                 srt = sorted(winners, key=lambda c: c[rat], reverse=True)
                 for clan in srt:
                     tag = "realm"
-                    rgn = next(i for i in Region if i.realm == clan[tag])
+                    rgn = next(i for i in api.Region if i.realm == clan[tag])
                     wnr.append(
                         f"{rgn.emote} `{str(clan[rat]).rjust(4)}`"
                         f" **[{clan['tag']}]** {clan['name']}"
@@ -392,7 +410,7 @@ class Clans(commands.Cog):
                 interaction, embed_utils.rows_to_embeds(e, rows, rows=1)
             ).update()
         else:
-            rgn = next(i for i in Region if i.db_key == region)
+            rgn = next(i for i in api.Region if i.db_key == region)
             rows = []
             for season, winners in sorted(
                 seasons.items(), key=lambda x: int(x[0]), reverse=True
@@ -419,7 +437,7 @@ class Clans(commands.Cog):
         self,
         interaction: discord.Interaction[PBot],
         region: typing.Optional[REGION] = None,
-        season: discord.app_commands.Range[int, 1, 20] = 20,
+        season: discord.app_commands.Range[int, 1, 22] = 22,
     ) -> discord.InteractionMessage:
         """Get the Season Clan Battle Leaderboard"""
         url = "https://clans.worldofwarships.eu/api/ladder/structure/"
@@ -432,37 +450,25 @@ class Clans(commands.Cog):
             p.update({"season": str(season)})
 
         if region is not None:
-            rgn = next(i for i in Region if i.db_key == region)
+            rgn = next(i for i in api.Region if i.db_key == region)
             p.update({"realm": rgn.realm})
 
         async with self.bot.session.get(url, params=p) as resp:
-            match resp.status:
-                case 200:
-                    json = await resp.json()
-                case _:
-                    raise ConnectionError(
-                        f"Error {resp.status} connecting to {resp.url}"
-                    )
+            if resp.status != 200:
+                raise ConnectionError(f"{resp.status} on {resp.url}")
+            json = await resp.json()
 
         clans = []
-        for c in json:
-            clan = deepcopy(self.bot.get_clan(c["id"]))
+        for data in json:
+            clan = api.Clan(data["id"])
 
-            clan.tag = c["tag"]
-            clan.name = c["name"]
-            clan.league = next(i for i in League if i.value == c["league"])
-            clan.public_rating = c["public_rating"]
-            ts = datetime.strptime(c["last_battle_at"], "%Y-%m-%d %H:%M:%S%z")
-            clan.last_battle_at = timed_events.Timestamp(ts)
-            clan.is_clan_disbanded = c["disbanded"]
-            clan.battles_count = c["battles_count"]
-            clan.leading_team_number = c["leading_team_number"]
-            clan.season_number = 17 if season is None else season
-            clan.rank = c["rank"]
+            clan.tag = data["tag"]
+            clan.name = data["name"]
 
-            clans.append(clan)
+            stats = api.ClanLeaderboardStats(clan, data)
+            clans.append(stats)
 
-        return await Leaderboard(interaction, clans).update()
+        return await Leaderboard(interaction, clans).update(season=season)
 
 
 async def setup(bot: PBot):

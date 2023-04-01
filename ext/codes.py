@@ -5,7 +5,7 @@ import discord
 import typing
 from discord.ext import commands
 
-from ext.painezbot_utils.region import Region
+from ext.utils.wows_api import Region
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot

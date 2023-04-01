@@ -144,115 +144,111 @@ class Blog:
             else:
                 txt = None
 
-            match node.tag:
-                case "table" | "tr":
-                    for sub_node in node.iterdescendants(None):
-                        sub_node.text = (
-                            None
-                            if sub_node.text is None
-                            else sub_node.text.strip()
-                        )
+            if node.tag in ["table", "tr"]:
+                for sub_node in node.iterdescendants(None):
+                    sub_node.text = (
+                        None
+                        if sub_node.text is None
+                        else sub_node.text.strip()
+                    )
 
-                    string = html.tostring(node, encoding="unicode")
-                    out.append(yatg.html_2_ascii_table(string))
-                    for sub_node in node.iterdescendants(None):
-                        sub_node.text = None
-                case "tbody" | "tr" | "td":
-                    pass
-                case "i":
-                    if node.attrib.get("class", None) == "superShipStar":
-                        out.append(r"\⭐")
-                    else:
-                        logging.error(
-                            "unhandled 'i' tag %s containing text %s",
-                            node.attrib["class"],
-                            txt,
-                        )
-                case "p":
-                    if node.text_content():
-                        if node.getprevious() is not None and node.text:
-                            out.append("\n")
-                        out.append(txt)
-                        if (
-                            node.getnext() is not None
-                            and node.getnext().tag == "p"
-                        ):
-                            out.append("\n")
-                case "div":
-                    if node.attrib.get("class", None) == "article-cut":
+                string = html.tostring(node, encoding="unicode")
+                out.append(yatg.html_2_ascii_table(string))
+                for sub_node in node.iterdescendants(None):
+                    sub_node.text = None
+            elif node.tag in ["tbody", "tr", "td"]:
+                pass
+            elif node.tag == "i":
+                if node.attrib.get("class", None) == "superShipStar":
+                    out.append(r"\⭐")
+                else:
+                    logging.error(
+                        "unhandled 'i' tag %s containing text %s",
+                        node.attrib["class"],
+                        txt,
+                    )
+            elif node.tag == "p":
+                if node.text_content():
+                    if node.getprevious() is not None and node.text:
                         out.append("\n")
-                    else:
-                        out.append(txt)
-                case "ul" | "td" | "sup":
                     out.append(txt)
-                case "em":
-                    # Handle Italics
-                    out.append(f"*{txt}*")
-                case "strong" | "h3" | "h4":
-                    # Handle Bold.
-                    # Force line break if this is a standalone bold.
-                    if not node.getparent().text:
+                    if (
+                        node.getnext() is not None
+                        and node.getnext().tag == "p"
+                    ):
                         out.append("\n")
+            elif node.tag == "div":
+                if node.attrib.get("class", None) == "article-cut":
+                    out.append("\n")
+                else:
+                    out.append(txt)
+            elif node.tag in ["ul", "td", "sup"]:
+                out.append(txt)
+            elif node.tag == "em":
+                # Handle Italics
+                out.append(f"*{txt}*")
+            elif node.tag in ["strong", "h3", "h4"]:
+                # Handle Bold.
+                # Force line break if this is a standalone bold.
+                if not node.getparent().text:
+                    out.append("\n")
 
-                    if txt:
-                        out.append(f"**{txt}** ")
+                if txt:
+                    out.append(f"**{txt}** ")
 
-                    if node.tail == ":":
-                        out.append(":")
+                if node.tail == ":":
+                    out.append(":")
 
-                    if node.getnext() is None:
+                if node.getnext() is None:
+                    out.append("\n")
+
+            elif node.tag == "span":
+                # Handle Ships
+                if node.attrib.get("class", None) == "ship":
+                    sub_out = []
+
+                    try:
+                        if (
+                            country := node.attrib.get("data-nation", None)
+                        ) is not None:
+                            sub_out.append(" " + flags.get_flag(country))
+                    except AttributeError:
+                        pass
+
+                    try:
+                        if node.attrib.get("data-type", False):
+                            sub_out.append(get_emote(node))
+                    except AttributeError:
+                        pass
+
+                    if txt is not None:
+                        sub_out.append(f"**{txt}** ")
+                    out.append(" ".join(sub_out))
+
+                else:
+                    out.append(txt)
+            elif node.tag == "li":
+                out.append("\n")
+                if node.text:
+                    match node.getparent().getparent().tag:
+                        case "ul" | "ol" | "li":
+                            out.append(f"∟○ {txt}")
+                        case _:
+                            out.append(f"• {txt}")
+
+                if node.getnext() is None:
+                    if len(node) == 0:  # Number of children
                         out.append("\n")
-
-                case "span":
-                    # Handle Ships
-                    if node.attrib.get("class", None) == "ship":
-                        sub_out = []
-
-                        try:
-                            if (
-                                country := node.attrib.get("data-nation", None)
-                            ) is not None:
-                                sub_out.append(" " + flags.get_flag(country))
-                        except AttributeError:
-                            pass
-
-                        try:
-                            if node.attrib.get("data-type", False):
-                                sub_out.append(get_emote(node))
-                        except AttributeError:
-                            pass
-
-                        if txt is not None:
-                            sub_out.append(f"**{txt}** ")
-                        out.append(" ".join(sub_out))
-
-                    else:
-                        out.append(txt)
-                case "li":
-                    out.append("\n")
-                    if node.text:
-                        match node.getparent().getparent().tag:
-                            case "ul" | "ol" | "li":
-                                out.append(f"∟○ {txt}")
-                            case _:
-                                out.append(f"• {txt}")
-
-                    if node.getnext() is None:
-                        if len(node) == 0:  # Number of children
-                            out.append("\n")
-                case "a":
-                    out.append(f"[{txt}]({node.attrib['href']})")
-                case "br":
-                    out.append("\n")
-                case _:
-                    if node.text:
-                        logging.error(
-                            "Unhandled node found: %s|%s|%s",
-                            node.tag,
-                            txt,
-                            node.tail,
-                        )
-                        out.append(txt)
+            elif node.tag == "a":
+                out.append(f"[{txt}]({node.attrib['href']})")
+            elif node.tag == "br":
+                out.append("\n")
+            else:
+                if node.text:
+                    tail = node.tail
+                    tag = node.tag
+                    logging.error("Unhandled node: %s|%s|%s", tag, txt, tail)
+                    out.append(txt)
 
             for sub_node in node.iterchildren(None):
                 if node.tag != "table":
@@ -261,18 +257,18 @@ class Blog:
             if node.tail:
                 tail = node.tail.strip() + " "
 
-                match node.getparent().tag:
-                    case "span":
-                        # Handle Ships
-                        _cls = node.getparent().attrib.get("class", None)
-                        if _cls == "ship":
-                            out.append(f"**{tail}**")
-                        else:
-                            out.append(tail)
-                    case "em":
-                        out.append(f"*{tail}*")
-                    case _:
+                tag = node.getparent().tag
+                if tag == "em":
+                    out.append(f"*{tail}*")
+                elif tag == "span":
+                    # Handle Ships
+                    _cls = node.getparent().attrib.get("class", None)
+                    if _cls == "ship":
+                        out.append(f"**{tail}**")
+                    else:
                         out.append(tail)
+                else:
+                    out.append(tail)
 
             return "".join([i for i in out if i])
 
@@ -362,11 +358,8 @@ class DevBlog(commands.Cog):
         articles = tree.xpath(".//item")
         for i in articles:
             try:
-                link = next(
-                    lnk
-                    for lnk in i.xpath(".//guid/text() | .//link/text()")
-                    if ".ru" not in lnk
-                )
+                links = i.xpath(".//guid/text() | .//link/text()")
+                link = next(lnk for lnk in links if ".ru" not in lnk)
             except StopIteration:
                 continue
 
@@ -388,10 +381,11 @@ class DevBlog(commands.Cog):
 
             for x in self.bot.dev_blog_channels:
                 try:
-                    ch = typing.cast(
-                        discord.TextChannel, self.bot.get_channel(x)
-                    )
+                    ch = self.bot.get_channel(x)
+                    if ch is None:
+                        continue
 
+                    ch = typing.cast(discord.TextChannel, ch)
                     await ch.send(embed=e)
                 except (AttributeError, discord.HTTPException):
                     continue

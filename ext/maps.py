@@ -1,113 +1,80 @@
 from __future__ import annotations
 
 import typing
+import logging
 
 import discord
 from discord.ext import commands
+
+import ext.utils.wows_api as api
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
 
 
-API_PATH = "https://api.worldofwarships.eu/wows/"
-MAPS = API_PATH + "encyclopedia/battlearenas/"
+MAPS = "https://api.worldofwarships.eu/wows/encyclopedia/battlearenas/"
+
+logger = logging.getLogger("maps")
 
 
-class Map:
-    """A Generic container class representing a map"""
+class MapTransformer(discord.app_commands.Transformer):
+    async def autocomplete(
+        self, interaction: discord.Interaction[PBot], current: str
+    ) -> list[discord.app_commands.Choice[int]]:
+        """Autocomplete for the list of maps in World of Warships"""
+        cur = current.casefold()
 
-    def __init__(self, name: str, desc: str, map_id: int, icon: str) -> None:
-        self.name: str = name
-        self.description: str = desc
-        self.battle_arena_id = map_id
-        self.icon: str = icon
+        if not interaction.client.maps:
+            p = {"application_id": api.WG_ID, "language": "en"}
+            async with interaction.client.session.get(MAPS, params=p) as resp:
+                if resp.status != 200:
+                    logger.error("%s on %s", resp.status, MAPS)
+                    return []
+                items = await resp.json()
 
-    def __str__(self) -> str:
-        return f"{self.name}: {self.description}"
+            maps = []
 
-    @property
-    def ac_row(self) -> str:
-        """Autocomplete row for this map"""
-        return f"{self.name}: {self.description}"
+            for k, v in items["data"].items():
+                maps.append(api.Map(v["name"], v["description"], k, v["icon"]))
+            interaction.client.maps = maps
 
-    @property
-    def ac_match(self) -> str:
-        """Autocomplete match for this map"""
-        return f"{self.name}: {self.description} {self.icon}".casefold()
+        choices = []
+        for i in sorted(interaction.client.maps, key=lambda map_: map_.name):
+            if cur not in i.ac_match:
+                continue
 
-    @property
-    def embed(self) -> discord.Embed:
-        """Return an embed representing this map"""
-        e = discord.Embed(title=self.name, colour=discord.Colour.greyple())
-        e.set_image(url=self.icon)
-        e.set_footer(text=self.description)
-        return e
+            value = i.battle_arena_id
+            choice = discord.app_commands.Choice(
+                name=i.ac_row[:100], value=value
+            )
+            choices.append(choice)
 
+            if len(choices) == 25:
+                break
 
-async def fetch_maps(bot: PBot) -> list[Map]:
-    p = {"application_id": bot.wg_id, "language": "en"}
-    async with bot.session.get(MAPS, params=p) as resp:
-        if resp.status != 200:
-            raise ConnectionError(f"{resp.status} Error accessing {MAPS}")
-        items = await resp.json()
+        return choices
 
-    maps = []
-
-    for k, v in items["data"].items():
-        maps.append(Map(v["name"], v["description"], k, v["icon"]))
-
-    return maps
-
-
-async def map_ac(
-    interaction: discord.Interaction[PBot], current: str
-) -> list[discord.app_commands.Choice[int]]:
-    """Autocomplete for the list of maps in World of Warships"""
-    cur = current.casefold()
-
-    choices = []
-    for i in sorted(interaction.client.maps, key=lambda map_: map_.name):
-        if cur not in i.ac_match:
-            continue
-
-        value = i.battle_arena_id
-        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=value)
-        choices.append(choice)
-
-        if len(choices) == 25:
-            break
-
-    return choices
+    async def transform(
+        self, interaction: discord.Interaction[PBot], value: int
+    ) -> api.Map:
+        maps = interaction.client.maps
+        return next(i for i in maps if i.battle_arena_id == value)
 
 
 class Maps(commands.Cog):
     def __init__(self, bot: PBot) -> None:
         self.bot = bot
 
-    async def cog_load(self) -> list[Map]:
-        self.bot.maps = await fetch_maps(self.bot)
-        return self.bot.maps
-
     @discord.app_commands.command()
-    @discord.app_commands.autocomplete(name=map_ac)
-    @discord.app_commands.describe(name="Search for a map by name")
+    @discord.app_commands.describe(map="Search for a map by name")
     async def map(
-        self, interaction: discord.Interaction[PBot], name: str
+        self,
+        interaction: discord.Interaction[PBot],
+        map: discord.app_commands.Transform[api.Map, MapTransformer],
     ) -> discord.InteractionMessage:
         """Fetch a map from the world of warships API"""
-
         await interaction.response.defer(thinking=True)
-
-        if not self.bot.maps:
-            raise ConnectionError("Unable to fetch maps from API")
-
-        try:
-            map_ = next(i for i in self.bot.maps if i.battle_arena_id == name)
-        except StopIteration:
-            err = f"Did not find map matching {name}, sorry."
-            return await self.bot.error(interaction, err)
-
-        return await interaction.edit_original_response(embed=map_.embed)
+        return await interaction.edit_original_response(embed=map.embed)
 
 
 async def setup(bot: PBot) -> None:

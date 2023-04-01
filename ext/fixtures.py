@@ -19,8 +19,7 @@ import asyncio
 import io
 import logging
 import datetime
-from importlib import reload
-from typing import Literal, Callable, Any, Optional
+import importlib
 import typing
 
 # D.py
@@ -33,11 +32,11 @@ from lxml import html
 import ext.toonbot_utils.flashscore as fs
 from ext.utils import view_utils, embed_utils, image_utils, timed_events, flags
 
-from playwright.async_api import TimeoutError as pw_TimeoutError
+from playwright.async_api import Page, TimeoutError as PlayWrightTimeoutError
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from playwright.async_api import Page
+
 
 logger = logging.getLogger("Fixtures")
 
@@ -49,7 +48,7 @@ COMPETITION = "Enter the name of a competition to search for"
 
 async def set_default(
     interaction: discord.Interaction[Bot],
-    param: Literal["default_league", "default_team"],
+    param: typing.Literal["default_league", "default_team"],
 ) -> None:
     """Fetch the default team or default league for this server"""
     if interaction.guild is None:
@@ -279,7 +278,7 @@ class ItemView(view_utils.BaseView):
 
         # For Functions that require pagination over multiple items
         # we don't use the generic "update".
-        self._cached_function: Optional[Callable] = None
+        self._cached_function: typing.Optional[typing.Callable] = None
 
     @property
     def object(self) -> fs.Team | fs.Competition | fs.Fixture:
@@ -519,7 +518,7 @@ class ItemView(view_utils.BaseView):
 
     # Fixture Only
     async def h2h(
-        self, team: Literal["overall", "home", "away"] = "overall"
+        self, team: typing.Literal["overall", "home", "away"] = "overall"
     ) -> discord.InteractionMessage:
         """Get results of recent games for each team in the fixture"""
         if not isinstance(self, FixtureView):
@@ -560,15 +559,11 @@ class ItemView(view_utils.BaseView):
                 b = await sub_loc.nth(o).get_attribute(a) is not None
                 f = view_utils.Funcable(text, self.h2h, disabled=b)
                 f.disabled = b
-                match o:
-                    case 0:
-                        f.args = ["overall"]
-                    case 1:
-                        f.args = ["home"]
-                    case 2:
-                        f.args = ["away"]
-                    case _:
-                        logger.info("Extra Buttons Found: H2H %s", text)
+
+                try:
+                    f.args = {0: ["overall"], 1: ["home"], 2: ["away"]}[o]
+                except KeyError:
+                    logger.info("Extra Buttons Found: H2H %s", text)
                 rows[row].append(f)
             row += 1
 
@@ -631,9 +626,6 @@ class ItemView(view_utils.BaseView):
 
         embed.title = "Fixtures"
         embed.url = f"{self.object.url}/fixtures"
-
-        await self.page.goto(embed.url, timeout=5000)
-        await self.page.locator("#live-table").wait_for()
 
         self.index = 0
         self.pages = embed_utils.rows_to_embeds(embed, rows)
@@ -765,9 +757,6 @@ class ItemView(view_utils.BaseView):
         if self.page is None:
             self.page = await self.bot.browser.new_page()
 
-        await self.page.goto(f"{self.object.url}/results", timeout=5000)
-        await self.page.locator("#live-table").wait_for()
-
         rows = [i.finished for i in rows] if rows else ["No Results Found :("]
         embed = await self.object.base_embed()
         embed = embed.copy()
@@ -782,7 +771,7 @@ class ItemView(view_utils.BaseView):
     # Competition, Fixture, Team
     async def top_scorers(
         self,
-        link: Optional[str] = None,
+        link: typing.Optional[str] = None,
         clear_index: bool = False,
         nat_filter: set[str] = set(),
         tm_filter: set[str] = set(),
@@ -912,7 +901,7 @@ class ItemView(view_utils.BaseView):
     async def squad(
         self,
         tab_number: int = 0,
-        sort: Optional[str] = None,
+        sort: typing.Optional[str] = None,
         clear_index: bool = False,
     ) -> discord.InteractionMessage:
         """Get the squad of the team, filter or sort, push to view"""
@@ -1130,7 +1119,7 @@ class ItemView(view_utils.BaseView):
     async def transfers(
         self,
         click_number: int = 0,
-        label: Optional[str] = "All",
+        label: typing.Optional[str] = "All",
         clear_index: bool = False,
     ) -> discord.InteractionMessage:
         """Get a list of the team's recent transfers."""
@@ -1268,7 +1257,7 @@ class ItemView(view_utils.BaseView):
 
     # Competition, Fixture, Team
     async def standings(
-        self, link: Optional[str] = None
+        self, link: typing.Optional[str] = None
     ) -> discord.InteractionMessage:
         """Send Specified Table to view"""
         self.pages = []  # discard.
@@ -1281,9 +1270,7 @@ class ItemView(view_utils.BaseView):
 
         # Link is an optional passed in override fetched by the
         # buttons themselves.
-        e.url = link if link else f"{self.object.url}/standings/"
-
-        logger.info(e.url)
+        e.url = link if link else f"{self.object.url}standings/"
         await self.page.goto(e.url, timeout=5000)
 
         # Chaining Locators is fucking aids.
@@ -1294,8 +1281,9 @@ class ItemView(view_utils.BaseView):
 
         try:
             await table_div.wait_for(state="visible", timeout=5000)
-        except pw_TimeoutError:
+        except PlayWrightTimeoutError:
             # Entry point not handled on fixtures from leagues.
+            logger.error("Failed to find standings on %s", e.url)
             await self.handle_tabs()
             edit = self.interaction.edit_original_response
             e.description = "❌ No Standings Available"
@@ -1725,7 +1713,7 @@ class FixtureSelect(view_utils.BaseView):
         self.pages: list[list[fs.Fixture]] = p
 
         # Final result
-        self.value: Any = None  # As Yet Unset
+        self.value: typing.Any = None  # As Yet Unset
 
     async def update(self) -> None:
         """Handle Pagination"""
@@ -1759,7 +1747,8 @@ class NationalityFilter(discord.ui.Button):
         self.players: list[fs.Player] = players
         self.interaction: discord.Interaction[Bot] = interaction
 
-    async def callback(self, interaction: discord.Interaction[Bot]) -> Any:
+    async def callback(self, interaction: discord.Interaction[Bot]
+                       ) -> discord.InteractionMessage:
         await interaction.response.defer()
         nations = set(i.country[0] for i in self.players)
 
@@ -1788,7 +1777,8 @@ class TeamFilter(discord.ui.Button):
         self.players: list[fs.Player] = players
         self.interaction: discord.Interaction[Bot] = interaction
 
-    async def callback(self, interaction: discord.Interaction[Bot]) -> Any:
+    async def callback(self, interaction: discord.Interaction[Bot]
+                       ) -> discord.InteractionMessage:
         await interaction.response.defer()
         teams = set(i.team.name for i in self.players if i.team)
 
@@ -1812,11 +1802,11 @@ class Fixtures(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        reload(fs)
-        reload(view_utils)
-        reload(image_utils)
-        reload(timed_events)
-        reload(embed_utils)
+        importlib.reload(fs)
+        importlib.reload(view_utils)
+        importlib.reload(image_utils)
+        importlib.reload(timed_events)
+        importlib.reload(embed_utils)
 
     async def cog_load(self) -> None:
         """When cog loads, load up our defaults cache"""

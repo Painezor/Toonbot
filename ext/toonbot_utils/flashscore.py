@@ -1,11 +1,7 @@
 """A Utility tool for fetching and structuring data from Flashscore"""
-from __future__ import annotations
-import asyncio
-from io import TextIOBase  # Cyclic Type Hinting
-
+from __future__ import annotations  # Cyclic Type Hinting
 import logging
 from datetime import datetime, timezone
-from multiprocessing.sharedctypes import Value
 from urllib.parse import quote
 
 import discord
@@ -300,38 +296,30 @@ async def parse_games(
         state = None
 
         # State Corrections
-        parsed = "".join(i.xpath('.//div[@class="event__time"]//text()'))
-        override = "".join([i for i in parsed if i.isalpha()])
-        parsed = parsed.replace(override, "")
-        match override:
-            case "":
-                pass
-            case "AET":
-                state = GameState.AFTER_EXTRA_TIME
-            case "Pen":
-                state = GameState.AFTER_PENS
-            case "Postp":
-                state = GameState.POSTPONED
-            case "FRO":
-                state = GameState.FINAL_RESULT_ONLY
-            case "WO":
-                state = GameState.WALKOVER
-            case "Awrd":
-                state = GameState.AWARDED
-            case "Postp":
-                state = GameState.POSTPONED
-            case "Abn":
-                state = GameState.ABANDONED
+        time = "".join(i.xpath('.//div[@class="event__time"]//text()'))
+        override = "".join([i for i in time if i.isalpha()])
+        time = time.replace(override, "")
+
+        if override:
+            try:
+                state = {
+                    "Abn": GameState.ABANDONED,
+                    "AET": GameState.AFTER_EXTRA_TIME,
+                    "Awrd": GameState.AWARDED,
+                    "FRO": GameState.FINAL_RESULT_ONLY,
+                    "Pen": GameState.AFTER_PENS,
+                    "Postp": GameState.POSTPONED,
+                    "WO": GameState.WALKOVER,
+                }[override]
+            except KeyError:
+                logger.error("missing state for override %s", override)
 
         dtn = datetime.now(tz=timezone.utc)
         for string, fmt in [
-            (parsed, "%d.%m.%Y."),
-            (parsed, "%d.%m.%Y"),
-            (f"{dtn.year}.{parsed}", "%Y.%d.%m. %H:%M"),
-            (
-                f"{dtn.year}.{dtn.day}.{dtn.month}.{parsed}",
-                "%Y.%d.%m.%H:%M",
-            ),
+            (time, "%d.%m.%Y."),
+            (time, "%d.%m.%Y"),
+            (f"{dtn.year}.{time}", "%Y.%d.%m. %H:%M"),
+            (f"{dtn.year}.{dtn.day}.{dtn.month}.{time}", "%Y.%d.%m.%H:%M"),
         ]:
             try:
                 ko = datetime.strptime(string, fmt)
@@ -345,16 +333,16 @@ async def parse_games(
             except ValueError:
                 continue
         else:
-            logger.error(f"Failed to convert {parsed} to datetime.")
+            logger.error(f"Failed to convert {time} to datetime.")
 
         # Bypass time setter by directly changing _private val.
         if isinstance(state, GameState):
             fixture.time = state
         else:
-            if "'" in parsed or "+" in parsed or parsed.isdigit():
-                fixture.time = parsed
+            if "'" in time or "+" in time or time.isdigit():
+                fixture.time = time
             else:
-                logger.error(f'state "{state}" ({parsed}) not handled.')
+                logger.error(f'state "{state}" ({time}) not handled.')
         fixtures.append(fixture)
     return fixtures
 
@@ -503,11 +491,10 @@ class Team(FlashScoreItem):
     @property
     def tag(self) -> str:
         """Generate a 3 letter tag for the team"""
-        match len(self.name.rsplit(" ")):
-            case 1:
-                return "".join(self.name[:3]).upper()
-            case _:
-                return "".join([i for i in self.name if i.isupper()])
+        if len(self.name.split()) == 1:
+            return "".join(self.name[:3]).upper()
+        else:
+            return "".join([i for i in self.name if i.isupper()])
 
 
 class Player:
@@ -1139,8 +1126,8 @@ async def search(
 async def save_team(bot: Bot, t: Team) -> None:
     """Save the Team to the Bot Database"""
     sql = """INSERT INTO fs_teams (id, name, logo_url, url)
-             VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET 
-             (name, logo_url, url) 
+             VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET
+             (name, logo_url, url)
              = (EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
              """
     async with bot.db.acquire(timeout=60) as conn:
@@ -1153,13 +1140,12 @@ async def save_comp(bot: Bot, c: Competition) -> None:
     """Save the competition to the bot database"""
     sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
              VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
-             (country, name, logo_url, url) = 
+             (country, name, logo_url, url) =
              (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
              """
 
-    logger.info("Entered Save comp with competition %s", c.__dict__)
     async with bot.db.acquire(timeout=60) as conn:
         async with conn.transaction():
             await conn.execute(sql, c.id, c.country, c.name, c.logo_url, c.url)
     bot.competitions.add(c)
-    logger.info("saved competition.")
+    logger.info("saved competition. %s %s %s", c.name, c.id, c.url)

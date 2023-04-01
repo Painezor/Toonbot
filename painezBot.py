@@ -18,11 +18,10 @@ if typing.TYPE_CHECKING:
     from playwright.async_api import BrowserContext
 
     from ext.devblog import Blog
-    from ext.maps import Map
     from ext.news_tracker import Article, NewsChannel
-    from ext.painezbot_utils.clan import Clan, ClanBuilding
+
+    import ext.utils.wows_api as api
     from ext.painezbot_utils.module import Module
-    from ext.painezbot_utils.player import GameMode, Player
     from ext.painezbot_utils.ship import Ship, ShipType
     from ext.twitch import Contributor, TBot, TrackerChannel
 
@@ -53,7 +52,7 @@ COGS = [
     "ext.news_tracker",
     "ext.translations",
     "ext.twitch",
-    "ext.warships",
+    "ext.wows_stats",
 ]
 
 
@@ -106,15 +105,13 @@ class PBot(commands.AutoShardedBot):
         self.twitch: TBot
         self.tracker_channels: list[TrackerChannel] = []
 
-        # Wargaming API
-        self.wg_id: str = credentials["Wargaming"]["client_id"]
-
+        # Wows
         self.contributors: list[Contributor] = []
-        self.clans: list[Clan] = []
-        self.clan_buildings: list[ClanBuilding] = []
-        self.players: list[Player] = []
-        self.maps: list[Map] = []
-        self.modes: list[GameMode] = []
+        self.clans: list[api.Clan] = []
+        self.clan_buildings: list[api.ClanBuilding] = []
+        self.players: list[api.Player] = []
+        self.maps: list[api.Map] = []
+        self.modes: list[api.GameMode] = []
         self.modules: list[Module] = []
         self.pr_data: dict = {}
         self.pr_data_updated_at: datetime.datetime
@@ -146,11 +143,11 @@ class PBot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s\n%s", c, err)
         return
 
-    def get_clan(self, clan_id: int) -> typing.Optional[Clan]:
+    def get_clan(self, clan_id: int) -> typing.Optional[api.Clan]:
         """Get a Clan object from Stored Clans"""
         return next((i for i in self.clans if i.clan_id == clan_id), None)
 
-    def get_player(self, account_id: int) -> typing.Optional[Player]:
+    def get_player(self, account_id: int) -> typing.Optional[api.Player]:
         """Get a Player object from stored or generate a one."""
         plr = self.players
         return next((i for i in plr if i.account_id == account_id), None)

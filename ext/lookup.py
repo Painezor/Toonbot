@@ -162,7 +162,13 @@ class Lookup(Cog):
         await view.update()
         await view.wait()
 
-        v = tfm.CompetitionView(interaction, view.value)
+        comp = view.value
+        if comp is None:
+            return await interaction.edit_original_response(
+                content="Not found"
+            )  # shrug
+
+        v = tfm.CompetitionView(interaction, comp)
         return await v.attendance()
 
 

@@ -106,6 +106,9 @@ class Bot(commands.AutoShardedBot):
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
 
+        # Polls
+        self.active_polls: set[asyncio.Task] = set()
+
         # QuoteDB
         self.quote_blacklist: list[int] = []
         self.quotes: list[asyncpg.Record] = []
@@ -174,9 +177,11 @@ class Bot(commands.AutoShardedBot):
             if i.title.casefold() == value.casefold():
                 return i
 
-            if i.url == value:
-                return i
+            if i.url is not None:
+                if i.url.rstrip("/") == value.rstrip("/"):
+                    return i
 
+        # Fallback - Get First Partial match.
         for i in self.competitions:
             if i.url is not None and "http" in value:
                 if value in i.url:

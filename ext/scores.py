@@ -495,65 +495,50 @@ class Scores(commands.Cog):
             return send_event(evt, EventType.DELAYED, fx)
         elif new == GameState.INTERRUPTED:
             return send_event(evt, EventType.INTERRUPTED, fx)
-        match new:
-            case GameState.BREAK_TIME:
-                match old:
-                    # Break Time = after regular time & before penalties
-                    case GameState.EXTRA_TIME:
-                        return send_event(evt, EventType.EXTRA_TIME_END, fx)
-                    case _:
-                        fx.breaks += 1
-                        if fx.periods is not None:
-                            event = EventType.PERIOD_END
-                        else:
-                            event = EventType.NORMAL_TIME_END
-                        return send_event(evt, event, fx)
-
-            case GameState.EXTRA_TIME:
-                match old:
-                    case GameState.HALF_TIME:
-                        return send_event(evt, EventType.HALF_TIME_ET_END, fx)
-                    case _:
-                        return send_event(evt, EventType.EXTRA_TIME_BEGIN, fx)
-            case GameState.FULL_TIME:
-                match old:
-                    case GameState.EXTRA_TIME:
-                        return send_event(
-                            evt,
-                            EventType.SCORE_AFTER_EXTRA_TIME,
-                            fx,
-                        )
-                    case GameState.SCHEDULED | GameState.HALF_TIME:
-                        return send_event(evt, EventType.FINAL_RESULT_ONLY, fx)
-                    case _:
-                        return send_event(evt, EventType.FULL_TIME, fx)
-            case GameState.HALF_TIME:
-                # Half Time is fired at regular Half time & ET Half time.
-                if old == GameState.EXTRA_TIME:
-                    return send_event(evt, EventType.HALF_TIME_ET_BEGIN, fx)
-                else:
-                    return send_event(evt, EventType.HALF_TIME, fx)
-            case GameState.LIVE:
-                match old:
-                    case GameState.SCHEDULED | GameState.DELAYED:
-                        # Match has resumed
-                        return send_event(evt, EventType.KICK_OFF, fx)
-                    case GameState.INTERRUPTED:
-                        return send_event(evt, EventType.RESUMED, fx)
-                    case GameState.HALF_TIME:
-                        return send_event(evt, EventType.SECOND_HALF_BEGIN, fx)
-                    case GameState.BREAK_TIME:
-                        return send_event(evt, EventType.PERIOD_BEGIN, fx)
-            case GameState.PENALTIES:
-                return send_event(evt, EventType.PENALTIES_BEGIN, fx)
-            case GameState.POSTPONED:
-                return send_event(evt, EventType.POSTPONED, fx)
-            case GameState.STOPPAGE_TIME:
-                return
+        elif new == GameState.BREAK_TIME:
+            if old == GameState.EXTRA_TIME:
+                # Break Time = after regular time & before penalties
+                return send_event(evt, EventType.EXTRA_TIME_END, fx)
+            fx.breaks += 1
+            if fx.periods is not None:
+                return send_event(evt, EventType.PERIOD_END, fx)
+            else:
+                return send_event(evt, EventType.NORMAL_TIME_END, fx)
+        elif new == GameState.EXTRA_TIME:
+            if old == GameState.HALF_TIME:
+                return send_event(evt, EventType.HALF_TIME_ET_END, fx)
+            return send_event(evt, EventType.EXTRA_TIME_BEGIN, fx)
+        elif new == GameState.FULL_TIME:
+            if old == GameState.EXTRA_TIME:
+                return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fx)
+            elif old in [GameState.SCHEDULED, GameState.HALF_TIME]:
+                return send_event(evt, EventType.FINAL_RESULT_ONLY, fx)
+            return send_event(evt, EventType.FULL_TIME, fx)
+        elif new == GameState.HALF_TIME:
+            # Half Time is fired at regular Half time & ET Half time.
+            if old == GameState.EXTRA_TIME:
+                return send_event(evt, EventType.HALF_TIME_ET_BEGIN, fx)
+            else:
+                return send_event(evt, EventType.HALF_TIME, fx)
+        elif new == GameState.LIVE:
+            if old in [GameState.SCHEDULED, GameState.DELAYED]:
+                return send_event(evt, EventType.KICK_OFF, fx)
+            elif old == GameState.INTERRUPTED:
+                return send_event(evt, EventType.RESUMED, fx)
+            elif old == GameState.HALF_TIME:
+                return send_event(evt, EventType.SECOND_HALF_BEGIN, fx)
+            elif old == GameState.BREAK_TIME:
+                return send_event(evt, EventType.PERIOD_BEGIN, fx)
+        elif new == GameState.PENALTIES:
+            return send_event(evt, EventType.PENALTIES_BEGIN, fx)
+        elif new == GameState.POSTPONED:
+            return send_event(evt, EventType.POSTPONED, fx)
+        elif new == GameState.STOPPAGE_TIME:
+            return
 
         logger.error(f"Handle State: {old} -> {new} {fx.url} @ {fx.time}")
 
-    async def fetch_data(self, fixture: fs.Fixture):
+    async def fetch_data(self, fixture: fs.Fixture, force: bool = False):
         if fixture.url is None:
             logger.error("url is None on fixture %s", fixture)
             return
@@ -599,13 +584,15 @@ class Scores(commands.Cog):
         if country:
             country = country.split(":")[0]
 
-        if comp := self.bot.get_competition(url):
-            fixture.competition = comp
-            return
+        if not force:
 
-        elif comp := self.bot.get_competition(f"{country.upper()}: {name}"):
-            fixture.competition = comp
-            return
+            if comp := self.bot.get_competition(url):
+                fixture.competition = comp
+                return
+
+            elif comp := self.bot.get_competition(f"{country}: {name}"):
+                fixture.competition = comp
+                return
 
         fs_id = None
 
@@ -627,8 +614,6 @@ class Scores(commands.Cog):
 
                 if fs_id in ["live", "table", "overall"]:
                     logger.info("Bad ID from %s", page.url)
-                else:
-                    logger.info("Id from page url %s", fs_id)
 
             else:
                 bar = page.locator(".tabs__tab")
@@ -663,7 +648,6 @@ class Scores(commands.Cog):
             comp.logo_url = fs.FLASHSCORE + src
 
         if fs_id is not None and fs_id not in ["football", "overall"]:
-            logger.info("Storing competition %s -> %s", fs_id, url)
             await fs.save_comp(self.bot, comp)
         else:
             self.bot.competitions.add(comp)
@@ -712,29 +696,29 @@ class Scores(commands.Cog):
                 if len(teams) == 1:
                     teams = teams[0].split(" - ")
 
-                match len(teams):
-                    case 2:
-                        home_name, away_name = teams
-                    case 3:
-                        match teams:
-                            case _, "La Duchere", _:
-                                home_name = f"{teams[0]} {teams[1]}"
-                                away_name = teams[2]
-                            case _, _, "La Duchere":
-                                home_name = teams[0]
-                                away_name = f"{teams[1]} {teams[2]}"
-                            case "Banik Most", _, _:
-                                home_name = f"{teams[0]} {teams[1]}"
-                                away_name = teams[2]
-                            case _, "Banik Most", _:
-                                home_name = teams[0]
-                                away_name = f"{teams[1]} {teams[2]}"
-                            case _:
-                                logger.error("Fetch games found %s", teams)
-                                continue
-                    case _:
-                        logger.error("Fetch games found teams %s", teams)
+                if len(teams) == 2:
+                    home_name, away_name = teams
+
+                elif len(teams) == 3:
+                    if teams[1] == "La Duchere":
+                        home_name = f"{teams[0]} {teams[1]}"
+                        away_name = teams[2]
+                    elif teams[2] == "La Duchere":
+                        home_name = teams[0]
+                        away_name = f"{teams[1]} {teams[2]}"
+
+                    elif teams[0] == "Banik Most":
+                        home_name = f"{teams[0]} {teams[1]}"
+                        away_name = teams[2]
+                    elif teams[1] == "Banik Most":
+                        home_name = teams[0]
+                        away_name = f"{teams[1]} {teams[2]}"
+                    else:
+                        logger.error("Fetch games found %s", teams)
                         continue
+                else:
+                    logger.error("Fetch games found teams %s", teams)
+                    continue
 
                 home = fs.Team(None, home_name, None)
                 away = fs.Team(None, away_name, None)
@@ -746,7 +730,7 @@ class Scores(commands.Cog):
                     task.add_done_callback(self.tasks.discard)
                 except pw_TimeoutError:
                     logger.error("Timeout Error on %s", fx.url)
-                    continue  #  If a fucky happens.
+                    continue  # If a fucky happens.
 
                 self.bot.games.append(fx)
                 await asyncio.sleep(0)
@@ -866,42 +850,38 @@ class Scores(commands.Cog):
                         "wo": GameState.WALKOVER,
                     }[override.casefold()]
                 except KeyError:
-                    logger.error(f"Unhandled override: {override}")
+                    logger.error("Unhandled override: %s", override)
             elif len(time) == 1:
                 # From the link of the score, we can gather info about the time
                 # valid states are: sched, live, fin
                 t = time[0]
-                if t == "Live":
-                    fx.time = GameState.FINAL_RESULT_ONLY
-                elif t == "Half Time":
-                    fx.time = GameState.HALF_TIME
-                elif t == "Break Time":
-                    fx.time = GameState.BREAK_TIME
-                elif t == "Extra Time":
-                    fx.time = GameState.EXTRA_TIME
-                elif t == "Penalties":
-                    fx.time = GameState.PENALTIES
-                else:
+                try:
+                    fx.time = {
+                        "Break Time": GameState.BREAK_TIME,
+                        "Extra Time": GameState.EXTRA_TIME,
+                        "Half Time": GameState.HALF_TIME,
+                        "Live": GameState.FINAL_RESULT_ONLY,
+                        "Penalties": GameState.PENALTIES,
+                    }[t]
+                except KeyError:
                     if "'" not in t and ":" not in t:
-                        logger.error("1 part time %s", t)
+                        logger.error("1 part time unhandled: %s", t)
                     else:
                         fx.time = t
             elif len(time) == 2:
                 t = time[-1]
-                if t == "Cancelled":
-                    fx.time = GameState.CANCELLED
-                elif t == "Postponed":
-                    fx.time = GameState.POSTPONED
-                elif t == "Delayed":
-                    fx.time = GameState.DELAYED
-                elif t == "Interrupted":
-                    fx.time = GameState.INTERRUPTED
-                elif t == "Abandoned":
-                    fx.time = GameState.ABANDONED
-                elif t == "Extra Time":
-                    fx.time = GameState.EXTRA_TIME
-                else:
-                    logger.error(f"2 part time {time}")
+
+                try:
+                    fx.time = {
+                        "Abandoned": GameState.ABANDONED,
+                        "Cancelled": GameState.CANCELLED,
+                        "Delayed": GameState.DELAYED,
+                        "Extra Time": GameState.EXTRA_TIME,
+                        "Interrupted": GameState.INTERRUPTED,
+                        "Postponed": GameState.POSTPONED,
+                    }[t]
+                except KeyError:
+                    logger.error("2 part time unhandled: %s", time)
 
             if old_state is not None:
                 self.dispatch_states(fx, old_state)
@@ -913,6 +893,29 @@ class Scores(commands.Cog):
         description="Create & manage livescores channels",
         default_permissions=discord.Permissions(manage_channels=True),
     )
+
+    @discord.app_commands.command()
+    @discord.app_commands.guilds(250252535699341312)
+    async def parse_fixture(
+        self, interaction: discord.Interaction[Bot], url: str
+    ) -> discord.InteractionMessage:
+        """[DEBUG] Force parse a fixture."""
+        await interaction.response.defer(thinking=True)
+
+        home = away = fs.Team(None, "debug", None)
+        fixture = fs.Fixture(home, away, None, url)
+        await self.fetch_data(fixture, force=True)
+
+        edit = interaction.edit_original_response
+        comp = fixture.competition
+        if comp is None:
+            e = discord.Embed(title="Parsing Failed")
+            e.colour = discord.Colour.red()
+        else:
+            e = discord.Embed(title=comp.title, description="Parsed.")
+            e.colour = discord.Colour.green()
+            e.set_thumbnail(url=comp.logo_url)
+        return await edit(embed=e)
 
     @livescores.command()
     @discord.app_commands.describe(channel="Target Channel")

@@ -1,24 +1,17 @@
 """User Created Polls"""
 from __future__ import annotations
 
-from asyncio import sleep
-from datetime import timedelta
+import datetime
+import operator
+import typing
 
-import asyncio
 import discord
 from discord.ext import commands
-from discord.ui import Select
-from discord.utils import utcnow
 
-from ext.utils import view_utils, timed_events
-
-import typing
+from ext.utils import timed_events, view_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
-
-# TODO: Database table, persistent views
-_active_polls: set[asyncio.Task] = set()
 
 
 class PollButton(discord.ui.Button):
@@ -59,7 +52,7 @@ class PollButton(discord.ui.Button):
         return await self.view.update()
 
 
-class PollSelect(Select):
+class PollSelect(discord.ui.Select):
     """A Voting Dropdown"""
 
     view: PollView
@@ -112,8 +105,8 @@ class PollView(view_utils.BaseView):
         self.question: str = question
         self.votes: dict[str, list[int]] = {k: [] for k in answers}
 
-        ending = utcnow() + timedelta(minutes=minutes)
-        self.ends_at = timed_events.Timestamp(ending)
+        self.end = discord.utils.utcnow() + datetime.timedelta(minutes=minutes)
+        self.ends_at = timed_events.Timestamp(self.end).countdown
 
         super().__init__(interaction)
 
@@ -126,19 +119,17 @@ class PollView(view_utils.BaseView):
                 cid = f"{interaction.id}-{label}"
                 self.add_item(PollButton(label=label, custom_id=cid))
 
-        task = interaction.client.loop.create_task(
-            self.destruct(minutes), name=f"Poll - {question}"
-        )
-        _active_polls.add(task)
-        task.add_done_callback(_active_polls.discard)
+        task = interaction.client.loop.create_task(self.destruct())
+        interaction.client.active_polls.add(task)
+        task.add_done_callback(interaction.client.active_polls.discard)
 
-    def read_votes(self) -> str:
+    def read_votes(self, final=False) -> str:
         output = ""
 
         vt = self.votes
         srt = sorted(vt, key=lambda x: len(vt[x]), reverse=True)
 
-        if list(srt):
+        if [v for v in self.votes.values() if v]:
             winning = self.votes[key := srt.pop(0)]
             voters = ", ".join([f"<@{i}>" for i in winning])
             output = f"🥇 **{key}**: {len(winning)} votes\n{voters}\n\n"
@@ -146,24 +137,29 @@ class PollView(view_utils.BaseView):
             for k in srt:
                 voters = ", ".join([f"<@{i}>" for i in self.votes[k]])
                 votes = len(self.votes[k])
-                output += f"**{k}**: {votes} votes\n{voters}\n\n"
+                output += f"**{k}**: {votes} votes\n"
+                if votes:
+                    output += f"{voters}\n"
         else:
             output = "No Votes cast"
+
+        if not final:
+            output += f"\n\nPoll ends: {self.ends_at}"
         return output
 
-    async def destruct(self, minutes: int) -> discord.Message | None:
+    async def destruct(self) -> discord.Message | None:
         """End the poll after the specified amount of minutes."""
-        await sleep(60 * minutes)
+        await discord.utils.sleep_until(self.end)
 
-        e = discord.Embed(colour=discord.Colour.green())
+        e = discord.Embed(colour=discord.Colour.dark_gold())
         e.title = self.question + "?"
-        e.description = self.read_votes()
-
-        u = self.interaction.user
-        e.set_author(name=f"{u.name} asked…", icon_url=u.display_avatar.url)
+        e.description = self.read_votes(final=True)
 
         votes_cast = sum([len(self.votes[i]) for i in self.votes])
         e.set_footer(text=f"Final Results | {votes_cast} votes")
+
+        if icon := operator.attrgetter("icon.url")(self.interaction.guild):
+            e.set_thumbnail(url=icon)
 
         try:
             return await self.interaction.edit_original_response(embed=e)
@@ -177,9 +173,7 @@ class PollView(view_utils.BaseView):
             except (discord.NotFound, discord.Forbidden):
                 pass
 
-    async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+    async def update(self) -> discord.InteractionMessage:
         """Refresh the view and send to user"""
 
         e = discord.Embed(title=self.question + "?")
@@ -194,7 +188,7 @@ class PollView(view_utils.BaseView):
         e.set_footer(text=f"Voting in Progress | {total_votes} votes")
 
         edit = self.interaction.edit_original_response
-        return await edit(content=content, view=self, embed=e)
+        return await edit(view=self, embed=e)
 
 
 class PollModal(discord.ui.Modal, title="Create a poll"):
@@ -228,6 +222,7 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
         self, interaction: discord.Interaction[Bot]
     ) -> discord.InteractionMessage:
         """When the Modal is submitted, pick at random and send back"""
+        await interaction.response.defer(thinking=True)
         q = self.question.value
         answers = self.answers.value.split("\n")[:25]
 

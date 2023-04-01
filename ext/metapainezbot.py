@@ -8,8 +8,10 @@ from discord.ext import commands
 if typing.TYPE_CHECKING:
     from painezBot import PBot
 
-INV = """https://discord.com/api/oauth2/authorize?client_id=964870918738419752&
-scope=bot%20applications.commands"""
+INV = (
+    "https://discord.com/api/oauth2/authorize?client_id=964870918738419752&"
+    "scope=bot%20applications.commands"
+)
 
 
 class MetaPainezbot(commands.Cog):

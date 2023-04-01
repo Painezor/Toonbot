@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import collections
+import logging
+import typing
+
 import discord
 from discord.ext import commands
 
-import typing
-import logging
-from ext.painezbot_utils.clan import ClanBuilding
-from ext.painezbot_utils.player import GameMode
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
 
-from ext.utils import view_utils
-from ext.painezbot_utils.ship import Nation, Ship, ShipType
 from ext.painezbot_utils import module as modules
+from ext.painezbot_utils.ship import Nation, Ship, ShipType
+from ext.utils import view_utils, wows_api as api
 
 logger = logging.getLogger("fitting")
 
@@ -58,7 +57,7 @@ class ShipView(view_utils.BaseView):
         if targets := [str(i) for i in avail if i not in m]:
             # We want the module IDs as str for the purposes of params
             p = {
-                "application_id": self.bot.wg_id,
+                "application_id": api.WG_ID,
                 "module_id": ",".join(targets),
             }
             url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
@@ -126,33 +125,27 @@ class ShipView(view_utils.BaseView):
         dic = {int(k): v["type"] for k, v in tree.items() if v["is_default"]}
 
         for module_id, module_type in dic.items():
-            match module_type:
-                case "Artillery":
-                    self.modules[modules.Artillery] = module_id
-                case "DiveBomber":
-                    self.modules[modules.DiveBomber] = module_id
-                case "Engine":
-                    self.modules[modules.Engine] = module_id
-                case "Hull":
-                    self.modules[modules.Hull] = module_id
-                case "Fighter":
-                    self.modules[modules.RocketPlane] = module_id
-                case "Suo":
-                    self.modules[modules.FireControl] = module_id
-                case "Torpedoes":
-                    self.modules[modules.Torpedoes] = module_id
-                case "TorpedoBomber":
-                    self.modules[modules.TorpedoBomber] = module_id
-                case _:
-                    m = module_type
-                    i = module_id
-                    err = f'Unhandled Module type "{m}" default fit, id: {i}'
-                    logger.error(err)
+            try:
+                self.modules[
+                    {
+                        "Artillery": modules.Artillery,
+                        "DiveBomber": modules.DiveBomber,
+                        "Engine": modules.Engine,
+                        "Hull": modules.Hull,
+                        "Fighter": modules.RocketPlane,
+                        "Suo": modules.FireControl,
+                        "Torpedoes": modules.Torpedoes,
+                        "TorpedoBomber": modules.TorpedoBomber,
+                    }[module_type]
+                ] = module_id
+            except KeyError:
+                err = 'Unhandled Module type "%s" default fit, id: %s'
+                logger.error(err, module_type, module_id)
         return self.modules
 
     async def get_params(self) -> dict:
         """Get the ship's specs with the currently selected modules."""
-        p = {"application_id": self.bot.wg_id, "ship_id": self.ship.ship_id}
+        p = {"application_id": api.WG_ID, "ship_id": self.ship.ship_id}
 
         tuples = [
             ("artillery_id", modules.Artillery),
@@ -619,27 +612,35 @@ class ModuleSelect(discord.ui.Select):
         return await self.current_function()
 
 
-async def ship_ac(
-    interaction: discord.Interaction[PBot], current: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Autocomplete for the list of maps in World of Warships"""
+class ShipTransformer(discord.app_commands.Transformer):
+    async def autocomplete(
+        self, interaction: discord.Interaction[PBot], current: str
+    ) -> list[discord.app_commands.Choice[str]]:
+        """Autocomplete for the list of maps in World of Warships"""
 
-    current = current.casefold()
-    choices = []
-    for i in sorted(interaction.client.ships, key=lambda s: s.name):
-        if not i.ship_id_str:
-            continue
-        if current not in i.ac_row:
-            continue
+        current = current.casefold()
+        choices = []
+        for i in sorted(interaction.client.ships, key=lambda s: s.name):
+            if not i.ship_id_str:
+                continue
+            if current not in i.ac_row:
+                continue
 
-        value = i.ship_id_str
-        choice = discord.app_commands.Choice(name=i.ac_row[:100], value=value)
-        choices.append(choice)
+            value = i.ship_id_str
+            choice = discord.app_commands.Choice(
+                name=i.ac_row[:100], value=value
+            )
+            choices.append(choice)
 
-        if len(choices) == 25:
-            break
+            if len(choices) == 25:
+                break
 
-    return choices
+        return choices
+
+    async def transform(
+        self, interaction: discord.Interaction[PBot], value: str
+    ) -> typing.Optional[Ship]:
+        return interaction.client.get_ship(value)
 
 
 class Fittings(commands.Cog):
@@ -650,7 +651,7 @@ class Fittings(commands.Cog):
 
     async def cog_load(self) -> None:
         """Fetch Generics from API and store to bot."""
-        p = {"application_id": self.bot.wg_id, "language": "en"}
+        p = {"application_id": api.WG_ID, "language": "en"}
         if not self.bot.ship_types:
             async with self.bot.session.get(INFO, params=p) as resp:
                 match resp.status:
@@ -674,7 +675,7 @@ class Fittings(commands.Cog):
                         return
 
             for k, v in data["data"].items():
-                self.bot.modes.append(GameMode(**v))
+                self.bot.modes.append(api.GameMode(**v))
 
         if not self.bot.ships:
             self.bot.ships = await self.cache_ships()
@@ -682,7 +683,7 @@ class Fittings(commands.Cog):
         # if not self.bot.clan_buildings:
         #     self.bot.clan_buildings = await self.cache_clan_base()
 
-    async def cache_clan_base(self) -> list[ClanBuilding]:
+    async def cache_clan_base(self) -> list[api.ClanBuilding]:
         """Cache the CLan Buildings from the API"""
         raise NotImplementedError  # TODO: Cache Clan Base
         # buildings = json.pop()
@@ -712,7 +713,7 @@ class Fittings(commands.Cog):
         while count <= max_iter:
             # Initial Pull.
             p = {
-                "application_id": self.bot.wg_id,
+                "application_id": api.WG_ID,
                 "language": "en",
                 "page_no": count,
             }
@@ -745,22 +746,18 @@ class Fittings(commands.Cog):
         return ships
 
     @discord.app_commands.command()
-    @discord.app_commands.autocomplete(name=ship_ac)
-    @discord.app_commands.describe(name="Search for a ship by it's name")
+    @discord.app_commands.describe(ship="Search for a ship by it's name")
     @discord.app_commands.guilds(250252535699341312)
     async def ship(
-        self, interaction: discord.Interaction[PBot], name: str
+        self,
+        interaction: discord.Interaction[PBot],
+        ship: discord.app_commands.Transform[Ship, ShipTransformer],
     ) -> discord.InteractionMessage:
         """Search for a ship in the World of Warships API"""
+        await interaction.response.defer(thinking=True)
 
-        await interaction.response.defer()
-
-        if not self.bot.ships:
-            raise ConnectionError("Unable to fetch ships from API")
-
-        if (ship := self.bot.get_ship(name)) is None:
-            raise LookupError(f"Did not find map matching {name}, sorry.")
-
+        if ship is None:
+            ship = next(i for i in self.bot.ships)
         return await ShipView(interaction, ship).overview()
 
 

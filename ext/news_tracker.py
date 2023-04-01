@@ -4,28 +4,16 @@ from __future__ import annotations  # Cyclic Type hinting
 import datetime
 from typing import TYPE_CHECKING, Optional
 import typing
+import asyncpg
 
 import discord
-from asyncpg import Record
-from discord import (
-    Embed,
-    Message,
-    Colour,
-    TextChannel,
-    ButtonStyle,
-    HTTPException,
-)
-from discord.app_commands import (
-    Choice,
-)
+
 from discord.ext import commands, tasks
-from discord.ui import Button
-from discord.utils import utcnow
+
 from lxml import html
 from playwright.async_api import TimeoutError
 
-from ext.painezbot_utils.region import Region
-from ext.utils import view_utils
+from ext.utils import view_utils, wows_api as api
 
 if TYPE_CHECKING:
     from painezBot import PBot
@@ -33,15 +21,15 @@ if TYPE_CHECKING:
 
 async def save_article(bot: PBot, article: Article) -> None:
     """Store the article in the database for quicker retrieval in future"""
-    sql = """INSERT INTO news_articles 
-                (title, description, partial, link, image, category, date, 
+    sql = """INSERT INTO news_articles
+                (title, description, partial, link, image, category, date,
                 eu, na, sea)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                ON CONFLICT (partial) 
-                DO UPDATE SET 
-                (title, description, link, image, category, date, eu, na, sea) 
-                = (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link, 
-                EXCLUDED.image, EXCLUDED.category, EXCLUDED.date, 
+                ON CONFLICT (partial)
+                DO UPDATE SET
+                (title, description, link, image, category, date, eu, na, sea)
+                = (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link,
+                EXCLUDED.image, EXCLUDED.category, EXCLUDED.date,
                 EXCLUDED.eu, EXCLUDED.na, EXCLUDED.sea) """
     async with bot.db.acquire(timeout=60) as connection:
         async with connection.transaction():
@@ -60,14 +48,14 @@ async def save_article(bot: PBot, article: Article) -> None:
             )
 
 
-class ToggleButton(Button):
+class ToggleButton(discord.ui.Button):
     """A Button to toggle the notifications settings."""
 
     view: NewsConfig
 
-    def __init__(self, bot: PBot, region: Region, value: bool) -> None:
+    def __init__(self, bot: PBot, region: api.Region, value: bool) -> None:
         self.value: bool = value
-        self.region: Region = region
+        self.region: api.Region = region
         self.bot: PBot = bot
 
         if value:
@@ -125,7 +113,7 @@ class Article:
 
         self.date: Optional[datetime.datetime] = None
 
-    async def generate_embed(self) -> Embed:
+    async def generate_embed(self) -> discord.Embed:
         """Handle dispatching of news article."""
         # CHeck if we need to do a full refresh on the article.
         if self.link is None:
@@ -159,12 +147,9 @@ class Article:
             except IndexError:
                 pass
 
-        e: Embed = Embed(
-            url=self.link,
-            colour=0x064273,
-            title=self.title,
-            description=self.description,
-        )
+        e = discord.Embed(url=self.link, colour=0x064273, title=self.title)
+        e.description = self.description
+
         e.set_author(name=self.category, url=self.link)
         e.timestamp = self.date
         e.set_footer(text="World of Warships Portal News")
@@ -173,19 +158,19 @@ class Article:
         except AttributeError:
             pass
 
-        for region in Region:
+        for region in api.Region:
             if getattr(self, region.db_key):
                 e.colour = region.colour
                 break
 
         v = discord.ui.View()
-        for region in Region:
+        for region in api.Region:
             if getattr(self, region.db_key):
                 d = region.domain
                 r = region.name
                 url = f"https://worldofwarships.{d}/en/{self.partial}"
-                b = Button(
-                    style=ButtonStyle.url,
+                b = discord.ui.Button(
+                    style=discord.ButtonStyle.url,
                     label=f"{r} article",
                     emoji=region.emote,
                     url=url,
@@ -203,12 +188,12 @@ class NewsChannel:
     def __init__(
         self,
         bot: PBot,
-        channel: TextChannel,
+        channel: discord.TextChannel,
         eu: bool = False,
         na: bool = False,
         sea: bool = False,
     ) -> None:
-        self.channel: TextChannel = channel
+        self.channel: discord.TextChannel = channel
         self.bot: PBot = bot
 
         # A bool for the tracking of each region
@@ -219,11 +204,11 @@ class NewsChannel:
         # A list of partial links for articles to see if this
         # channel has already sent one.
         # Article, message_id
-        self.sent_articles: dict[Article, Message] = dict()
+        self.sent_articles: dict[Article, discord.Message] = dict()
 
     async def dispatch(
-        self, region: Region, article: Article
-    ) -> Optional[Message]:
+        self, region: api.Region, article: Article
+    ) -> Optional[discord.Message]:
         """
 
         Check if the article has already been submitted to the channel,
@@ -262,10 +247,12 @@ class NewsConfig(view_utils.BaseView):
     """News Tracker Config View"""
 
     def __init__(
-        self, interaction: discord.Interaction[PBot], channel: TextChannel
+        self,
+        interaction: discord.Interaction[PBot],
+        channel: discord.TextChannel,
     ) -> None:
         super().__init__(interaction)
-        self.channel: TextChannel = channel
+        self.channel: discord.TextChannel = channel
         self.bot: PBot = interaction.client
 
     async def update(self, content: typing.Optional[str] = None) -> None:
@@ -293,7 +280,7 @@ class NewsConfig(view_utils.BaseView):
             if k == "cis":
                 continue
 
-            region = next(i for i in Region if k == i.db_key)
+            region = next(i for i in api.Region if k == i.db_key)
 
             re = f"{region.emote} {region.name}"
             if v:  # Bool: True/False
@@ -310,7 +297,7 @@ class NewsConfig(view_utils.BaseView):
 
 async def news_ac(
     ctx: discord.Interaction[PBot], cur: str
-) -> list[Choice[str]]:
+) -> list[discord.app_commands.Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
     choices = []
     cache = ctx.client.news_cache
@@ -353,7 +340,7 @@ class NewsTracker(commands.Cog):
 
         # If we already have parsed the articles once, flag it now.
 
-        for region in Region:
+        for region in api.Region:
 
             url = f"https://worldofwarships.{region.domain}/en/rss/news/"
 
@@ -390,7 +377,7 @@ class NewsTracker(commands.Cog):
                         fmt = "%a, %d %b %Y %H:%M:%S %Z"
                         article.date = datetime.datetime.strptime(date, fmt)
                     else:
-                        article.date = utcnow()
+                        article.date = discord.utils.utcnow()
 
                 if not article.category:
                     category = "".join(i.xpath(".//category//text()"))
@@ -419,7 +406,7 @@ class NewsTracker(commands.Cog):
                 for channel in self.bot.news_channels:
                     try:
                         await channel.dispatch(region, article)
-                    except HTTPException:
+                    except discord.HTTPException:
                         continue
 
     @news_loop.before_loop
@@ -437,7 +424,7 @@ class NewsTracker(commands.Cog):
 
         partials = [i.partial for i in self.bot.news_cache]
 
-        r: Record
+        r: asyncpg.Record
         for r in articles:
             if r["partial"] in partials:
                 continue
@@ -523,7 +510,9 @@ class NewsTracker(commands.Cog):
 
     # Event Listeners for database cleanup.
     @commands.Cog.listener()
-    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
+    async def on_guild_channel_delete(
+        self, channel: discord.abc.GuildChannel
+    ) -> None:
         """Remove dev blog trackers from deleted channels"""
         q = """DELETE FROM news_trackers WHERE channel_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:

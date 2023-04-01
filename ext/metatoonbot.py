@@ -9,8 +9,10 @@ from discord.ext import commands
 if typing.TYPE_CHECKING:
     from core import Bot
 
-INV = """https://discord.com/api/oauth2/authorize?client_id=250051254783311873&
-permissions=1514244730006&scope=bot%20applications.commands"""
+INV = (
+    "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&"
+    "permissions=1514244730006&scope=bot%20applications.commands"
+)
 
 
 class MetaToonbot(commands.Cog):

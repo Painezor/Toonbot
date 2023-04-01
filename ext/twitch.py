@@ -2,26 +2,24 @@
 from __future__ import annotations
 
 import logging
-from json import load
-from typing import Literal, Optional
 import typing
-
+import json
 
 import discord
+import twitchio
 from discord.ext import commands
 from iso639 import Lang
-import twitchio
 from twitchio.ext.commands import Bot as TBot
-from ext.logs import stringify_seconds
 
-from ext.painezbot_utils.player import Region
-from ext.utils import view_utils, timed_events, flags, embed_utils
+from ext.logs import stringify_seconds
+from ext.utils import embed_utils, flags, timed_events, view_utils
+from ext.utils import wows_api as api
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
 
 with open("credentials.json") as f:
-    credentials = load(f)
+    credentials = json.load(f)
 
 
 CCS = "https://wows-static-content.gcdn.co/cms-data/contributors_wg.json"
@@ -29,7 +27,7 @@ WOWS_GAME_ID = 32502
 PARTNER_ICON = """https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab7
 7-b780518f00a3/1"""
 
-REGIONS = Literal["eu", "na", "cis", "sea"]
+REGIONS = typing.Literal["eu", "na", "cis", "sea"]
 TWITCH_LOGO = """https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklo
 go.com.png"""
 
@@ -46,12 +44,12 @@ class Contributor:
         name: str,
         links: list[str],
         language: list[str],
-        region: Region,
+        region: api.Region,
     ):
         self.name: str = name
         self.links: list[str] = links
         self.language: list[str] = language
-        self.region: Region = region
+        self.region: api.Region = region
 
     @property
     def language_names(self) -> list[str]:
@@ -123,10 +121,10 @@ class Stream:
     ) -> None:
         self.language: str = language
         self.viewers: int = viewers
-        self.user: Optional[str] = user.name
+        self.user: typing.Optional[str] = user.name
         self.title: str = title
         self.timestamp: timed_events.Timestamp = timestamp
-        self.contributor: Optional[bool] = None
+        self.contributor: typing.Optional[bool] = None
 
     @property
     def flag(self) -> str:
@@ -493,9 +491,9 @@ class TwitchTracker(commands.Cog):
 
         for i in ccs:
             realm = {
-                "ASIA": Region.SEA,
-                "NA": Region.NA,
-                "EU": Region.EU,
+                "ASIA": api.Region.SEA,
+                "NA": api.Region.NA,
+                "EU": api.Region.EU,
             }[i["realm"]]
 
             c = Contributor(i["name"], i["links"], i["lang"].split(","), realm)
@@ -622,7 +620,9 @@ class TwitchTracker(commands.Cog):
         cc="Get streamers who are/not members of the CC program"
     )
     async def streams(
-        self, interaction: discord.Interaction[PBot], cc: Optional[bool] = None
+        self,
+        interaction: discord.Interaction[PBot],
+        cc: typing.Optional[bool] = None,
     ) -> discord.InteractionMessage:
         """Get a list of current World of Warships streams on Twitch"""
 
