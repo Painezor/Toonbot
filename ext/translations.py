@@ -15,12 +15,12 @@ if TYPE_CHECKING:
 
 translations: dict[Locale, dict] = {}
 
-for x in Locale:
+for i in Locale:
     try:
-        with open(f"./ext/utils/translations/{x.name}.json") as f:
-            translations[x] = json.load(f)
-    except Exception as e:
-        logging.error(f"{e} Unable to load translation {x}, {x.name}.json")
+        with open(f"./ext/utils/translations/{i.name}.json") as fun:
+            translations[i] = json.load(fun)
+    except Exception as embed:
+        logging.error(f"{embed} Unable to load translation {i}, {i.name}.json")
 
 
 class TL(Translator):

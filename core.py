@@ -28,8 +28,8 @@ if typing.TYPE_CHECKING:
     from ext.transfers import TransferChannel
 
 
-with open("credentials.json", "r") as f:
-    credentials = json.load(f)
+with open("credentials.json", "r") as fun:
+    credentials = json.load(fun)
 
 COGS = [
     "ext.reply",  # Utility Cogs
@@ -192,6 +192,7 @@ class Bot(commands.AutoShardedBot):
                         i.title,
                     )
                     return i
+        return None
 
     def get_team(self, team_id: str) -> typing.Optional[fs.Team]:
         """Retrieve a Team from the ones stored in the bot."""

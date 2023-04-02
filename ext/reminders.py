@@ -6,14 +6,9 @@ import typing
 
 import asyncpg
 from dateutil.relativedelta import relativedelta
-from discord import (
-    HTTPException,
-    Message,
-)
 
 import discord
 from discord.ext import commands
-from discord.utils import utcnow
 
 from ext.utils import embed_utils, view_utils, timed_events
 
@@ -25,12 +20,12 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("reminders")
 
 
-async def spool_reminder(bot: Bot | PBot, r: asyncpg.Record):
+async def spool_reminder(bot: Bot | PBot, record: asyncpg.Record):
     """Bulk dispatch reminder messages"""
     # Get data from records
-    await discord.utils.sleep_until(r["target_time"])
-    rv = ReminderView(bot, r)
-    await rv.send_reminder()
+    await discord.utils.sleep_until(record["target_time"])
+    view = ReminderView(bot, record)
+    await view.send_reminder()
 
 
 class RemindModal(discord.ui.Modal):
@@ -79,85 +74,92 @@ class RemindModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction[Bot | PBot]):
         """Insert entry to the database when the form is submitted"""
-        h = int(self.hours.value) or 0
-        m = int(self.minutes.value) or 0
-        d = int(self.days.value) or 0
-        mo = int(self.months.value) or 0
-        delta = relativedelta(minutes=m, hours=h, days=d, months=mo)
+        delta = relativedelta()
+        delta.hours = int(self.hours.value) or 0
+        delta.minutes = int(self.minutes.value) or 0
+        delta.day = int(self.days.value) or 0
+        delta.months = int(self.months.value) or 0
 
-        time = utcnow()
-        remind_at = time + delta
-        msg_id = self.message.id if self.message else None
+        time = discord.utils.utcnow()
+        rmd = time + delta
+        mid = self.message.id if self.message else None
         gid = interaction.guild.id if interaction.guild else None
-        ch_id = interaction.channel.id if interaction.channel else None
-        desc = self.description.value
-        u = interaction.user.id
+        cid = interaction.channel.id if interaction.channel else None
+        dsc = self.description.value
+        uid = interaction.user.id
         bot = interaction.client
         sql = """INSERT INTO reminders (message_id, channel_id, guild_id,
                  reminder_content, created_time, target_time, user_id)
                  VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *"""
 
-        args = [sql, msg_id, ch_id, gid, desc, time, remind_at, u]
+        args = [sql, mid, cid, gid, dsc, time, rmd, uid]
         async with bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                r = await connection.fetchrow(*args)
+                record = await connection.fetchrow(*args)
 
-        reminder_task = bot.loop.create_task(spool_reminder(bot, r))
+        reminder_task = bot.loop.create_task(spool_reminder(bot, record))
         bot.reminders.add(reminder_task)
         reminder_task.add_done_callback(bot.reminders.discard)
 
-        t = timed_events.Timestamp(remind_at).time_relative
-        e = discord.Embed(colour=0x00FFFF, description=f"**{t}**\n\n> {desc}")
-        e.set_author(name="⏰ Reminder Created")
-        return await interaction.response.send_message(embed=e, ephemeral=True)
+        time = timed_events.Timestamp(rmd).time_relative
+        embed = discord.Embed(colour=0x00FFFF)
+        embed.description = f"**{time}**\n\n> {dsc}"
+        embed.set_author(name="⏰ Reminder Created")
+
+        send = interaction.response.send_message
+        return await send(embed=embed, ephemeral=True)
 
 
 class ReminderView(discord.ui.View):
     """View for user requested reminders"""
 
-    def __init__(self, bot: Bot | PBot, r: asyncpg.Record):
+    def __init__(self, bot: Bot | PBot, record: asyncpg.Record):
         super().__init__(timeout=None)
         self.bot: Bot | PBot = bot
-        self.record: asyncpg.Record = r
+        self.record: asyncpg.Record = record
 
     async def send_reminder(self):
         """Send message to appropriate destination"""
-        r = self.record
+        record = self.record
 
-        channel = self.bot.get_channel(r["channel_id"])
+        channel = self.bot.get_channel(record["channel_id"])
 
         channel = typing.cast(discord.TextChannel, channel)
 
-        if r["message_id"] is not None:
-            msg = await channel.fetch_message(r["message_id"])
+        if record["message_id"] is not None:
+            msg = await channel.fetch_message(record["message_id"])
             if msg is not None:
                 lbl = "Original Message"
                 btn = discord.ui.Button(url=msg.jump_url, label=lbl)
                 self.add_item(btn)
 
-        e = discord.Embed(colour=0x00FF00)
-        e.set_author(name="⏰ Reminder")
-        e.description = timed_events.Timestamp(r["created_time"]).date_relative
+        embed = discord.Embed(colour=0x00FF00)
+        embed.set_author(name="⏰ Reminder")
 
-        if r["reminder_content"]:
-            e.description += f"\n\n> {r['reminder_content']}"
+        time = record["created_time"]
+        embed.description = timed_events.Timestamp(time).date_relative
+
+        if record["reminder_content"]:
+            embed.description += f"\n\n> {record['reminder_content']}"
 
         self.add_item(view_utils.Stop(row=0))
 
         try:
-            await channel.send(f"<@{r['user_id']}>", embed=e, view=self)
+            await channel.send(
+                f"<@{record['user_id']}>", embed=embed, view=self
+            )
         except discord.HTTPException:
-            u = self.bot.get_user(r["user_id"])
-            if u is not None:
+            user = self.bot.get_user(record["user_id"])
+            if user is not None:
                 try:
-                    await u.send(embed=e, view=self)
-                except HTTPException:
+                    await user.send(embed=embed, view=self)
+                except discord.HTTPException:
                     pass
 
         sql = """DELETE FROM reminders WHERE created_time = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(sql, r["created_time"])
+                await connection.execute(sql, record["created_time"])
 
     async def interaction_check(
         self, interaction: discord.Interaction[Bot]
@@ -189,10 +191,10 @@ class Reminders(commands.Cog):
             async with connection.transaction():
                 records = await connection.fetch("""SELECT * FROM reminders""")
 
-        for r in records:
-            self.bot.reminders.add(
-                self.bot.loop.create_task(spool_reminder(self.bot, r))
-            )
+        for i in records:
+            task = self.bot.loop.create_task(spool_reminder(self.bot, i))
+            self.bot.reminders.add(task)
+            task.add_done_callback(self.bot.reminders.discard)
 
     async def cog_unload(self) -> None:
         """Cancel all active tasks on cog reload"""
@@ -214,7 +216,7 @@ class Reminders(commands.Cog):
     @reminder.command()
     async def list(
         self, interaction: discord.Interaction[Bot | PBot]
-    ) -> Message:
+    ) -> discord.InteractionMessage:
         """Check your active reminders"""
 
         sql = """SELECT * FROM reminders WHERE user_id = $1"""
@@ -222,19 +224,20 @@ class Reminders(commands.Cog):
             async with connection.transaction():
                 rec = await connection.fetch(sql, interaction.user.id)
 
-        def short(r: asyncpg.Record):
+        def short(record: asyncpg.Record):
             """Get oneline version of reminder"""
-            time = timed_events.Timestamp(r["target_time"]).time_relative
-            guild = "@me" if r["guild_id"] is None else r["guild_id"]
+            time = timed_events.Timestamp(record["target_time"]).time_relative
+            guild = "@me" if record["guild_id"] is None else record["guild_id"]
 
-            m = r["message_id"]
-            j = f"https://com/channels/{guild}/{r['channel_id']}/{m}"
-            return f"**{time}**: [{r['reminder_content']}]({j})"
+            msg = record["message_id"]
+            cid = record["channel_id"]
+            jump = f"https://www.discord.com/channels/{guild}/{cid}/{msg}"
+            return f"**{time}**: [{record['reminder_content']}]({jump})"
 
         rows = [short(r) for r in rec] if rec else ["You have no reminders"]
-        e = discord.Embed(colour=0x7289DA, title="Your reminders")
+        embed = discord.Embed(colour=0x7289DA, title="Your reminders")
 
-        embeds = embed_utils.rows_to_embeds(e, rows)
+        embeds = embed_utils.rows_to_embeds(embed, rows)
         return await view_utils.Paginator(interaction, embeds).update()
 
 

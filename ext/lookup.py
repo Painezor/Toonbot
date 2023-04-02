@@ -6,7 +6,7 @@ from importlib import reload
 
 import discord
 from discord.app_commands import Group
-from discord.ext.commands import Cog
+from discord.ext import commands
 
 import ext.toonbot_utils.transfermarkt as tfm
 
@@ -16,20 +16,20 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
 
-class Lookup(Cog):
+class Lookup(commands.Cog):
     """Transfer market lookups"""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         reload(tfm)
 
-    lookup = Group(name="lookup", description="Search on transfermarkt")
+    lookup = discord.app_commands.Group(description="Search on transfermarkt")
 
     @lookup.command(name="player")
     @discord.app_commands.describe(query="Enter a player name")
     async def lookup_player(
         self, interaction: discord.Interaction[Bot], query: str
-    ):
+    ) -> discord.InteractionMessage:
         """Search for a player on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)
@@ -39,7 +39,7 @@ class Lookup(Cog):
     @discord.app_commands.describe(query="Enter a team name")
     async def lookup_team(
         self, interaction: discord.Interaction[Bot], query: str
-    ):
+    ) -> discord.InteractionMessage:
         """Search for a team on TransferMarkt"""
 
         await interaction.response.defer(thinking=True)

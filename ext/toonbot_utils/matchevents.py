@@ -1,10 +1,9 @@
 """Match Events used for the ticker"""
 from __future__ import annotations
 
-from enum import Enum
-from typing import Optional, Type
-
-from discord import Colour, Embed
+import enum
+import typing
+import discord
 import ext.toonbot_utils.flashscore as fs
 
 
@@ -13,16 +12,16 @@ class MatchEvent:
 
     __slots__ = ("note", "description", "player", "team", "time", "fixture")
 
-    colour: Colour
+    colour: discord.Colour
     icon_url: str
 
     def __init__(self) -> None:
-        self.note: Optional[str] = None
-        self.description: Optional[str] = None
-        self.fixture: Optional[fs.Fixture] = None
-        self.player: Optional[fs.Player] = None
-        self.team: Optional[fs.Team] = None
-        self.time: Optional[str] = None
+        self.note: typing.Optional[str] = None
+        self.description: typing.Optional[str] = None
+        self.fixture: typing.Optional[fs.Fixture] = None
+        self.player: typing.Optional[fs.Player] = None
+        self.team: typing.Optional[fs.Team] = None
+        self.time: typing.Optional[str] = None
 
     def is_done(self) -> bool:
         """Check to see if more information is required"""
@@ -32,22 +31,22 @@ class MatchEvent:
             return True
 
     @property
-    def embed(self) -> Embed:
+    def embed(self) -> discord.Embed:
         """The Embed for this match event"""
-        embed = Embed(description=str(self), colour=self.colour)
+        embed = discord.Embed(description=str(self), colour=self.colour)
 
-        cn = self.__class__.__name__
+        cname = self.__class__.__name__
         if self.team is not None:
             embed.set_thumbnail(url=self.team.logo_url)
-            name = f"{cn} ({self.team.name})"
+            name = f"{cname} ({self.team.name})"
         else:
-            name = cn
+            name = cname
 
         embed.set_author(name=name, icon_url=self.icon_url)
         return embed
 
     @property
-    def embed_extended(self) -> Embed:
+    def embed_extended(self) -> discord.Embed:
         """The Extended Embed for this match event"""
         embed = self.embed
 
@@ -55,55 +54,55 @@ class MatchEvent:
 
             embed.description = ""
 
-            for x in self.fixture.events:
+            for i in self.fixture.events:
                 # We only want the other events, not ourself.
-                if x == self:
+                if i == self:
                     continue
 
-                embed.description += f"\n{str(x)}"
+                embed.description += f"\n{str(i)}"
         return embed
 
 
 class Substitution(MatchEvent):
     """A substitution event for a fixture"""
 
-    Colour = Colour.greyple()
+    colour = discord.Colour.greyple()
 
     def __init__(self) -> None:
         super().__init__()
-        self.player_off: Optional[fs.Player] = None
+        self.player_off: typing.Optional[fs.Player] = None
 
     def __str__(self) -> str:
-        o = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
+        output = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
         if self.team is not None:
-            o.append(self.team.tag)
+            output.append(self.team.tag)
         if self.player is not None:
-            o.append(f"{fs.INBOUND_EMOJI} {self.player.markdown}")
+            output.append(f"{fs.INBOUND_EMOJI} {self.player.markdown}")
         if self.player_off is not None:
-            o.append(f"{fs.OUTBOUND_EMOJI} {self.player_off.markdown}")
-        return " ".join(o)
+            output.append(f"{fs.OUTBOUND_EMOJI} {self.player_off.markdown}")
+        return " ".join(output)
 
 
 class Goal(MatchEvent):
     """A Generic Goal Event"""
 
-    colour = Colour.green()
+    colour = discord.Colour.green()
 
     def __init__(self) -> None:
         super().__init__()
-        self.assist: Optional[fs.Player] = None
+        self.assist: typing.Optional[fs.Player] = None
 
     def __str__(self) -> str:
-        o = [self.timestamp]
+        output = [self.timestamp]
         if self.team is not None:
-            o.append(self.team.tag)
+            output.append(self.team.tag)
         if self.player is not None:
-            o.append(self.player.markdown)
+            output.append(self.player.markdown)
         if self.assist is not None:
-            o.append(f"(ass: {self.assist.markdown})")
+            output.append(f"(ass: {self.assist.markdown})")
         if self.note is not None:
-            o.append(f"({self.note})")
-        return " ".join(o)
+            output.append(f"({self.note})")
+        return " ".join(output)
 
     @property
     def emote(self) -> str:
@@ -122,7 +121,7 @@ class Goal(MatchEvent):
 class OwnGoal(Goal):
     """An own goal event"""
 
-    colour = Colour.dark_green()
+    colour = discord.Colour.dark_green()
 
     @property
     def emote(self) -> str:
@@ -135,7 +134,7 @@ class Penalty(Goal):
 
     __slots__ = ["missed"]
 
-    colour = Colour.brand_green()
+    colour = discord.Colour.brand_green()
 
     def __init__(self, missed: bool = False) -> None:
         super().__init__()
@@ -157,25 +156,25 @@ class Penalty(Goal):
 class RedCard(MatchEvent):
     """An object representing the event of a dismissal of a player"""
 
-    colour = Colour.red()
+    colour = discord.Colour.red()
 
     def __str__(self) -> str:
 
         if self.time is None:
-            o = [f"`{self.emote}`"]
+            output = [f"`{self.emote}`"]
         else:
-            o = [f"`{self.emote} {self.time}`"]
+            output = [f"`{self.emote} {self.time}`"]
 
         if self.team is not None:
-            o.append(self.team.tag)
+            output.append(self.team.tag)
 
         if self.player is not None:
-            o.append(self.player.markdown)
+            output.append(self.player.markdown)
 
         if self.note is not None:
             if "Red card" not in self.note:
-                o.append(f"({self.note})")
-        return " ".join(o)
+                output.append(f"({self.note})")
+        return " ".join(output)
 
     @property
     def emote(self) -> str:
@@ -187,25 +186,25 @@ class SecondYellow(RedCard):
     """An object representing the event of a dismissal of a player
     after a second yellow card"""
 
-    colour = Colour.brand_red()
+    colour = discord.Colour.brand_red()
 
     def __str__(self) -> str:
 
         if self.time is None:
-            o = [f"{self.emote}`"]
+            output = [f"{self.emote}`"]
         else:
-            o = [f"`{self.emote} {self.time}`"]
+            output = [f"`{self.emote} {self.time}`"]
 
         if self.team is not None:
-            o.append(self.team.tag)
+            output.append(self.team.tag)
 
         if self.player is not None:
-            o.append(self.player.markdown)
+            output.append(self.player.markdown)
 
         if self.note is not None:
             if "Yellow card / Red card" not in self.note:
-                o.append(f"({self.note})")
-        return " ".join(o)
+                output.append(f"({self.note})")
+        return " ".join(output)
 
     @property
     def emote(self) -> str:
@@ -217,25 +216,25 @@ class Booking(MatchEvent):
     """An object representing the event of a player being given
     a yellow card"""
 
-    colour = Colour.yellow()
+    colour = discord.Colour.yellow()
 
     def __str__(self) -> str:
 
         if self.time is None:
-            o = [f"`{self.emote}`"]
+            output = [f"`{self.emote}`"]
         else:
-            o = [f"`{self.emote} {self.time}`"]
+            output = [f"`{self.emote} {self.time}`"]
 
         if self.team is not None:
-            o.append(self.team.tag)
+            output.append(self.team.tag)
 
         if self.player is not None:
-            o.append(self.player.markdown)
+            output.append(self.player.markdown)
 
         if self.note:
             if self.note.casefold().strip() != "yellow card":
-                o.append(f"({self.note})")
-        return " ".join(o)
+                output.append(f"({self.note})")
+        return " ".join(output)
 
     @property
     def emote(self) -> str:
@@ -249,71 +248,83 @@ class VAR(MatchEvent):
 
     __slots__ = ["in_progress", "assist"]
 
-    colour = Colour.og_blurple()
+    colour = discord.Colour.og_blurple()
 
     def __init__(self, in_progress: bool = False) -> None:
         super().__init__()
-        self.assist: Optional[fs.Player] = None
+        self.assist: typing.Optional[fs.Player] = None
         self.in_progress: bool = in_progress
 
     def __str__(self) -> str:
-        o = ["`📹 VAR`"] if self.time is None else [f"`📹 VAR {self.time}`"]
+        out = ["`📹 VAR`"] if self.time is None else [f"`📹 VAR {self.time}`"]
         if self.team is not None:
-            o.append(self.team.tag)
+            out.append(self.team.tag)
         if self.player is not None:
-            o.append(self.player.markdown)
+            out.append(self.player.markdown)
         if self.note is not None:
-            o.append(f"({self.note})")
+            out.append(f"({self.note})")
         if self.in_progress:
-            o.append("\n**DECISION IN PROGRESS**")
-        return " ".join(o)
+            out.append("\n**DECISION IN PROGRESS**")
+        return " ".join(out)
 
 
-class EventType(Enum):
+class EventType(enum.Enum):
     """An Enum representing an EventType for ticker events"""
 
     def __init__(
         self,
         value: str,
-        colour: Colour,
-        valid_events: Type[MatchEvent],
+        colour: discord.Colour,
+        valid_events: typing.Type[MatchEvent],
     ):
         self._value_ = value
         self.colour = colour
         self.valid_events = valid_events
 
     # Goals
-    GOAL = "Goal", Colour.dark_green(), Goal | VAR
-    VAR_GOAL = "VAR Goal", Colour.og_blurple(), VAR
-    GOAL_OVERTURNED = "Goal Overturned", Colour.og_blurple(), VAR
+    GOAL = "Goal", discord.Colour.dark_green(), Goal | VAR
+    VAR_GOAL = "VAR Goal", discord.Colour.og_blurple(), VAR
+    GOAL_OVERTURNED = "Goal Overturned", discord.Colour.og_blurple(), VAR
 
     # Cards
-    RED_CARD = "Red Card", Colour.red(), RedCard | VAR
-    VAR_RED_CARD = "VAR Red Card", Colour.og_blurple(), VAR
-    RED_CARD_OVERTURNED = "Red Card Overturned", Colour.og_blurple(), VAR
+    RED_CARD = "Red Card", discord.Colour.red(), RedCard | VAR
+    VAR_RED_CARD = "VAR Red Card", discord.Colour.og_blurple(), VAR
+    RED_CARD_OVERTURNED = (
+        "Red Card Overturned",
+        discord.Colour.og_blurple(),
+        VAR,
+    )
 
     # State Changes
-    DELAYED = "Match Delayed", Colour.orange(), None
-    INTERRUPTED = "Match Interrupted", Colour.dark_orange(), None
-    CANCELLED = "Match Cancelled", Colour.red(), None
-    POSTPONED = "Match Postponed", Colour.red(), None
-    ABANDONED = "Match Abandoned", Colour.red(), None
-    RESUMED = "Match Resumed", Colour.light_gray(), None
+    DELAYED = "Match Delayed", discord.Colour.orange(), None
+    INTERRUPTED = "Match Interrupted", discord.Colour.dark_orange(), None
+    CANCELLED = "Match Cancelled", discord.Colour.red(), None
+    POSTPONED = "Match Postponed", discord.Colour.red(), None
+    ABANDONED = "Match Abandoned", discord.Colour.red(), None
+    RESUMED = "Match Resumed", discord.Colour.light_gray(), None
 
     # Period Changes
-    KICK_OFF = "Kick Off", Colour.green(), None
+    KICK_OFF = "Kick Off", discord.Colour.green(), None
     HALF_TIME = "Half Time", 0x00FFFF, None
-    SECOND_HALF_BEGIN = "Second Half", Colour.light_gray(), None
-    PERIOD_BEGIN = "Period #PERIOD#", Colour.light_gray(), None
-    PERIOD_END = "Period #PERIOD# Ends", Colour.light_gray(), None
+    SECOND_HALF_BEGIN = "Second Half", discord.Colour.light_gray(), None
+    PERIOD_BEGIN = "Period #PERIOD#", discord.Colour.light_gray(), None
+    PERIOD_END = "Period #PERIOD# Ends", discord.Colour.light_gray(), None
 
-    FULL_TIME = "Full Time", Colour.teal(), None
-    FINAL_RESULT_ONLY = "Final Result", Colour.teal(), None
-    SCORE_AFTER_EXTRA_TIME = "Score After Extra Time", Colour.teal(), None
-    NORMAL_TIME_END = "End of normal time", Colour.greyple(), None
-    EXTRA_TIME_BEGIN = "ET: First Half", Colour.lighter_grey(), None
-    HALF_TIME_ET_BEGIN = "ET: Half Time", Colour.light_grey(), None
-    HALF_TIME_ET_END = "ET: Second Half", Colour.dark_grey(), None
-    EXTRA_TIME_END = "ET: End of Extra Time", Colour.darker_gray(), None
-    PENALTIES_BEGIN = "Penalties Begin", Colour.dark_gold(), None
-    PENALTY_RESULTS = "Penalty Results", Colour.gold(), None
+    FULL_TIME = "Full Time", discord.Colour.teal(), None
+    FINAL_RESULT_ONLY = "Final Result", discord.Colour.teal(), None
+    SCORE_AFTER_EXTRA_TIME = (
+        "Score After Extra Time",
+        discord.Colour.teal(),
+        None,
+    )
+    NORMAL_TIME_END = "End of normal time", discord.Colour.greyple(), None
+    EXTRA_TIME_BEGIN = "ET: First Half", discord.Colour.lighter_grey(), None
+    HALF_TIME_ET_BEGIN = "ET: Half Time", discord.Colour.light_grey(), None
+    HALF_TIME_ET_END = "ET: Second Half", discord.Colour.dark_grey(), None
+    EXTRA_TIME_END = (
+        "ET: End of Extra Time",
+        discord.Colour.darker_gray(),
+        None,
+    )
+    PENALTIES_BEGIN = "Penalties Begin", discord.Colour.dark_gold(), None
+    PENALTY_RESULTS = "Penalty Results", discord.Colour.gold(), None

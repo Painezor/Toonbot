@@ -2,25 +2,25 @@
    the r/NUFC subreddit"""
 from __future__ import annotations
 
+import asyncio
+import datetime
+import importlib
 import logging
-from asyncio import sleep
-from datetime import datetime
-from math import ceil
-from pathlib import Path
-from re import sub, DOTALL
+import math
+import pathlib
+import re
 import typing
 
 from PIL import Image
 from asyncpraw.models import Subreddit
-from asyncprawcore import TooLarge
-from discord import Attachment, Message, Interaction
+import asyncprawcore
 
 import discord
 from discord.ext import commands, tasks
 from lxml import html
 
 import ext.toonbot_utils.flashscore as fs
-import importlib
+
 
 if typing.TYPE_CHECKING:
     from core import Bot
@@ -28,6 +28,7 @@ if typing.TYPE_CHECKING:
 
 NUFC_DISCORD_LINK = "newcastleutd"  # TuuJgrA
 
+REDDIT = "http://www.reddit.com/r/NUFC"
 REDDIT_THUMBNAIL = (
     "http://vignette2.wikia.nocookie.net/valkyriecrusade/"
     "images/b/b5/Reddit-The-Official-App-Icon.png"
@@ -54,7 +55,7 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
     if not rows:
         return ""
 
-    height = ceil(len(rows) / (len(rows) // per + 1))
+    height = math.ceil(len(rows) / (len(rows) // per + 1))
     chunks = [
         "".join(rows[i : i + height]) for i in range(0, len(rows), height)
     ]
@@ -69,7 +70,7 @@ class NUFCSidebar(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        self.bot.sidebar = self.sidebar_loop.start()
+        self.bot.sidebar = self.sidebar_task.start()
         importlib.reload(fs)
 
     async def cog_unload(self) -> None:
@@ -77,18 +78,19 @@ class NUFCSidebar(commands.Cog):
         self.bot.sidebar.cancel()
 
     @tasks.loop(hours=6)
-    async def sidebar_loop(self) -> None:
+    async def sidebar_task(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
         if not self.bot.browser or not self.bot.teams:
-            await sleep(60)
-            return await self.sidebar_loop()
+            await asyncio.sleep(60)
+            return await self.sidebar_task()
 
         markdown = await self.make_sidebar()
         subreddit = await self.bot.reddit.subreddit("NUFC")
         page = await subreddit.wiki.get_page("config/sidebar")
         await page.edit(content=markdown)
 
-        logger.info(f"{datetime.now()} The sidebar of r/NUFC was updated.")
+        time = datetime.datetime.now()
+        logger.info("%s The sidebar of r/NUFC was updated.", time)
 
     async def make_sidebar(
         self,
@@ -107,10 +109,8 @@ class NUFCSidebar(commands.Cog):
         if fsr is None:
             raise ValueError(f"Team with ID {team_id} not found in db")
 
-        fx = await fs.parse_games(self.bot, fsr, "/fixtures/")
-        fixtures: list[fs.Fixture] = fx
-        rx = await fs.parse_games(self.bot, fsr, "/results/")
-        results: list[fs.Fixture] = rx
+        fixtures = await fs.parse_games(self.bot, fsr, "/fixtures/")
+        results = await fs.parse_games(self.bot, fsr, "/results/")
 
         url = "http://www.bbc.co.uk/sport/football/premier-league/table"
         async with self.bot.session.get(url) as resp:
@@ -121,31 +121,34 @@ class NUFCSidebar(commands.Cog):
         sql = """SELECT * FROM team_data"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                rt = await connection.fetch(sql)
+                records = await connection.fetch(sql)
 
         pad = "|:--:" * 6
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{pad}\n"
 
-        xp = ".//tbody/tr"
-        for i in tree.xpath(xp):
-            p = i.xpath(".//td//text()")
+        xpath = ".//tbody/tr"
+        for i in tree.xpath(xpath):
+            items = i.xpath(".//td//text()")
 
-            team = p[1].strip()
+            team = items[1].strip()
             # Insert subreddit link from db
 
             try:
-                team = next(i for i in rt if i["name"] == team)
+                team = next(i for i in records if i["name"] == team)
                 team = f"[{team['name']}]({team['subreddit']})"
             except StopIteration:
                 pass
 
             # [rank] [t] [p, w, d, l] [gd, pts]
-            cols = [p[0], team] + p[2:6] + p[8:10]
+            cols = [items[0], team] + items[2:6] + items[8:10]
 
-            q = qry.casefold()
-            t = team.casefold()
-            table += " | ".join([f"**{i}**" if q in t else i for i in cols])
-            table += "\n"
+            name = qry.casefold()
+            tem = team.casefold()
+
+            table_rows = []
+            for i in cols:
+                table_rows.append(f"**{i}**" if name in tem else i)
+            table += " | ".join(table_rows) + "\n"
 
         # Get match threads
         last_opponent = qry.split(" ")[0]
@@ -175,20 +178,20 @@ class NUFCSidebar(commands.Cog):
         match_threads = f"\n\n### {pre} - {match} - {post}"
         fixture = next(i for i in results + fixtures)
         home = next(
-            (i for i in rt if i["name"] == fixture.home.name),
+            (i for i in records if i["name"] == fixture.home.name),
             None,
         )
         away = next(
-            (i for i in rt if i["name"] == fixture.away.name),
+            (i for i in records if i["name"] == fixture.away.name),
             None,
         )
 
         home_sub = home["subreddit"] if home is not None else ""
         away_sub = away["subreddit"] if away is not None else ""
 
-        h = f"[{fixture.home.name}]({home_sub})"
-        a = f"[{fixture.away.name}]({away_sub})"
-        top_bar = f"> {h} [{fixture.score}]({fixture.url}) {a}"
+        h_sh = f"[{fixture.home.name}]({home_sub})"
+        a_sh = f"[{fixture.away.name}]({away_sub})"
+        top_bar = f"> {h_sh} [{fixture.score}]({fixture.url}) {a_sh}"
 
         home_icon = "#temp" if home is None else home["icon"]
         away_icon = (
@@ -220,52 +223,52 @@ class NUFCSidebar(commands.Cog):
             if badges := tree.xpath(
                 f'.//div[contains(@class, "tlogo-{attr}")]//img/@src'
             ):
-                im = Image.open(badges[0])
-                im.save("TEMP_BADGE.png", "PNG")
-                s = await self.bot.reddit.subreddit("NUFC")
-                await s.stylesheet.upload("TEMP_BADGE.png", "temp")
-                await s.stylesheet.update(
-                    s.stylesheet().stylesheet, reason="Upload a badge"
+                image = Image.open(badges[0])
+                image.save("TEMP_BADGE.png", "PNG")
+                sco = await self.bot.reddit.subreddit("NUFC")
+                await sco.stylesheet.upload("TEMP_BADGE.png", "temp")
+                await sco.stylesheet.update(
+                    sco.stylesheet().stylesheet, reason="Upload a badge"
                 )
+                image.close()
 
-        pool = rt
+        pool = records
         if fixtures:
             rows = []
 
-            for f in fixtures:
-                h = f.home.name
+            for fix in fixtures:
+                h_sh = fix.home.name
 
                 try:
-                    home = next(i for i in pool if i["name"] == h)
+                    home = next(i for i in pool if i["name"] == h_sh)
                     h_ico = home["icon"]
-                    h = home["short_name"]
+                    h_sh = home["short_name"]
                 except StopIteration:
                     h_ico = ""
 
-                a = f.away.name
+                a_sh = fix.away.name
                 try:
-                    away = next(i for i in pool if i["name"] == a)
+                    away = next(i for i in pool if i["name"] == a_sh)
                     a_ico = away["icon"]
-                    a = away["short_name"]
+                    a_sh = away["short_name"]
                 except StopIteration:
                     a_ico = ""
 
-                if f.kickoff:
-                    ko = f.kickoff.strftime("%d/%m/%Y %H:%M")
+                if fix.kickoff:
+                    k_o = fix.kickoff.strftime("%d/%m/%Y %H:%M")
                 else:
-                    ko = ""
-                sc = f.score
-                rows.append(
-                    f"{ko} | {h_ico} [{h} {sc} {a}]({f.url}) {a_ico}\n"
-                )
-            fx_markdown = "\n* Upcoming fixtures" + rows_to_md_table(
-                "\n\n Date & Time | Match\n--:|:--\n", rows
-            )
+                    k_o = ""
+                sco = f"[{h_sh} {fix.score} {a_sh}]({fix.url})"
+                rows.append(f"{k_o} | {h_ico} {sco} {a_ico}\n")
+
+            hdr = "\n\n Date & Time | Match\n--:|:--\n"
+            fx_markdown = "\n* Upcoming fixtures" + rows_to_md_table(hdr, rows)
         else:
             fx_markdown = ""
 
         # After fetching everything, begin construction.
-        timestamp = f"\n#####Sidebar updated {datetime.now().ctime()}\n"
+        now = datetime.datetime.now().ctime()
+        timestamp = f"\n#####Sidebar updated {now}\n"
         footer = timestamp + top_bar + match_threads
 
         if subreddit == "NUFC":
@@ -277,31 +280,32 @@ class NUFCSidebar(commands.Cog):
             header = "* Previous Results\n"
             markdown += header
             rows = []
-            for r in results:
-                h = r.home.name
+            for i in results:
+                h_sh = i.home.name
 
                 try:
-                    home = next(i for i in pool if i["name"] == h)
+                    home = next(i for i in pool if i["name"] == h_sh)
                     h_ico = home["icon"]
-                    h = home["short_name"]
+                    h_sh = home["short_name"]
                 except StopIteration:
                     h_ico = ""
 
-                a = r.away.name
+                a_sh = i.away.name
                 try:
-                    away = next(i for i in pool if i["name"] == a)
+                    away = next(i for i in pool if i["name"] == a_sh)
                     a_ico = away["icon"]
-                    a = away["short_name"]
+                    a_sh = away["short_name"]
                 except StopIteration:
                     # '/' Denotes away ::after img
                     a_ico = ""
 
-                s = r.score
-                if r.kickoff:
-                    ko = r.kickoff.strftime("%d/%m/%Y %H:%M")
+                sco = f"[{h_sh} {i.score} {a_sh}]({i.url})"
+                if i.kickoff:
+                    k_o = i.kickoff.strftime("%d/%m/%Y %H:%M")
                 else:
-                    ko = "?"
-                rows.append(f"{ko} | {h_ico} [{h} {s} {a}]({r.url}) {a_ico}\n")
+                    k_o = "?"
+
+                rows.append(f"{k_o} | {h_ico} {sco} {a_ico}\n")
 
             hdr = "\n Date | Result\n--:|:--\n"
             pad = 10240 - len(markdown + footer)
@@ -317,10 +321,10 @@ class NUFCSidebar(commands.Cog):
     )
     async def sidebar(
         self,
-        interaction: Interaction[Bot],
+        interaction: discord.Interaction[Bot],
         caption: typing.Optional[str],
-        image: typing.Optional[Attachment],
-    ) -> Message:
+        image: typing.Optional[discord.Attachment],
+    ) -> discord.InteractionMessage:
         """Upload an image to the sidebar, or edit the caption."""
         if not caption and not image:
             return await self.bot.error(
@@ -328,8 +332,8 @@ class NUFCSidebar(commands.Cog):
             )
         await interaction.response.defer(thinking=True)
         # Check if message has an attachment, for the new sidebar image.
-        e = discord.Embed(color=0xFF4500, url="http://www.reddit.com/r/NUFC")
-        e.set_author(icon_url=REDDIT_THUMBNAIL, name="r/NUFC Sidebar updated")
+        embed = discord.Embed(color=0xFF4500, url=REDDIT)
+        embed.set_author(icon_url=REDDIT_THUMBNAIL, name="Sidebar updated")
 
         subreddit = await self.bot.reddit.subreddit("NUFC")
         if caption:
@@ -337,28 +341,27 @@ class NUFCSidebar(commands.Cog):
             page = await subreddit.wiki.get_page("sidebar")
 
             new_txt = f"---\n\n> {caption}\n\n---"
-            txt = sub(r"---.*?---", new_txt, page.content_md, flags=DOTALL)
+            content = page.content_md
+            txt = re.sub(r"---.*?---", new_txt, content, flags=re.DOTALL)
 
             await page.edit(txt)
-            e.description = f"Set caption to: {caption}"
+            embed.description = f"Set caption to: {caption}"
 
         if image:
-            await image.save(Path("sidebar"))
-            s: Subreddit = await self.bot.reddit.subreddit("NUFC")
+            await image.save(pathlib.Path(image.filename))
+            sub: Subreddit = await self.bot.reddit.subreddit("NUFC")
             try:
-                await s.stylesheet.upload("sidebar", "sidebar")
-            except TooLarge:
+                await sub.stylesheet.upload("sidebar", "sidebar")
+            except asyncprawcore.TooLarge:
                 return await self.bot.error(interaction, "Image is too large.")
 
-            style = await s.stylesheet()
+            style = await sub.stylesheet()
 
-            pg = style.stylesheet
-            u = interaction.user
-            await s.stylesheet.update(
-                pg, reason=f"Sidebar image by {u} via discord"
-            )
+            stylesheet = style.stylesheet
+            reason = f"Sidebar image by {interaction.user} via discord"
+            await sub.stylesheet.update(stylesheet, reason=reason)
 
-            e.set_image(url=image.url)
+            embed.set_image(url=image.url)
             file = [await image.to_file()]
         else:
             file = []
@@ -367,7 +370,7 @@ class NUFCSidebar(commands.Cog):
         wiki = await subreddit.wiki.get_page("config/sidebar")
         await wiki.edit(content=await self.make_sidebar())
         edit = interaction.edit_original_response
-        return await edit(embed=e, attachments=file)
+        return await edit(embed=embed, attachments=file)
 
 
 async def setup(bot: Bot) -> None:

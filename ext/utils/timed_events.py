@@ -1,19 +1,16 @@
 """Utilities for working with future events"""
-import datetime as dt
-from typing import Optional
-
-
-# Time Formats:
+import datetime
+import typing
 
 
 class Timestamp:
     """A Utility class for quick timezone conversion"""
 
-    def __init__(self, time: Optional[dt.datetime] = None):
+    def __init__(self, time: typing.Optional[datetime.datetime] = None):
         if time is None:
-            time = dt.datetime.now(tz=dt.timezone.utc)
+            time = datetime.datetime.now(tz=datetime.timezone.utc)
         self.value = time
-        self.time = str(time.timestamp()).split(".")[0]
+        self.time = str(time.timestamp()).split(".", maxsplit=1)[0]
 
     def __str__(self) -> str:
         return f"<t:{self.time}:t>"  # <t:1628343360:t>  14:36

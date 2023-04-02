@@ -14,7 +14,7 @@ import discord
 from ext.painezbot_utils.ship import Ship
 
 
-with open("credentials.json") as f:
+with open("credentials.json", encoding="utf-8") as f:
     credentials = json.load(f)
 WG_ID: str = credentials["Wargaming"]["client_id"]
 
@@ -74,21 +74,21 @@ class PlayerStats:
     pvp_solo: PlayerModeStats
 
     def __init__(self, data: dict) -> None:
-        for k, v in data.items():
+        for k, val in data.items():
             if k == "club":
                 continue  # Dead data.
 
             if k in API_MODES:
-                setattr(self, k, PlayerModeStats(v))
+                setattr(self, k, PlayerModeStats(val))
             else:
-                setattr(self, k, v)
+                setattr(self, k, val)
 
 
 @dataclasses.dataclass
 class PlayerModeStats:
     """Generic Container for all API Data"""
 
-    art_aggro: int  # Potential Damage
+    art_agro: int  # Potential Damage
     battles: int  # Total Number of Battles
     capture_points: int  # Sum of Below x2
     control_capture_points: int  # Same
@@ -138,16 +138,17 @@ class PlayerModeStats:
     # Operations fucky.
     wins_by_tasks: typing.Optional[dict] = None
 
-    def __init__(self, json: dict) -> None:
-        for k, v in json.items():
+    def __init__(self, data: dict) -> None:
+        for k, value in data.items():
             if k in ARMAMENT_TYPES:
-                setattr(self, k, PlayerModeArmamentStats(v))
+                setattr(self, k, PlayerModeArmamentStats(value))
             else:
-                setattr(self, k, v)
+                setattr(self, k, value)
 
     @property
     def potential_damage(self) -> int:
-        return self.art_aggro + self.torpedo_agro
+        """Combined sum of art_agro and torpedo_agro"""
+        return self.art_agro + self.torpedo_agro
 
 
 @dataclasses.dataclass
@@ -161,8 +162,8 @@ class PlayerModeArmamentStats:
     shots: int
 
     def __init__(self, data: dict) -> None:
-        for k, v in data.items():
-            setattr(self, k, v)
+        for k, value in data.items():
+            setattr(self, k, value)
 
 
 class Player:
@@ -191,40 +192,43 @@ class Player:
 
     async def fetch_stats(self) -> PlayerStats:
         """Fetch Player Stats from API"""
-        p = {"application_id": WG_ID, "account_id": self.account_id}
+        parmas = {"application_id": WG_ID, "account_id": self.account_id}
 
         url = API + self.region.domain + "/wows/account/info/"
-        p.update({"extra": ", ".join(f"statistics.{i}" for i in API_MODES)})
+
+        extra = ", ".join(f"statistics.{i}" for i in API_MODES)
+        parmas.update({"extra": extra})
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=p) as resp:
+            async with session.get(url, params=parmas) as resp:
                 if resp.status != 200:
                     err = await resp.text()
                     logger.error("%s on %s -> %s", resp.status, url, err)
-                    raise
-            json = await resp.json()
+                    raise ConnectionError()
+            data = await resp.json()
 
-        statistics = PlayerStats(json.pop("statistics"))
-        for k, v in json:
+        statistics = PlayerStats(data.pop("statistics"))
+        for k, value in data:
             if k == "private":
                 continue
 
             else:
-                setattr(self, k, v)
+                setattr(self, k, value)
         return statistics
 
     async def fetch_ship_stats(self, ship: Ship) -> PlayerStats:
+        """Get stats for a player in a specific ship"""
         url = API + self.region.domain + "/wows/ships/stats/"
-        p = {"application_id": WG_ID, "account_id": self.account_id}
-        p.update({"ship_id": ship.ship_id, "extra": ", ".join(API_MODES)})
+        params = {"application_id": WG_ID, "account_id": self.account_id}
+        params.update({"ship_id": ship.ship_id, "extra": ", ".join(API_MODES)})
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=p) as resp:
+            async with session.get(url, params=params) as resp:
                 if resp.status != 200:
                     raise ConnectionError(resp.status)
-                json = await resp.json()
+                data = await resp.json()
 
-        statistics = PlayerStats(json.pop("statistics"))
+        statistics = PlayerStats(data.pop("statistics"))
         return statistics
 
     @property
@@ -242,35 +246,36 @@ class Player:
     @property
     def community_link(self) -> str:
         """Get a link to this player's community page."""
-        dm = self.region.domain
+        dom = self.region.domain
         uid = self.account_id
-        un = self.nickname
-        return f"https://worldofwarships.{dm}/community/accounts/{uid}-{un}/"
+        nom = self.nickname
+        return f"https://worldofwarships.{dom}/community/accounts/{uid}-{nom}/"
 
     @property
     def wows_numbers(self) -> str:
         """Get a link to this player's wows_numbers page."""
-        dm = {Region.NA: "na", Region.SEA: "asia", Region.EU: ""}[self.region]
-        un = self.nickname
-        return f"https://{dm}.wows-numbers.com/player/{self.account_id},{un}/"
+        dom = {Region.NA: "na", Region.SEA: "asia", Region.EU: ""}[self.region]
+        name = self.nickname
+        acc_id = self.account_id
+        return f"https://{dom}.wows-numbers.com/player/{acc_id},{name}/"
 
     async def get_clan_info(self) -> typing.Optional[Clan]:
         """Get a Player's clan"""
         link = API + self.region.domain + "/wows/clans/accountinfo/"
-        p = {
+        parms = {
             "application_id": WG_ID,
             "account_id": self.account_id,
             "extra": "clan",
         }
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(link, params=p) as resp:
+            async with session.get(link, params=parms) as resp:
                 if resp.status != 200:
                     logger.error("%s on %s", resp.status, link)
                     return None
-                json = await resp.json()
+                data = await resp.json()
 
-        if (data := json["data"].pop(str(self.account_id))) is None:
+        if (data := data["data"].pop(str(self.account_id))) is None:
             self.clan = None
             return None
 
@@ -415,14 +420,16 @@ class ClanSeasonStats:
     last_win_at: datetime.datetime
 
     def __init__(self, data: dict) -> None:
-        for k, v in data.items():
+        for k, val in data.items():
             if k in ["max_league", "final_league"]:
-                v = next(i for i in League if i.value == v)
-            setattr(self, k, v)
+                val = next(i for i in League if i.value == val)
+            setattr(self, k, val)
 
 
 @dataclasses.dataclass
 class ClanLeaderboardStats:
+    """Stats from the Clan Leaderboard Endpoint"""
+
     clan: Clan
 
     battles_count: int
@@ -438,12 +445,12 @@ class ClanLeaderboardStats:
 
         self.clan = clan
 
-        for k, v in data.items():
+        for k, val in data.items():
             if k == "league":
-                v = next(i for i in League if i.value == v)
+                val = next(i for i in League if i.value == val)
             elif k in ["last_battle_at"]:
-                v = datetime.datetime.strptime(v, "%Y-%m-%d %H:%M:%S%z")
-            setattr(self, k, v)
+                val = datetime.datetime.strptime(val, "%Y-%m-%d %H:%M:%S%z")
+            setattr(self, k, val)
 
 
 @dataclasses.dataclass
@@ -471,24 +478,25 @@ class ClanMemberVortexData:
     nickname: str
     win_rate: float
 
-    def __init__(self, json: dict) -> None:
-        for k, v in json.items():
+    def __init__(self, data: dict) -> None:
+        for k, val in data.items():
             if k == "joined_clan_at":
-                v = datetime.datetime.strptime(v, "%Y-%m-%dT%H:%M:%S%z")
-            setattr(self, k, v)
+                val = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S%z")
+            setattr(self, k, val)
 
 
 @dataclasses.dataclass
 class ClanMember:
+    """A Clan Member From the clans API"""
 
     account_id: int
     account_name: int
     joined_at: datetime.datetime
     role: str
 
-    def __init__(self, json: dict) -> None:
-        for k, v in json.items():
-            setattr(self, k, v)
+    def __init__(self, data: dict) -> None:
+        for k, value in data.items():
+            setattr(self, k, value)
 
 
 @dataclasses.dataclass
@@ -514,18 +522,19 @@ class ClanDetails:
 
     members: list[ClanMember] = []
 
-    def __init__(self, json: dict) -> None:
-        for k, v in json.items():
+    def __init__(self, data: dict) -> None:
+        for k, values in data.items():
 
             if k == "members":
-                self.members = [ClanMember(i) for i in v.values()]
+                self.members = [ClanMember(i) for i in values.values()]
 
             else:
-                setattr(self, k, v)
+                setattr(self, k, values)
 
 
 @dataclasses.dataclass
 class ClanVortexData:
+    """Data about a clan from the Vortex Endpoint"""
 
     # Clan Buildings.
     academy: list
@@ -560,23 +569,25 @@ class ClanVortexData:
     # Misc
     is_banned: bool
 
-    def __init__(self, json: dict) -> None:
-        ladder = json.pop("wows_ladder")  # This info we care about.
+    def __init__(self, data: dict) -> None:
+        ladder = data.pop("wows_ladder")  # This info we care about.
 
-        for k, v in ladder:
+        for k, value in ladder:
             if k in ["last_battle_at", "last_win_at"]:
-                v = datetime.datetime.strptime(v, "%Y-%m-%dT%H:%M:%S%z")
+                value = datetime.datetime.strptime(
+                    value, "%Y-%m-%dT%H:%M:%S%z"
+                )
             elif k in ["league", "max_league"]:
-                v = next(i for i in League if v == i)
+                value = next(i for i in League if value == i)
             elif k == "ratings":
                 _v = []
-                for i in v:
+                for i in value:
                     _v.append(ClanSeasonStats(i))
-                v = _v
+                value = _v
             elif k == "buildings":
-                for _k, _v in v.items():
+                for _k, _v in value.items():
                     setattr(self, _k, _v["modifiers"])
-            setattr(self, k, v)
+            setattr(self, k, value)
 
     @property
     def coal_bonus(self) -> str:
@@ -690,8 +701,8 @@ class ClanVortexData:
             return f"Hurricane ({self.public_rating - 2200} points)"
         else:
             league = self.league.alias
-            d = self.division * "I" if self.division else ""
-            return f"{league} {d} ({self.public_rating // 100} points)"
+            div = self.division * "I" if self.division else ""
+            return f"{league} {div} ({self.public_rating // 100} points)"
 
     @property
     def max_cb_rating(self) -> str:
@@ -699,8 +710,8 @@ class ClanVortexData:
         if self.max_league == League.HURRICANE:
             return f"Hurricane ({self.max_public_rating - 2200} points)"
         league = self.max_league.alias
-        d = self.max_division * "I"
-        return f"{league} {d} ({self.max_public_rating // 100} points)"
+        div = self.max_division * "I"
+        return f"{league} {div} ({self.max_public_rating // 100} points)"
 
     @property
     def treasury_rewards(self) -> str:
@@ -731,17 +742,18 @@ class Clan:
     async def fetch_details(self) -> ClanDetails:
         """Fetch clan information."""
         cid = self.clan_id
-        p = {"application_id": WG_ID, "clan_id": cid, "extra": "members"}
+        params = {"application_id": WG_ID, "clan_id": cid, "extra": "members"}
         domain = self.region.domain
         url = f"https://api.worldofwarships.{domain}/wows/clans/info/"
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=p) as resp:
+            async with session.get(url, params=params) as resp:
                 if resp.status != 200:
                     raise ConnectionError(f"{resp.status} {await resp.text()}")
                 return ClanDetails(await resp.json())
 
     async def fetch_clan_vortex_data(self) -> ClanVortexData:
+        """Get clan data from the vortex api"""
         d = self.region.domain
         id_ = self.clan_id
         url = f"https://clans.worldofwarships.{d}/api/clanbase/{id_}/claninfo/"
@@ -749,8 +761,7 @@ class Clan:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    r = resp.status
-                    raise ConnectionError("%s fetching clans.warships api", r)
+                    raise ConnectionError("%s clans.warships api", resp.status)
             data = await resp.json()
             json = data.pop("clanview")
 
@@ -758,6 +769,7 @@ class Clan:
 
     @property
     def title(self) -> str:
+        """[Tag] and Name of clan"""
         return f"[{self.tag}] {self.name}"
 
     @property
@@ -777,10 +789,10 @@ class Clan:
 
         dm = self.region.domain
         url = f"https://clans.worldofwarships.{dm}/api/members/{self.clan_id}/"
-        p = {"battle_type": "cvc", "season": season}
+        params = {"battle_type": "cvc", "season": season}
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=p) as resp:
+            async with session.get(url, params=params) as resp:
                 if resp.status != 200:
                     err = f"{resp.status} {await resp.text()} on {url}"
                     raise ConnectionError(err)
@@ -789,32 +801,31 @@ class Clan:
         logging.info("DEBUG: Season Stats\n%s", season_stats)
 
         stats = []
-        for x in season_stats["items"]:
+        for i in season_stats["items"]:
 
-            wr = x["wins_percentage"]
-            num = x["battles_count"]
-            dmg = x["damage_per_battle"]
-            kills = x["frags_per_battle"]
+            win_rate = i["wins_percentage"]
+            num = i["battles_count"]
+            dmg = i["damage_per_battle"]
+            kills = i["frags_per_battle"]
 
-            player = PlayerCBStats(wr, num, dmg, kills)
+            player = PlayerCBStats(win_rate, num, dmg, kills)
             stats.append(player)
         return stats
 
     async def get_members_vortex(self) -> list[ClanMemberVortexData]:
         """Attempt to fetch clan battle stats for members"""
-        dm = self.region.domain
-        url = f"https://clans.worldofwarships.{dm}/api/members/{self.clan_id}/"
+        dom = self.region.domain
+        cid = self.clan_id
+        url = f"https://clans.worldofwarships.{dom}/api/members/{cid}/"
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
                     err = "Error %s fetching %s (%s)"
                     txt = await resp.text()
                     raise ConnectionError(err, resp.status, url, txt)
-            match resp.status:
-                case 200:
-                    json = await resp.json()
+                data = await resp.json()
 
-        return [ClanMemberVortexData(i) for i in json.pop("items")]
+        return [ClanMemberVortexData(i) for i in data.pop("items")]
 
 
 class Region(enum.Enum):
@@ -911,7 +922,7 @@ class Map:
     @property
     def embed(self) -> discord.Embed:
         """Return an embed representing this map"""
-        e = discord.Embed(title=self.name, colour=discord.Colour.greyple())
-        e.set_image(url=self.icon)
-        e.set_footer(text=self.description)
-        return e
+        embed = discord.Embed(title=self.name, colour=discord.Colour.greyple())
+        embed.set_image(url=self.icon)
+        embed.set_footer(text=self.description)
+        return embed

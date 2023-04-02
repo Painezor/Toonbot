@@ -11,7 +11,7 @@ import discord
 from discord.ext import commands, tasks
 
 from lxml import html
-from playwright.async_api import TimeoutError
+from playwright.async_api import TimeoutError as pw_TimeoutError
 
 from ext.utils import view_utils, wows_api as api
 
@@ -81,10 +81,10 @@ class ToggleButton(discord.ui.Button):
                           WHERE channel_id = $2"""
                 await connection.execute(sql, new_value, self.view.channel.id)
 
-        on = "Enabled" if new_value else "Disabled"
-        r = self.region.name
-        c = self.view.channel.mention
-        return await self.view.update(f"{on} {r} articles in {c}")
+        toggle = "Enabled" if new_value else "Disabled"
+        region = self.region.name
+        ment = self.view.channel.mention
+        return await self.view.update(f"{toggle} {region} articles in {ment}")
 
 
 class Article:
@@ -126,7 +126,7 @@ class Article:
                 await page.goto(self.link)
                 await page.wait_for_selector(".header__background")
                 tree = html.fromstring(await page.content())
-            except TimeoutError:
+            except pw_TimeoutError:
                 return await self.generate_embed()
             finally:
                 await page.close()
@@ -138,47 +138,47 @@ class Article:
                 self.category = tree.xpath(".//nav/div/a/span/text()")[-1]
 
             if not self.description:
-                xp = './/span[@class="text__intro"]/text()'
-                self.description = tree.xpath(xp)[-1]
+                xpath = './/span[@class="text__intro"]/text()'
+                self.description = tree.xpath(xpath)[-1]
 
-            xp = './/div[@class="header__background"]/@style'
+            xpath = './/div[@class="header__background"]/@style'
             try:
-                self.image = "".join(tree.xpath(xp)).split('"')[1]
+                self.image = "".join(tree.xpath(xpath)).split('"')[1]
             except IndexError:
                 pass
 
-        e = discord.Embed(url=self.link, colour=0x064273, title=self.title)
-        e.description = self.description
+        embed = discord.Embed(url=self.link, colour=0x064273, title=self.title)
+        embed.description = self.description
 
-        e.set_author(name=self.category, url=self.link)
-        e.timestamp = self.date
-        e.set_footer(text="World of Warships Portal News")
+        embed.set_author(name=self.category, url=self.link)
+        embed.timestamp = self.date
+        embed.set_footer(text="World of Warships Portal News")
         try:
-            e.set_image(url=self.image)
+            embed.set_image(url=self.image)
         except AttributeError:
             pass
 
         for region in api.Region:
             if getattr(self, region.db_key):
-                e.colour = region.colour
+                embed.colour = region.colour
                 break
 
-        v = discord.ui.View()
+        view = discord.ui.View()
         for region in api.Region:
             if getattr(self, region.db_key):
-                d = region.domain
-                r = region.name
-                url = f"https://worldofwarships.{d}/en/{self.partial}"
-                b = discord.ui.Button(
+                dom = region.domain
+                name = region.name
+                url = f"https://worldofwarships.{dom}/en/{self.partial}"
+                btn = discord.ui.Button(
                     style=discord.ButtonStyle.url,
-                    label=f"{r} article",
+                    label=f"{name} article",
                     emoji=region.emote,
                     url=url,
                 )
-                v.add_item(b)
+                view.add_item(btn)
 
-        self.embed = e
-        self.view = v
+        self.embed = embed
+        self.view = view
         return self.embed
 
 
@@ -264,16 +264,16 @@ class NewsConfig(view_utils.BaseView):
             async with connection.transaction():
                 record = await connection.fetchrow(sql, self.channel.id)
 
-        e = discord.Embed(colour=discord.Colour.dark_teal())
-        e.title = "World of Warships News Tracker config"
-        e.description = (
+        embed = discord.Embed(colour=discord.Colour.dark_teal())
+        embed.title = "World of Warships News Tracker config"
+        embed.description = (
             "```yaml\nClick on the buttons below to enable "
             "tracking for a region.\n\nDuplicate articles from"
             " different regions will not be output multiple times"
             ".```"
         )
 
-        for k, v in sorted(record.items()):
+        for k, value in sorted(record.items()):
             if k == "channel_id":
                 continue
 
@@ -282,17 +282,17 @@ class NewsConfig(view_utils.BaseView):
 
             region = next(i for i in api.Region if k == i.db_key)
 
-            re = f"{region.emote} {region.name}"
-            if v:  # Bool: True/False
-                e.description += f"\n✅ {re} News is tracked.**"
+            reg = f"{region.emote} {region.name}"
+            if value:  # Bool: True/False
+                embed.description += f"\n✅ {reg} News is tracked.**"
             else:
-                e.description += f"\n❌ {re} News is not tracked."
+                embed.description += f"\n❌ {reg} News is not tracked."
 
-            self.add_item(ToggleButton(self.bot, region=region, value=v))
+            self.add_item(ToggleButton(self.bot, region=region, value=value))
         self.add_page_buttons()
 
         edit = self.interaction.edit_original_response
-        await edit(content=content, embed=e, view=self)
+        await edit(content=content, embed=embed, view=self)
 
 
 async def news_ac(
@@ -301,11 +301,11 @@ async def news_ac(
     """An Autocomplete that fetches from recent news articles"""
     choices = []
     cache = ctx.client.news_cache
-    dt = datetime.datetime.now()
+    now = datetime.datetime.now()
 
     cur = cur.casefold()
 
-    for i in sorted(cache, key=lambda x: x.date or dt, reverse=True):
+    for i in sorted(cache, key=lambda x: x.date or now, reverse=True):
         if i.link is None:
             continue
 
@@ -417,45 +417,46 @@ class NewsTracker(commands.Cog):
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """SELECT * FROM news_trackers"""
-                channels = await connection.fetch(q)
-                q = """SELECT * FROM news_articles"""
-                articles = await connection.fetch(q)
+                sql = """SELECT * FROM news_trackers"""
+                channels = await connection.fetch(sql)
+                sql = """SELECT * FROM news_articles"""
+                articles = await connection.fetch(sql)
 
         partials = [i.partial for i in self.bot.news_cache]
 
-        r: asyncpg.Record
-        for r in articles:
-            if r["partial"] in partials:
+        record: asyncpg.Record
+        for record in articles:
+            if record["partial"] in partials:
                 continue
             else:
-                article = Article(self.bot, partial=r["partial"])
-                for k, v in r.items():
+                article = Article(self.bot, partial=record["partial"])
+                for k, value in record.items():
                     if k == "partial":
                         continue
 
-                    setattr(article, k, v)
+                    setattr(article, k, value)
                 self.bot.news_cache.append(article)
 
         # Append new ones.
         cached_ids = [x.channel.id for x in self.bot.news_channels]
-        for r in channels:
-            if r["channel_id"] in cached_ids:
+        for record in channels:
+            if record["channel_id"] in cached_ids:
                 continue
 
-            if (channel := self.bot.get_channel(r["channel_id"])) is None:
+            if (channel := self.bot.get_channel(record["channel_id"])) is None:
                 continue
 
             channel = typing.cast(discord.TextChannel, channel)
 
-            c = NewsChannel(
+            # TODO: Move this to init of newschannel
+            chan = NewsChannel(
                 self.bot,
                 channel,
-                r["eu"],
-                r["na"],
-                r["sea"],
+                record["eu"],
+                record["na"],
+                record["sea"],
             )
-            self.bot.news_channels.append(c)
+            self.bot.news_channels.append(chan)
 
     @discord.app_commands.command()
     @discord.app_commands.describe(text="Search by article title")
@@ -495,8 +496,8 @@ class NewsTracker(commands.Cog):
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
         try:
-            n = self.bot.news_channels
-            target = next(i for i in n if i.channel.id == channel.id)
+            chan = self.bot.news_channels
+            target = next(i for i in chan if i.channel.id == channel.id)
         except StopIteration:
             async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():

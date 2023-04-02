@@ -295,6 +295,7 @@ class NUFC(commands.Cog):
     @discord.app_commands.guilds(332159889587699712)
     async def downhowe(self, interaction: discord.Interaction[Bot]) -> None:
         """Adds a downvote reaction to the last 10 messages"""
+        await interaction.response.defer(thinking=True)
 
         if (
             isinstance(
@@ -304,9 +305,12 @@ class NUFC(commands.Cog):
                 | discord.CategoryChannel,
             )
             or interaction.channel is None
+            or not interaction.app_permissions.add_reactions
         ):
-            err = "I can't react in this channel"
-            return await interaction.client.error(interaction, err)
+            e = discord.Embed(colour=discord.Colour.red())
+            e.description = "❌ I can't react in this channel"
+            await interaction.edit_original_response(embed=e)
+            return
 
         async for message in interaction.channel.history(limit=10):
             await message.add_reaction(":downvote:332196251959427073")
@@ -325,8 +329,10 @@ class NUFC(commands.Cog):
             )
             or interaction.channel is None
         ):
-            err = "I can't react in this channel"
-            return await interaction.client.error(interaction, err)
+            e = discord.Embed(colour=discord.Colour.red())
+            e.description = "❌ I can't react in this channel"
+            await interaction.edit_original_response(embed=e)
+            return
 
         async for message in interaction.channel.history(limit=10):
             await message.add_reaction(":upvote:332196220460072970")

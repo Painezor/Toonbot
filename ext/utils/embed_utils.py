@@ -3,13 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import io
-from typing import Any
+import logging
 
 import aiohttp
 import discord
-
-import logging
-
 from PIL import Image
 
 logger = logging.getLogger("embed_utils")
@@ -19,8 +16,8 @@ async def get_colour(url: str) -> discord.Colour | int:
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None:
         return discord.Colour.og_blurple()
-    async with aiohttp.ClientSession() as cs:
-        async with cs.get(url) as resp:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
             raw = await resp.read()
 
     def get_dominant_color(container: io.BytesIO) -> tuple:
@@ -30,21 +27,21 @@ async def get_colour(url: str) -> discord.Colour | int:
         dominant_color = img.getpixel((0, 0))
         return dominant_color
 
-    c = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
+    colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
     try:
-        return int("%02x%02x%02x" % c, 16)
+        return int("%02x%02x%02x" % colour, 16)
     except (TypeError, ValueError):
-        logger.info("get_dominant_color => %s", c)
+        logger.info("get_dominant_color => %s", colour)
         return discord.Colour.og_blurple()
 
 
-def paginate(items: list[Any], num: int = 25) -> list[list[Any]]:
+def paginate(items: list, num: int = 25) -> list[list]:
     """Paginate a list into a list of lists of length num"""
     return [items[i : i + num] for i in range(0, len(items), num)]
 
 
 def rows_to_embeds(
-    e: discord.Embed,
+    embed: discord.Embed,
     items: list[str],
     rows: int = 10,
     header: str = "",
@@ -67,15 +64,15 @@ def rows_to_embeds(
         if footer is not None:  # Usually "```" to end a codeblock
             desc += footer
 
-        e.description = desc
-        embeds.append(e.copy())
+        embed.description = desc
+        embeds.append(embed.copy())
 
         # Reset loop
         desc = f"{header}\n{row}\n" if header else f"{row}\n"
         count = 1
 
-    e.description = f"{desc}{footer}" if footer is not None else desc
-    embeds.append(e.copy())
+    embed.description = f"{desc}{footer}" if footer is not None else desc
+    embeds.append(embed.copy())
     return embeds
 
 
@@ -85,14 +82,14 @@ def stack_embeds(embeds: list[discord.Embed]) -> list[list[discord.Embed]]:
     output: list[list[discord.Embed]] = []
     length: int = 0
 
-    for x in embeds:
-        if length + len(x) < 6000 and len(this_iter) < 10:
-            length += len(x)
-            this_iter.append(x)
+    for i in embeds:
+        if length + len(i) < 6000 and len(this_iter) < 10:
+            length += len(i)
+            this_iter.append(i)
         else:
             output.append(this_iter)
-            this_iter = [x]
-            length = len(x)
+            this_iter = [i]
+            length = len(i)
 
     output.append(this_iter)
     return output

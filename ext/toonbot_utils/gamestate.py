@@ -1,12 +1,12 @@
 """Flashscore GameState & GameTime Objects"""
 from __future__ import annotations
 
-from enum import Enum
+import enum
 
-from discord import Colour
+import discord
 
 
-class GameState(Enum):
+class GameState(enum.Enum):
     """An Enum representing the various possibilities of game state"""
 
     def __new__(cls, *args, **kwargs) -> GameState:
@@ -15,10 +15,12 @@ class GameState(Enum):
         obj._value_ = value
         return obj
 
-    def __init__(self, shorthand: str, emote: str, colour: Colour) -> None:
+    def __init__(
+        self, shorthand: str, emote: str, colour: discord.Colour
+    ) -> None:
         self.shorthand: str = shorthand
         self.emote: str = emote
-        self.colour: Colour = colour
+        self.colour: discord.Colour = colour
 
     # Black
     SCHEDULED = ("sched", "⚫", 0x010101)
@@ -32,8 +34,8 @@ class GameState(Enum):
     WALKOVER = ("WO", "🔴", 0xFF0000)
 
     # Orange
-    DELAYED = ("Del", "🟠", 0xff6700)
-    INTERRUPTED = ("Int", "🟠", 0xff6700)
+    DELAYED = ("Del", "🟠", 0xFF6700)
+    INTERRUPTED = ("Int", "🟠", 0xFF6700)
 
     # Green
     LIVE = ("Live", "🟢", 0x00FF00)
@@ -52,7 +54,7 @@ class GameState(Enum):
     PENALTIES = ("PSO", "🔵", 0x4285F4)
 
     # White
-    FULL_TIME = ("FT", '⚪', 0xffffff)
-    AFTER_PENS = ("Pen", '⚪', 0xffffff)
-    AFTER_EXTRA_TIME = ("AET", '⚪', 0xffffff)
-    AWARDED = ("Awrd", '⚪', 0xffffff)
+    FULL_TIME = ("FT", "⚪", 0xFFFFFF)
+    AFTER_PENS = ("Pen", "⚪", 0xFFFFFF)
+    AFTER_EXTRA_TIME = ("AET", "⚪", 0xFFFFFF)
+    AWARDED = ("Awrd", "⚪", 0xFFFFFF)

@@ -1,19 +1,21 @@
 """Utility Component for fetching from footballgroundmap.com"""
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+import typing
 
-from discord import Embed, Interaction
+import discord
 from lxml import html
 
 from ext.utils.embed_utils import get_colour
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
 
 
 # TODO: Store stadiums to database to allow for autocomplete,
 # or find autocomplete on footballgroundmap
+
+# TODO: Replace with k, v in json
 class Stadium:
     """An object representing a football Stadium from footballgroundmap.com"""
 
@@ -41,42 +43,43 @@ class Stadium:
     def __init__(self, **kwargs):
         self.url: str = kwargs.pop("url", None)
         self.name: str = kwargs.pop("name", None)
-        self.team: Optional[str] = kwargs.pop("team", None)
-        self.league: Optional[str] = kwargs.pop("league", None)
-        self.country: Optional[str] = kwargs.pop("country", None)
-        self.team_badge: Optional[str] = kwargs.pop("team_badge", None)
-        self.image: Optional[str] = kwargs.pop("image", None)
+        self.team: typing.Optional[str] = kwargs.pop("team", None)
+        self.league: typing.Optional[str] = kwargs.pop("league", None)
+        self.country: typing.Optional[str] = kwargs.pop("country", None)
+        self.team_badge: typing.Optional[str] = kwargs.pop("team_badge", None)
+        self.image: typing.Optional[str] = kwargs.pop("image", None)
         self.current_home: list[str] = kwargs.pop("current_home", [])
         self.former_home: list[str] = kwargs.pop("former_home", [])
-        self.map_link: Optional[str] = kwargs.pop("map_link", None)
-        self.address: Optional[str] = kwargs.pop("address", None)
-        self.capacity: Optional[int] = kwargs.pop("capacity", None)
-        self.cost: Optional[str] = kwargs.pop("cost", None)
-        self.website: Optional[str] = kwargs.pop("website", None)
+        self.map_link: typing.Optional[str] = kwargs.pop("map_link", None)
+        self.address: typing.Optional[str] = kwargs.pop("address", None)
+        self.capacity: typing.Optional[int] = kwargs.pop("capacity", None)
+        self.cost: typing.Optional[str] = kwargs.pop("cost", None)
+        self.website: typing.Optional[str] = kwargs.pop("website", None)
         self.attendance_record: int = kwargs.pop("attendance_record", 0)
 
-    async def fetch_more(self, interaction: Interaction[Bot]) -> None:
+    async def fetch_more(self, interaction: discord.Interaction[Bot]) -> None:
         """Fetch more data about a target stadium"""
         bot = interaction.client
         async with bot.session.get(self.url) as resp:
-            match resp.status:
-                case 200:
-                    src = await resp.read()
-                    src = src.decode("ISO-8859-1")
-                    tree = html.fromstring(src)
-                case _:
-                    er = f"Error {resp.status} during fetch_more on {self.url}"
-                    raise ConnectionError(er)
+            if resp.status != 200:
+                err = f"Error {resp.status} fetch_more on {self.url}"
+                raise ConnectionError(err)
+
+            src = await resp.read()
+            src = src.decode("ISO-8859-1")
+            tree = html.fromstring(src)
 
         self.image = "".join(tree.xpath('.//div[@class="page-img"]/img/@src'))
 
         # Teams
         try:
-            xp = (
+            xpath = (
                 './/tr/th[contains(text(), "Former home")]'
                 "/following-sibling::td"
             )
-            link = tree.xpath(xp)[0]
+            link = tree.xpath(xpath)[0]
+
+            # TODO : unfuck this
             markdown = [
                 f"[{x}]({y})"
                 for x, y in list(
@@ -89,8 +92,10 @@ class Stadium:
             pass
 
         try:
-            xp = './/tr/th[contains(text(), "home to")]/following-sibling::td'
-            link = tree.xpath(xp)[0]
+            xpath = (
+                './/tr/th[contains(text(), "home to")]/following-sibling::td'
+            )
+            link = tree.xpath(xpath)[0]
             markdown = [
                 f"[{x}]({y})"
                 for x, y in list(
@@ -104,59 +109,63 @@ class Stadium:
 
         self.map_link = "".join(tree.xpath(".//figure/img/@src"))
 
-        xp = (
+        xpath = (
             './/tr/th[contains(text(), "Address")]'
             "/following-sibling::td//text()"
         )
-        self.address = "".join(tree.xpath(xp))
+        self.address = "".join(tree.xpath(xpath))
 
-        xp = (
+        xpath = (
             './/tr/th[contains(text(), "Capacity")]'
             "/following-sibling::td//text()"
         )
-        self.capacity = int("".join(tree.xpath(xp)).replace(",", ""))
+        self.capacity = int("".join(tree.xpath(xpath)).replace(",", ""))
 
-        xp = './/tr/th[contains(text(), "Cost")]/following-sibling::td//text()'
-        self.cost = "".join(tree.xpath(xp))
+        xpath = (
+            './/tr/th[contains(text(), "Cost")]/following-sibling::td//text()'
+        )
+        self.cost = "".join(tree.xpath(xpath))
 
-        xp = (
+        xpath = (
             './/tr/th[contains(text(), "Website")]'
             "/following-sibling::td//text()"
         )
-        self.website = "".join(tree.xpath(xp))
+        self.website = "".join(tree.xpath(xpath))
 
-        xp = (
+        xpath = (
             './/tr/th[contains(text(), "Record attendance")]'
             "/following-sibling::td//text()"
         )
-        self.attendance_record = int("".join(tree.xpath(xp)))
+        self.attendance_record = int("".join(tree.xpath(xpath)))
 
     def __str__(self) -> str:
         return f"**{self.name}** ({self.country}: {self.team})"
 
-    async def to_embed(self, interaction: Interaction[Bot]) -> Embed:
+    async def to_embed(
+        self, interaction: discord.Interaction[Bot]
+    ) -> discord.Embed:
         """Create a discord Embed object representing the information about
         a football stadium"""
-        e: Embed = Embed(title=self.name, url=self.url)
-        e.set_footer(text="FootballGroundMap.com")
+        embed = discord.Embed(title=self.name, url=self.url)
+        embed.set_footer(text="FootballGroundMap.com")
 
         await self.fetch_more(interaction)
         if self.team_badge:
-            e.colour = await get_colour(self.team_badge)
-            e.set_thumbnail(url=self.team_badge)
+            embed.colour = await get_colour(self.team_badge)
+            embed.set_thumbnail(url=self.team_badge)
 
         if self.image:
-            e.set_image(url=self.image.replace(" ", "%20"))
+            embed.set_image(url=self.image.replace(" ", "%20"))
 
         if self.current_home:
-            e.add_field(
+            embed.add_field(
                 name="Home to",
                 value=", ".join(self.current_home),
                 inline=False,
             )
 
         if self.former_home:
-            e.add_field(
+            embed.add_field(
                 name="Former home to",
                 value=", ".join(self.former_home),
                 inline=False,
@@ -164,22 +173,22 @@ class Stadium:
 
         # Location
         if self.map_link:
-            e.add_field(
+            embed.add_field(
                 name="Location",
                 inline=False,
                 value=f"[{self.address}]({self.map_link})",
             )
         elif self.address != "Link to map":
-            e.add_field(name="Location", value=self.address, inline=False)
+            embed.add_field(name="Location", value=self.address, inline=False)
 
         # Misc Data.
-        e.description = ""
-        for x, y in [
+        embed.description = ""
+        for tup_1, tup_2 in [
             ("Capacity", self.capacity),
             ("Record Attendance", self.attendance_record),
             ("Cost", self.cost),
             ("Website", self.website),
         ]:
-            if x:
-                e.description += f"{x}: {y}\n"
-        return e
+            if tup_1:
+                embed.description += f"{tup_1}: {tup_2}\n"
+        return embed

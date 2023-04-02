@@ -78,9 +78,10 @@ class PlayerView(view_utils.BaseView):
     async def push_stats(
         self, mode: api.GameMode, div_size: int = 0
     ) -> discord.InteractionMessage:
+        """Send Stats Embed to View"""
         # Can be gotten via normal API
-        e = discord.Embed()
-        e.set_author(name=self.player.nickname, icon_url=mode.image)
+        embed = discord.Embed()
+        embed.set_author(name=self.player.nickname, icon_url=mode.image)
         if self.api_stats is None:
             if self.ship is None:
                 self.api_stats = await self.player.fetch_stats()
@@ -88,7 +89,7 @@ class PlayerView(view_utils.BaseView):
                 self.api_stats = await self.player.fetch_ship_stats(self.ship)
 
         stats: api.PlayerModeStats
-        stats, e.title = {
+        stats, embed.title = {
             "BRAWL": {},
             "COOPERATIVE": {
                 0: (self.api_stats.pve, "Co-op (Overall)"),
@@ -120,9 +121,9 @@ class PlayerView(view_utils.BaseView):
             self.add_page_buttons(0)
 
         if self.player.clan:
-            i = self.interaction
+            itr = self.interaction
             parent = self.push_stats
-            func = ClanView(i, self.player.clan, parent=parent).overview
+            func = ClanView(itr, self.player.clan, parent=parent).overview
             cln = view_utils.Funcable("Clan", func)
             row_0.append(cln)
         self.add_function_row(row_0, row=0)
@@ -130,13 +131,13 @@ class PlayerView(view_utils.BaseView):
         # Row 1: Change Div Size
         row_1: list[view_utils.Funcable] = []
         if mode.tag in ["RANKED", "PVP", "COOPERATIVE"]:
-            for x in range(0, 3):
-                if div_size != x:
-                    name = f"{x}" if x != 0 else "Overall"
+            for i in range(0, 3):
+                if div_size != i:
+                    name = f"{i}" if i != 0 else "Overall"
 
-                    args = [x]
+                    args = [i]
                     btn = view_utils.Funcable(name, self.push_stats, args=args)
-                    btn.disabled = div_size == x
+                    btn.disabled = div_size == i
                     row_1.append(btn)
 
         self.add_function_row(row_1, row=1)
@@ -177,13 +178,14 @@ class PlayerView(view_utils.BaseView):
 
         desc = []
         try:
-            wr = round(wins / played * 100, 2)
+            win_rate = round(wins / played * 100, 2)
             rest = f"({played} Battles - {wins} W / {draws} D / {loss} L )"
-            desc.append(f"**Win Rate**: {wr}% {rest}")
+            desc.append(f"**Win Rate**: {win_rate}% {rest}")
 
-            sr = round(survived / played * 100, 2)
+            sv_rt = round(survived / played * 100, 2)
             s_tot = format(survived, ",")
-            desc.append(f"**Survival Rate (Overall)**: {sr}% (Total: {s_tot})")
+            txt = f"**Survival Rate (Overall)**: {sv_rt}% (Total: {s_tot})"
+            desc.append(txt)
         except ZeroDivisionError:
             desc.append("This player has not played any battles")
 
@@ -222,7 +224,7 @@ class PlayerView(view_utils.BaseView):
                 f"**Ships Spotted**: {sp_av}\n**XP**: {x_avg}\n"
                 f"**Planes**: {pl_av}"
             )
-            e.add_field(name="Averages", value=avg)
+            embed.add_field(name="Averages", value=avg)
 
             # Records
             r_dmg = format(stats.max_damage_dealt, ",")
@@ -257,9 +259,9 @@ class PlayerView(view_utils.BaseView):
                 except AttributeError:
                     rec.append(f"{record}")
 
-            e.add_field(name="Records", value="\n".join(rec))
+            embed.add_field(name="Records", value="\n".join(rec))
 
-            e.add_field(
+            embed.add_field(
                 name="Totals",
                 value=f"{format(kills, ',')}\n{format(dmg, ',')}\n"
                 f"{format(potential, ',')}\n{format(spotting, ',')}\n"
@@ -284,27 +286,29 @@ class PlayerView(view_utils.BaseView):
                 key=lambda st: int(st[0]),
             )
 
-            s1, s2 = r"\⭐", r"\★"
+            star1, star2 = r"\⭐", r"\★"
             star_desc = [
-                f"{x * s1}{(5 - x) * s2}: {star_rate[x][1]}"
+                f"{x * star1}{(5 - x) * star2}: {star_rate[x][1]}"
                 for x in range(0, 5)
             ]
-            e.add_field(name="Star Breakdown", value="\n".join(star_desc))
+            embed.add_field(name="Star Breakdown", value="\n".join(star_desc))
 
-        e.description = "\n".join(desc)
+        embed.description = "\n".join(desc)
         edit = self.interaction.edit_original_response
-        return await edit(embed=e, view=self)
+        return await edit(embed=embed, view=self)
 
 
 class ModeTransformer(discord.app_commands.Transformer):
+    """Convert user input to API Game Mode"""
+
     async def autocomplete(
         self,
         interaction: discord.Interaction[PBot],
         current: str,
     ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete from list of stored teams"""
-        modes = interaction.client.modes
-        modes: list[api.GameMode] = sorted(modes, key=lambda x: x.name)
+        modes: list[api.GameMode] = interaction.client.modes
+        modes = sorted(modes, key=lambda x: x.name)
 
         curr = current.casefold()
 
@@ -313,8 +317,8 @@ class ModeTransformer(discord.app_commands.Transformer):
             if curr not in i.name.casefold():
                 continue
 
-            c = discord.app_commands.Choice(name=i.name, value=i.name)
-            choices.append(c)
+            choice = discord.app_commands.Choice(name=i.name, value=i.name)
+            choices.append(choice)
         return choices
 
     async def transform(
@@ -324,6 +328,8 @@ class ModeTransformer(discord.app_commands.Transformer):
 
 
 class PlayerTransformer(discord.app_commands.Transformer):
+    """Conver User Input to Player Object"""
+
     async def autocomplete(
         self, interaction: discord.Interaction[PBot], current: str
     ) -> list[discord.app_commands.Choice[str]]:
@@ -332,7 +338,7 @@ class PlayerTransformer(discord.app_commands.Transformer):
             return []
 
         bot: PBot = interaction.client
-        p = {"application_id": api.WG_ID, "search": current, "limit": 25}
+        params = {"application_id": api.WG_ID, "search": current, "limit": 25}
 
         region = getattr(interaction.namespace, "region", None)
         try:
@@ -341,7 +347,7 @@ class PlayerTransformer(discord.app_commands.Transformer):
             region = api.Region.EU
 
         link = PLAYERS.replace("eu", region.domain)
-        async with bot.session.get(link, params=p) as resp:
+        async with bot.session.get(link, params=params) as resp:
             if resp.status != 200:
                 logger.error("%s connecting to %s", resp.status, link)
                 return []
@@ -417,10 +423,11 @@ class Warships(commands.Cog):
         ] = None,
     ) -> discord.InteractionMessage:
         """Search for a player's Stats"""
+        del region  # Shut up linter.
         await interaction.response.defer(thinking=True)
 
-        v = PlayerView(interaction, player, ship)
-        return await v.push_stats(mode, div_size=division)
+        view = PlayerView(interaction, player, ship)
+        return await view.push_stats(mode, div_size=division)
 
 
 async def setup(bot: PBot):

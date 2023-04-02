@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 import logging
+import typing
 
 import discord
-from discord import Embed, Message, Colour, InteractionResponse
-from discord.ext.commands import Cog
+from discord.ext import commands
 
 from ext.utils import view_utils
 
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
@@ -24,26 +23,26 @@ async def error(
     content: str,
     followup: bool = True,
     **kwargs,
-) -> Message | None:
+) -> discord.Message | None:
     """Send a Generic Error Embed"""
-    e: Embed = Embed(colour=Colour.red(), description=content)
+    embed = discord.Embed(colour=discord.Colour.red(), description=content)
 
     kwargs.pop("view", None)
 
-    v = view_utils.BaseView(i)
-    v.add_item(view_utils.Stop())
+    view = view_utils.BaseView(i)
+    view.add_item(view_utils.Stop())
     return await reply(
-        i, embed=e, ephemeral=True, followup=followup, view=v, **kwargs
+        i, embed=embed, ephemeral=True, webhook=followup, view=view, **kwargs
     )
 
 
 async def reply(
     i: discord.Interaction[Bot | PBot], followup: bool = True, **kwargs
-) -> Message | None:
+) -> discord.Message | None:
     """Generic reply handler."""
-    r: InteractionResponse[Bot | PBot] = i.response
-    if not r.is_done():
-        await r.send_message(**kwargs)
+    response: discord.InteractionResponse[Bot | PBot] = i.response
+    if not response.is_done():
+        await response.send_message(**kwargs)
         return await i.original_response()
 
     att = kwargs.copy()
@@ -59,9 +58,11 @@ async def reply(
         if not followup:
             return  # We Tried
 
-        fl: discord.Webhook = i.followup
+        webhook: discord.Webhook = i.followup
         try:
-            return await fl.send(**kwargs, wait=True)  # Return the message.
+            return await webhook.send(
+                **kwargs, wait=True
+            )  # Return the message.
         except discord.HTTPException:
             try:
                 return await i.user.send(**kwargs)
@@ -69,7 +70,7 @@ async def reply(
                 return  # Shrug?
 
 
-class Reply(Cog):
+class Reply(commands.Cog):
     """Reply Handler"""
 
     def __init__(self, bot: Bot | PBot):

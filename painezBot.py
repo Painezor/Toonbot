@@ -26,8 +26,8 @@ if typing.TYPE_CHECKING:
     from ext.twitch import Contributor, TBot, TrackerChannel
 
 
-with open("credentials.json") as f:
-    credentials = json.load(f)
+with open("credentials.json") as fun:
+    credentials = json.load(fun)
 
 COGS = [
     # Utility Cogs

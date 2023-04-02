@@ -9,7 +9,6 @@ from typing import Optional
 import typing
 
 from PIL import Image, ImageDraw, ImageOps, ImageFont
-from discord import Embed, Attachment, Message, File
 import discord
 from discord.ext import commands
 
@@ -22,12 +21,14 @@ TINDER = """https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/51
 2/tinder-512.png"""
 
 
-with open("credentials.json", "r") as f:
-    credentials = json.load(f)
+with open("credentials.json", mode="r", encoding="utf-8") as fun:
+    credentials = json.load(fun)
 
 
 class ImageView(view_utils.BaseView):
     """Holder View for Image Manipulation functions."""
+
+    interaction: discord.Interaction[Bot]
 
     def __init__(
         self,
@@ -68,20 +69,22 @@ class ImageView(view_utils.BaseView):
         session = self.interaction.client.session
 
         # Prepare POST
-        h = {
+        headers = {
             "Content-Type": "application/json",
             "Ocp-Apim-Subscription-Key": credentials["Oxford"]["OxfordKey"],
         }
-        p = {
+        params = {
             "returnFaceId": "False",
             "returnFaceLandmarks": "True",
             "returnFaceAttributes": "headPose",
         }
-        d = json.dumps({"url": self.target_url})
+        data = json.dumps({"url": self.target_url})
         url = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
 
         # Get Project Oxford reply
-        async with session.post(url, params=p, headers=h, data=d) as resp:
+        async with session.post(
+            url, params=params, headers=headers, data=data
+        ) as resp:
             if resp.status != 200:
                 raise ConnectionError(f"{await resp.json()}")
             self.coordinates = await resp.json()
@@ -132,7 +135,7 @@ class ImageView(view_utils.BaseView):
                 return self._with_eyes
 
             self.image = typing.cast(bytes, self.image)
-            im = Image.open(io.BytesIO(self.image))
+            image = Image.open(io.BytesIO(self.image))
             for i in self.coordinates:
                 # Get eye bounds
                 lix = int(i["faceLandmarks"]["eyeLeftInner"]["x"])
@@ -144,34 +147,34 @@ class ImageView(view_utils.BaseView):
                 rty = int(i["faceLandmarks"]["eyeRightTop"]["y"])
                 # rby = int(i["faceLandmarks"]["eyeRightBottom"]["y"])
 
-                lw = lix - lox
-                rw = rox - rix
+                left_width = lix - lox
+                right_width = rox - rix
 
                 # Inflate
-                lix += lw
-                lox -= lw
-                lty -= lw
+                lix += left_width
+                lox -= left_width
+                lty -= left_width
                 # lby = lby + lw
-                rox += rw
-                rix -= rw
-                rty -= rw
+                rox += right_width
+                rix -= right_width
+                rty -= right_width
                 # rby = rby + rw
 
                 # Recalculate with new sizes.
-                lw = lix - lox
-                rw = rox - rix
+                left_width = lix - lox
+                right_width = rox - rix
 
                 # Open Eye Image, resize, paste twice
                 eye = Image.open("Images/eye.png")
-                left = ImageOps.fit(eye, (lw, lw))
-                right = ImageOps.fit(eye, (rw, rw))
-                im.paste(left, box=(lox, lty), mask=left)
-                im.paste(right, box=(rix, rty), mask=right)
+                left = ImageOps.fit(eye, (left_width, left_width))
+                right = ImageOps.fit(eye, (right_width, right_width))
+                image.paste(left, box=(lox, lty), mask=left)
+                image.paste(right, box=(rix, rty), mask=right)
 
             # Prepare for sending and return
-            im.save(output := io.BytesIO(), "PNG")
+            image.save(output := io.BytesIO(), "PNG")
             output.seek(0)
-            im.close()
+            image.close()
 
             self._with_eyes = output
             return output
@@ -190,32 +193,28 @@ class ImageView(view_utils.BaseView):
                 return self._with_knob
 
             self.image = typing.cast(bytes, self.image)
-            im = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
+            image = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
             knob = Image.open("Images/knob.png")
 
-            for coordinates in self.coordinates:
-                mlx = int(coordinates["faceLandmarks"]["mouthLeft"]["x"])
-                mrx = int(coordinates["faceLandmarks"]["mouthRight"]["x"])
-                lip_y = int(
-                    coordinates["faceLandmarks"]["upperLipBottom"]["y"]
-                )
-                lip_x = int(
-                    coordinates["faceLandmarks"]["upperLipBottom"]["x"]
-                )
+            for coords in self.coordinates:
+                mlx = int(coords["faceLandmarks"]["mouthLeft"]["x"])
+                mrx = int(coords["faceLandmarks"]["mouthRight"]["x"])
+                lip_y = int(coords["faceLandmarks"]["upperLipBottom"]["y"])
+                lip_x = int(coords["faceLandmarks"]["upperLipBottom"]["x"])
 
-                angle = int(
-                    coordinates["faceAttributes"]["headPose"]["roll"] * -1
-                )
-                w = int((mrx - mlx)) * 2
-                h = w
-                tk = ImageOps.fit(knob, (w, h)).rotate(angle)
-                im.paste(tk, box=(int(lip_x - w / 2), int(lip_y)), mask=tk)
+                angle = int(coords["faceAttributes"]["headPose"]["roll"] * -1)
+                wid = int((mrx - mlx)) * 2
+                hght = wid
+                mask = ImageOps.fit(knob, (wid, hght)).rotate(angle)
 
-            im.save(output := io.BytesIO(), "PNG")
+                box = (int(lip_x - wid / 2), int(lip_y))
+                image.paste(mask, box=box, mask=mask)
+
+            image.save(output := io.BytesIO(), "PNG")
             output.seek(0)
 
             # Cleanup.
-            im.close()
+            image.close()
             knob.close()
 
             self._with_knob = output
@@ -235,34 +234,27 @@ class ImageView(view_utils.BaseView):
                 return self._with_bob
 
             self.image = typing.cast(bytes, self.image)
-            im = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
+            image = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
             bob = Image.open("Images/ross face.png")
-            for coordinates in self.coordinates:
-                x = int(coordinates["faceRectangle"]["left"])
-                y = int(coordinates["faceRectangle"]["top"])
-                w = int(coordinates["faceRectangle"]["width"])
-                h = int(coordinates["faceRectangle"]["height"])
-                roll = (
-                    int(coordinates["faceAttributes"]["headPose"]["roll"]) * -1
-                )
-                top_left = int(x - (w / 4))
-                bottom_left = int(y - (h / 2))
-                top_right = int(x + (w * 1.25))
-                bottom_right = int((y + (h * 1.25)))
+            for coords in self.coordinates:
+                pos_x = int(coords["faceRectangle"]["left"])
+                pos_y = int(coords["faceRectangle"]["top"])
+                wid = int(coords["faceRectangle"]["width"])
+                hght = int(coords["faceRectangle"]["height"])
+                roll = int(coords["faceAttributes"]["headPose"]["roll"]) * -1
+                top_lef = int(pos_x - (wid / 4))
+                btm_lef = int(pos_y - (hght / 2))
+                top_rig = int(pos_x + (wid * 1.25))
+                bot_rig = int((pos_y + (hght * 1.25)))
 
-                this = ImageOps.fit(
-                    bob, (top_right - top_left, bottom_right - bottom_left)
-                ).rotate(roll)
-                im.paste(
-                    this,
-                    box=(top_left, bottom_left, top_right, bottom_right),
-                    mask=this,
-                )
-            im.save(output := io.BytesIO(), "PNG")
+                box = (top_rig - top_lef, bot_rig - btm_lef)
+                this = ImageOps.fit(bob, box).rotate(roll)
+                image.paste(this, box=box, mask=this)
+            image.save(output := io.BytesIO(), "PNG")
             output.seek(0)
 
             # Cleanup.
-            im.close()
+            image.close()
             bob.close()
             self._with_bob = output
             return output
@@ -290,13 +282,13 @@ class ImageView(view_utils.BaseView):
 
         self.add_function_row(funcs)
 
-        e = discord.Embed(colour=0xFFFFFF, description=i.user.mention)
-        e.add_field(name="Source Image", value=self.target_url)
-        e.set_image(url="attachment://img")
+        embed = discord.Embed(colour=0xFFFFFF, description=i.user.mention)
+        embed.add_field(name="Source Image", value=self.target_url)
+        embed.set_image(url="attachment://img")
         file = discord.File(fp=self.output, filename="img")
 
         edit = self.interaction.edit_original_response
-        return await edit(attachments=[file], embed=e, view=self)
+        return await edit(attachments=[file], embed=embed, view=self)
 
 
 class Images(commands.Cog):
@@ -320,8 +312,8 @@ class Images(commands.Cog):
         interaction: discord.Interaction[Bot],
         user: Optional[discord.User],
         link: Optional[str],
-        file: Optional[Attachment],
-    ) -> Message:
+        file: Optional[discord.Attachment],
+    ) -> discord.InteractionMessage:
         """Draw Googly eyes on an image. Mention a user to use their avatar.
         Only works for human faces."""
         await interaction.response.defer(thinking=True)
@@ -369,10 +361,10 @@ class Images(commands.Cog):
     ) -> discord.InteractionMessage:
         """Try to Find your next date."""
         await interaction.response.defer(thinking=True)
-        av = await interaction.user.display_avatar.with_format("png").read()
+        avata = await interaction.user.display_avatar.with_format("png").read()
 
         if interaction.guild is None:
-            raise
+            raise discord.app_commands.errors.NoPrivateMessage
 
         for _ in range(10):
             match = random.choice(interaction.guild.members)
@@ -383,14 +375,15 @@ class Images(commands.Cog):
             except AttributeError:
                 continue
         else:
-            return await self.bot.error(
-                interaction, "Nobody swiped right on you."
-            )
+            embed = discord.Embed(colour=discord.Colour.red())
+            # Exhaust All Bans.
+            embed.description = "❌ Nobody swiped right on you."
+            return await interaction.edit_original_response(embed=embed)
 
         def draw(image: bytes, avatar: bytes, user_name: str) -> io.BytesIO:
             """Draw Images for the tinder command"""
             # Open The Tinder Image File
-            im = Image.open("Images/tinder.png").convert(mode="RGBA")
+            base = Image.open("Images/tinder.png").convert(mode="RGBA")
 
             # Prepare the Mask and set size.
             msk = Image.open("Images/circle mask.png").convert("L")
@@ -398,53 +391,53 @@ class Images(commands.Cog):
 
             # Open the User's Avatar, fit to size, apply mask.
             avt = Image.open(io.BytesIO(avatar)).convert(mode="RGBA")
-            av = ImageOps.fit(avt, (185, 185))
+            fitted = ImageOps.fit(avt, (185, 185))
 
-            av.putalpha(mask)
-            im.paste(av, box=(100, 223, 285, 408), mask=mask)
+            fitted.putalpha(mask)
+            base.paste(fitted, box=(100, 223, 285, 408), mask=mask)
 
             # Open the second user's avatar, do same.
             oth = Image.open(io.BytesIO(image)).convert(mode="RGBA")
             other = ImageOps.fit(oth, (185, 185), centering=(0.5, 0.0))
             other.putalpha(mask)
-            im.paste(other, box=(313, 223, 498, 408), mask=mask)
+            base.paste(other, box=(313, 223, 498, 408), mask=mask)
 
             # Cleanup
             msk.close()
             mask.close()
             avt.close()
-            av.close()
+            fitted.close()
             other.close()
 
             # Write "it's a mutual match"
             text = f"You and {user_name} have liked each other."
             font = ImageFont.truetype("Whitney-Medium.ttf", 24)
-            w = font.getsize(text)[0]  # Width, Height
+            wid = font.getsize(text)[0]  # Width, Height
 
-            sz = (300 - w / 2, 180)
-            ImageDraw.Draw(im).text(sz, text, font=font, fill="#ffffff")
+            size = (300 - wid / 2, 180)
+            ImageDraw.Draw(base).text(size, text, font=font, fill="#ffffff")
 
-            im.save(out := io.BytesIO(), "PNG")
-            im.close()
+            base.save(out := io.BytesIO(), "PNG")
+            base.close()
             out.seek(0)
             return out
 
-        u = interaction.user.mention
-        output = await asyncio.to_thread(draw, target, av, name)
+        user = interaction.user.mention
+        output = await asyncio.to_thread(draw, target, avata, name)
         if match.id == interaction.user.id:
-            cpt = f"{u} matched with themself, How pathetic."
+            cpt = f"{user} matched with themself, How pathetic."
         elif match.id == self.bot.application_id:
-            cpt = f"{u} Fancy a shag?"
+            cpt = f"{user} Fancy a shag?"
         else:
-            cpt = f"{u} matched with {match.mention}"
-    
-        e = discord.Embed(description=cpt, colour=0xFD297B)
-        e.set_author(name="Tinder", icon_url=TINDER)
-        e.set_image(url="attachment://Tinder.png")
-        file = File(fp=output, filename="Tinder.png")
+            cpt = f"{user} matched with {match.mention}"
+
+        embed = discord.Embed(description=cpt, colour=0xFD297B)
+        embed.set_author(name="Tinder", icon_url=TINDER)
+        embed.set_image(url="attachment://Tinder.png")
+        file = discord.File(fp=output, filename="Tinder.png")
 
         edit = interaction.edit_original_response
-        return await edit(attachments=[file], embed=e)
+        return await edit(attachments=[file], embed=embed)
 
 
 async def setup(bot: Bot) -> None:

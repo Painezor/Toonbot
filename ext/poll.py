@@ -36,10 +36,10 @@ class PollButton(discord.ui.Button):
         self, interaction: discord.Interaction[Bot]
     ) -> discord.InteractionMessage:
         """Reply to user to let them know their vote has changed."""
-        ej = f"{self.emoji} " if self.emoji is not None else ""
+        emoji = f"{self.emoji} " if self.emoji is not None else ""
 
-        e = f"Vote set to {ej}{self.label}"
-        await interaction.response.send_message(e, ephemeral=True)
+        reply = f"Vote set to {emoji}{self.label}"
+        await interaction.response.send_message(reply, ephemeral=True)
 
         votes: dict[str, list] = self.view.votes
         for vote_list in votes.values():
@@ -58,13 +58,15 @@ class PollSelect(discord.ui.Select):
     view: PollView
 
     def __init__(self, options: list[str], votes: int, custom_id: str) -> None:
-        v = votes
-        ph = "Make your choice" if votes == 1 else f"Select up to {v} choices"
+        if votes == 1:
+            placeholder = "Make your choice"
+        else:
+            placeholder = f"Select up to {votes} choices"
 
         super().__init__(
             max_values=min(votes, len(options)),
             options=[discord.SelectOption(label=x, value=x) for x in options],
-            placeholder=ph,
+            placeholder=placeholder,
             custom_id=custom_id,
         )
 
@@ -87,7 +89,8 @@ class PollSelect(discord.ui.Select):
             except ValueError:
                 continue
 
-        [self.view.votes[x].append(interaction.user.id) for x in self.values]
+        for i in self.view.votes:
+            self.view.votes[i].append(interaction.user.id)
         return await self.view.update()
 
 
@@ -124,10 +127,11 @@ class PollView(view_utils.BaseView):
         task.add_done_callback(interaction.client.active_polls.discard)
 
     def read_votes(self, final=False) -> str:
+        """Parse the votes and conver it to a string"""
         output = ""
 
-        vt = self.votes
-        srt = sorted(vt, key=lambda x: len(vt[x]), reverse=True)
+        votes = self.votes
+        srt = sorted(votes, key=lambda x: len(self.votes[x]), reverse=True)
 
         if [v for v in self.votes.values() if v]:
             winning = self.votes[key := srt.pop(0)]
@@ -136,9 +140,9 @@ class PollView(view_utils.BaseView):
 
             for k in srt:
                 voters = ", ".join([f"<@{i}>" for i in self.votes[k]])
-                votes = len(self.votes[k])
-                output += f"**{k}**: {votes} votes\n"
-                if votes:
+                item_votes = len(self.votes[k])
+                output += f"**{k}**: {item_votes} votes\n"
+                if item_votes:
                     output += f"{voters}\n"
         else:
             output = "No Votes cast"
@@ -151,44 +155,45 @@ class PollView(view_utils.BaseView):
         """End the poll after the specified amount of minutes."""
         await discord.utils.sleep_until(self.end)
 
-        e = discord.Embed(colour=discord.Colour.dark_gold())
-        e.title = self.question + "?"
-        e.description = self.read_votes(final=True)
+        embed = discord.Embed(colour=discord.Colour.dark_gold())
+        embed.title = self.question + "?"
+        embed.description = self.read_votes(final=True)
 
         votes_cast = sum([len(self.votes[i]) for i in self.votes])
-        e.set_footer(text=f"Final Results | {votes_cast} votes")
+        embed.set_footer(text=f"Final Results | {votes_cast} votes")
 
         if icon := operator.attrgetter("icon.url")(self.interaction.guild):
-            e.set_thumbnail(url=icon)
+            embed.set_thumbnail(url=icon)
 
         try:
-            return await self.interaction.edit_original_response(embed=e)
+            return await self.interaction.edit_original_response(embed=embed)
         except discord.HTTPException:
             pass
 
         chan = typing.cast(discord.TextChannel, self.interaction.channel)
         if chan is not None:
             try:
-                return await chan.send(embed=e)
+                return await chan.send(embed=embed)
             except (discord.NotFound, discord.Forbidden):
                 pass
 
     async def update(self) -> discord.InteractionMessage:
         """Refresh the view and send to user"""
 
-        e = discord.Embed(title=self.question + "?")
-        e.colour = discord.Colour.og_blurple()
+        embed = discord.Embed(title=self.question + "?")
+        embed.colour = discord.Colour.og_blurple()
 
-        e.description = self.read_votes()
+        embed.description = self.read_votes()
 
-        u = self.interaction.user
-        e.set_author(name=f"{u.name} asked…", icon_url=u.display_avatar.url)
+        user = self.interaction.user
+        ico = user.display_avatar.url
+        embed.set_author(name=f"{user.name} asked…", icon_url=ico)
 
         total_votes = sum([len(self.votes[i]) for i in self.votes])
-        e.set_footer(text=f"Voting in Progress | {total_votes} votes")
+        embed.set_footer(text=f"Voting in Progress | {total_votes} votes")
 
         edit = self.interaction.edit_original_response
-        return await edit(view=self, embed=e)
+        return await edit(view=self, embed=embed)
 
 
 class PollModal(discord.ui.Modal, title="Create a poll"):
@@ -223,7 +228,7 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
     ) -> discord.InteractionMessage:
         """When the Modal is submitted, pick at random and send back"""
         await interaction.response.defer(thinking=True)
-        q = self.question.value
+        question = self.question.value
         answers = self.answers.value.split("\n")[:25]
 
         # Discard null
@@ -232,21 +237,28 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
         if len(answers) < 2:
             answers = ["Yes", "No"]
 
+        embed = discord.Embed(colour=discord.Colour.red())
+
         try:
             votes = int(self.votes.value)
         except ValueError:
             votes = 1
+
             err = "Invalid number of votes provided, defaulting to 1"
-            return await interaction.client.error(interaction, err)
+            embed.description = err
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
         try:
             time = int(self.minutes.value)
         except ValueError:
             time = 60
             err = "Invalid number of minutes provided, defaulting to 60"
-            return await interaction.client.error(interaction, err)
+            embed.description = err
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
-        return await PollView(interaction, q, answers, time, votes).update()
+        return await PollView(
+            interaction, question, answers, time, votes
+        ).update()
 
 
 class Poll(commands.Cog):

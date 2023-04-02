@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import logging
 from inspect import isawaitable
-from os import system
+import os
 from sys import version
 from traceback import format_exception
-from typing import TYPE_CHECKING, Optional
+import typing
 
 import discord
 from discord.ext import commands
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
@@ -48,17 +48,19 @@ class Admin(commands.Cog):
 
     @commands.is_owner()
     @commands.command(name="sync")
-    async def sync(self, ctx, guild: Optional[int] = None) -> discord.Message:
+    async def sync(
+        self, ctx, guild_id: typing.Optional[int] = None
+    ) -> discord.Message:
         """Sync the command tree with discord"""
 
-        if not guild:
+        if not guild_id:
             await self.bot.tree.sync()
             txt = "Asked discord to sync, please wait up to 1 hour."
             return await ctx.send(txt)
         else:
-            await self.bot.tree.sync(guild=discord.Object(id=guild))
-            g = self.bot.get_guild(guild)
-            return await ctx.send(f"Guild {g} Synced")
+            await self.bot.tree.sync(guild=discord.Object(id=guild_id))
+            guild = self.bot.get_guild(guild_id)
+            return await ctx.send(f"Guild {guild} Synced")
 
     cogs = discord.app_commands.Group(
         name="cogs",
@@ -77,11 +79,14 @@ class Admin(commands.Cog):
 
         try:
             await self.bot.reload_extension(f"ext.{cog.casefold()}")
-        except Exception as err:
-            return await self.bot.error(interaction, error_to_codeblock(err))
-        e = discord.Embed(title="Modules", colour=discord.Colour.og_blurple())
-        e.description = f"⚙️ Reloaded {cog}"
-        return await interaction.edit_original_response(embed=e)
+        except commands.ExtensionError as err:
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = error_to_codeblock(err)
+            return await interaction.edit_original_response(embed=embed)
+
+        embed = discord.Embed(colour=discord.Colour.og_blurple())
+        embed.description = f"⚙️ Reloaded {cog}"
+        return await interaction.edit_original_response(embed=embed)
 
     @cogs.command()
     @discord.app_commands.autocomplete(cog=cg_ac)
@@ -94,12 +99,14 @@ class Admin(commands.Cog):
 
         try:
             await self.bot.load_extension(f"ext.{cog.casefold()}")
-        except Exception as err:
-            return await self.bot.error(interaction, error_to_codeblock(err))
+        except commands.ExtensionError as err:
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = error_to_codeblock(err)
+            return await interaction.edit_original_response(embed=embed)
 
-        e = discord.Embed(title="Modules", colour=discord.Colour.og_blurple())
-        e.description = f"⚙️ Loaded {cog}"
-        return await interaction.edit_original_response(embed=e)
+        embed = discord.Embed(colour=discord.Colour.og_blurple())
+        embed.description = f"⚙️ Loaded {cog}"
+        return await interaction.edit_original_response(embed=embed)
 
     @cogs.command()
     @discord.app_commands.autocomplete(cog=cg_ac)
@@ -112,8 +119,10 @@ class Admin(commands.Cog):
 
         try:
             await self.bot.unload_extension(f"ext.{cog.casefold()}")
-        except Exception as err:
-            return await self.bot.error(interaction, error_to_codeblock(err))
+        except commands.ExtensionFailed as err:
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = error_to_codeblock(err)
+            return await interaction.edit_original_response(embed=embed)
 
         embed = discord.Embed(title="Modules")
         embed.colour = discord.Colour.og_blurple()
@@ -137,9 +146,9 @@ class Admin(commands.Cog):
             raise commands.NotOwner
 
         logger.info("Print command output\n%s", to_print)
-        e = discord.Embed(colour=discord.Colour.og_blurple())
-        e.description = f"```\n{to_print}```"
-        return await interaction.edit_original_response(embed=e)
+        embed = discord.Embed(colour=discord.Colour.og_blurple())
+        embed.description = f"```\n{to_print}```"
+        return await interaction.edit_original_response(embed=embed)
 
     @console.command(name="clear")
     async def clear(
@@ -150,13 +159,13 @@ class Admin(commands.Cog):
         if interaction.user.id != self.bot.owner_id:
             raise commands.NotOwner
 
-        system("cls")
-        _ = f"{self.bot.user}: {self.bot.initialised_at}"
-        logger.info(f'{_}\n{"-" * len(_)}')
+        os.system("cls")
+        initial = f"{self.bot.user}: {self.bot.initialised_at}"
+        logger.info("%s", f'{initial}\n{"-" * len(initial)}')
 
-        e = discord.Embed(title="Bot Console", colour=discord.Colour.blurple())
-        e.description = "```\nConsole Log Cleared.```"
-        return await interaction.edit_original_response(embed=e)
+        embed = discord.Embed(colour=discord.Colour.blurple())
+        embed.description = "```\nConsole Log Cleared.```"
+        return await interaction.edit_original_response(embed=embed)
 
     @discord.app_commands.command(name="quit")
     @discord.app_commands.guilds(250252535699341312)
@@ -189,26 +198,30 @@ class Admin(commands.Cog):
         }
         env.update(globals())
 
-        e1 = discord.Embed(title="Input", colour=discord.Colour.lighter_grey())
-        e2 = discord.Embed(title="Output", colour=discord.Colour.darker_grey())
-        e2.set_footer(text=f"Python Version: {version}")
+        in_embed = discord.Embed(colour=discord.Colour.lighter_grey())
+        out_embed = discord.Embed(colour=discord.Colour.darker_grey())
+        out_embed.set_footer(text=f"Python Version: {version}")
 
         try:
-            if isawaitable(result := eval(code, env)):
+            if isawaitable(result := eval(code, env)):  # type: ignore
                 result = await result
             desc = f"```py\n{result}\n```"
-        except Exception as err:
+        except commands.ExtensionError as err:
             result = error_to_codeblock(err)
             desc = result
 
-        e1.description = f"```py\n{code}\n```"
+        in_embed.description = f"```py\n{code}\n```"
 
         if len(desc) > 4000:
             logger.info("DEBUG command input\n%s", code)
             logger.info("DEBUG command output\n%s", result)
-            e2.description = "Too long for discord, output sent to logger."
-        e2.description = desc
-        return await interaction.edit_original_response(embeds=[e1, e2])
+            out_embed.description = (
+                "Too long for discord, output sent to logger."
+            )
+        out_embed.description = desc
+        return await interaction.edit_original_response(
+            embeds=[in_embed, out_embed]
+        )
 
 
 async def setup(bot: Bot | PBot) -> None:

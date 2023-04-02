@@ -5,14 +5,17 @@ import logging
 import typing
 
 import discord
-
 from discord.ext import commands
 
-from ext.utils import view_utils, embed_utils
+from ext.utils import embed_utils, view_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
+
+    Interaction: typing.TypeAlias = (
+        discord.Interaction[Bot] | discord.Interaction[PBot]
+    )
 
 logger = logging.getLogger("bans")
 
@@ -22,7 +25,7 @@ class BanView(view_utils.BaseView):
 
     def __init__(
         self,
-        interaction: discord.Interaction[Bot | PBot],
+        interaction: Interaction,
         bans: list[discord.BanEntry],
     ) -> None:
         super().__init__(interaction)
@@ -30,27 +33,29 @@ class BanView(view_utils.BaseView):
         self.pages = embed_utils.paginate(bans)
 
         self.bans = bans
+        self.page_bans: list[discord.BanEntry] = []
 
     @property
     def embed(self) -> discord.Embed:
         """Generic Embed for this server"""
-        g = typing.cast(discord.Guild, self.interaction.guild)
-        e = discord.Embed(title=f"{g.name} bans")
-        e.color = discord.Colour.blurple()
-        if g.icon:
-            e.set_thumbnail(url=g.icon.url)
-        return e
+        guild = typing.cast(discord.Guild, self.interaction.guild)
+        embed = discord.Embed(title=f"{guild.name} bans")
+        embed.colour = discord.Colour.blurple()
+        if guild.icon:
+            embed.set_thumbnail(url=guild.icon.url)
+        return embed
 
     def add_select(self) -> str:
         """Add the select option and return the generated text"""
         opts = []
         txt = ""
-        for b in self.page_bans:
-            opt = discord.SelectOption(label=str(b.user), value=str(b.user.id))
+        for ban in self.page_bans:
+            opt = discord.SelectOption(label=str(ban.user))
+            opt.value = str(ban.user.id)
             opt.emoji = "☠"
-            opt.description = f"User #{b.user.id}"
+            opt.description = f"User #{ban.user.id}"
             opts.append(opt)
-            txt += f"`{b.user.id}` {b.user.mention} ({b.user})\n"
+            txt += f"`{ban.user.id}` {ban.user.mention} ({ban.user})\n"
         self.add_item(BanSelect(opts))
         return txt
 
@@ -60,42 +65,45 @@ class BanView(view_utils.BaseView):
         self.pages = embed_utils.paginate(self.bans)
         self.clear_items()
         self.page_bans = self.pages[self.index]
-        e = self.embed.copy()
+        embed = self.embed.copy()
 
-        e.description = self.add_select()
+        embed.description = self.add_select()
 
         self.add_page_buttons(1)
         edit = self.interaction.edit_original_response
-        return await edit(view=self, embed=e)
+        return await edit(view=self, embed=embed)
 
     async def unban(self, bans: list[str]):
         """Perform unbans on the entries passed back from the SelectOption"""
-        e = discord.Embed(colour=discord.Colour.green())
-        e.title = "Users unbanned"
-        e.description = ""
-        e.timestamp = discord.utils.utcnow()
+        embed = discord.Embed(colour=discord.Colour.green())
+        embed.title = "Users unbanned"
+        embed.description = ""
+        embed.timestamp = discord.utils.utcnow()
 
-        g = typing.cast(discord.Guild, self.interaction.guild)
+        guild = typing.cast(discord.Guild, self.interaction.guild)
 
-        u = self.interaction.user
-        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
+        user = self.interaction.user
+        ico = user.display_avatar.url
+        embed.set_footer(text=f"{user}\n{user.id}", icon_url=ico)
 
         reason = f"Requested by {self.interaction.user}"
         for ban in [b for b in self.page_bans if str(b.user.id) in bans]:
-            await g.unban(ban.user, reason=reason)
-            e.description += f"{ban.user} {ban.user.mention} ({ban.user.id})\n"
+            await guild.unban(ban.user, reason=reason)
+            embed.description += (
+                f"{ban.user} {ban.user.mention} ({ban.user.id})\n"
+            )
             self.bans.remove(ban)
 
         self.pages = embed_utils.paginate(self.bans)
 
         self.clear_items()
         self.page_bans = self.pages[self.index]
-        e = self.embed.copy()
-        e.description = self.add_select()
+        embed = self.embed.copy()
+        embed.description = self.add_select()
         self.add_page_buttons(1)
 
         edit = self.interaction.edit_original_response
-        return await edit(embed=e, view=self)
+        return await edit(embed=embed, view=self)
 
 
 class BanSelect(discord.ui.Select):
@@ -123,12 +131,12 @@ class BanSelect(discord.ui.Select):
 class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
     """Modal for user to enter multi line bans on."""
 
-    ban_list = discord.ui.TextInput(
+    ban_list: discord.ui.TextInput = discord.ui.TextInput(
         label="Enter User IDs to ban, one per line",
         style=discord.TextStyle.paragraph,
         placeholder="12345678901234\n12345678901235\n12345678901236\n…",
     )
-    reason = discord.ui.TextInput(
+    reason: discord.ui.TextInput = discord.ui.TextInput(
         label="Enter a reason",
         placeholder="<Insert your reason here>",
         default="No reason provided",
@@ -137,15 +145,13 @@ class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
     def __init__(self) -> None:
         super().__init__()
 
-    async def on_submit(
-        self, interaction: discord.Interaction[Bot | PBot]
-    ) -> None:
+    async def on_submit(self, interaction: Interaction) -> None:
         """Ban users on submit."""
-        e = discord.Embed(title="Users Banned")
-        e.description = ""
-        e.add_field(name="reason", value=self.reason.value)
+        embed = discord.Embed(title="Users Banned")
+        embed.description = ""
+        embed.add_field(name="reason", value=self.reason.value)
 
-        g = typing.cast(discord.Guild, interaction.guild)
+        guild = typing.cast(discord.Guild, interaction.guild)
 
         targets = [
             int(i.strip()) for i in self.ban_list.value.split("\n") if i
@@ -154,28 +160,29 @@ class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
         async def ban_user(user_id: int) -> str:
             """Attempt to ban user"""
             try:
-                await interaction.client.http.ban(user_id, g.id)
+                await interaction.client.http.ban(user_id, guild.id)
             except discord.HTTPException:
                 return f"🚫 Could not ban <@{user_id}> (#{user_id})."
             else:
                 return f"☠ <@{user_id}> was banned (#{user_id})"
 
-        e.description = "\n".join([await ban_user(i) for i in targets])
-        await interaction.edit_original_response(embed=e)
+        embed.description = "\n".join([await ban_user(i) for i in targets])
+        await interaction.edit_original_response(embed=embed)
 
 
 class BanCog(commands.Cog):
     """Single Command Cog for managing user bans"""
 
     def __init__(self, bot: Bot | PBot) -> None:
-        self.bot = bot
+        self.bot: Bot | PBot = bot
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(ban_members=True)
     @discord.app_commands.checks.bot_has_permissions(ban_members=True)
-    async def ban(self, interaction: discord.Interaction[Bot | PBot]) -> None:
+    async def ban(self, interaction: Interaction) -> None:
         """Bans a list of user IDs"""
         await interaction.response.send_modal(BanModal())
+        return
 
     @discord.app_commands.command()
     @discord.app_commands.describe(name="Search by name")
@@ -183,22 +190,23 @@ class BanCog(commands.Cog):
     @discord.app_commands.checks.bot_has_permissions(ban_members=True)
     async def banlist(
         self,
-        interaction: discord.Interaction[Bot | PBot],
+        interaction: Interaction,
         name: typing.Optional[str],
     ) -> discord.InteractionMessage:
         """Show the ban list for the server"""
         await interaction.response.defer(thinking=True)
-        g = typing.cast(discord.Guild, interaction.guild)
+        guild = typing.cast(discord.Guild, interaction.guild)
 
+        embed = discord.Embed(colour=discord.Colour.red())
         # Exhaust All Bans.
-        if not (bans := [i async for i in g.bans()]):
-            return await self.bot.error(interaction, f"{g.name} has no bans!")
+        if not (bans := [i async for i in guild.bans()]):
+            embed.description = f"{guild.name} has no bans!"
+            return await interaction.edit_original_response(embed=embed)
 
         if name is not None:
             if not (bans := [i for i in bans if name in i.user.name]):
-                return await self.bot.error(
-                    interaction, f"No bans found matching {name}"
-                )
+                embed.description = f"No bans found matching {name}"
+                return await interaction.edit_original_response(embed=embed)
         return await BanView(interaction, bans).update()
 
 

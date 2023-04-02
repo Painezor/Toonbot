@@ -94,7 +94,8 @@ backup_dict = {
 }
 
 
-def replace(inp: str) -> str:
+def to_indicators(inp: str) -> str:
+    """Convert letters to regional indicators"""
     return "".join(unicodedata.lookup(f"REGIONAL INDICATOR {i}") for i in inp)
 
 
@@ -105,39 +106,35 @@ def get_flag(country: str | list[str]) -> str:
         country = [country]  # Make into list.
 
     output = []
-    for c in [i.strip() for i in country]:
+    for country in [i.strip() for i in country]:
 
-        if not c:
-            continue
-
-        if any(i in c for i in []):
-            output.append("❌")
+        if not country:
             continue
 
         # Try pycountry
         try:
-            retrieved = countries.get(name=c).alpha_2
-            output.append(replace(retrieved))
+            retrieved = countries.get(name=country).alpha_2
+            output.append(to_indicators(retrieved))
             continue
         except (KeyError, AttributeError):
             try:
-                retrieved = countries.lookup(c).alpha_2
-                output.append(replace(retrieved))
+                retrieved = countries.lookup(country).alpha_2
+                output.append(to_indicators(retrieved))
                 continue
             except (AttributeError, LookupError):
                 pass
 
         # Use manual fallbacks
         try:
-            output.append(replace(country_dict[c]))
+            output.append(to_indicators(country_dict[country]))
             continue
         except KeyError:
             pass
 
         # Other.
         try:
-            output.append(backup_dict[c.casefold()])
+            output.append(backup_dict[country.casefold()])
             continue
         except KeyError:
-            logger.error(f"No country found for '{c}'")
+            logger.error("No country found for '%s'", country)
     return " ".join(output)
