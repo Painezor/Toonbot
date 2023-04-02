@@ -35,8 +35,8 @@ class StadiumSelect(view_utils.BaseView):
         self.stadiums: list[stads.Stadium] = stadiums
 
         # Pagination
-        s = [stadiums[i : i + 25] for i in range(0, len(stadiums), 25)]
-        self.pages: list[list[stads.Stadium]] = s
+        stad = [stadiums[i : i + 25] for i in range(0, len(stadiums), 25)]
+        self.pages: list[list[stads.Stadium]] = stad
 
         # Final result
         self.value: typing.Any = None
@@ -45,18 +45,18 @@ class StadiumSelect(view_utils.BaseView):
         """Handle Pagination"""
         stadiums: list[stads.Stadium] = self.pages[self.index]
 
-        d = view_utils.ItemSelect(placeholder="Please choose a Stadium")
-        e = discord.Embed(title="Choose a Stadium")
-        e.description = ""
+        select = view_utils.ItemSelect(placeholder="Please choose a Stadium")
+        embed = discord.Embed(title="Choose a Stadium")
+        embed.description = ""
 
         for i in stadiums:
             ctr = i.country.upper() + ": " if i.country else ""
             desc = f"{i.team} ({ctr}{i.name})"
-            d.add_option(label=i.name, description=desc, value=i.url)
-            e.description += f"[{desc}]({i.url})\n"
-        self.add_item(d)
+            select.add_option(label=i.name, description=desc, value=i.url)
+            embed.description += f"[{desc}]({i.url})\n"
+        self.add_item(select)
         self.add_page_buttons(1)
-        await self.interaction.edit_original_response(embed=e, view=self)
+        await self.interaction.edit_original_response(embed=embed, view=self)
 
 
 async def get_stadiums(
@@ -70,13 +70,13 @@ async def get_stadiums(
 
     stadiums: list[stads.Stadium] = []
 
-    xp = ".//div[@class='using-grid'][1]/div[@class='grid']/div"
+    xpath = ".//div[@class='using-grid'][1]/div[@class='grid']/div"
 
     qry = query.casefold()
-    for i in tree.xpath(xp):
+    for i in tree.xpath(xpath):
 
-        xp = ".//small/preceding-sibling::a//text()"
-        team = "".join(i.xpath(xp)).title()
+        xpath = ".//small/preceding-sibling::a//text()"
+        team = "".join(i.xpath(xpath)).title()
         badge = i.xpath(".//img/@src")[0]
 
         if not (comp_info := i.xpath(".//small/a//text()")):
@@ -85,14 +85,14 @@ async def get_stadiums(
         country = comp_info.pop(0)
         league = comp_info[0] if comp_info else None
 
-        for s in i.xpath(".//small/following-sibling::a"):
-            name = "".join(s.xpath(".//text()")).title()
+        for i in i.xpath(".//small/following-sibling::a"):
+            name = "".join(i.xpath(".//text()")).title()
             if qry not in f"{name} {team}".casefold():
                 continue  # Filtering.
 
             stadium = stads.Stadium()
             stadium.name = name
-            stadium.url = "".join(s.xpath("./@href"))
+            stadium.url = "".join(i.xpath("./@href"))
             stadium.team = team
             stadium.team_badge = badge
             stadium.country = country

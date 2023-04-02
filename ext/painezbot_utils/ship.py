@@ -1,11 +1,11 @@
 """Ship Objects and associated classes"""
 from __future__ import annotations
 
-from types import DynamicClassAttribute
-import typing
+import dataclasses
 import enum
+import typing
+import unidecode
 
-import unidecode as unidecode
 import discord
 
 from ext.painezbot_utils.module import Module
@@ -40,6 +40,7 @@ class Nation(enum.Enum):
     USA = ("American", "usa", "🇺🇸")
 
 
+@dataclasses.dataclass
 class ShipType:
     """Submarine, Cruiser, etc."""
 
@@ -89,7 +90,7 @@ class Ship:
         """Get a generic embed for the ship"""
         prem = any([self.is_premium, self.is_special])
 
-        e = discord.Embed()
+        embed = discord.Embed()
         if _class := self.type:
             icon_url = _class.image_premium if prem else _class.image
             _class = _class.alias
@@ -100,11 +101,11 @@ class Ship:
         tier = f"Tier {self.tier}" if self.tier else ""
 
         name = [i for i in [tier, nation, _class, self.name] if i]
-        e.set_author(name=" ".join(name), icon_url=icon_url)
+        embed.set_author(name=" ".join(name), icon_url=icon_url)
 
         if self.images:
-            e.set_thumbnail(url=self.images["contour"])
-        return e
+            embed.set_thumbnail(url=self.images["contour"])
+        return embed
 
     @property
     def ac_row(self) -> str:
@@ -115,67 +116,3 @@ class Ship:
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
         return f"{self.tier}: {decoded} {nation} {type_}".casefold()
-
-
-class ShipSentinel(enum.Enum):
-    """A special Sentinel Ship object if we cannot find the original ship"""
-
-    def __new__(cls, *args, **kwargs) -> ShipSentinel:
-        value = len(cls.__members__) + 1
-        obj = object.__new__(cls)
-        obj._value_ = value
-        return obj
-
-    def __init__(self, ship_id: str, name: str, tier: int) -> None:
-        self.id: str = ship_id
-        self._name: str = name
-        self.tier: int = tier
-
-    @DynamicClassAttribute
-    def name(self) -> str:
-        """Override 'name' attribute."""
-        return self._name
-
-    # IJN DD Split
-    FUBUKI_OLD = (4287510224, "Fubuki (pre 01-12-2016)", 8)
-    HATSUHARU_OLD = (4288558800, "Hatsuharu (pre 01-12-2016)", 7)
-    KAGERO_OLD = (4284364496, "Kagero (pre 01-12-2016)", 9)
-    MUTSUKI_OLD = (4289607376, "Mutsuki (pre 01-12-2016)", 6)
-
-    # Soviet DD Split
-    GNEVNY_OLD = (4184749520, "Gnevny (pre 06-03-2017)", 5)
-    OGNEVOI_OLD = (4183700944, "Ognevoi (pre 06-03-2017)", 6)
-    KIEV_OLD = (4180555216, "Kiev (pre 06-03-2017)", 7)
-    TASHKENT_OLD = (4181603792, "Tashkent (pre 06-03-2017)", 8)
-
-    # US Cruiser Split
-    CLEVELAND_OLD = (4287543280, "Cleveland (pre 31-05-2018)", 6)
-    PENSACOLA_OLD = (4282300400, "Pensacola (pre 31-05-2018)", 7)
-    NEW_ORLEANS_OLD = (4280203248, "New Orleans (pre 31-05-2018)", 8)
-    BALTIMORE_OLD = (4277057520, "Baltimore (pre 31-05-2018)", 9)
-
-    # CV Rework
-    HOSHO_OLD = (4292851408, "Hosho (pre 30-01-2019)", 4)
-    ZUIHO_OLD = (4288657104, "Zuiho (pre 30-01-2019)", 5)
-    RYUJO_OLD = (4285511376, "Ryujo (pre 30-01-2019)", 6)
-    HIRYU_OLD = (4283414224, "Hiryu (pre 30-01-2019)", 7)
-    SHOKAKU_OLD = (4282365648, "Shokaku (pre 30-01-2019)", 8)
-    TAIHO_OLD = (4279219920, "Taiho (pre 30-01-2019)", 9)
-    HAKURYU_OLD = (4277122768, "Hakuryu (pre 30-01-2019)", 10)
-
-    LANGLEY_OLD = (4290754544, "Langley (pre 30-01-2019)", 4)
-    BOGUE_OLD = (4292851696, "Bogue (pre 30-01-2019)", 5)
-    INDEPENDENCE_OLD = (4288657392, "Independence (pre 30-01-2019)", 6)
-    RANGER_OLD = (4284463088, "Ranger (pre 30-01-2019)", 7)
-    LEXINGTON_OLD = (4282365936, "Lexington (pre 30-01-2019)", 8)
-    ESSEX_OLD = (4281317360, "Essex (pre 30-01-2019)", 9)
-    MIDWAY_OLD = (4279220208, "Midway (pre 30-01-2019)", 10)
-
-    KAGA_OLD = (3763320528, "Kaga (pre 30-01-2019)", 7)
-    SAIPAN_OLD = (3763320816, "Saipan (pre 30-01-2019)", 7)
-    ENTERPRISE_OLD = (3762272240, "Enterprise (pre 30-01-2019)", 8)
-    GRAF_ZEPPELIN_OLD = (3762272048, "Graf Zeppelin (pre 30-01-2019)", 8)
-
-    # Submarines ...
-    U_2501 = (4179015472, "U-2501", 10)
-    CACHALOT = (4078352368, "Cachalot", 6)

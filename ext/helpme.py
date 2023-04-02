@@ -40,7 +40,7 @@ HOW_IT_WORKS = """https://wowsp-wows-eu.wgcdn.co/dcont/fb/image/tmb/2f4c2e32-43
 
 
 def do_buttons(view: discord.ui.View, attr: str) -> None:
-
+    """Make region buttons"""
     for region in Region:
         btn = discord.ui.Button(url=getattr(region, attr), emoji=region.emote)
         btn.style = discord.ButtonStyle.url
@@ -67,20 +67,22 @@ class HelpMe(commands.Cog):
             "styles classes, tech tree branches, and some specific ships."
             "\n\nhttps://bit.ly/yurraguides"
         )
-        e = discord.Embed(title="Yurra's guides", description=txt)
-        e.url = "https://bit.ly/yurraguides"
+        embed = discord.Embed(title="Yurra's guides", description=txt)
+        embed.url = "https://bit.ly/yurraguides"
 
         yurra = self.bot.get_user(192601340244000769)
         if yurra:
-            e.set_author(name=f"{yurra}", icon_url=yurra.display_avatar.url)
-        e.colour = discord.Colour.dark_orange()
+            embed.set_author(
+                name=f"{yurra}", icon_url=yurra.display_avatar.url
+            )
+        embed.colour = discord.Colour.dark_orange()
 
         btn = discord.ui.Button(label="Yurra's guides")
         btn.style = discord.ButtonStyle.url
         btn.url = "https://bit.ly/yurraguides"
 
-        v = discord.ui.View().add_item(btn)
-        return await interaction.edit_original_response(embed=e, view=v)
+        view = discord.ui.View().add_item(btn)
+        return await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.app_commands.command()
     async def help_me(
@@ -88,12 +90,12 @@ class HelpMe(commands.Cog):
     ) -> discord.InteractionMessage:
         """Help me Discord info"""
         await interaction.response.defer(thinking=True)
-        e = discord.Embed(title="Help Me Discord", colour=0xAE8A6D)
-        e.description = HELP_ME_BIO
-        e.set_thumbnail(url=HELP_ME_LOGO)
+        embed = discord.Embed(title="Help Me Discord", colour=0xAE8A6D)
+        embed.description = HELP_ME_BIO
+        embed.set_thumbnail(url=HELP_ME_LOGO)
         btn = discord.ui.Button(url=HELP_ME_DISC, label="Help Me Discord")
-        v = discord.ui.View().add_item(btn)
-        return await interaction.edit_original_response(embed=e, view=v)
+        view = discord.ui.View().add_item(btn)
+        return await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.app_commands.command()
     async def armory(
@@ -102,45 +104,44 @@ class HelpMe(commands.Cog):
         """Get a link to the web version of the in-game Armory"""
         await interaction.response.defer(thinking=True)
 
-        e = discord.Embed(title="World of Warships Armory")
-        e.description = "Access the armory for each region below"
+        embed = discord.Embed(title="World of Warships Armory")
+        embed.description = "Access the armory for each region below"
 
-        e.set_thumbnail(url=ARMORY)
-        e.colour = discord.Colour.orange()
+        embed.set_thumbnail(url=ARMORY)
+        embed.colour = discord.Colour.orange()
 
-        v = discord.ui.View()
-        do_buttons(v, "armory")
-        return await interaction.edit_original_response(embed=e, view=v)
+        view = discord.ui.View()
+        do_buttons(view, "armory")
+        return await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.app_commands.command()
     async def inventory(self, interaction: discord.Interaction[PBot]) -> None:
         """Get a link to the web version of the in-game Inventory"""
-        e = discord.Embed(title="World of Warships Inventory")
-        e.colour = discord.Colour.lighter_grey()
-        e.description = "Manage & sell your unused modules/camos/etc below"
-        e.set_thumbnail(url=INVENTORY)
+        embed = discord.Embed(title="World of Warships Inventory")
+        embed.colour = discord.Colour.lighter_grey()
+        embed.description = "Manage & sell your unused modules/camos/etc below"
+        embed.set_thumbnail(url=INVENTORY)
 
-        v = discord.ui.View()
-        do_buttons(v, "inventory")
-        return await interaction.response.send_message(embed=e, view=v)
+        view = discord.ui.View()
+        do_buttons(view, "inventory")
+        return await interaction.response.send_message(embed=embed, view=view)
 
     @discord.app_commands.command()
     async def logbook(self, interaction: discord.Interaction[PBot]) -> None:
         """Get a link to the web version of the in-game Captain's Logbook"""
-        e = discord.Embed(
-            title="World of Warships Captain's Logbook",
-            description="Access your region's logbook below.",
-        )
+        embed = discord.Embed(title="Captain's Logbook")
+        embed.description = "Access your region's logbook below."
 
+        # TODO: Make this a universal
         img = (
             HELP_ME_DISC + "303154190362869761/991811398952816790/unknown.png"
         )
-        e.set_thumbnail(url=img)
-        e.colour = discord.Colour.dark_orange()
+        embed.set_thumbnail(url=img)
+        embed.colour = discord.Colour.dark_orange()
 
-        v = discord.ui.View()
-        do_buttons(v, "logbook")
-        return await interaction.response.send_message(embed=e, view=v)
+        view = discord.ui.View()
+        do_buttons(view, "logbook")
+        return await interaction.response.send_message(embed=embed, view=view)
 
     # TODO: Make this into a view.
     @discord.app_commands.command()
@@ -149,10 +150,9 @@ class HelpMe(commands.Cog):
     ) -> discord.InteractionMessage:
         """Links to the various How It Works videos"""
         await interaction.response.defer(thinking=True)
-        e = discord.Embed(
-            title="How it Works Video Series", colour=discord.Colour.dark_red()
-        )
-        e.description = (
+        embed = discord.Embed(title="How it Works Video Series")
+        embed.colour = discord.Colour.dark_red()
+        embed.description = (
             "The how it works video series give comprehensive overviews of "
             "some of the game's mechanics, you can find links to them all "
             "below\n\n**Latest Video**: "
@@ -183,8 +183,8 @@ class HelpMe(commands.Cog):
                 ]
             )
         )
-        e.set_thumbnail(url=HOW_IT_WORKS)
-        return await interaction.edit_original_response(embed=e)
+        embed.set_thumbnail(url=HOW_IT_WORKS)
+        return await interaction.edit_original_response(embed=embed)
 
     @discord.app_commands.command()
     async def mods(
@@ -192,21 +192,21 @@ class HelpMe(commands.Cog):
     ) -> discord.InteractionMessage:
         """information about where to get World of Warships modifications"""
         await interaction.response.defer(thinking=True)
-        e = discord.Embed(colour=discord.Colour.red())
-        e.set_thumbnail(url="http://i.imgur.com/2LiednG.jpg")
-        e.title = "World of Warships Mods"
-        e.description = (
+        embed = discord.Embed(colour=discord.Colour.red())
+        embed.set_thumbnail(url="http://i.imgur.com/2LiednG.jpg")
+        embed.title = "World of Warships Mods"
+        embed.description = (
             "There are two official sources available for in-game"
             f"modifications.\n • [Modstation]({MODSTATION})\n"
             f"• Official Forum\n\n [Aslain's Modpack]({ASLAIN}) "
             "is a popular third party compilation of mods"
             " available from the official forum\n"
         )
-        e.add_field(name="Mod Policy", value=MOD_POLICY)
-        v = discord.ui.View()
-        v.add_item(discord.ui.Button(url=MODSTATION, label="Modstation"))
-        v.add_item(discord.ui.Button(url=ASLAIN, label="Aslain's Modpack"))
-        return await interaction.edit_original_response(embed=e, view=v)
+        embed.add_field(name="Mod Policy", value=MOD_POLICY)
+        view = discord.ui.View()
+        view.add_item(discord.ui.Button(url=MODSTATION, label="Modstation"))
+        view.add_item(discord.ui.Button(url=ASLAIN, label="Aslain's Modpack"))
+        return await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.app_commands.command()
     async def builds(
@@ -214,18 +214,18 @@ class HelpMe(commands.Cog):
     ) -> discord.InteractionMessage:
         """The Help Me Build collection"""
         await interaction.response.defer(thinking=True)
-        e = discord.Embed(title="Help Me Builds", colour=0xAE8A6D)
-        e.description = (
+        embed = discord.Embed(title="Help Me Builds", colour=0xAE8A6D)
+        embed.description = (
             f"The folks from the [Help Me Discord]({HELP_ME_DISC})"
             f" have compiled a list of recommended builds, you can find"
             f" them, [here]({BUILDS}) or by using the button below."
         )
-        e.set_thumbnail(url=HELP_ME_LOGO)
+        embed.set_thumbnail(url=HELP_ME_LOGO)
 
         btn = discord.ui.Button(url=BUILDS)
         btn.label = "Help Me Builds on Google Docs"
-        v = discord.ui.View().add_item(btn)
-        return await interaction.edit_original_response(embed=e, view=v)
+        view = discord.ui.View().add_item(btn)
+        return await interaction.edit_original_response(embed=embed, view=view)
 
 
 async def setup(bot: PBot):

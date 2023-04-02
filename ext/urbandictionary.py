@@ -15,14 +15,15 @@ from ext.utils import view_utils
 if typing.TYPE_CHECKING:
     from core import Bot
 
+
+DEFINE = "https://www.urbandictionary.com/define.php?term="
 THUMBNAIL = (
     "http://d2gatte9o95jao.cloudfront.net/assets/"
     "apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
 )
 
-DEFINE = "https://www.urbandictionary.com/define.php?term="
 
-
+# TODO: Transformer
 async def ud_ac(
     interaction: discord.Interaction[Bot], cur: str
 ) -> list[discord.app_commands.Choice]:
@@ -69,32 +70,33 @@ def parse(results: dict) -> list[discord.Embed]:
     """Convert UD JSON to embeds"""
     embeds = []
     for i in results["list"]:
-        e = discord.Embed(color=0xFE3511)
-        e.set_author(name=i["word"], url=i["permalink"], icon_url=THUMBNAIL)
-        de = i["definition"]
-        for z in re.finditer(r"\[(.*?)]", de):
-            z1 = z.group(1).replace(" ", "%20")
-            z = z.group()
-            de = de.replace(z, f"{z}({DEFINE}{z1})")
+        embed = discord.Embed(color=0xFE3511)
+        link = i["permalink"]
+        embed.set_author(name=i["word"], url=link, icon_url=THUMBNAIL)
+        defin = i["definition"]
+        for item in re.finditer(r"\[(.*?)]", defin):
+            rep1 = item.group(1).replace(" ", "%20")
+            item = item.group()
+            defin = defin.replace(item, f"{item}({DEFINE}{rep1})")
 
-        e.description = f"{de[:2046]} …" if len(de) > 2048 else de
+        embed.description = f"{defin[:2046]} …" if len(defin) > 2048 else defin
 
         targ = "https://www.urbandictionary.com/define.php?term="
         if i["example"]:
-            ex = i["example"]
-            for z in re.finditer(r"\[(.*?)]", ex):
-                z1 = z.group(1).replace(" ", "%20")
-                z = z.group()
-                ex = ex.replace(z, f"{z}({targ + z1})")
+            example = i["example"]
+            for item in re.finditer(r"\[(.*?)]", example):
+                rep1 = item.group(1).replace(" ", "%20")
+                item = item.group()
+                example = example.replace(item, f"{item}({targ + rep1})")
 
-            ex = f"{ex[:1023]}…" if len(ex) > 1024 else ex
-            e.add_field(name="Usage", value=ex)
+            example = f"{example[:1023]}…" if len(example) > 1024 else example
+            embed.add_field(name="Usage", value=example)
 
-        e.set_footer(
+        embed.set_footer(
             text=f"👍{i['thumbs_up']} 👎{i['thumbs_down']} - {i['author']}"
         )
-        e.timestamp = datetime.datetime.fromisoformat(i["written_on"])
-        embeds.append(e)
+        embed.timestamp = datetime.datetime.fromisoformat(i["written_on"])
+        embeds.append(embed)
     return embeds
 
 
@@ -133,18 +135,18 @@ class UrbanDictionary(commands.Cog):
 
     @ud.command()
     async def random(
-        self, ctx: discord.Interaction[Bot]
+        self, interaction: discord.Interaction[Bot]
     ) -> discord.InteractionMessage:
         """Get some random definitions from Urban Dictionary"""
-        await ctx.response.defer(thinking=True)
+        await interaction.response.defer(thinking=True)
 
         url = "https://api.urbandictionary.com/v0/random"
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
                 err = f"🚫 HTTP Error, code: {resp.status}"
-                return await self.bot.error(ctx, err)
-            js = parse(await resp.json())
-        return await UrbanView(ctx, js).update()
+                return await self.bot.error(interaction, err)
+            data = parse(await resp.json())
+        return await UrbanView(interaction, data).update()
 
     @ud.command()
     async def word_of_the_day(
@@ -157,8 +159,8 @@ class UrbanDictionary(commands.Cog):
             if resp.status != 200:
                 err = f"🚫 HTTP Error, code: {resp.status}"
                 return await self.bot.error(interaction, err)
-            js = parse(await resp.json())
-        return await UrbanView(interaction, js).update()
+            data = parse(await resp.json())
+        return await UrbanView(interaction, data).update()
 
 
 async def setup(bot: Bot) -> None:

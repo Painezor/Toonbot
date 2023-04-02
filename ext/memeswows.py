@@ -1,6 +1,8 @@
+"""Memes related to world of warships"""
 from __future__ import annotations
 
 import typing
+
 import discord
 from discord.ext import commands
 

@@ -110,9 +110,7 @@ class ResetLeagues(discord.ui.Button):
 
         embed = discord.Embed(title="Transfers: Tracked Leagues Reset")
         embed.description = self.view.chan.channel.mention
-        user = interaction.user
-        ico = user.display_avatar.url
-        embed.set_footer(text=f"{user}\n{user.id}", icon_url=ico)
+        embed_utils.user_to_footer(embed, interaction.user)
         await interaction.followup.send(embed=embed)
         await self.view.update()
 
@@ -156,9 +154,7 @@ class DeleteTicker(discord.ui.Button):
 
         embed = discord.Embed(colour=discord.Colour.red())
         embed.description = f"The Transfer Ticker for {chan} was deleted."
-        user = interaction.user
-        ico = user.display_avatar.url
-        embed.set_footer(text=f"{user}\n{user.id}", icon_url=ico)
+        embed_utils.user_to_footer(embed, interaction.user)
         return await intr.edit_original_response(embed=embed, view=None)
 
 
@@ -218,9 +214,7 @@ class RemoveLeague(discord.ui.Select):
         msg = f"Removed {ment} tracked leagues:\n{lg_text}"
         embed = discord.Embed(description=msg, colour=discord.Colour.red())
         embed.title = "Transfers"
-        user = interaction.user
-        ico = user.display_avatar.url
-        embed.set_footer(text=f"{user}\n{user.id}", icon_url=ico)
+        embed_utils.user_to_footer(embed, interaction.user)
         await self.view.interaction.followup.send(content=msg)
         return await self.view.update()
 
@@ -600,9 +594,7 @@ class Transfers(commands.Cog):
 
         embed = discord.Embed(title="Transfers: Tracked League Added")
         embed.description = f"{chan.channel.mention}\n\n{competition.link}"
-        user = interaction.user
-        ico = user.display_avatar.url
-        embed.set_footer(text=f"{user}\n{user.id}", icon_url=ico)
+        embed_utils.user_to_footer(embed, interaction.user)
         return await interaction.edit_original_response(embed=embed)
 
     @commands.Cog.listener()

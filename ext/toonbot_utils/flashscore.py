@@ -8,6 +8,7 @@ import typing
 
 from urllib.parse import quote
 
+import asyncpg
 import discord
 from lxml import html
 from playwright.async_api import Page, TimeoutError as pw_TimeoutError
@@ -232,7 +233,7 @@ async def parse_games(
     page: Page = await bot.browser.new_page()
 
     if object_.url is None:
-        raise ValueError("No URL found in %s", object_)
+        raise ValueError(f"No URL found in {object_}")
     try:
         await page.goto(object_.url + sub_page, timeout=5000)
         loc = page.locator("#live-table")
@@ -442,11 +443,12 @@ class Team(FlashScoreItem):
         self.gender: typing.Optional[str] = None
         self.competition: typing.Optional[Competition] = None
 
-    def __str__(self) -> str:
-        output = self.name or "Unknown Team"
-        if self.competition is not None:
-            output = f"{output} ({self.competition.title})"
-        return output
+    @classmethod
+    def from_record(cls, record: asyncpg.Record) -> Team:
+        """Retrieve a Team object from an asyncpg Record"""
+        team = Team(record["id"], record["name"], record["url"])
+        team.logo_url = record["logo_url"]
+        return team
 
     @classmethod
     async def from_fixture_html(
@@ -490,6 +492,12 @@ class Team(FlashScoreItem):
             await save_team(bot, team)
 
         return team
+
+    def __str__(self) -> str:
+        output = self.name or "Unknown Team"
+        if self.competition is not None:
+            output = f"{output} ({self.competition.title})"
+        return output
 
     @property
     def tag(self) -> str:
@@ -598,6 +606,14 @@ class Competition(FlashScoreItem):
 
         # Table Imagee
         self.table: typing.Optional[str] = None
+
+    @classmethod
+    def from_record(cls, record: asyncpg.Record):
+        """Generate a Competition from an asyncpg.Record"""
+        i = record
+        comp = Competition(i["id"], i["name"], i["country"], i["url"])
+        comp.logo_url = i["logo_url"]
+        return comp
 
     def __str__(self) -> str:
         return self.title

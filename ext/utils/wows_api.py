@@ -763,9 +763,8 @@ class Clan:
                 if resp.status != 200:
                     raise ConnectionError("%s clans.warships api", resp.status)
             data = await resp.json()
-            json = data.pop("clanview")
 
-        return ClanVortexData(json)
+        return ClanVortexData(data.pop("clanview"))
 
     @property
     def title(self) -> str:

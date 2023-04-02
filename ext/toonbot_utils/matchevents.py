@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import enum
 import typing
+
 import discord
+
 import ext.toonbot_utils.flashscore as fs
 
 

@@ -3,27 +3,29 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
+import typing
 
-from discord import Locale
-from discord.app_commands import Translator, locale_str, TranslationContext
-from discord.ext.commands import Cog
+import discord
+from discord.ext import commands
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
     from painezBot import PBot
 
-translations: dict[Locale, dict] = {}
+translations: dict[discord.Locale, dict] = {}
 
-for i in Locale:
+for record in discord.Locale:
     try:
-        with open(f"./ext/utils/translations/{i.name}.json") as fun:
-            translations[i] = json.load(fun)
-    except Exception as embed:
-        logging.error(f"{embed} Unable to load translation {i}, {i.name}.json")
+        path = f"./ext/utils/translations/{record.name}.json"
+        with open(path, encoding="utf-8") as file:
+            translations[record] = json.load(file)
+    except FileNotFoundError:
+        logging.error(
+            "Failed load translation %s, %s.json", record, record.name
+        )
 
 
-class TL(Translator):
+class TL(discord.app_commands.Translator):
     """The Translation module"""
 
     async def load(self):
@@ -36,7 +38,10 @@ class TL(Translator):
         # when being removed
 
     async def translate(
-        self, string: locale_str, locale: Locale, context: TranslationContext
+        self,
+        string: discord.app_commands.locale_str,
+        locale: discord.Locale,
+        context: discord.app_commands.TranslationContext,
     ) -> str | None:
         """
         `locale_str` is the string that is requesting to be translated
@@ -54,7 +59,7 @@ class TL(Translator):
             return None
 
 
-class Translations(Cog):
+class Translations(commands.Cog):
     """The translation cog."""
 
     def __init__(self, bot: Bot | PBot) -> None:

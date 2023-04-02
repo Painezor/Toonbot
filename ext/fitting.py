@@ -1,3 +1,4 @@
+"""Get ship Parameters with various modules equipped"""
 from __future__ import annotations
 
 import collections
@@ -7,13 +8,13 @@ import typing
 import discord
 from discord.ext import commands
 
+from ext.painezbot_utils import module as modules
+from ext.painezbot_utils.ship import Nation, Ship, ShipType
+from ext.utils import view_utils, wows_api as api
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
 
-from ext.painezbot_utils import module as modules
-from ext.painezbot_utils.ship import Nation, Ship, ShipType
-from ext.utils import view_utils, wows_api as api
 
 logger = logging.getLogger("fitting")
 
@@ -46,30 +47,28 @@ class ShipView(view_utils.BaseView):
     async def fetch_modules(self) -> dict[int, modules.Module]:
         """Grab all data related to the ship from the API"""
         # Get needed module IDs
-        m = [s.module_id for s in self.bot.modules]
+        m_ids = [s.module_id for s in self.bot.modules]
 
         avail = self.ship.available_modules
-        existing = [x for x in avail.values() if x.module_id in m]
+        existing = [x for x in avail.values() if x.module_id in m_ids]
         avail.update({k.module_id: k for k in existing})
 
-        m = self.bot.modules
+        modules = self.bot.modules
 
-        if targets := [str(i) for i in avail if i not in m]:
+        if targets := [str(i) for i in avail if i not in modules]:
             # We want the module IDs as str for the purposes of params
-            p = {
+            params = {
                 "application_id": api.WG_ID,
                 "module_id": ",".join(targets),
             }
             url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
-            async with self.bot.session.get(url, params=p) as resp:
-                match resp.status:
-                    case 200:
-                        data = await resp.json()
-                    case _:
-                        s = resp.status
-                        n = self.ship.name
-                        err = f"{s} error fetching modules for {n} on {url}"
-                        raise ConnectionError(err)
+            async with self.bot.session.get(url, params=params) as resp:
+                if resp.status != 200:
+                    stat = resp.status
+                    name = self.ship.name
+                    err = f"{stat} error fetching modules for {name} on {url}"
+                    raise ConnectionError(err)
+                data = await resp.json()
 
             for module_id, data in data["data"].items():
                 args = {
@@ -106,15 +105,15 @@ class ShipView(view_utils.BaseView):
                 elif module_type == "Torpedoes":
                     item = modules.Torpedoes(**args)
                 else:
-                    logger.error(f"Unhandled Module type {module_type}")
+                    logger.error("Unhandled Module type %s", module_type)
                     item = modules.Module(**args)
 
                 self.bot.modules.append(item)
                 self.ship.available_modules.update({int(module_id): item})
 
-        for k, v in self.ship.modules_tree.items():
+        for k, value in self.ship.modules_tree.items():
             module = self.ship.available_modules.get(int(k))
-            for sub_key, sub_value in v.items():
+            for sub_key, sub_value in value.items():
                 setattr(module, sub_key, sub_value)
         return self.ship.available_modules
 
@@ -145,7 +144,7 @@ class ShipView(view_utils.BaseView):
 
     async def get_params(self) -> dict:
         """Get the ship's specs with the currently selected modules."""
-        p = {"application_id": api.WG_ID, "ship_id": self.ship.ship_id}
+        params = {"application_id": api.WG_ID, "ship_id": self.ship.ship_id}
 
         tuples = [
             ("artillery_id", modules.Artillery),
@@ -158,7 +157,7 @@ class ShipView(view_utils.BaseView):
             ("torpedo_bomber_id", modules.TorpedoBomber),
         ]
         # ('flight_control_id', FlightControl),
-        p.update(
+        params.update(
             {
                 k: self.modules.get(v)
                 for k, v in tuples
@@ -167,7 +166,7 @@ class ShipView(view_utils.BaseView):
         )
 
         url = "https://api.worldofwarships.eu/wows/encyclopedia/shipprofile/"
-        async with self.bot.session.get(url, params=p) as resp:
+        async with self.bot.session.get(url, params=params) as resp:
             if resp.status != 200:
                 err = f"HTTP ERROR {resp.status} accessing {url}"
                 raise ConnectionError(err)
@@ -181,82 +180,82 @@ class ShipView(view_utils.BaseView):
         if not self.data:
             await self.get_params()
 
-        e = self.ship.base_embed()
+        embed = self.ship.base_embed()
 
         # Rocket Planes are referred to as 'Fighters'
-        if (rp := self.data["fighters"]) is not None:
-            name = f"{rp['name']} (Tier {rp['plane_level']}, Rocket Planes)"
+        if (rockets := self.data["fighters"]) is not None:
+            name = f"{rockets['name']} (Tier {rockets['plane_level']}, Rocket Planes)"
             value = [
-                f"**Hit Points**: {format(rp['max_health'], ',')}",
-                f"**Cruising Speed**: {rp['cruise_speed']} kts",
+                f"**Hit Points**: {format(rockets['max_health'], ',')}",
+                f"**Cruising Speed**: {rockets['cruise_speed']} kts",
                 "\n*Rocket Plane Damage not available in the API, sorry*",
             ]
-            e.add_field(name=name, value="\n".join(value), inline=False)
+            embed.add_field(name=name, value="\n".join(value), inline=False)
 
-        if (tb := self.data["torpedo_bomber"]) is not None:
-            name = f"{tb['name']} (Tier {tb['plane_level']}, Torpedo Bombers"
+        if (t_b := self.data["torpedo_bomber"]) is not None:
+            name = f"{t_b['name']} (Tier {t_b['plane_level']}, Torpedo Bombers"
 
-            if tb["torpedo_name"] is None:
+            if t_b["torpedo_name"] is None:
                 t_name = "Unnamed Torpedo"
             else:
-                t_name = tb["torpedo_name"]
+                t_name = t_b["torpedo_name"]
 
             value = [
-                f"**Hit Points**: {format(tb['max_health'], ',')}",
-                f"**Cruising Speed**: {tb['cruise_speed']} kts",
+                f"**Hit Points**: {format(t_b['max_health'], ',')}",
+                f"**Cruising Speed**: {t_b['cruise_speed']} kts",
                 "",
                 f"**Torpedo**: {t_name}",
-                f"**Max Damage**: {format(tb['max_damage'])}",
-                f"**Max Speed**: {tb['torpedo_max_speed']} kts",
+                f"**Max Damage**: {format(t_b['max_damage'])}",
+                f"**Max Speed**: {t_b['torpedo_max_speed']} kts",
             ]
-            e.add_field(name=name, value="\n".join(value), inline=False)
+            embed.add_field(name=name, value="\n".join(value), inline=False)
 
-        if (db := self.data["dive_bomber"]) is not None:
-            name = f"{db['name']} (Tier {db['plane_level']}, Dive Bombers"
+        if (dive := self.data["dive_bomber"]) is not None:
+            name = f"{dive['name']} (Tier {dive['plane_level']}, Dive Bombers"
 
-            if db["bomb_name"] is None:
+            if dive["bomb_name"] is None:
                 bomb_name = "Bomb Stats"
             else:
-                bomb_name = db["bomb_name"]
+                bomb_name = dive["bomb_name"]
 
             value = [
-                f"**Hit Points**: {format(db['max_health'], ',')}",
-                f"**Cruising Speed**: {db['cruise_speed']} kts",
+                f"**Hit Points**: {format(dive['max_health'], ',')}",
+                f"**Cruising Speed**: {dive['cruise_speed']} kts",
                 "",
                 f"**{bomb_name}**",
-                f"**Damage**: {format(db['max_damage'], ',')}",
-                f"**Mass**: {db['bomb_bullet_mass']}kg",
-                f"**Accuracy**: {db['accuracy']['min']}"
-                f"- {db['accuracy']['max']}",
+                f"**Damage**: {format(dive['max_damage'], ',')}",
+                f"**Mass**: {dive['bomb_bullet_mass']}kg",
+                f"**Accuracy**: {dive['accuracy']['min']}"
+                f"- {dive['accuracy']['max']}",
             ]
 
-            if (fire_chance := db["bomb_burn_probability"]) is not None:
+            if (fire_chance := dive["bomb_burn_probability"]) is not None:
                 value.append(f"**Fire Chance**: {round(fire_chance, 1)}%")
-            e.add_field(name=name, value="\n".join(value), inline=False)
+            embed.add_field(name=name, value="\n".join(value), inline=False)
 
         self.disabled = self.aircraft
-        e.set_footer(
+        embed.set_footer(
             text="Rocket plane armaments, and Skip Bombers as a"
             "whole are currently not listed in the API."
         )
-        return await self.update(embed=e)
+        return await self.update(embed=embed)
 
     async def auxiliary(self) -> discord.InteractionMessage:
         """Get information on the ship's secondaries and anti-air."""
         if not self.data:
             await self.get_params()
 
-        e = self.ship.base_embed()
+        embed = self.ship.base_embed()
 
         desc = []
 
         if (sec := self.data["atbas"]) is None:
-            e.add_field(
+            embed.add_field(
                 name="No Secondary Armament",
                 value="```diff\n- This ship has no secondary armament.```",
             )
         elif "slots" not in sec:
-            e.add_field(
+            embed.add_field(
                 name="API Error",
                 value="```diff\n" "- Secondary armament not found in API.```",
             )
@@ -266,75 +265,73 @@ class ShipView(view_utils.BaseView):
                 "**Total Barrels**: " f'{self.data["hull"]["atba_barrels"]}'
             )
 
-            for v in sec["slots"].values():
-                name = v["name"]
-                dmg = v["damage"]
+            for value in sec["slots"].values():
+                name = value["name"]
+                dmg = value["damage"]
 
                 value = [
                     f"**Damage**: {format(dmg, ',')}",
-                    f"**Shell Type**: {v['type']}",
-                    f"**Reload Time**: {v['shot_delay']}s ("
-                    f"{round(v['gun_rate'], 1)} rounds/minute)",
-                    f"**Initial Velocity**: {v['bullet_speed']}m/s",
-                    f"**Shell Weight**: {v['bullet_mass']}kg",
+                    f"**Shell Type**: {value['type']}",
+                    f"**Reload Time**: {value['shot_delay']}s ("
+                    f"{round(value['gun_rate'], 1)} rounds/minute)",
+                    f"**Initial Velocity**: {value['bullet_speed']}m/s",
+                    f"**Shell Weight**: {value['bullet_mass']}kg",
                 ]
 
-                if fire_chance := v["burn_probability"]:
+                if fire_chance := value["burn_probability"]:
                     value.append(f"**Fire Chance**: {round(fire_chance, 1)}")
 
-                e.add_field(name=name, value="\n".join(value))
+                embed.add_field(name=name, value="\n".join(value))
 
-        if (aa := self.data["anti_aircraft"]) is None:
+        if (aa_ := self.data["anti_aircraft"]) is None:
             aa_desc = [
                 "```diff\n- This ship does not have any AA Capabilities.```"
             ]
         else:
             aa_guns: dict[str, list] = collections.defaultdict(list)
-            for v in aa["slots"].values():
-                value = (
-                    f'{v["guns"]}x{v["caliber"]}mm ({v["avg_damage"]} dps)\n'
-                )
-                aa_guns[v["name"]].append(value)
+            for value in aa_["slots"].values():
+                value = f'{value["guns"]}x{value["caliber"]}mm ({value["avg_damage"]} dps)\n'
+                aa_guns[value["name"]].append(value)
 
             aa_desc = []
-            for k, v in aa_guns.items():
+            for k, value in aa_guns.items():
                 aa_desc.append(f"**{k}**\n")
-                aa_desc.append("\n".join(v))
+                aa_desc.append("\n".join(value))
                 aa_desc.append("\n")
 
-        e.add_field(name="AA Guns", value="".join(aa_desc), inline=False)
+        embed.add_field(name="AA Guns", value="".join(aa_desc), inline=False)
 
-        e.description = "\n".join(desc)
+        embed.description = "\n".join(desc)
         self.disabled = self.auxiliary
-        return await self.update(embed=e)
+        return await self.update(embed=embed)
 
     async def main_guns(self) -> discord.InteractionMessage:
         """Get information about the ship's main battery"""
         if not self.data:
             await self.get_params()
 
-        e = self.ship.base_embed()
+        embed = self.ship.base_embed()
 
         # Guns
-        mb = self.data["artillery"]
+        mains = self.data["artillery"]
         guns = []
         caliber = ""
-        for gun_type in mb["slots"].values():
-            e.title = gun_type["name"]
+        for gun_type in mains["slots"].values():
+            embed.title = gun_type["name"]
             guns.append(f"{gun_type['guns']}x{gun_type['barrels']}")
-            caliber = f"{str(e.title).split('mm')[0]}"
+            caliber = f"{str(embed.title).split('mm', maxsplit=1)[0]}"
 
-        reload_time: float = mb["shot_delay"]
+        reload_time: float = mains["shot_delay"]
 
         rlt = round(reload_time, 1)
-        e.description = (
+        embed.description = (
             f"**Guns**: {','.join(guns)} {caliber}mm\n"
-            f"**Max Dispersion**: {mb['max_dispersion']}m\n"
-            f"**Range**: {mb['distance']}km\n"
-            f"**Reload Time**: {rlt}s ({mb['gun_rate']} rounds/minute)"
+            f"**Max Dispersion**: {mains['max_dispersion']}m\n"
+            f"**Range**: {mains['distance']}km\n"
+            f"**Reload Time**: {rlt}s ({mains['gun_rate']} rounds/minute)"
         )
 
-        for shell_type in mb["shells"].values():
+        for shell_type in mains["shells"].values():
             vel = format(shell_type["bullet_speed"], ",")
             weight = format(shell_type["bullet_mass"], ",")
             shell_data = [
@@ -346,33 +343,35 @@ class ShipView(view_utils.BaseView):
             if (fire_chance := shell_type["burn_probability"]) is not None:
                 shell_data.append(f"**Fire Chance**: {fire_chance}%")
 
-            e.add_field(
+            embed.add_field(
                 name=f"{shell_type['type']}: {shell_type['name']}",
                 value="\n".join(shell_data),
             )
         self.disabled = self.main_guns
 
-        e.set_footer(text="SAP Shells are currently not in the API, sorry.")
-        return await self.update(embed=e)
+        embed.set_footer(
+            text="SAP Shells are currently not in the API, sorry."
+        )
+        return await self.update(embed=embed)
 
     async def torpedoes(self) -> discord.InteractionMessage:
         """Get information about the ship's torpedoes"""
         if not self.data:
             await self.get_params()
 
-        e = self.ship.base_embed()
+        embed = self.ship.base_embed()
 
         trp = self.data["torpedoes"]
         for tube in trp["slots"]:
             barrels = trp["slots"][tube]["barrels"]
             calibre = trp["slots"][tube]["caliber"]
             num_tubes = trp["slots"][tube]["guns"]
-            e.add_field(
+            embed.add_field(
                 name=trp["slots"][tube]["name"],
                 value=f"{num_tubes}x{barrels}x{calibre}mm",
             )
 
-        e.title = trp["torpedo_name"]
+        embed.title = trp["torpedo_name"]
 
         reload_time: float = trp["reload_time"]
 
@@ -386,9 +385,9 @@ class ShipView(view_utils.BaseView):
             f"**Launcher 180° Time**: {trp['rotation_time']}s",
         ]
 
-        e.description = "\n".join(trp_desc)
+        embed.description = "\n".join(trp_desc)
         self.disabled = self.torpedoes
-        return await self.update(embed=e)
+        return await self.update(embed=embed)
 
     async def overview(self) -> discord.InteractionMessage:
         """Get a general overview of the ship"""
@@ -397,7 +396,7 @@ class ShipView(view_utils.BaseView):
 
         params = self.data
 
-        e = self.ship.base_embed()
+        embed = self.ship.base_embed()
         tier = self.ship.tier
         slots = self.ship.mod_slots
 
@@ -417,12 +416,12 @@ class ShipView(view_utils.BaseView):
                 slts = 6
             if slots != slts:
                 text = f"This ship has {slots} upgrades instead of {slts}"
-                e.add_field(name="Bonus Upgrade Slots", value=text)
+                embed.add_field(name="Bonus Upgrade Slots", value=text)
 
         if self.ship.images:
-            e.set_image(url=self.ship.images["large"])
+            embed.set_image(url=self.ship.images["large"])
 
-        e.set_footer(text=self.ship.description)
+        embed.set_footer(text=self.ship.description)
 
         # Parse Modules for ship data
         rst = params["mobility"]["rudder_time"]
@@ -453,36 +452,39 @@ class ShipView(view_utils.BaseView):
             desc.append(f"**Credit Price**: {cost}")
 
         if self.ship.has_demo_profile:
-            e.add_field(
+            embed.add_field(
                 name="Work in Progress",
                 value="Ship Characteristics are not Final.",
             )
 
-        e.description = "\n".join(desc)
+        embed.description = "\n".join(desc)
 
         if self.ship.next_ships:
             vals: list[tuple] = []
-            for ship_id, xp in self.ship.next_ships.items():  # ShipID, XP Cost
+            for (
+                ship_id,
+                xp_,
+            ) in self.ship.next_ships.items():  # ShipID, XP Cost
                 nxt = self.bot.get_ship(int(ship_id))
                 if nxt is None:
                     continue
 
-                cr = format(nxt.price_credit, ",")
-                xp = format(xp, ",")
-                t = (
+                creds = format(nxt.price_credit, ",")
+                xp_ = format(xp_, ",")
+                text = (
                     f"**{nxt.name}** (Tier {nxt.tier} {nxt.type.alias}):"
-                    f"{xp} XP, {cr} credits"
+                    f"{xp_} XP, {creds} credits"
                 )
-                vals.append((nxt.tier, t))
+                vals.append((nxt.tier, text))
 
             if vals:
                 keys = [i[1] for i in sorted(vals, key=lambda x: x[0])]
-                e.add_field(
+                embed.add_field(
                     name="Next Researchable Ships", value="\n".join(keys)
                 )
 
         self.disabled = self.overview
-        return await self.update(embed=e)
+        return await self.update(embed=embed)
 
     async def handle_buttons(self, current_function: typing.Callable) -> None:
         """Handle the Funcables"""
@@ -495,15 +497,17 @@ class ShipView(view_utils.BaseView):
         my_id = str(self.ship.ship_id)
         if prev := [i for i in ships if my_id in i.next_ships]:
             for ship in prev:
-                fn = ShipView(self.interaction, ship).overview
-                btn = view_utils.Funcable(f"Tier {ship.tier}: {ship.name}", fn)
+                func = ShipView(self.interaction, ship).overview
+                label = f"Tier {ship.tier}: {ship.name}"
+                btn = view_utils.Funcable(label, func)
                 btn.emoji = "▶"
                 buttons.append(btn)
 
         if self.ship.next_ships:
             for ship in self.ship.next_ships:
-                fn = ShipView(self.interaction, ship).overview
-                btn = view_utils.Funcable(f"Tier {ship.tier}: {ship.name}", fn)
+                func = ShipView(self.interaction, ship).overview
+                label = f"Tier {ship.tier}: {ship.name}"
+                btn = view_utils.Funcable(label, func)
                 btn.emoji = "◀"
                 buttons.append(btn)
 
@@ -563,12 +567,12 @@ class ShipView(view_utils.BaseView):
             if not module.is_default:
                 opt.description = "Stock Module"
             else:
-                d = []
+                desc = []
                 if module.price_credit != 0:
-                    d.append(f"{format(module.price_credit, ',')} credits")
+                    desc.append(f"{format(module.price_credit, ',')} credits")
                 if module.price_xp != 0:
-                    d.append(f"{format(module.price_xp, ',')} xp")
-                opt.description = ", ".join(d) if d else "No Cost"
+                    desc.append(f"{format(module.price_xp, ',')} xp")
+                opt.description = ", ".join(desc) if desc else "No Cost"
             opts.append(opt)
         self.add_item(ModuleSelect(opts, 0, current_function))
 
@@ -613,6 +617,8 @@ class ModuleSelect(discord.ui.Select):
 
 
 class ShipTransformer(discord.app_commands.Transformer):
+    """Convert User Input to a ship Object"""
+
     async def autocomplete(
         self, interaction: discord.Interaction[PBot], current: str
     ) -> list[discord.app_commands.Choice[str]]:
@@ -651,9 +657,9 @@ class Fittings(commands.Cog):
 
     async def cog_load(self) -> None:
         """Fetch Generics from API and store to bot."""
-        p = {"application_id": api.WG_ID, "language": "en"}
+        params = {"application_id": api.WG_ID, "language": "en"}
         if not self.bot.ship_types:
-            async with self.bot.session.get(INFO, params=p) as resp:
+            async with self.bot.session.get(INFO, params=params) as resp:
                 match resp.status:
                     case 200:
                         data = await resp.json()
@@ -661,21 +667,21 @@ class Fittings(commands.Cog):
                         err = f"{resp.status} fetching ship type data {INFO}"
                         raise ConnectionError(err)
 
-            for k, v in data["data"]["ship_types"].items():
+            for k, values in data["data"]["ship_types"].items():
                 images = data["data"]["ship_type_images"][k]
-                s_t = ShipType(k, v, images)
+                s_t = ShipType(k, values, images)
                 self.bot.ship_types.append(s_t)
 
         if not self.bot.modes:
-            async with self.bot.session.get(MODES, params=p) as resp:
+            async with self.bot.session.get(MODES, params=params) as resp:
                 match resp.status:
                     case 200:
                         data = await resp.json()
                     case _:
                         return
 
-            for k, v in data["data"].items():
-                self.bot.modes.append(api.GameMode(**v))
+            for k, values in data["data"].items():
+                self.bot.modes.append(api.GameMode(**values))
 
         if not self.bot.ships:
             self.bot.ships = await self.cache_ships()
@@ -712,12 +718,12 @@ class Fittings(commands.Cog):
         ships: list[Ship] = []
         while count <= max_iter:
             # Initial Pull.
-            p = {
+            params = {
                 "application_id": api.WG_ID,
                 "language": "en",
                 "page_no": count,
             }
-            async with self.bot.session.get(SHIPS, params=p) as resp:
+            async with self.bot.session.get(SHIPS, params=params) as resp:
                 match resp.status:
                     case 200:
                         items = await resp.json()
@@ -738,10 +744,10 @@ class Fittings(commands.Cog):
 
                 ship.type = self.bot.get_ship_type(data.pop("type"))
 
-                modules = data.pop("modules")
-                ship.available_modules = modules
-                for k, v in data.items():
-                    setattr(ship, k, v)
+                mods = data.pop("modules")
+                ship.available_modules = mods
+                for k, value in data.items():
+                    setattr(ship, k, value)
                 ships.append(ship)
         return ships
 

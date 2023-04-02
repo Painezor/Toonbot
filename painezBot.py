@@ -26,7 +26,7 @@ if typing.TYPE_CHECKING:
     from ext.twitch import Contributor, TBot, TrackerChannel
 
 
-with open("credentials.json") as fun:
+with open("credentials.json", encoding="utf-8") as fun:
     credentials = json.load(fun)
 
 COGS = [
@@ -121,8 +121,8 @@ class PBot(commands.AutoShardedBot):
 
         # Announce aliveness
         started = self.initialised_at.strftime("%d-%m-%Y %H:%M:%S")
-        x = f"Bot __init__ ran: {started}"
-        logger.info(f"{x}\n" + "-" * len(x))
+        text = f"Bot __init__ ran: {started}"
+        logger.info(f"{text}\n" + "-" * len(text))
 
     async def setup_hook(self) -> None:
         """Create our browsers then load our cogs."""
@@ -134,13 +134,13 @@ class PBot(commands.AutoShardedBot):
         # playwright
         self.browser = await make_browser()
 
-        for c in COGS:
+        for i in COGS:
             try:
-                await self.load_extension(c)
-                logger.info("Loaded %s", c)
-            except Exception as error:
+                await self.load_extension(i)
+                logger.info("Loaded %s", i)
+            except commands.ExtensionError as error:
                 err = f"{type(error).__name__}: {error}"
-                logger.error("Failed to load cog %s\n%s", c, err)
+                logger.error("Failed to load cog %s\n%s", i, err)
         return
 
     def get_clan(self, clan_id: int) -> typing.Optional[api.Clan]:
@@ -175,7 +175,7 @@ async def run() -> None:
     database = await asyncpg.create_pool(**credentials["painezBotDB"])
 
     if database is None:
-        raise Exception("Failed to initialise database.")
+        raise ConnectionError("Failed to initialise database.")
 
     bot = PBot(database=database)
 

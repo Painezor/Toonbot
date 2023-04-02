@@ -1,8 +1,9 @@
 """World of Warships Codes handler"""
 from __future__ import annotations
 
-import discord
 import typing
+
+import discord
 from discord.ext import commands
 
 from ext.utils.wows_api import Region
@@ -15,6 +16,8 @@ CODE_IMG = "https://cdn.iconscout.com/icon/free/png-256/wargaming-1-283119.png"
 
 
 class Codes(commands.Cog):
+    """Handle parsing of World of Warships Promo Codes"""
+
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
 
@@ -44,17 +47,17 @@ class Codes(commands.Cog):
         if asia:
             regions.append("sea")
 
-        e = discord.Embed(title=code, colour=discord.Colour.blurple())
-        e.url = f"https://eu.wargaming.net/shop/redeem/?bonus_mode={code}"
-        e.set_author(name="Bonus Code", icon_url=CODE_IMG)
-        e.set_thumbnail(
+        embed = discord.Embed(title=code, colour=discord.Colour.blurple())
+        embed.url = f"https://eu.wargaming.net/shop/redeem/?bonus_mode={code}"
+        embed.set_author(name="Bonus Code", icon_url=CODE_IMG)
+        embed.set_thumbnail(
             url="https://wg-art.com/media/filer_public_thumbnails"
             "/filer_public/72/22/72227d3e-d42f-4e16-a3e9-012eb239214c/"
             "wg_wows_logo_mainversion_tm_fullcolor_ru_previewwebguide.png"
         )
         if contents:
-            e.add_field(name="Contents", value=f"```yaml\n{contents}```")
-        e.set_footer(text="Click on a button below to redeem for your region")
+            embed.add_field(name="Contents", value=f"```yaml\n{contents}```")
+        embed.set_footer(text="Click below to redeem for each region")
 
         view = discord.ui.View()
         for i in regions:
@@ -67,8 +70,9 @@ class Codes(commands.Cog):
             btn.style = discord.ButtonStyle.url
             view.add_item(btn)
 
-        return await interaction.edit_original_response(embed=e, view=view)
+        return await interaction.edit_original_response(embed=embed, view=view)
 
 
 async def setup(bot: PBot):
+    """Load the Codes cog into the bot"""
     await bot.add_cog(Codes(bot))

@@ -54,15 +54,15 @@ class ScoreChannel:
         """Fetch target leagues for the ScoreChannel from the database"""
         sql = """SELECT * FROM scores_leagues WHERE channel_id = $1"""
 
-        async with self.bot.db.acquire(timeout=60) as c:
-            async with c.transaction():
-                records = await c.fetch(sql, self.channel.id)
+        async with self.bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                records = await connection.fetch(sql, self.channel.id)
 
-        for r in records:
-            if (comp := self.bot.get_competition(r["url"])) is None:
-                lg = r["league"].rstrip("/")
-                if (comp := self.bot.get_competition(lg)) is None:
-                    logger.error("Failed fetching comp %s", lg)
+        for i in records:
+            if (comp := self.bot.get_competition(i["url"])) is None:
+                league = i["league"].rstrip("/")
+                if (comp := self.bot.get_competition(league)) is None:
+                    logger.error("Failed fetching comp %s", league)
                     continue
 
             self.leagues.add(comp)
@@ -82,9 +82,9 @@ class ScoreChannel:
             embeds += i.score_embeds
 
         if not embeds:
-            e = discord.Embed(title="No Games Found")
-            e.description = NO_GAMES_FOUND
-            embeds = [e]
+            embed = discord.Embed(title="No Games Found")
+            embed.description = NO_GAMES_FOUND
+            embeds = [embed]
 
         # Stack embeds to max size for individual message.
         stacked = embed_utils.stack_embeds(embeds)
@@ -112,22 +112,22 @@ class ScoreChannel:
                 if message is None:
                     # No message exists in cache,
                     # or we need an additional message.
-                    m = await self.channel.send(embeds=embeds)
-                    self.messages.append(m)
+                    new_msg = await self.channel.send(embeds=embeds)
+                    self.messages.append(new_msg)
                     continue
 
                 if embeds is None:
                     if not message.flags.suppress_embeds:
-                        m = await message.edit(suppress=True)
-                        self.messages[count] = m
+                        new_msg = await message.edit(suppress=True)
+                        self.messages[count] = new_msg
                     continue
 
                 cnt = collections.Counter
                 new = cnt([i.description for i in embeds])
                 old = cnt([i.description for i in message.embeds])
                 if old != new:
-                    m = await message.edit(embeds=embeds, suppress=False)
-                    self.messages[count] = m
+                    new_msg = await message.edit(embeds=embeds, suppress=False)
+                    self.messages[count] = new_msg
             except (discord.Forbidden, discord.NotFound):
                 # If we don't have permissions to send Messages in the channel,
                 # remove it and stop iterating
@@ -150,7 +150,7 @@ class ScoresConfig(view_utils.BaseView):
         self, interaction: discord.Interaction[Bot], channel: ScoreChannel
     ) -> None:
         super().__init__(interaction)
-        self.sc: ScoreChannel = channel
+        self.chan: ScoreChannel = channel
 
     async def update(self) -> discord.InteractionMessage:
         """Push the newest version of view to message"""
@@ -161,8 +161,8 @@ class ScoresConfig(view_utils.BaseView):
 
         missing = []
 
-        ch = self.sc.channel
-        perms = ch.permissions_for(ch.guild.me)
+        chan = self.chan.channel
+        perms = chan.permissions_for(chan.guild.me)
         if not perms.send_messages:
             missing.append("send_messages")
         if not perms.embed_links:
@@ -171,17 +171,17 @@ class ScoresConfig(view_utils.BaseView):
             missing.append("manage_messages")
 
         if missing:
-            v = f"{NOPERMS} {missing}```"
-            embed.add_field(name="Missing Permissions", value=v)
+            txt = f"{NOPERMS} {missing}```"
+            embed.add_field(name="Missing Permissions", value=txt)
 
         edit = self.interaction.edit_original_response
-        if not self.sc.leagues:
+        if not self.chan.leagues:
             self.add_item(ResetLeagues())
-            embed.description = f"{ch.mention} has no tracked leagues."
+            embed.description = f"{chan.mention} has no tracked leagues."
             return await edit(embed=embed, view=self)
 
-        embed.description = f"Tracked leagues for {ch.mention}\n```yaml\n"
-        leagues = sorted(self.sc.leagues, key=lambda x: x.title)
+        embed.description = f"Tracked leagues for {chan.mention}\n```yaml\n"
+        leagues = sorted(self.chan.leagues, key=lambda x: x.title)
         self.pages = embed_utils.paginate(leagues)
         self.add_page_buttons()
 
@@ -218,23 +218,24 @@ class ResetLeagues(discord.ui.Button):
         async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """DELETE FROM scores_leagues WHERE channel_id = $1"""
-                await connection.execute(sql, self.view.sc.channel.id)
+                await connection.execute(sql, self.view.chan.channel.id)
 
                 sql = """INSERT INTO scores_leagues (channel_id, url)
                          VALUES ($1, $2)"""
-                r = [(self.view.sc.channel.id, x) for x in fs.DEFAULT_LEAGUES]
-                await connection.executemany(sql, r)
+                ch_id = self.view.chan.channel.id
+                args = [(ch_id, x) for x in fs.DEFAULT_LEAGUES]
+                await connection.executemany(sql, args)
 
-        for x in fs.DEFAULT_LEAGUES:
-            if (comp := interaction.client.get_competition(x)) is None:
+        for league in fs.DEFAULT_LEAGUES:
+            if (comp := interaction.client.get_competition(league)) is None:
+                logger.error("Failed to get default league %s", league)
                 continue
-            self.view.sc.leagues.add(comp)
+            self.view.chan.leagues.add(comp)
 
-        e = discord.Embed(title="LiveScores: Tracked Leagues Reset")
-        e.description = self.view.sc.channel.mention
-        u = interaction.user
-        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
-        await self.view.interaction.followup.send(embed=e)
+        embed = discord.Embed(title="LiveScores: Tracked Leagues Reset")
+        embed.description = self.view.chan.channel.mention
+        embed_utils.user_to_footer(embed, interaction.user)
+        await self.view.interaction.followup.send(embed=embed)
         return await self.view.update()
 
 
@@ -244,17 +245,17 @@ class RemoveLeague(discord.ui.Select):
     view: ScoresConfig
 
     def __init__(self, leagues: list[fs.Competition], row: int = 4) -> None:
-        ph = "Remove tracked league(s)"
-        super().__init__(placeholder=ph, row=row, max_values=len(leagues))
+        place = "Remove tracked league(s)"
+        super().__init__(placeholder=place, row=row, max_values=len(leagues))
 
-        for lg in leagues:
-            if lg.url is None:
+        for i in leagues:
+            if i.url is None:
                 continue
 
-            opt = discord.SelectOption(label=lg.title, value=lg.url)
-            opt.description = lg.url
-            opt.emoji = lg.flag
-            self.add_option(label=lg.title, description=lg.url, value=lg.url)
+            opt = discord.SelectOption(label=i.title, value=i.url)
+            opt.description = i.url
+            opt.emoji = i.flag
+            self.add_option(label=i.title, description=i.url, value=i.url)
 
     async def callback(
         self, interaction: discord.Interaction[Bot]
@@ -267,11 +268,13 @@ class RemoveLeague(discord.ui.Select):
         view = view_utils.Confirmation(intr, "Remove", "Cancel", red)
 
         lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
-        c = self.view.sc.channel.mention
+        ment = self.view.chan.channel.mention
 
-        e = discord.Embed(title="LiveScores", colour=discord.Colour.red())
-        e.description = f"Remove these leagues from {c}? {lg_text}"
-        await self.view.interaction.edit_original_response(embed=e, view=view)
+        embed = discord.Embed(title="LiveScores", colour=discord.Colour.red())
+        embed.description = f"Remove these leagues from {ment}? {lg_text}"
+
+        edit = self.view.interaction.edit_original_response
+        await edit(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
@@ -280,22 +283,21 @@ class RemoveLeague(discord.ui.Select):
         sql = """DELETE from scores_leagues
                  WHERE (channel_id, url) = ($1, $2)"""
 
-        rows = [(self.view.sc.channel.id, x) for x in self.values]
+        rows = [(self.view.chan.channel.id, x) for x in self.values]
 
         async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.executemany(sql, rows)
 
-        for i in self.view.sc.leagues.copy():
+        for i in self.view.chan.leagues.copy():
             if i.url in self.values:
-                self.view.sc.leagues.remove(i)
+                self.view.chan.leagues.remove(i)
 
-        m = self.view.sc.channel.mention
-        msg = f"Removed {m} tracked leagues: \n{lg_text}"
-        e = discord.Embed(description=msg, colour=discord.Colour.red())
-        e.title = "LiveScores"
-        u = interaction.user
-        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
+        ment = self.view.chan.channel.mention
+        msg = f"Removed {ment} tracked leagues: \n{lg_text}"
+        embed = discord.Embed(description=msg, colour=discord.Colour.red())
+        embed.title = "LiveScores"
+        embed_utils.user_to_footer(embed, interaction.user)
         await self.view.interaction.followup.send(content=msg)
         return await self.view.update()
 
@@ -331,7 +333,8 @@ class Scores(commands.Cog):
         if self.bot.scores is not None:
             self.bot.scores.cancel()
 
-        [i.cancel() for i in self.tasks]
+        for i in self.tasks:
+            i.cancel()
 
         self.bot.score_channels.clear()
         self.bot.games.clear()
@@ -356,29 +359,29 @@ class Scores(commands.Cog):
         chans = self.bot.score_channels
         bad = set()
 
-        for r in records:
-            channel = self.bot.get_channel(r["channel_id"])
+        for i in records:
+            channel = self.bot.get_channel(i["channel_id"])
 
             if not isinstance(channel, discord.TextChannel):
-                bad.add(r["channel_id"])
+                bad.add(i["channel_id"])
                 continue
 
             if channel.is_news():
-                bad.add(r["channel_id"])
+                bad.add(i["channel_id"])
                 continue
 
-            comp = self.bot.get_competition(str(r["url"]).rstrip("/"))
+            comp = self.bot.get_competition(str(i["url"]).rstrip("/"))
             if not comp:
-                logger.error("Could not get_competition for %s", r)
+                logger.error("Could not get_competition for %s", i)
                 continue
 
             try:
-                sc = next(i for i in chans if i.channel.id == r["channel_id"])
+                chn = next(j for j in chans if j.channel.id == i["channel_id"])
             except StopIteration:
-                sc = ScoreChannel(channel)
-                chans.append(sc)
+                chn = ScoreChannel(channel)
+                chans.append(chn)
 
-            sc.leagues.add(comp)
+            chn.leagues.add(comp)
 
         # Cleanup Old.
         sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
@@ -423,8 +426,8 @@ class Scores(commands.Cog):
         comps = set(i.competition for i in self.bot.games if i.competition)
 
         for comp in comps:
-            e = await comp.base_embed()
-            e = e.copy()
+            embed = await comp.base_embed()
+            embed = embed.copy()
 
             flt = [i for i in self.bot.games if i.competition == comp]
             fix = sorted(flt, key=lambda c: c.kickoff or now)
@@ -433,9 +436,10 @@ class Scores(commands.Cog):
 
             table = f"\n[View Table]({comp.table})" if comp.table else ""
             rte = embed_utils.rows_to_embeds
-            comp.score_embeds = rte(e, ls_txt, 50, footer=table)
+            comp.score_embeds = rte(embed, ls_txt, 50, footer=table)
 
-        [await sc.update() for sc in self.bot.score_channels.copy()]
+        for channel in self.bot.score_channels.copy():
+            await channel.update()
 
     @score_loop.before_loop
     async def clear_old_scores(self):
@@ -448,97 +452,96 @@ class Scores(commands.Cog):
                 comps = await connection.fetch(sql)
                 teams = await connection.fetch("""SELECT * from fs_teams""")
 
-        for c in comps:
-            if self.bot.get_competition(c["id"]) is None:
-                cm = fs.Competition(c["id"], c["name"], c["country"], c["url"])
-                cm.logo_url = c["logo_url"]
-                self.bot.competitions.add(cm)
+        for i in comps:
+            if self.bot.get_competition(i["id"]) is None:
+                comp = fs.Competition.from_record(i)
+                self.bot.competitions.add(comp)
 
-        for t in teams:
-            if self.bot.get_team(t["id"]) is None:
-                team = fs.Team(t["id"], t["name"], t["url"])
-                team.logo_url = t["logo_url"]
+        for i in teams:
+            if self.bot.get_team(i["id"]) is None:
+                team = fs.Team.from_record(i)
                 self.bot.teams.append(team)
 
         if not self.bot.score_channels:
             await self.update_cache()
 
-        def bot(m):
-            return m.author.id == self.bot.application_id
+        def is_me(message):
+            return message.author.id == self.bot.application_id
 
         rsn = "Clearing Score Channel"
-        for x in self.bot.score_channels:
+        for i in self.bot.score_channels:
             try:
-                await x.channel.purge(reason=rsn, check=bot, limit=20)
+                await i.channel.purge(reason=rsn, check=is_me, limit=20)
             except discord.HTTPException:
                 pass
 
-    def dispatch_states(self, fx: fs.Fixture, old: GameState) -> None:
+    def dispatch_states(self, fix: fs.Fixture, old: GameState) -> None:
         """Dispatch events to the ticker"""
         evt = "fixture_event"
         send_event = self.bot.dispatch
 
-        new = fx.state
+        new = fix.state
 
         if old == new or old is None:
             return
 
         if new == GameState.ABANDONED:
-            return send_event(evt, EventType.ABANDONED, fx)
+            return send_event(evt, EventType.ABANDONED, fix)
         elif new == GameState.AFTER_EXTRA_TIME:
-            return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fx)
+            return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fix)
         elif new == GameState.AFTER_PENS:
-            return send_event(evt, EventType.PENALTY_RESULTS, fx)
+            return send_event(evt, EventType.PENALTY_RESULTS, fix)
         elif new == GameState.CANCELLED:
-            return send_event(evt, EventType.CANCELLED, fx)
+            return send_event(evt, EventType.CANCELLED, fix)
         elif new == GameState.DELAYED:
-            return send_event(evt, EventType.DELAYED, fx)
+            return send_event(evt, EventType.DELAYED, fix)
         elif new == GameState.INTERRUPTED:
-            return send_event(evt, EventType.INTERRUPTED, fx)
+            return send_event(evt, EventType.INTERRUPTED, fix)
         elif new == GameState.BREAK_TIME:
             if old == GameState.EXTRA_TIME:
                 # Break Time = after regular time & before penalties
-                return send_event(evt, EventType.EXTRA_TIME_END, fx)
-            fx.breaks += 1
-            if fx.periods is not None:
-                return send_event(evt, EventType.PERIOD_END, fx)
+                return send_event(evt, EventType.EXTRA_TIME_END, fix)
+            fix.breaks += 1
+            if fix.periods is not None:
+                return send_event(evt, EventType.PERIOD_END, fix)
             else:
-                return send_event(evt, EventType.NORMAL_TIME_END, fx)
+                return send_event(evt, EventType.NORMAL_TIME_END, fix)
         elif new == GameState.EXTRA_TIME:
             if old == GameState.HALF_TIME:
-                return send_event(evt, EventType.HALF_TIME_ET_END, fx)
-            return send_event(evt, EventType.EXTRA_TIME_BEGIN, fx)
+                return send_event(evt, EventType.HALF_TIME_ET_END, fix)
+            return send_event(evt, EventType.EXTRA_TIME_BEGIN, fix)
         elif new == GameState.FULL_TIME:
             if old == GameState.EXTRA_TIME:
-                return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fx)
+                return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fix)
             elif old in [GameState.SCHEDULED, GameState.HALF_TIME]:
-                return send_event(evt, EventType.FINAL_RESULT_ONLY, fx)
-            return send_event(evt, EventType.FULL_TIME, fx)
+                return send_event(evt, EventType.FINAL_RESULT_ONLY, fix)
+            return send_event(evt, EventType.FULL_TIME, fix)
         elif new == GameState.HALF_TIME:
             # Half Time is fired at regular Half time & ET Half time.
             if old == GameState.EXTRA_TIME:
-                return send_event(evt, EventType.HALF_TIME_ET_BEGIN, fx)
+                return send_event(evt, EventType.HALF_TIME_ET_BEGIN, fix)
             else:
-                return send_event(evt, EventType.HALF_TIME, fx)
+                return send_event(evt, EventType.HALF_TIME, fix)
         elif new == GameState.LIVE:
             if old in [GameState.SCHEDULED, GameState.DELAYED]:
-                return send_event(evt, EventType.KICK_OFF, fx)
+                return send_event(evt, EventType.KICK_OFF, fix)
             elif old == GameState.INTERRUPTED:
-                return send_event(evt, EventType.RESUMED, fx)
+                return send_event(evt, EventType.RESUMED, fix)
             elif old == GameState.HALF_TIME:
-                return send_event(evt, EventType.SECOND_HALF_BEGIN, fx)
+                return send_event(evt, EventType.SECOND_HALF_BEGIN, fix)
             elif old == GameState.BREAK_TIME:
-                return send_event(evt, EventType.PERIOD_BEGIN, fx)
+                return send_event(evt, EventType.PERIOD_BEGIN, fix)
         elif new == GameState.PENALTIES:
-            return send_event(evt, EventType.PENALTIES_BEGIN, fx)
+            return send_event(evt, EventType.PENALTIES_BEGIN, fix)
         elif new == GameState.POSTPONED:
-            return send_event(evt, EventType.POSTPONED, fx)
+            return send_event(evt, EventType.POSTPONED, fix)
         elif new == GameState.STOPPAGE_TIME:
             return
 
-        logger.error(f"Handle State: {old} -> {new} {fx.url} @ {fx.time}")
+        logger.error("States: %s -> %s %s @ %s", old, new, fix.url, fix.time)
 
-    async def fetch_data(self, fixture: fs.Fixture, force: bool = False):
+    async def fetch_fixture(self, fixture: fs.Fixture, force: bool = False):
+        """Fetch all data for a fixture"""
         if fixture.url is None:
             logger.error("url is None on fixture %s", fixture)
             return
@@ -582,7 +585,7 @@ class Scores(commands.Cog):
                 fixture.stadium = venue.strip().replace("Venue:", "")
 
         if country:
-            country = country.split(":")[0]
+            country = country.split(":", maxsplit=1)[0]
 
         if not force:
 
@@ -616,10 +619,10 @@ class Scores(commands.Cog):
                     logger.info("Bad ID from %s", page.url)
 
             else:
-                bar = page.locator(".tabs__tab")
+                t_bar = page.locator(".tabs__tab")
                 logger.info("Current page url %s", page.url)
-                logger.info("found %s matching tabs", await bar.count())
-                for elem in await bar.all():
+                logger.info("found %s matching tabs", await t_bar.count())
+                for elem in await t_bar.all():
                     sublink = await elem.get_attribute("href")
                     if sublink is not None:
                         fs_id = sublink.split("/")[1]
@@ -658,12 +661,12 @@ class Scores(commands.Cog):
         """Grab current scores from flashscore using aiohttp"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             if resp.status != 200:
-                rs = resp.reason
-                st = resp.status
-                logger.error("%s %s during score loop", st, rs)
+                reason = resp.reason
+                status = resp.status
+                logger.error("%s %s during score loop", status, reason)
                 return []
-            bt = bytearray(await resp.text(), encoding="utf-8")
-            tree = html.fromstring(bytes(bt))
+            bt_a = bytearray(await resp.text(), encoding="utf-8")
+            tree = html.fromstring(bytes(bt_a))
 
         data = tree.xpath('.//div[@id="score-data"]')[0]
         chunks = etree.tostring(data).decode("utf8").split("<br/>")
@@ -684,10 +687,10 @@ class Scores(commands.Cog):
                 continue
 
             # Set & forget: Competition, Teams
-            if (fx := self.bot.get_fixture(match_id)) is None:
+            if (fix := self.bot.get_fixture(match_id)) is None:
                 # These values never need to be updated.
-                xp = "./text()"
-                teams = [i.strip() for i in tree.xpath(xp) if i.strip()]
+                xpath = "./text()"
+                teams = [i.strip() for i in tree.xpath(xpath) if i.strip()]
 
                 if teams[0].startswith("updates"):
                     # Awaiting Updates.
@@ -722,22 +725,24 @@ class Scores(commands.Cog):
 
                 home = fs.Team(None, home_name, None)
                 away = fs.Team(None, away_name, None)
-                fx = fs.Fixture(home, away, match_id, url)
+                fix = fs.Fixture(home, away, match_id, url)
 
                 try:
                     crt = self.bot.loop.create_task
-                    task = crt(self.fetch_data(fx), name=f"fetchdata {fx.id}")
+                    task = crt(
+                        self.fetch_fixture(fix), name=f"fetchdata {fix.id}"
+                    )
                     task.add_done_callback(self.tasks.discard)
                 except pw_TimeoutError:
-                    logger.error("Timeout Error on %s", fx.url)
+                    logger.error("Timeout Error on %s", fix.url)
                     continue  # If a fucky happens.
 
-                self.bot.games.append(fx)
+                self.bot.games.append(fix)
                 await asyncio.sleep(0)
 
                 old_state = None
             else:
-                old_state = fx.state
+                old_state = fix.state
 
             # Handling red cards is done relatively simply, do this first.
             cards = tree.xpath("./img/@class")
@@ -751,24 +756,24 @@ class Scores(commands.Cog):
                         home_cards, away_cards = None, int(cards[0])
 
                 if home_cards is not None:
-                    if home_cards != fx.home_cards:
-                        if fx.home_cards is not None:
-                            if home_cards > fx.home_cards:
-                                t = EventType.RED_CARD
+                    if home_cards != fix.home_cards:
+                        if fix.home_cards is not None:
+                            if home_cards > fix.home_cards:
+                                sub_t = EventType.RED_CARD
                             else:
-                                t = EventType.VAR_RED_CARD
-                            self.bot.dispatch(FXE, t, fx, home=True)
-                        fx.home_cards = home_cards
+                                sub_t = EventType.VAR_RED_CARD
+                            self.bot.dispatch(FXE, sub_t, fix, home=True)
+                        fix.home_cards = home_cards
 
                 if away_cards is not None:
-                    if away_cards != fx.away_cards:
-                        if fx.away_cards is not None:
-                            if away_cards > fx.away_cards:
-                                t = EventType.RED_CARD
+                    if away_cards != fix.away_cards:
+                        if fix.away_cards is not None:
+                            if away_cards > fix.away_cards:
+                                sub_t = EventType.RED_CARD
                             else:
-                                t = EventType.VAR_RED_CARD
-                            self.bot.dispatch(FXE, t, fx, home=False)
-                        fx.away_cards = away_cards
+                                sub_t = EventType.VAR_RED_CARD
+                            self.bot.dispatch(FXE, sub_t, fix, home=False)
+                        fix.away_cards = away_cards
 
             # The time block can be 1 element or 2 elements long.
             # Element 1 is either a time of day HH:MM (e.g. 20:45)
@@ -786,25 +791,28 @@ class Scores(commands.Cog):
             else:
                 override = None
 
-            if time and fx.kickoff is None:
+            if time and fix.kickoff is None:
                 if ":" in time[0]:
                     time = time[0]
-                    ko = datetime.strptime(time, "%H:%M") - timedelta(hours=1)
+                    k_o = datetime.strptime(time, "%H:%M") - timedelta(hours=1)
 
                     # We use the parsed data to create a 'cleaner'
                     # datetime object, with no second or microsecond
                     # And set the day to today.
                     now = datetime.now(tz=timezone.utc)
-                    ko = now.replace(
-                        hour=ko.hour, minute=ko.minute, second=0, microsecond=0
+                    k_o = now.replace(
+                        hour=k_o.hour,
+                        minute=k_o.minute,
+                        second=0,
+                        microsecond=0,
                     )  # Discard micros
 
                     # If the game appears to be in the past
                     # but has not kicked off yet, add a day.
-                    if now.timestamp() > ko.timestamp() and state == "sched":
-                        ko += timedelta(days=1)
-                    fx.kickoff = ko
-                    fx.ordinal = ko.toordinal()
+                    if now.timestamp() > k_o.timestamp() and state == "sched":
+                        k_o += timedelta(days=1)
+                    fix.kickoff = k_o
+                    fix.ordinal = k_o.toordinal()
 
             # What we now need to do, is figure out the "state" of the game.
             # Things may then get … more difficult. Often, the score of a
@@ -822,27 +830,27 @@ class Scores(commands.Cog):
                 h_score = int(h_score)
                 a_score = int("".join([i for i in a_score if i.isdigit()]))
 
-                if fx.home_score != h_score:
-                    if fx.home_score is not None:
-                        if h_score > fx.home_score:
-                            ev = EventType.GOAL
+                if fix.home_score != h_score:
+                    if fix.home_score is not None:
+                        if h_score > fix.home_score:
+                            evt = EventType.GOAL
                         else:
-                            ev = EventType.VAR_GOAL
-                        self.bot.dispatch(FXE, ev, fx, home=True)
-                    fx.home_score = h_score
+                            evt = EventType.VAR_GOAL
+                        self.bot.dispatch(FXE, evt, fix, home=True)
+                    fix.home_score = h_score
 
-                if fx.away_score != a_score:
-                    if fx.away_score is not None:
-                        if a_score > fx.away_score:
-                            ev = EventType.GOAL
+                if fix.away_score != a_score:
+                    if fix.away_score is not None:
+                        if a_score > fix.away_score:
+                            evt = EventType.GOAL
                         else:
-                            ev = EventType.VAR_GOAL
-                        self.bot.dispatch(FXE, ev, fx, home=False)
-                    fx.away_score = a_score
+                            evt = EventType.VAR_GOAL
+                        self.bot.dispatch(FXE, evt, fix, home=False)
+                    fix.away_score = a_score
 
             if override:
                 try:
-                    fx.time = {
+                    fix.time = {
                         "aet": GameState.AFTER_EXTRA_TIME,
                         "fin": GameState.FULL_TIME,
                         "pen": GameState.AFTER_PENS,
@@ -854,37 +862,37 @@ class Scores(commands.Cog):
             elif len(time) == 1:
                 # From the link of the score, we can gather info about the time
                 # valid states are: sched, live, fin
-                t = time[0]
+                sub_t = time[0]
                 try:
-                    fx.time = {
+                    fix.time = {
                         "Break Time": GameState.BREAK_TIME,
                         "Extra Time": GameState.EXTRA_TIME,
                         "Half Time": GameState.HALF_TIME,
                         "Live": GameState.FINAL_RESULT_ONLY,
                         "Penalties": GameState.PENALTIES,
-                    }[t]
+                    }[sub_t]
                 except KeyError:
-                    if "'" not in t and ":" not in t:
-                        logger.error("1 part time unhandled: %s", t)
+                    if "'" not in sub_t and ":" not in sub_t:
+                        logger.error("1 part time unhandled: %s", sub_t)
                     else:
-                        fx.time = t
+                        fix.time = sub_t
             elif len(time) == 2:
-                t = time[-1]
+                sub_t = time[-1]
 
                 try:
-                    fx.time = {
+                    fix.time = {
                         "Abandoned": GameState.ABANDONED,
                         "Cancelled": GameState.CANCELLED,
                         "Delayed": GameState.DELAYED,
                         "Extra Time": GameState.EXTRA_TIME,
                         "Interrupted": GameState.INTERRUPTED,
                         "Postponed": GameState.POSTPONED,
-                    }[t]
+                    }[sub_t]
                 except KeyError:
                     logger.error("2 part time unhandled: %s", time)
 
             if old_state is not None:
-                self.dispatch_states(fx, old_state)
+                self.dispatch_states(fix, old_state)
         return self.bot.games
 
     livescores = discord.app_commands.Group(
@@ -904,18 +912,18 @@ class Scores(commands.Cog):
 
         home = away = fs.Team(None, "debug", None)
         fixture = fs.Fixture(home, away, None, url)
-        await self.fetch_data(fixture, force=True)
+        await self.fetch_fixture(fixture, force=True)
 
         edit = interaction.edit_original_response
         comp = fixture.competition
         if comp is None:
-            e = discord.Embed(title="Parsing Failed")
-            e.colour = discord.Colour.red()
+            embed = discord.Embed(title="Parsing Failed")
+            embed.colour = discord.Colour.red()
         else:
-            e = discord.Embed(title=comp.title, description="Parsed.")
-            e.colour = discord.Colour.green()
-            e.set_thumbnail(url=comp.logo_url)
-        return await edit(embed=e)
+            embed = discord.Embed(title=comp.title, description="Parsed.")
+            embed.colour = discord.Colour.green()
+            embed.set_thumbnail(url=comp.logo_url)
+        return await edit(embed=embed)
 
     @livescores.command()
     @discord.app_commands.describe(channel="Target Channel")
@@ -941,12 +949,12 @@ class Scores(commands.Cog):
 
         chans = self.bot.score_channels
         try:
-            sc = next(i for i in chans if i.channel.id == channel.id)
+            chan = next(i for i in chans if i.channel.id == channel.id)
         except StopIteration:
-            sc = ScoreChannel(channel)
-            self.bot.score_channels.append(sc)
+            chan = ScoreChannel(channel)
+            self.bot.score_channels.append(chan)
 
-        return await ScoresConfig(interaction, sc).update()
+        return await ScoresConfig(interaction, chan).update()
 
     @livescores.command()
     @discord.app_commands.describe(name="Enter a name for the channel")
@@ -959,10 +967,10 @@ class Scores(commands.Cog):
         assert interaction.guild is not None
         # command is flagged as guild_only.
 
-        u = interaction.user
+        user = interaction.user
         guild = interaction.guild
 
-        reason = f"{u} ({u.id}) created a live-scores channel."
+        reason = f"{user} ({user.id}) created a live-scores channel."
         topic = "Live Scores from around the world"
 
         try:
@@ -973,30 +981,30 @@ class Scores(commands.Cog):
             err = "I need manage_channels permissions to make a channel."
             return await self.bot.error(interaction, err)
 
-        ow_ = discord.PermissionOverwrite
-        ow = {
-            guild.default_role: ow_(send_messages=False),
-            guild.me: ow_(send_messages=True),
+        dow = discord.PermissionOverwrite
+        ow_ = {
+            guild.default_role: dow(send_messages=False),
+            guild.me: dow(send_messages=True),
         }
 
         try:
-            channel = await channel.edit(overwrites=ow)
+            channel = await channel.edit(overwrites=ow_)
         except discord.Forbidden:
             pass
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """INSERT INTO guild_settings (guild_id) VALUES ($1)
+                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
                     ON CONFLICT DO NOTHING"""
-                await connection.execute(q, interaction.guild.id)
-                q = """INSERT INTO scores_channels (guild_id, channel_id)
+                await connection.execute(sql, interaction.guild.id)
+                sql = """INSERT INTO scores_channels (guild_id, channel_id)
                     VALUES ($1, $2)"""
-                await connection.execute(q, channel.guild.id, channel.id)
+                await connection.execute(sql, channel.guild.id, channel.id)
 
-        self.bot.score_channels.append(sc := ScoreChannel(channel))
+        self.bot.score_channels.append(chan:= ScoreChannel(channel))
 
         try:
-            await sc.channel.send(
+            await chan.channel.send(
                 f"{interaction.user.mention} Welcome to your new livescores "
                 "channel.\n Use `/livescores add_league` to add new leagues,"
                 " and `/livescores manage` to remove them"
@@ -1006,7 +1014,7 @@ class Scores(commands.Cog):
             msg = f"{channel.mention} created, but I need send_messages perms."
         await interaction.followup.send(msg)
 
-        reset = ScoresConfig(interaction, sc).add_item(ResetLeagues())
+        reset = ScoresConfig(interaction, chan).add_item(ResetLeagues())
         return await reset.children[0].callback(interaction)
 
     @livescores.command()
@@ -1029,18 +1037,21 @@ class Scores(commands.Cog):
             raise ValueError(err)
 
         if competition.url is None:
-            raise LookupError("%s url is None", competition)
+            raise LookupError(
+                f"{competition} url is None",
+            )
 
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
-        chn = self.bot.score_channels
+        score_chans = self.bot.score_channels
         try:
-            sc = next(i for i in chn if i.channel.id == channel.id)
+            chan = next(i for i in score_chans if i.channel.id == channel.id)
         except StopIteration:
-            e = discord.Embed(colour=discord.Colour.red())
-            e.description = f"{channel.mention} is not a live-scores channel."
-            return await interaction.edit_original_response(embed=e)
+            embed = discord.Embed(colour=discord.Colour.red())
+            ment = channel.mention
+            embed.description = f"{ment} is not a live-scores channel."
+            return await interaction.edit_original_response(embed=embed)
 
         sql = """INSERT INTO scores_leagues (channel_id, url, league)
                 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
@@ -1049,14 +1060,13 @@ class Scores(commands.Cog):
         title = competition.title
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(sql, sc.channel.id, url, title)
+                await connection.execute(sql, chan.channel.id, url, title)
 
-        sc.leagues.add(competition)
-        e = discord.Embed(title="LiveScores: Tracked League Added")
-        e.description = f"{sc.channel.mention}\n\n{competition.url}"
-        u = interaction.user
-        e.set_footer(text=f"{u}\n{u.id}", icon_url=u.display_avatar.url)
-        return await interaction.edit_original_response(embed=e)
+        chan.leagues.add(competition)
+        embed = discord.Embed(title="LiveScores: Tracked League Added")
+        embed.description = f"{chan.channel.mention}\n\n{competition.url}"
+        embed_utils.user_to_footer(embed, interaction.user)
+        return await interaction.edit_original_response(embed=embed)
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
@@ -1069,9 +1079,9 @@ class Scores(commands.Cog):
                 sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
                 await connection.execute(sql, channel.id)
 
-        for c in self.bot.score_channels.copy():
-            if channel.id == c.channel.id:
-                self.bot.score_channels.remove(c)
+        for i in self.bot.score_channels.copy():
+            if channel.id == i.channel.id:
+                self.bot.score_channels.remove(i)
 
 
 async def setup(bot: Bot):

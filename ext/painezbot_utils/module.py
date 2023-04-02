@@ -2,6 +2,9 @@
 import typing
 
 
+# TODO: Convert to Dataclasses & Dump in wows_api
+
+
 class Module:
     """A Module that can be mounted on a ship"""
 

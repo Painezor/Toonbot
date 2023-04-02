@@ -82,9 +82,7 @@ class BanView(view_utils.BaseView):
 
         guild = typing.cast(discord.Guild, self.interaction.guild)
 
-        user = self.interaction.user
-        ico = user.display_avatar.url
-        embed.set_footer(text=f"{user}\n{user.id}", icon_url=ico)
+        embed_utils.user_to_footer(embed, self.interaction.user)
 
         reason = f"Requested by {self.interaction.user}"
         for ban in [b for b in self.page_bans if str(b.user.id) in bans]:

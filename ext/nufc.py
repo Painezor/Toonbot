@@ -1,14 +1,14 @@
 """Commands specific to the r/NUFC discord"""
 from __future__ import annotations
 
-from datetime import timedelta
+import datetime
 import random
 import typing
 
 import discord
 from discord.ext import commands
-from ext.logs import stringify_seconds
 
+from ext.logs import stringify_seconds
 from ext.utils.view_utils import BaseView
 
 if typing.TYPE_CHECKING:
@@ -184,11 +184,12 @@ class MbembaView(BaseView):
         self.clear_items()
         self.add_item(MbembaButton())
 
-        t = random.choice(MBEMBA)
-        e = discord.Embed(title="Mbemba when", colour=discord.Colour.purple())
-        e.description = f"<:mbemba:332196308825931777> {t}"
+        item = random.choice(MBEMBA)
+        embed = discord.Embed(title="Mbemba when")
+        embed.colour = discord.Colour.purple()
+        embed.description = f"<:mbemba:332196308825931777> {item}"
         edit = self.interaction.edit_original_response
-        return await edit(embed=e, view=self)
+        return await edit(embed=embed, view=self)
 
 
 class MbembaButton(discord.ui.Button):
@@ -239,10 +240,10 @@ class NUFC(commands.Cog):
 
         member = typing.cast(discord.Member, interaction.user)
 
-        e = discord.Embed(description="Your colour has been updated.")
+        embed = discord.Embed(description="Your colour has been updated.")
         try:
-            c = hex_code.strip("#").replace("0x", "").upper()
-            d_colo = discord.Colour(int(c, 16))
+            code = hex_code.strip("#").replace("0x", "").upper()
+            d_colo = discord.Colour(int(code, 16))
         except ValueError:
             view = discord.ui.View()
             btn = discord.ui.Button(style=discord.ButtonStyle.url)
@@ -261,15 +262,17 @@ class NUFC(commands.Cog):
             )
 
         await member.add_roles(role, reason="Apply colour role")
-        e.colour = role.color
+        embed.colour = role.color
 
         # Remove old role.
         remove_list = [i for i in member.roles if i.name.startswith("#")]
         await member.remove_roles(*remove_list)
 
         # Cleanup old roles.
-        [await i.delete() for i in remove_list if not i.members]
-        return await interaction.response.send_message(embed=e)
+        for i in remove_list:
+            if not i.members:
+                await i.delete()
+        return await interaction.response.send_message(embed=embed)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
@@ -307,9 +310,9 @@ class NUFC(commands.Cog):
             or interaction.channel is None
             or not interaction.app_permissions.add_reactions
         ):
-            e = discord.Embed(colour=discord.Colour.red())
-            e.description = "❌ I can't react in this channel"
-            await interaction.edit_original_response(embed=e)
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = "❌ I can't react in this channel"
+            await interaction.edit_original_response(embed=embed)
             return
 
         async for message in interaction.channel.history(limit=10):
@@ -329,9 +332,9 @@ class NUFC(commands.Cog):
             )
             or interaction.channel is None
         ):
-            e = discord.Embed(colour=discord.Colour.red())
-            e.description = "❌ I can't react in this channel"
-            await interaction.edit_original_response(embed=e)
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = "❌ I can't react in this channel"
+            await interaction.edit_original_response(embed=embed)
             return
 
         async for message in interaction.channel.history(limit=10):
@@ -363,28 +366,27 @@ class NUFC(commands.Cog):
     @discord.app_commands.describe(timeout="Timeout duration if you lose")
     async def roulette(
         self, interaction: discord.Interaction[Bot], timeout: int = 60
-    ) -> None:
+    ) -> discord.InteractionMessage:
         """Russian Roulette"""
+        await interaction.response.defer(thinking=True)
         if isinstance(interaction.user, discord.User):
-            return
+            raise commands.NoPrivateMessage
 
         if random.choice([False * 5, True]):
-            e = discord.Embed(colour=discord.Colour.red(), title="Bang")
-            e.description = f"Timed out for {stringify_seconds(timeout)}"
+            embed = discord.Embed(colour=discord.Colour.red(), title="Bang")
 
-            time = timedelta(seconds=timeout)
+            time = datetime.timedelta(seconds=timeout)
             try:
                 await interaction.user.timeout(time, reason="Roulette")
-                await interaction.response.send_message(interaction, embed=e)
+                secs = stringify_seconds(timeout)
+                embed.description = f"Timed out for {secs}"
             except discord.Forbidden:
-                e.description = "The bullet bounced off your thick skull."
-                e.set_footer(text="I can't time you out")
-                await interaction.response.send_message(interaction, embed=e)
+                embed.description = "The bullet bounced off your thick skull."
+                embed.set_footer(text="I can't time you out")
         else:
-            e = discord.Embed(title="Click")
-            e.description = f"{stringify_seconds(timeout)} timeout avoided."
-            e.colour = discord.Colour.green()
-            await interaction.response.send_message(interaction, embed=e)
+            embed = discord.Embed(title="Click", colour=discord.Colour.green())
+            embed.description = f"{stringify_seconds(timeout)} timeout avoided"
+        return await interaction.edit_original_response(embed=embed)
 
 
 async def setup(bot: Bot) -> None:

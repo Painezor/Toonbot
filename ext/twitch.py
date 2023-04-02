@@ -343,8 +343,7 @@ class TrackerConfig(view_utils.BaseView):
             await self.chan.untrack(roles)
             embed = discord.Embed(title="Tracked roles removed")
             embed.description = f"{mention}\n{mentions}"
-            ico = itr.user.display_avatar.url
-            embed.set_footer(text=f"{itr.user}\n{itr.user.id}", icon_url=ico)
+            embed_utils.user_to_footer(embed, self.interaction.user)
             await self.interaction.followup.send(embed=embed)
 
         return await edit(view=self)

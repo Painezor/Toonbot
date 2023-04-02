@@ -25,22 +25,22 @@ class MetaToonbot(commands.Cog):
     async def invite(self, interaction: discord.Interaction[Bot]) -> None:
         """Get the bots invite link"""
         view = discord.ui.View()
-        b = discord.ui.Button(style=discord.ButtonStyle.url, url=INV)
-        b.label = "Invite me to your server"
-        view.add_item(b)
-        e = discord.Embed()
-        e.description = "Use the button below to invite me to your server."
-        return await interaction.response.send_message(embed=e, view=view)
+        btn = discord.ui.Button(style=discord.ButtonStyle.url, url=INV)
+        btn.label = "Invite me to your server"
+        view.add_item(btn)
+        embed = discord.Embed()
+        embed.description = "Use the button below to invite me to your server."
+        return await interaction.response.send_message(embed=embed, view=view)
 
     @discord.app_commands.command()
     async def about(self, interaction: discord.Interaction[Bot]) -> None:
         """Tells you information about the bot itself."""
-        u = typing.cast(discord.Member, self.bot.user)
-        e = discord.Embed(colour=0x2ECC71, timestamp=u.created_at)
-        e.set_footer(text=f"{u.name} is coded by Painezor and was created ")
+        user = typing.cast(discord.Member, self.bot.user)
+        embed = discord.Embed(colour=0x2ECC71, timestamp=user.created_at)
+        embed.set_footer(text=f"{user.name} is coded (badly) by Painezor")
 
-        e.set_thumbnail(url=u.display_avatar.url)
-        e.title = f"About {u.name}"
+        embed.set_thumbnail(url=user.display_avatar.url)
+        embed.title = f"About {user.name}"
 
         # statistics
         total_members = sum(len(g.members) for g in self.bot.guilds)
@@ -48,7 +48,7 @@ class MetaToonbot(commands.Cog):
         g = format(len(self.bot.guilds), ",")
         members = f"{format(total_members, ',')} users across {g} servers."
 
-        e.description = (
+        embed.description = (
             f"I do football lookup related things.\n I serve commands from"
             f"{members}\n I was created by Painezor#8489 as a hobby, feel free"
             " to send a  donation if you would like to help support me with "
@@ -57,17 +57,17 @@ class MetaToonbot(commands.Cog):
         )
 
         view = discord.ui.View()
-        s = (
+        text = (
             "Join my Support Server",
             "http://www.discord.gg/a5NHvPx",
             "<:Toonbot:952717855474991126>",
         )
-        i = ("Invite me to your server", INV, None)
-        d = ("Donate", "https://paypal.me/Toonbot", None)
-        for label, link, emoji in [s, i, d]:
+        invite = ("Invite me to your server", INV, None)
+        dono = ("Donate", "https://paypal.me/Toonbot", None)
+        for label, link, emoji in [text, invite, dono]:
             btn = discord.ui.Button(url=link, label=label, emoji=emoji)
             view.add_item(btn)
-        return await interaction.response.send_message(embed=e, view=view)
+        return await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot: Bot):

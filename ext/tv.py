@@ -56,32 +56,32 @@ class TVSelect(view_utils.BaseView):
     async def update(self):
         """Handle Pagination"""
         targets: list = self.pages[self.index]
-        d = view_utils.ItemSelect(placeholder="Please choose a Team")
-        e = discord.Embed(title="Choose a Team", description="")
-
-        e.description = ""
+        sel = view_utils.ItemSelect(placeholder="Please choose a Team")
+        embed = discord.Embed(title="Choose a Team")
+        embed.description = ""
 
         for team in targets:
-            d.add_option(emoji="📺", label=team, value=self.bot.tv_dict[team])
-            e.description += f"{team}\n"
-        self.add_item(d)
+            value = self.bot.tv_dict[team]
+            sel.add_option(emoji="📺", label=team, value=value)
+            embed.description += f"{team}\n"
+        self.add_item(sel)
         self.add_page_buttons(1)
 
         edit = self.interaction.edit_original_response
-        return await edit(embed=e, view=self)
+        return await edit(embed=embed, view=self)
 
 
 async def tv_ac(
     interaction: discord.Interaction[Bot], current: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Return list of live teams"""
-    cr = current.casefold()
+    cur = current.casefold()
 
     choices = []
-    for x in interaction.client.tv_dict.keys():
-        if cr not in x.casefold():
+    for key in interaction.client.tv_dict.keys():
+        if cur not in key.casefold():
             continue
-        choices.append(discord.app_commands.Choice(name=x[:100], value=x))
+        choices.append(discord.app_commands.Choice(name=key[:100], value=key))
 
     return choices[:25]
 
@@ -91,33 +91,33 @@ class Tv(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        with open("tv.json") as f:
-            self.bot.tv_dict = json.load(f)
+        with open("tv.json", encoding="utf-8") as data:
+            self.bot.tv_dict = json.load(data)
 
-    @discord.app_commands.command()
+    @discord.app_commands.command(name="tv")
     @discord.app_commands.describe(team="Search for a team")
     @discord.app_commands.autocomplete(team=tv_ac)
-    async def tv(
+    async def tv_cmd(
         self, interaction: discord.Interaction[Bot], team: typing.Optional[str]
     ) -> discord.InteractionMessage:
         """Lookup next televised games for a team"""
 
         await interaction.response.defer(thinking=True)
 
-        e = discord.Embed(colour=0x034F76)
-        e.set_author(name="LiveSoccerTV.com")
+        embed = discord.Embed(colour=0x034F76)
+        embed.set_author(name="LiveSoccerTV.com")
 
         # Selection View if team is passed
         if team:
             if team in self.bot.tv_dict:
-                e.url = self.bot.tv_dict[team]
-                e.title = f"Televised Fixtures for {team}"
+                embed.url = self.bot.tv_dict[team]
+                embed.title = f"Televised Fixtures for {team}"
 
             else:
                 dct = self.bot.tv_dict
 
-                tm = team.casefold()
-                matches = [i for i in dct if tm in i.casefold()]
+                name = team.casefold()
+                matches = [i for i in dct if name in i.casefold()]
 
                 if not matches:
                     err = f"Could not find a matching team for {team}."
@@ -125,18 +125,18 @@ class Tv(commands.Cog):
 
                 await (view := TVSelect(interaction, matches)).update()
                 await view.wait()
-                e.url = self.bot.tv_dict[view.value[0]]
-                e.title = f"Televised Fixtures for {view.value[0]}"
+                embed.url = self.bot.tv_dict[view.value[0]]
+                embed.title = f"Televised Fixtures for {view.value[0]}"
         else:
-            e.url = LST + "schedules/"
-            e.title = "Today's Televised Matches"
+            embed.url = LST + "schedules/"
+            embed.title = "Today's Televised Matches"
 
-        async with self.bot.session.get(e.url, headers=HEADERS) as resp:
+        async with self.bot.session.get(embed.url, headers=HEADERS) as resp:
             match resp.status:
                 case 200:
                     tree = html.fromstring(await resp.text())
                 case _:
-                    err = f"{e.url} returned a HTTP {resp.status} error."
+                    err = f"{embed.url} returned a HTTP {resp.status} error."
                     return await self.bot.error(interaction, err)
 
         # match_column = 3 if not team else 5
@@ -144,17 +144,18 @@ class Tv(commands.Cog):
         rows = []
         for i in tree.xpath(".//table[@class='schedules'][1]//tr"):
             # Discard finished games.
-            xp = './/td[@class="livecell"]//span/@class'
-            if "".join(i.xpath(xp)).strip() in ["narrow ft", "narrow repeat"]:
+            xpath = './/td[@class="livecell"]//span/@class'
+            text = "".join(i.xpath(xpath)).strip()
+            if text in ["narrow ft", "narrow repeat"]:
                 continue
 
-            xp = f".//td[{match_column}]//text()"
-            if not (match := "".join(i.xpath(xp)).strip()):
+            xpath = f".//td[{match_column}]//text()"
+            if not (match := "".join(i.xpath(xpath)).strip()):
                 continue
 
-            xp = f".//td[{match_column + 1}]//a/@href"
+            xpath = f".//td[{match_column + 1}]//a/@href"
             try:
-                link = LST + f"{i.xpath(xp)[-1]}"
+                link = LST + f"{i.xpath(xpath)[-1]}"
             except IndexError:
                 link = ""
 
@@ -162,29 +163,29 @@ class Tv(commands.Cog):
                 timestamp = int(i.xpath(".//@dv")[0])
                 timestamp = datetime.datetime.fromtimestamp(timestamp / 1000)
                 if match_column == 3:
-                    ts = timed_events.Timestamp(timestamp).date
+                    t_s = timed_events.Timestamp(timestamp).date
                 else:
-                    ts = timed_events.Timestamp(timestamp).time_hour
+                    t_s = timed_events.Timestamp(timestamp).time_hour
 
             except (ValueError, IndexError):
-                xp = './/td[@class="datecell"]//span/text()'
-                date = "".join(i.xpath(xp)).strip()
+                xpath = './/td[@class="datecell"]//span/text()'
+                date = "".join(i.xpath(xpath)).strip()
 
-                xp = './/td[@class="timecell"]//span/text()'
-                time = "".join(i.xpath(xp)).strip()
+                xpath = './/td[@class="timecell"]//span/text()'
+                time = "".join(i.xpath(xpath)).strip()
                 if time not in ["Postp.", "TBA"]:
                     txt = "invalid timestamp.\nDate [%s] Time [%s]"
                     logger.warning(txt, date, time)
-                ts = time
+                t_s = time
 
-            rows.append(f"{ts}: [{match}]({link})")
+            rows.append(f"{t_s}: [{match}]({link})")
 
         if not rows:
-            rows = [f"No televised matches found, check online at {e.url}"]
+            rows = [f"No televised matches found, check online at {embed.url}"]
 
-        embeds = embed_utils.rows_to_embeds(e, rows)
-        v = view_utils.Paginator(interaction, embeds)
-        return await v.update()
+        embeds = embed_utils.rows_to_embeds(embed, rows)
+        view = view_utils.Paginator(interaction, embeds)
+        return await view.update()
 
 
 async def setup(bot: Bot) -> None:

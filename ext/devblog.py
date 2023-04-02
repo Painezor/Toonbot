@@ -8,14 +8,12 @@ import asyncpg
 import discord
 from discord.ext import commands, tasks
 from lxml import html
-from lxml.html import HtmlElement
+import yatg
 
-from ext.utils import flags, view_utils
+from ext.utils import flags, view_utils, embed_utils
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
-
-import yatg
 
 logger = logging.getLogger("Devblog")
 
@@ -50,7 +48,7 @@ SHIP_EMOTES = {
 }
 
 
-def get_emote(node: HtmlElement):
+def get_emote(node: html.HtmlElement):
     """Get the appropriate emote for ship class & rarity combination"""
     if (s_class := node.attrib.get("data-type", None)) is None:
         return ""
@@ -96,24 +94,24 @@ class Blog:
 
         tree = html.fromstring(src)
         title = str(tree.xpath(".//title/text()")[0])
-        self.title = title.split(" - Development")[0]
+        self.title = title.split(" - Development", maxsplit=1)[0]
 
         self.text = tree.xpath('.//div[@class="article__content"]')[
             0
         ].text_content()
 
         if self.text:
-            logger.info(f"Storing Dev Blog #{self.id}")
+            logger.info("Storing Dev Blog #%s", self.id)
         else:
             return
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """INSERT INTO dev_blogs (id, title, text)
+                sql = """INSERT INTO dev_blogs (id, title, text)
                        VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
-                await connection.execute(q, self.id, self.title, self.text)
+                await connection.execute(sql, self.id, self.title, self.text)
 
-    async def parse(self) -> discord.Embed:
+    async def make_embed(self) -> discord.Embed:
         """Get Embed from the Dev Blog page"""
         async with self.bot.session.get(self.url) as resp:
             tree = html.fromstring(await resp.text())
@@ -122,18 +120,18 @@ class Blog:
 
         blog_number = self.id
         title = "".join(tree.xpath('.//h2[@class="article__title"]/text()'))
-        e = discord.Embed(url=self.url, title=title, colour=0x00FFFF)
-        e.timestamp = discord.utils.utcnow()
+        embed = discord.Embed(url=self.url, title=title, colour=0x00FFFF)
+        embed.timestamp = discord.utils.utcnow()
 
         txt = f"World of Warships Development Blog #{blog_number}"
-        e.set_author(name=txt, url="https://blog.worldofwarships.com/")
+        embed.set_author(name=txt, url="https://blog.worldofwarships.com/")
         output = []
 
-        def parse(node: HtmlElement) -> str:
+        def parse(node: html.HtmlElement) -> str:
             """Parse a single node"""
 
             if node.tag == "img":
-                e.set_image(url="http:" + node.attrib["src"])
+                embed.set_image(url="http:" + node.attrib["src"])
                 return ""
 
             out = []
@@ -277,10 +275,10 @@ class Blog:
 
         if len(output := "".join(output)) > 4000:
             trunc = f"…\n[Read Full Article]({self.url})"
-            e.description = output.ljust(4000)[: 4000 - len(trunc)] + trunc
+            embed.description = output.ljust(4000)[: 4000 - len(trunc)] + trunc
         else:
-            e.description = output
-        return e
+            embed.description = output
+        return embed
 
 
 class DevBlogView(view_utils.BaseView):
@@ -299,8 +297,8 @@ class DevBlogView(view_utils.BaseView):
         """Push the latest version of the view to discord."""
         self.clear_items()
         self.add_page_buttons()
-        e = await self.pages[self.index].parse()
-        return await self.interaction.edit_original_response(embed=e)
+        embed = await self.pages[self.index].make_embed()
+        return await self.interaction.edit_original_response(embed=embed)
 
 
 async def db_ac(
@@ -364,9 +362,9 @@ class DevBlog(commands.Cog):
                 continue
 
             try:
-                blog_id = int(link.split("/")[-1])
+                blog_id = int(link.rsplit("/", maxsplit=1)[-1])
             except ValueError:
-                logging.error(f"Could not parse blog_id from link {link}")
+                logging.error("Could not parse blog_id from link %s", link)
                 continue
 
             if blog_id in [r.id for r in self.bot.dev_blog_cache]:
@@ -377,16 +375,16 @@ class DevBlog(commands.Cog):
             await blog.save_to_db()
             await self.get_blogs()
 
-            e = await blog.parse()
+            embed = await blog.make_embed()
 
-            for x in self.bot.dev_blog_channels:
+            for i in self.bot.dev_blog_channels:
                 try:
-                    ch = self.bot.get_channel(x)
-                    if ch is None:
+                    channel = self.bot.get_channel(i)
+                    if channel is None:
                         continue
 
-                    ch = typing.cast(discord.TextChannel, ch)
-                    await ch.send(embed=e)
+                    channel = typing.cast(discord.TextChannel, channel)
+                    await channel.send(embed=embed)
                 except (AttributeError, discord.HTTPException):
                     continue
 
@@ -403,8 +401,8 @@ class DevBlog(commands.Cog):
         """Get a list of old dev blogs stored in DB"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """SELECT * FROM dev_blogs"""
-                records = await connection.fetch(q)
+                sql = """SELECT * FROM dev_blogs"""
+                records = await connection.fetch(sql)
 
         self.bot.dev_blog_cache = [
             Blog(r["id"], title=r["title"], text=r["text"]) for r in records
@@ -419,14 +417,11 @@ class DevBlog(commands.Cog):
     ) -> discord.InteractionMessage:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
-        if (channel := interaction.channel) is None:
-            raise
+        if None in (interaction.channel, interaction.guild):
+            raise commands.NoPrivateMessage
 
-        channel = typing.cast(discord.TextChannel, channel)
-
-        if (guild := interaction.guild) is None:
-            raise
-
+        channel = typing.cast(discord.TextChannel, interaction.channel)
+        guild = typing.cast(discord.Guild, interaction.guild)
         await interaction.response.defer(thinking=True)
 
         if enabled:
@@ -447,13 +442,10 @@ class DevBlog(commands.Cog):
 
         await self.update_cache()
 
-        e = discord.Embed(colour=colour, title="Dev Blog Tracker")
-        e.description = output
-
-        u = self.bot.user
-        if u is not None:
-            e.set_author(icon_url=u.display_avatar.url, name=u.name)
-        return await interaction.edit_original_response(embed=e)
+        embed = discord.Embed(colour=colour, title="Dev Blog Tracker")
+        embed.description = output
+        embed_utils.user_to_footer(embed, interaction.user)
+        return await interaction.edit_original_response(embed=embed)
 
     @discord.app_commands.command()
     @discord.app_commands.autocomplete(search=db_ac)
@@ -470,13 +462,13 @@ class DevBlog(commands.Cog):
         dbc = self.bot.dev_blog_cache
         try:
             blog = next(i for i in dbc if i.id == int(search))
-            e = await blog.parse()
-            return await interaction.edit_original_response(embed=e)
+            embed = await blog.make_embed()
+            return await interaction.edit_original_response(embed=embed)
         except StopIteration:
             # If a specific blog is not selected, send the browser view.
-            s = search.casefold()
-            matches = [i for i in dbc if s in f"{i.title} {i.text}".casefold()]
-            view = DevBlogView(interaction, pages=matches)
+            txt = search.casefold()
+            yes = [i for i in dbc if txt in f"{i.title} {i.text}".casefold()]
+            view = DevBlogView(interaction, pages=yes)
             return await view.update()
 
     @commands.Cog.listener()

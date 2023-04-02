@@ -39,10 +39,6 @@ class Info(commands.Cog):
 
         if user is None:
             user = interaction.user
-        else:
-            auth = interaction.user
-            ico = auth.display_avatar.url
-            embed.set_author(name=f"{auth} ({auth.id})", icon_url=ico)
 
         embed.description = f"{user.mention}'s avatar"
         embed.colour = user.colour

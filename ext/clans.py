@@ -233,9 +233,9 @@ class ClanView(view_utils.BaseView):
         # Clan Records:
         await self.clan.get_members_vortex()
 
-        c_wr = round(sum(c.win_rate for c in mems) / len(mems), 2)
+        c_wr = round(sum(i.win_rate for i in mems) / len(mems), 2)
 
-        avg_dmg = round(sum(c.average_damage for c in mems) / len(mems))
+        avg_dmg = round(sum(i.average_damage for i in mems) / len(mems))
         c_dmg = format(avg_dmg, ",")
 
         avg_xp = round(sum(c.average_xp for c in mems) / len(mems), 2)

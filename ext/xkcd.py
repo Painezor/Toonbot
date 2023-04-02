@@ -36,15 +36,15 @@ class XKCDView(view_utils.BaseView):
 
         def parse() -> discord.Embed:
             """Convert JSON To Embed"""
-            e = discord.Embed(title=f"{json['num']}: {json['safe_title']}")
+            embed = discord.Embed(title=f"{json['num']}: {json['safe_title']}")
 
-            y = int(json["year"])
-            m = int(json["month"])
-            ts = datetime.datetime(y, m, int(json["day"]))
-            e.timestamp = ts
-            e.set_footer(text=json["alt"])
-            e.set_image(url=json["img"])
-            return e
+            year = int(json["year"])
+            month = int(json["month"])
+            time = datetime.datetime(year, month, int(json["day"]))
+            embed.timestamp = time
+            embed.set_footer(text=json["alt"])
+            embed.set_image(url=json["img"])
+            return embed
 
         self.clear_items()
         return await self.interaction.edit_original_response(embed=parse())

@@ -1,12 +1,14 @@
+"""Calculation of Overmatch"""
 from __future__ import annotations
 
-from discord.ext import commands
-
 import typing
+
 import discord
+from discord.ext import commands
 
 if typing.TYPE_CHECKING:
     from painezBot import PBot
+
 
 DC = "https://media.discordapp.net/attachments/"
 OVERMATCH = DC + "303154190362869761/990588535201484800/unknown.png"
@@ -104,7 +106,9 @@ OM_CA = {
 }
 
 
-class OvrMatch(commands.Cog):
+class OverMatch(commands.Cog):
+    """The Overmatch Cog"""
+
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
 
@@ -123,21 +127,21 @@ class OvrMatch(commands.Cog):
         await interaction.response.defer(thinking=True)
         value = round(shell_calibre / 14.3)
 
-        e = discord.Embed(colour=0x0BCDFB)
-        e.title = f"{shell_calibre}mm Shells overmatch {value}mm of Armour"
+        embed = discord.Embed(colour=0x0BCDFB)
+        embed.title = f"{shell_calibre}mm Shells overmatch {value}mm of Armour"
 
         ca_om = "\n".join(OM_CA[max(i for i in OM_CA if i <= value)])
 
         if ca_om:
-            e.add_field(name="Cruisers", value=ca_om, inline=False)
+            embed.add_field(name="Cruisers", value=ca_om, inline=False)
 
         bb_om = "\n".join(OM_BB[max(i for i in OM_BB if i <= value)])
         if bb_om:
-            e.add_field(name="Battleships", value=bb_om, inline=False)
+            embed.add_field(name="Battleships", value=bb_om, inline=False)
 
-        e.set_thumbnail(url=OVERMATCH)
-        e.set_footer(text=f"{shell_calibre}mm / 14.3 = {value}mm")
-        return await interaction.edit_original_response(embed=e)
+        embed.set_thumbnail(url=OVERMATCH)
+        embed.set_footer(text=f"{shell_calibre}mm / 14.3 = {value}mm")
+        return await interaction.edit_original_response(embed=embed)
 
     @om.command()
     @discord.app_commands.describe(armour_thickness="Thickness of armour (mm)")
@@ -145,25 +149,25 @@ class OvrMatch(commands.Cog):
         self, interaction: discord.Interaction[PBot], armour_thickness: int
     ) -> discord.InteractionMessage:
         """Get what gun size is required to overmatch an armour thickness"""
-        r = armour_thickness
+        thk = armour_thickness
         value = round(armour_thickness * 14.3)
 
-        e = discord.Embed(colour=0x0BCDFB)
-        e.title = f"{r}mm of Armour is overmatched by {value}mm Guns"
+        embed = discord.Embed(colour=0x0BCDFB)
+        embed.title = f"{thk}mm of Armour is overmatched by {value}mm Guns"
 
-        om_ca = "\n".join(OM_CA[max(i for i in OM_CA if i <= r)])
+        om_ca = "\n".join(OM_CA[max(i for i in OM_CA if i <= thk)])
         if om_ca:
-            e.add_field(name="Cruisers", value=om_ca, inline=False)
+            embed.add_field(name="Cruisers", value=om_ca, inline=False)
 
-        om_bb = "\n".join(OM_BB[max(i for i in OM_BB if i <= r)])
+        om_bb = "\n".join(OM_BB[max(i for i in OM_BB if i <= thk)])
         if om_bb:
-            e.add_field(name="Battleships", value=om_bb, inline=False)
+            embed.add_field(name="Battleships", value=om_bb, inline=False)
 
-        e.set_thumbnail(url=OVERMATCH)
-        e.set_footer(text=f"{value}mm * 14.3 = {value}mm")
-        return await interaction.edit_original_response(embed=e)
+        embed.set_thumbnail(url=OVERMATCH)
+        embed.set_footer(text=f"{value}mm * 14.3 = {value}mm")
+        return await interaction.edit_original_response(embed=embed)
 
 
 async def setup(bot: PBot):
     """Load the Warships Cog into the bot"""
-    await bot.add_cog(OvrMatch(bot))
+    await bot.add_cog(OverMatch(bot))

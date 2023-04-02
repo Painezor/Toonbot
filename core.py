@@ -28,7 +28,7 @@ if typing.TYPE_CHECKING:
     from ext.transfers import TransferChannel
 
 
-with open("credentials.json", "r") as fun:
+with open("credentials.json", mode="r", encoding="utf-8") as fun:
     credentials = json.load(fun)
 
 COGS = [
@@ -143,8 +143,8 @@ class Bot(commands.AutoShardedBot):
 
         # Announce aliveness
         started = self.initialised_at.strftime("%d-%m-%Y %H:%M:%S")
-        x = f"Toonbot __init__ ran: {started}"
-        logger.info(f"{x}\n" + "-" * len(x))
+        started = f"Toonbot __init__ ran: {started}"
+        logger.info(f"{started}\n" + "-" * len(started))
 
     async def setup_hook(self) -> None:
         """Create our browsers then load our cogs."""
@@ -156,13 +156,13 @@ class Bot(commands.AutoShardedBot):
         # playwright
         self.browser = await make_browser()
 
-        for c in COGS:
+        for i in COGS:
             try:
-                await self.load_extension(c)
-                logger.info("Loaded %s", c)
-            except Exception as error:
+                await self.load_extension(i)
+                logger.info("Loaded %s", i)
+            except commands.ExtensionError as error:
                 err = f"{type(error).__name__}: {error}"
-                logger.error("Failed to load cog %s\n%s", c, err)
+                logger.error("Failed to load cog %s\n%s", i, err)
         return
 
     def get_competition(self, value: str) -> typing.Optional[fs.Competition]:
@@ -221,7 +221,7 @@ async def run() -> None:
     database = await asyncpg.create_pool(**credentials["ToonbotDB"])
 
     if database is None:
-        raise Exception("Failed to initialise database.")
+        raise ConnectionError("Failed to initialise database.")
 
     bot: Bot = Bot(database=database)
 

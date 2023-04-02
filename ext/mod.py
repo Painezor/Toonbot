@@ -99,28 +99,28 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
     ) -> None:
         """Send the embed"""
         await interaction.response.send_message("Sent!", ephemeral=True)
-        e = discord.Embed(title=self.ttl, colour=self.colour)
+        embed = discord.Embed(title=self.ttl, colour=self.colour)
 
-        g = typing.cast(Guild, self.interaction.guild)
+        guild = typing.cast(Guild, self.interaction.guild)
 
-        if g is None:
-            raise
+        if guild is None:
+            raise commands.NoPrivateMessage
 
-        icon_url = g.icon.url if g.icon else None
-        e.set_author(name=g.name, icon_url=icon_url)
+        icon_url = guild.icon.url if guild.icon else None
+        embed.set_author(name=guild.name, icon_url=icon_url)
 
         if self.image.value is not None:
             if "http:" in self.image.value:
-                e.set_image(url=self.image.value)
+                embed.set_image(url=self.image.value)
 
         if self.thumbnail.value is not None:
             if "http:" in self.thumbnail.value:
-                e.set_thumbnail(url=self.thumbnail.value)
+                embed.set_thumbnail(url=self.thumbnail.value)
 
-        e.description = self.text.value
+        embed.description = self.text.value
 
         try:
-            await self.destination.send(embed=e)
+            await self.destination.send(embed=embed)
         except discord.HTTPException:
             err = "I can't send messages to that channel."
             await self.bot.error(interaction, err)
@@ -148,13 +148,13 @@ class Mod(commands.Cog):
         if destination is None:
             destination = typing.cast(discord.TextChannel, interaction.channel)
 
-        # TODO: Fuck this, go add all of the actual dcolos to the damn Enum.
+        # TODO: Make this into a transformer
         clr = next(
             (i.value for i in DiscordColours if i.value == colour), "random"
         )
-        cl: Colour = getattr(Colour, clr)()
+        colo: discord.Colour = getattr(Colour, clr)()
 
-        modal = EmbedModal(self.bot, interaction, destination, cl)
+        modal = EmbedModal(self.bot, interaction, destination, colo)
 
         await interaction.response.send_modal(modal)
 
@@ -207,16 +207,16 @@ class Mod(commands.Cog):
         """Deletes my messages from the last x messages in channel"""
         await interaction.response.defer(thinking=True)
 
-        def is_me(m):
+        def is_me(message):
             """Return only messages sent by the bot."""
-            return m.author.id == self.bot.application_id
+            return message.author.id == self.bot.application_id
 
         channel = typing.cast(TextChannel, interaction.channel)
         reason = f"/clean ran by {interaction.user}"
 
-        d = await channel.purge(limit=number, check=is_me, reason=reason)
+        dlt = await channel.purge(limit=number, check=is_me, reason=reason)
 
-        msg = f'♻ Deleted {len(d)} bot message{"s" if len(d) > 1 else ""}'
+        msg = f'♻ Deleted {len(dlt)} bot message{"s" if len(dlt) > 1 else ""}'
         return await interaction.edit_original_response(content=msg)
 
     @discord.app_commands.command()
@@ -233,19 +233,19 @@ class Mod(commands.Cog):
         reason: str = "Not provided",
     ) -> None:
         """End the timeout for a user."""
-        e = discord.Embed(colour=discord.Colour.red())
+        embed = discord.Embed(colour=discord.Colour.red())
         if not member.is_timed_out():
-            e.description = "That user is not timed out."
-            return await interaction.response.send_message(embed=e)
+            embed.description = "That user is not timed out."
+            return await interaction.response.send_message(embed=embed)
 
         try:
             await member.timeout(None, reason=f"{interaction.user}: {reason}")
-            e.title = "User Un-Timed Out"
-            e.color = discord.Colour.dark_magenta()
-            e.description = f"{member.mention} is no longer timed out."
+            embed.title = "User Un-Timed Out"
+            embed.color = discord.Colour.dark_magenta()
+            embed.description = f"{member.mention} is no longer timed out."
         except discord.HTTPException:
-            e.description = "I can't un-timeout that user."
-        return await interaction.response.send_message(embed=e)
+            embed.description = "I can't un-timeout that user."
+        return await interaction.response.send_message(embed=embed)
 
     # Listeners
     @commands.Cog.listener()
@@ -253,17 +253,17 @@ class Mod(commands.Cog):
         """Create database entry for new guild"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """INSERT INTO guild_settings (guild_id) VALUES ($1)
+                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
                        ON CONFLICT DO NOTHING"""
-                await connection.execute(q, guild.id)
+                await connection.execute(sql, guild.id)
 
     @commands.Cog.listener()
     async def on_guild_remove(self, guild: discord.Guild) -> None:
         """Delete guild's info upon leaving one."""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                q = """DELETE FROM guild_settings WHERE guild_id = $1"""
-                await connection.execute(q, guild.id)
+                sql = """DELETE FROM guild_settings WHERE guild_id = $1"""
+                await connection.execute(sql, guild.id)
 
 
 async def setup(bot: Bot | PBot):

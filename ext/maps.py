@@ -1,3 +1,4 @@
+"""Module for working with the encyclopedia enddpoint of the wows API"""
 from __future__ import annotations
 
 import typing
@@ -12,12 +13,16 @@ if typing.TYPE_CHECKING:
     from painezBot import PBot
 
 
+# TODO: Deprecate and replace with encyclopedia module
+
 MAPS = "https://api.worldofwarships.eu/wows/encyclopedia/battlearenas/"
 
 logger = logging.getLogger("maps")
 
 
 class MapTransformer(discord.app_commands.Transformer):
+    """Convert User Input to a Map Object"""
+
     async def autocomplete(
         self, interaction: discord.Interaction[PBot], current: str
     ) -> list[discord.app_commands.Choice[int]]:
@@ -25,8 +30,9 @@ class MapTransformer(discord.app_commands.Transformer):
         cur = current.casefold()
 
         if not interaction.client.maps:
-            p = {"application_id": api.WG_ID, "language": "en"}
-            async with interaction.client.session.get(MAPS, params=p) as resp:
+            params = {"application_id": api.WG_ID, "language": "en"}
+            session = interaction.client.session
+            async with session.get(MAPS, params=params) as resp:
                 if resp.status != 200:
                     logger.error("%s on %s", resp.status, MAPS)
                     return []
@@ -34,8 +40,13 @@ class MapTransformer(discord.app_commands.Transformer):
 
             maps = []
 
-            for k, v in items["data"].items():
-                maps.append(api.Map(v["name"], v["description"], k, v["icon"]))
+            # TODO: Replace with Generation inside Map
+            for k, value in items["data"].items():
+                maps.append(
+                    api.Map(
+                        value["name"], value["description"], k, value["icon"]
+                    )
+                )
             interaction.client.maps = maps
 
         choices = []
@@ -62,6 +73,8 @@ class MapTransformer(discord.app_commands.Transformer):
 
 
 class Maps(commands.Cog):
+    """World of Warships Maps"""
+
     def __init__(self, bot: PBot) -> None:
         self.bot = bot
 

@@ -12,6 +12,30 @@ from PIL import Image
 logger = logging.getLogger("embed_utils")
 
 
+def user_to_author(
+    embed: discord.Embed, user: discord.User | discord.Member
+) -> discord.Embed:
+    """Add a user's name, id, and profile picture to the author field"""
+    name = f"{user} ({user.id})"
+    embed.set_author(name=name, icon_url=user.display_avatar.url)
+    return embed
+
+
+def user_to_footer(
+    embed: discord.Embed, user: discord.User | discord.Member, reason: str = ""
+) -> discord.Embed:
+    """Add the user's name, id, avatar, and an optional reason to the footer of
+    an embed"""
+    icon = user.display_avatar.url
+
+    text = f"{user}\n{user.id}"
+    if reason:
+        text += f"\n{reason}"
+
+    embed.set_footer(text=text, icon_url=icon)
+    return embed
+
+
 async def get_colour(url: str) -> discord.Colour | int:
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None:

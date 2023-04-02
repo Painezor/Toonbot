@@ -34,10 +34,10 @@ class DiceBox(view_utils.BaseView):
 
     async def update(self) -> discord.InteractionMessage:
         """Update embed and push to view"""
-        e = discord.Embed(colour=discord.Colour.og_blurple(), description="")
-        e.set_author(name="Dice Tray")
+        embed = discord.Embed(colour=discord.Colour.og_blurple())
+        embed.set_author(name="Dice Tray")
 
-        e.description = ""
+        embed.description = ""
 
         self.clear_items()
         self.add_item(DiceButton(4))
@@ -48,12 +48,12 @@ class DiceBox(view_utils.BaseView):
         self.add_item(DiceButton(20, row=1))
 
         for row in self.rolls:
-            e.description += (
+            embed.description += (
                 f"{', '.join(str(i) for i in row)} (Sum: {sum(row)})\n"
             )
 
         edit = self.interaction.edit_original_response
-        return await edit(view=self, embed=e)
+        return await edit(view=self, embed=embed)
 
 
 class DiceButton(discord.ui.Button):
@@ -62,8 +62,8 @@ class DiceButton(discord.ui.Button):
     view: DiceBox
 
     def __init__(self, sides: int = 6, row: int = 0):
-        s = discord.ButtonStyle.blurple
-        super().__init__(label=f"Roll D{sides}", row=row, style=s)
+        style = discord.ButtonStyle.blurple
+        super().__init__(label=f"Roll D{sides}", row=row, style=style)
         self.sides: int = sides
 
     async def callback(
@@ -89,26 +89,24 @@ class CoinView(view_utils.BaseView):
         self, interaction: discord.Interaction[Bot], count: int = 1
     ) -> None:
         super().__init__(interaction)
-        self.flip_results: list[str] = []
-        for x in range(count):
-            self.flip_results.append(random.choice(["H", "T"]))
+        self.flip_results = [random.choice(["H", "T"]) for _ in range(count)]
 
     async def update(
         self, content: typing.Optional[str] = None
     ) -> discord.InteractionMessage:
         """Update embed and push to view"""
-        e = discord.Embed(title=self.flip_results[-1])
-        e.colour = discord.Colour.og_blurple()
-        e.set_thumbnail(url=COIN)
-        e.set_author(name="Coin Flip")
+        embed = discord.Embed(title=self.flip_results[-1])
+        embed.colour = discord.Colour.og_blurple()
+        embed.set_thumbnail(url=COIN)
+        embed.set_author(name="Coin Flip")
 
         counter = collections.Counter(self.flip_results)
-        e.description = f"*{self.flip_results[-50:]}*"
-        for c in counter.most_common():
-            e.description += f"\n**Total {c[0]}**: {c[1]}"
+        embed.description = f"*{self.flip_results[-50:]}*"
+        for item in counter.most_common():
+            embed.description += f"\n**Total {item[0]}**: {item[1]}"
 
         edit = self.interaction.edit_original_response
-        return await edit(content=content, view=self, embed=e)
+        return await edit(content=content, view=self, embed=embed)
 
 
 class FlipButton(discord.ui.Button):
@@ -116,10 +114,10 @@ class FlipButton(discord.ui.Button):
 
     view: CoinView
 
-    def __init__(self, label="Flip a Coin", count=1) -> None:
+    def __init__(self, label: str = "Flip a Coin", count: int = 1) -> None:
 
-        s = discord.ButtonStyle.primary
-        super().__init__(label=label, emoji="🪙", style=s)
+        style = discord.ButtonStyle.primary
+        super().__init__(label=label, emoji="🪙", style=style)
         self.count: int = count
 
     async def callback(
@@ -128,8 +126,8 @@ class FlipButton(discord.ui.Button):
         """When clicked roll"""
 
         await interaction.response.defer()
-        for x in range(self.count):
-            self.view.flip_results.append(random.choice(["H", "T"]))
+        results = [random.choice(["H", "T"]) for _ in range(self.count)]
+        self.view.flip_results = results
         return await self.view.update()
 
 
@@ -152,23 +150,23 @@ class ChoiceModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction[Bot]) -> None:
         """When the Modal is submitted, send a random choice back"""
 
-        u = interaction.user
+        user = interaction.user
 
-        e = discord.Embed(colour=u.colour, title=self.question)
-        e.set_author(icon_url=u.display_avatar.url, name="Choose")
+        embed = discord.Embed(colour=user.colour, title=self.question)
+        embed.set_author(icon_url=user.display_avatar.url, name="Choose")
 
         choices = str(self.answers).split("\n")
         random.shuffle(choices)
 
         output, medals = [], ["🥇", "🥈", "🥉"]
-        for x in range(min(len(choices), 3)):
+        for _ in range(min(len(choices), 3)):
             output.append(f"{medals.pop()} **{choices.pop()}**")
 
         if choices:
             output.append(", ".join(f"*{i}*" for i in choices))
 
-        e.description = "\n".join(output)
-        return await interaction.response.send_message(embed=e)
+        embed.description = "\n".join(output)
+        return await interaction.response.send_message(embed=embed)
 
 
 class Random(commands.Cog):
@@ -191,13 +189,13 @@ class Random(commands.Cog):
         if count > 10000:
             return await self.bot.error(interaction, content="Too many coins.")
 
-        v = CoinView(interaction, count=count)
-        v.add_item(FlipButton())
+        view = CoinView(interaction, count=count)
+        view.add_item(FlipButton())
 
         for _ in [5, 10, 100, 1000]:
-            v.add_item(FlipButton(label=f"Flip {_}", count=_))
-        v.add_page_buttons(1)
-        return await v.update()
+            view.add_item(FlipButton(label=f"Flip {_}", count=_))
+        view.add_page_buttons(1)
+        return await view.update()
 
     @discord.app_commands.command(name="8ball")
     @discord.app_commands.describe(question="enter a question")
@@ -235,12 +233,12 @@ class Random(commands.Cog):
             "dain't bet on it like",
         ]
 
-        e = discord.Embed(title="8 Ball", colour=0x000001)
-        e.description = f"**{question}**\n{random.choice(res)}"
+        embed = discord.Embed(title="8 Ball", colour=0x000001)
+        embed.description = f"**{question}**\n{random.choice(res)}"
 
         usr = interaction.user
-        e.set_author(icon_url=usr.display_avatar.url, name=usr)
-        return await interaction.response.send_message(embed=e)
+        embed.set_author(icon_url=usr.display_avatar.url, name=usr)
+        return await interaction.response.send_message(embed=embed)
 
     @discord.app_commands.command()
     @discord.app_commands.describe(dice="enter a roll (format: 1d20+3)")
@@ -256,13 +254,13 @@ class Random(commands.Cog):
         disadvantage = dice.startswith("dis")
 
         if advantage:
-            e = discord.Embed(title="🎲 Dice Roller (Advantage)")
+            embed = discord.Embed(title="🎲 Dice Roller (Advantage)")
         elif disadvantage:
-            e = discord.Embed(title="🎲 Dice Roller (Disadvantage)")
+            embed = discord.Embed(title="🎲 Dice Roller (Disadvantage)")
         else:
-            e = discord.Embed(title="🎲 Dice Roller")
+            embed = discord.Embed(title="🎲 Dice Roller")
 
-        e.description = ""
+        embed.description = ""
 
         roll_list = dice.split(" ")
         if len(roll_list) == 1:
@@ -270,41 +268,41 @@ class Random(commands.Cog):
 
         total = 0
         bonus = 0
-        for r in roll_list:
-            if not r:
+        for i in roll_list:
+            if not i:
                 continue
 
-            if r.isdecimal():
-                if r == "1":
-                    e.description += f"{r}: **1**\n"
+            if i.isdecimal():
+                if i == "1":
+                    embed.description += f"{i}: **1**\n"
                     total += 1
                     continue
-                result = random.randint(1, int(r))
-                e.description += f"{r}: **{result}**\n"
+                result = random.randint(1, int(i))
+                embed.description += f"{i}: **{result}**\n"
                 total += int(result)
                 continue
 
             try:
-                if "+" in r:
-                    r, b = r.split("+")
-                    bonus += int(b)
-                elif "-" in r:
-                    r, b = r.split("-")
-                    bonus -= int(b)
+                if "+" in i:
+                    i, boni = i.split("+")
+                    bonus += int(boni)
+                elif "-" in i:
+                    i, boni = i.split("-")
+                    bonus -= int(boni)
             except ValueError:
                 bonus = 0
 
-            if r in ["adv", "dis"]:
+            if i in ["adv", "dis"]:
                 sides = 20
                 die = 1
             else:
                 try:
-                    die, sides = r.split("d")
+                    die, sides = i.split("d")
                     die = int(dice)
                 except ValueError:
                     die = 1
                     try:
-                        sides = int("".join([i for i in r if i.isdigit()]))
+                        sides = int("".join([i for i in i if i.isdigit()]))
                     except ValueError:
                         sides = 20
                 else:
@@ -318,7 +316,7 @@ class Random(commands.Cog):
                     err = "Not enough sides"
                     return await self.bot.error(interaction, err)
 
-            e.description += f"{r}: "
+            embed.description += f"{i}: "
             total_roll = 0
             roll_info = ""
             curr_rolls = []
@@ -343,13 +341,12 @@ class Random(commands.Cog):
                 total_roll += roll_outcome
 
                 if dice == 1 and sides >= 20:
-                    match roll_outcome:
-                        case 1:
-                            e.colour = discord.Colour.red()
-                            e.set_footer(text="Critical Failure")
-                        case roll_outcome if (roll_outcome == sides):
-                            e.colour = discord.Colour.green()
-                            e.set_footer(text="Critical.")
+                    if roll_outcome == 1:
+                        embed.colour = discord.Colour.red()
+                        embed.set_footer(text="Critical Failure")
+                    elif roll_outcome == sides:
+                        embed.colour = discord.Colour.green()
+                        embed.set_footer(text="Critical.")
 
             roll_info += ", ".join(curr_rolls)
 
@@ -361,12 +358,12 @@ class Random(commands.Cog):
 
             total_roll += bonus
 
-            e.description += f"{roll_info} = **{total_roll}**\n"
+            embed.description += f"{roll_info} = **{total_roll}**\n"
 
             total += total_roll
 
-        e.description += f"\n**Total: {total}**"
-        return await interaction.edit_original_response(embed=e)
+        embed.description += f"\n**Total: {total}**"
+        return await interaction.edit_original_response(embed=embed)
 
 
 async def setup(bot: Bot) -> None:

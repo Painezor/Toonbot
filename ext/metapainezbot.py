@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import typing
+
 import discord
 from discord.ext import commands
 
@@ -34,29 +35,29 @@ class MetaPainezbot(commands.Cog):
     async def about(self, interaction: discord.Interaction[PBot]) -> None:
         """Tells you information about the bot itself."""
 
-        e = discord.Embed(colour=0x2ECC71)
-        e.set_footer(text="painezBot is coded by Painezor | Created on")
+        embed = discord.Embed(colour=0x2ECC71)
+        embed.set_footer(text="painezBot is coded by Painezor | Created on")
 
-        me = self.bot.user
-        if me is not None:
-            e.set_thumbnail(url=me.display_avatar.url)
-            e.timestamp = me.created_at
-        e.title = "About painezBot"
+        user = self.bot.user
+        if user is not None:
+            embed.set_thumbnail(url=user.display_avatar.url)
+            embed.timestamp = user.created_at
+        embed.title = "About painezBot"
 
         # statistics
         total_members = sum(len(g.members) for g in self.bot.guilds)
-        e.description = (
+        embed.description = (
             f"I do World of Warships lookups, including dev blogs"
             f", news, ships, and players.\nI have {total_members}"
             "users across {len(self.bot.guilds)} servers."
         )
 
         view = discord.ui.View()
-        em = "<:painezBot:928654001279471697>"
-        btn = discord.ui.Button(url=INV, emoji=em)
+        emote = "<:painezBot:928654001279471697>"
+        btn = discord.ui.Button(url=INV, emoji=emote)
         btn.label = "Invite me to your server"
         view.add_item(btn)
-        return await interaction.response.send_message(embed=e, view=view)
+        return await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot: PBot):
