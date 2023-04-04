@@ -20,14 +20,13 @@ if typing.TYPE_CHECKING:
     from ext.devblog import Blog
     from ext.news_tracker import Article, NewsChannel
 
-    import ext.utils.wows_api as api
-    from ext.painezbot_utils.module import Module
-    from ext.painezbot_utils.ship import Ship, ShipType
+    import ext.wows_api as api
+    from ext.wows_api.ship import Ship
     from ext.twitch import Contributor, TBot, TrackerChannel
 
 
 with open("credentials.json", encoding="utf-8") as fun:
-    credentials = json.load(fun)
+    _credentials = json.load(fun)
 
 COGS = [
     # Utility Cogs
@@ -44,7 +43,6 @@ COGS = [
     "ext.images",
     "ext.info",
     "ext.logs",
-    "ext.maps",
     "ext.memeswows",
     "ext.mod",
     "ext.overmatch",
@@ -52,6 +50,7 @@ COGS = [
     "ext.news_tracker",
     "ext.translations",
     "ext.twitch",
+    "ext.wows_encyclopedia",
     "ext.wows_stats",
 ]
 
@@ -109,15 +108,13 @@ class PBot(commands.AutoShardedBot):
         self.contributors: list[Contributor] = []
         self.clans: list[api.Clan] = []
         self.clan_buildings: list[api.ClanBuilding] = []
-        self.players: list[api.Player] = []
-        self.maps: list[api.Map] = []
-        self.modes: list[api.GameMode] = []
-        self.modules: list[Module] = []
+        self.maps: set[api.Map] = set()
+        self.modes: set[api.GameMode] = set()
+        self.modules: list[api.Module] = []
         self.pr_data: dict = {}
         self.pr_data_updated_at: datetime.datetime
         self.pr_sums: tuple[int, int, int]  # Dmg WR Kills
         self.ships: list[Ship] = []
-        self.ship_types: list[ShipType] = []
 
         # Announce aliveness
         started = self.initialised_at.strftime("%d-%m-%Y %H:%M:%S")
@@ -143,21 +140,9 @@ class PBot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s\n%s", i, err)
         return
 
-    def get_clan(self, clan_id: int) -> typing.Optional[api.Clan]:
-        """Get a Clan object from Stored Clans"""
-        return next((i for i in self.clans if i.clan_id == clan_id), None)
-
-    def get_player(self, account_id: int) -> typing.Optional[api.Player]:
-        """Get a Player object from stored or generate a one."""
-        plr = self.players
-        return next((i for i in plr if i.account_id == account_id), None)
-
     def get_ship(self, identifier: str | int) -> typing.Optional[Ship]:
         """Get a Ship object from a list of the bots ships"""
         for i in self.ships:
-            if i.ship_id_str is None:
-                continue
-
             if i.ship_id_str == identifier:
                 return i
 
@@ -165,14 +150,10 @@ class PBot(commands.AutoShardedBot):
                 return i
         return None
 
-    def get_ship_type(self, match: str) -> ShipType:
-        """Get a ShipType object matching a string"""
-        return next(i for i in self.ship_types if i.match == match)
-
 
 async def run() -> None:
     """Start the bot running, loading all credentials and the database."""
-    database = await asyncpg.create_pool(**credentials["painezBotDB"])
+    database = await asyncpg.create_pool(**_credentials["painezBotDB"])
 
     if database is None:
         raise ConnectionError("Failed to initialise database.")
@@ -180,7 +161,7 @@ async def run() -> None:
     bot = PBot(database=database)
 
     try:
-        await bot.start(credentials["painezbot"]["token"])
+        await bot.start(_credentials["painezbot"]["token"])
     except KeyboardInterrupt:
         for i in bot.cogs:
             await bot.unload_extension(i)
