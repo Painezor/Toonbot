@@ -21,7 +21,7 @@ if typing.TYPE_CHECKING:
     from ext.news_tracker import Article, NewsChannel
 
     import ext.wows_api as api
-    from ext.wows_api.ship import Ship
+    from ext.wows_api.warships import Ship
     from ext.twitch import Contributor, TBot, TrackerChannel
 
 

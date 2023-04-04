@@ -11,7 +11,7 @@ import discord
 from .wg_id import WG_ID
 from .enums import Region
 from .clan import Clan
-from .ship import Ship
+from .warships import Ship
 
 if typing.TYPE_CHECKING:
     from painezbot import PBot
@@ -243,7 +243,7 @@ class PlayerStatsMode:
     team_dropped_capture_points: int  # Team Total Defence Points Earned
     torpedo_agro: int
     wins: int
-    xp: int  # pylint: disable=C013
+    xp: int  # pylint: disable=C0103
 
     # Subdicts
     aircraft: PlayerModeArmamentStats

@@ -1,6 +1,36 @@
 """World of Warships Game Modes"""
+from __future__ import annotations
+
 import dataclasses
+import logging
 import typing
+
+import aiohttp
+
+from .wg_id import WG_ID
+
+logger = logging.getLogger("api.gamemodes")
+
+MODES = "https://api.worldofwarships.eu/wows/encyclopedia/battletypes/"
+
+
+async def get_game_modes() -> set[GameMode]:
+    """Get a list of Game Modes from the API"""
+    params = {"application_id": WG_ID, "language": "en"}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(MODES, params=params) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, MODES)
+            data = await resp.json()
+
+    logger.info(data)
+    modes: set[GameMode] = set()
+    for i in data["data"].values():
+
+        modes.add(GameMode(i))
+
+    return modes
 
 
 @dataclasses.dataclass

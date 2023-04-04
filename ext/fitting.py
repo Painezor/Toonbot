@@ -20,9 +20,6 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("fitting")
 
 
-MODES = "https://api.worldofwarships.eu/wows/encyclopedia/battletypes/"
-
-
 class ShipView(view_utils.BaseView):
     """A view representing a ship"""
 
@@ -113,7 +110,7 @@ class ShipView(view_utils.BaseView):
 
         row = 1
 
-        def make_ship_button(i: api.ship.Ship, emoji: str):
+        def make_ship_button(i: api.warships.Ship, emoji: str):
             func = ShipView(self.interaction, i).overview
             btn = view_utils.Funcable(f"Tier {i.tier}: {i.name}", func)
             btn.emoji = emoji
@@ -511,18 +508,8 @@ class Fittings(commands.Cog):
 
     async def cog_load(self) -> None:
         """Fetch Generics from API and store to bot."""
-        params = {"application_id": api.WG_ID, "language": "en"}
-
-        if not self.bot.modes:
-            async with self.bot.session.get(MODES, params=params) as resp:
-                if resp.status != 200:
-                    logger.error("%s %s: %s", resp.status, resp.reason, MODES)
-                data = await resp.json()
-
-            for k, values in data["data"].items():
-                self.bot.modes.add(api.GameMode(values))
-
-        self.bot.ships = await api.cache_ships()
+        self.bot.modes = await api.get_game_modes()
+        self.bot.ships = await api.get_ships()
 
         # if not self.bot.clan_buildings:
         #     self.bot.clan_buildings = await self.cache_clan_base()

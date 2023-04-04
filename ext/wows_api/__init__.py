@@ -12,9 +12,10 @@ from .clan import (
     ClanMemberVortexData,
 )
 from .enums import League, Map, Nation, Region
-from .gamemode import GameMode
+from .gamemode import GameMode, get_game_modes
+from .modules import Module
 from .player import Player, PlayerStats, PlayerStatsMode
-from .ship import Ship, ShipProfile, cache_ships
+from .warships import Ship, ShipProfile, get_ships
 from .transformers import mode_transform, player_transform, ship_transform
 
 __all__ = [
@@ -35,13 +36,16 @@ __all__ = [
     "Nation",
     "Region",
     # gamemode,
+    "get_game_modes",
     "GameMode",
+    # modules,
+    "Module",
     # player,
     "Player",
     "PlayerStatsMode",
     "PlayerStats",
     # ship
-    "cache_ships",
+    "get_ships",
     "Ship",
     # shipprofile
     "ShipProfile",

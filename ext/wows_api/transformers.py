@@ -10,7 +10,7 @@ from .clan import Clan
 from .enums import Map, Region
 from .gamemode import GameMode
 from .player import Player, PlayerClanData
-from .ship import Ship
+from .warships import Ship
 
 if typing.TYPE_CHECKING:
     from painezbot import PBot

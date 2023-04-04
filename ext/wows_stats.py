@@ -63,14 +63,14 @@ class PlayerView(view_utils.BaseView):
         self,
         interaction: Interaction,
         player: api.Player,
-        ship: typing.Optional[api.ship.Ship] = None,
+        ship: typing.Optional[api.warships.Ship] = None,
         **kwargs,
     ) -> None:
         super().__init__(interaction, **kwargs)
 
         # Passed
         self.player: api.Player = player
-        self.ship: typing.Optional[api.ship.Ship] = ship
+        self.ship: typing.Optional[api.warships.Ship] = ship
 
         # Fetched
         self.api_stats: typing.Optional[api.PlayerStats] = None
@@ -298,7 +298,7 @@ class PlayerView(view_utils.BaseView):
         return await edit(embed=embed, view=self)
 
 
-class Warships(commands.Cog):
+class WowsStats(commands.Cog):
     """World of Warships related commands"""
 
     def __init__(self, bot: PBot) -> None:
@@ -334,4 +334,4 @@ class Warships(commands.Cog):
 
 async def setup(bot: PBot):
     """Load the Warships Cog into the bot"""
-    await bot.add_cog(Warships(bot))
+    await bot.add_cog(WowsStats(bot))
