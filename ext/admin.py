@@ -14,7 +14,7 @@ from discord.ext import commands
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
 logger = logging.getLogger("Admin")
 
@@ -203,6 +203,7 @@ class Admin(commands.Cog):
         out_embed.set_footer(text=f"Python Version: {version}")
 
         try:
+            # pylint: disable= W0123
             if isawaitable(result := eval(code, env)):  # type: ignore
                 result = await result
             desc = f"```py\n{result}\n```"

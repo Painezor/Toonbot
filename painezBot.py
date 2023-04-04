@@ -77,7 +77,7 @@ class PBot(commands.AutoShardedBot):
         self.error: typing.Callable
 
         # Database & API Credentials
-        self.db: asyncpg.Pool = database
+        self.db: asyncpg.Pool = database  # pylint: disable=C0103
         self.initialised_at: datetime.datetime = datetime.datetime.utcnow()
 
         # Notifications
@@ -106,14 +106,10 @@ class PBot(commands.AutoShardedBot):
 
         # Wows
         self.contributors: list[Contributor] = []
-        self.clans: list[api.Clan] = []
         self.clan_buildings: list[api.ClanBuilding] = []
         self.maps: set[api.Map] = set()
         self.modes: set[api.GameMode] = set()
         self.modules: list[api.Module] = []
-        self.pr_data: dict = {}
-        self.pr_data_updated_at: datetime.datetime
-        self.pr_sums: tuple[int, int, int]  # Dmg WR Kills
         self.ships: list[Ship] = []
 
         # Announce aliveness

@@ -12,7 +12,7 @@ from playwright.async_api import Request
 
 if TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
 URI = (
     "https://worldofwarships.eu/en/content/"

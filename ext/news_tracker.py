@@ -2,7 +2,6 @@
 from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
-from typing import TYPE_CHECKING, Optional
 import typing
 import asyncpg
 
@@ -13,10 +12,11 @@ from discord.ext import commands, tasks
 from lxml import html
 from playwright.async_api import TimeoutError as pw_TimeoutError
 
-from ext.utils import view_utils, wows_api as api
+from ext.utils import view_utils
+from ext import wows_api as api
 
-if TYPE_CHECKING:
-    from painezBot import PBot
+if typing.TYPE_CHECKING:
+    from painezbot import PBot
 
 
 async def save_article(bot: PBot, article: Article) -> None:
@@ -98,20 +98,20 @@ class Article:
         self.bot = bot
         # Partial is the trailing part of the URL.
         self.partial: str = partial
-        self.link: Optional[str] = None
+        self.link: typing.Optional[str] = None
 
         # Stored Data
-        self.title: Optional[str] = None
-        self.category: Optional[str] = None
-        self.description: Optional[str] = None
-        self.image: Optional[str] = None
+        self.title: typing.Optional[str] = None
+        self.category: typing.Optional[str] = None
+        self.description: typing.Optional[str] = None
+        self.image: typing.Optional[str] = None
 
         # A flag for each region the article has been found in.
         self.eu: bool = False
         self.na: bool = False
         self.sea: bool = False
 
-        self.date: Optional[datetime.datetime] = None
+        self.date: typing.Optional[datetime.datetime] = None
 
     async def generate_embed(self) -> discord.Embed:
         """Handle dispatching of news article."""
@@ -208,7 +208,7 @@ class NewsChannel:
 
     async def dispatch(
         self, region: api.Region, article: Article
-    ) -> Optional[discord.Message]:
+    ) -> typing.Optional[discord.Message]:
         """
 
         Check if the article has already been submitted to the channel,
@@ -344,13 +344,13 @@ class NewsTracker(commands.Cog):
 
             url = f"https://worldofwarships.{region.domain}/en/rss/news/"
 
-            async with self.bot.session.get(url) as r:
-
-                tree = html.fromstring(bytes(await r.text(), encoding="utf8"))
+            async with self.bot.session.get(url) as resp:
+                data = bytes(await resp.text(), encoding="utf8")
+                tree = html.fromstring(data)
 
             for i in tree.xpath(".//item"):
                 link = "".join(i.xpath(".//guid/text()"))
-                partial = link.split("/en/")[-1]
+                partial = link.rsplit("/en/", maxsplit=1)[-1]
 
                 c = self.bot.news_cache
                 try:
@@ -515,13 +515,13 @@ class NewsTracker(commands.Cog):
         self, channel: discord.abc.GuildChannel
     ) -> None:
         """Remove dev blog trackers from deleted channels"""
-        q = """DELETE FROM news_trackers WHERE channel_id = $1"""
+        sql = """DELETE FROM news_trackers WHERE channel_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(q, channel.id)
+                await connection.execute(sql, channel.id)
 
-        c = self.bot.news_channels
-        self.bot.news_channels = [i for i in c if i.channel.id != channel.id]
+        chn = self.bot.news_channels
+        self.bot.news_channels = [i for i in chn if i.channel.id != channel.id]
 
 
 async def setup(bot: PBot) -> None:

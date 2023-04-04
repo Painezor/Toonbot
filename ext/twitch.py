@@ -13,12 +13,12 @@ from twitchio.ext.commands import Bot as TBot
 
 from ext.logs import stringify_seconds
 from ext.utils import embed_utils, flags, timed_events, view_utils
-from ext.utils import wows_api as api
+from ext import wows_api as api
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
 
-with open("credentials.json", encoding="utf-8") as fun:
+with open("credentials.json", mode="r", encoding="utf-8") as fun:
     credentials = json.load(fun)
 
 

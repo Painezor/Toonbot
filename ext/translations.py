@@ -10,14 +10,14 @@ from discord.ext import commands
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
 translations: dict[discord.Locale, dict] = {}
 
 for record in discord.Locale:
     try:
         path = f"./ext/utils/translations/{record.name}.json"
-        with open(path, encoding="utf-8") as file:
+        with open(path, mode="r", encoding="utf-8") as file:
             translations[record] = json.load(file)
     except FileNotFoundError:
         logging.error(

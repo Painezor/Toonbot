@@ -21,81 +21,6 @@ logger = logging.getLogger("fitting")
 
 
 MODES = "https://api.worldofwarships.eu/wows/encyclopedia/battletypes/"
-PROFILE = "https://api.worldofwarships.eu/wows/encyclopedia/shipprofile/"
-
-
-class ShipFit:
-    """A Ship Fitting"""
-
-    ship_id: int
-    artillery_id: int
-    dive_bomber_id: int
-    engine_id: int
-    fighter_id: int
-    fire_control_id: int
-    flight_control_id: int
-    hull_id: int
-    torpedo_bombers_id: int
-    torpedoes_id: int
-
-    def set_module(self, module: api.TreeModule) -> None:
-        """Set a module into the internal fitting"""
-        attr = {"": ""}[module.type]
-        setattr(self, attr, module.module_id)
-
-    @property
-    def all_modules(self) -> list[int]:
-        """Get a list of all stored values"""
-        output = []
-        for i in dir(self):
-            if i.startswith("__"):
-                continue
-
-            if callable(getattr(self, i)):
-                continue
-
-            output.append(getattr(self, i))
-        return output
-
-    async def get_params(self, interaction: Interaction) -> api.ShipProfile:
-        """Fetch the ship's parameters with the current fitting"""
-        params = {"application_id": api.WG_ID}
-
-        try:
-            language = {
-                discord.Locale.czech: "cs",
-                discord.Locale.german: "de",
-                discord.Locale.spain_spanish: "es",
-                discord.Locale.french: "fr",
-                discord.Locale.japanese: "ja",
-                discord.Locale.polish: "pl",
-                discord.Locale.russian: "ru",
-                discord.Locale.thai: "th",
-                discord.Locale.taiwan_chinese: "zh-tw",
-                discord.Locale.turkish: "tr",
-                discord.Locale.chinese: "zh-cn",
-                discord.Locale.brazil_portuguese: "pt-br",
-            }[interaction.locale]
-            params.update({"language": language})
-        except KeyError:
-            pass
-
-        for i in dir(self):
-            if i.startswith("__"):
-                continue
-
-            if callable(getattr(self, i)):
-                continue
-
-            params.update({i: getattr(self, i)})
-
-        session = interaction.client.session
-        async with session.get(PROFILE, params=params) as resp:
-            if resp.status != 200:
-                logger.error("[%s] %s %s", resp.status, resp.url, resp.reason)
-            data = await resp.json()
-
-        return api.ShipProfile(data)
 
 
 class ShipView(view_utils.BaseView):
@@ -108,10 +33,7 @@ class ShipView(view_utils.BaseView):
         super().__init__(interaction)
         self.ship: api.Ship = ship
 
-        fitting = ShipFit()
-        for i in ship.module_tree:
-            if i.is_default:
-                fitting.set_module(i)
+        fitting = api.ShipFit([i for i in ship.module_tree if i.is_default])
         self.fitting = fitting
         self.profile: typing.Optional[api.ShipProfile] = None
 
@@ -163,6 +85,25 @@ class ShipView(view_utils.BaseView):
 
     async def handle_buttons(self, current_function: typing.Callable) -> None:
         """Handle the Funcables"""
+
+        try:
+            language = {
+                discord.Locale.czech: "cs",
+                discord.Locale.german: "de",
+                discord.Locale.spain_spanish: "es",
+                discord.Locale.french: "fr",
+                discord.Locale.japanese: "ja",
+                discord.Locale.polish: "pl",
+                discord.Locale.russian: "ru",
+                discord.Locale.thai: "th",
+                discord.Locale.taiwan_chinese: "zh-tw",
+                discord.Locale.turkish: "tr",
+                discord.Locale.chinese: "zh-cn",
+                discord.Locale.brazil_portuguese: "pt-br",
+            }[self.interaction.locale]
+        except KeyError:
+            pass
+
         if self.profile is None:
             self.profile = await self.fitting.get_params(self.interaction)
 
@@ -204,7 +145,7 @@ class ShipView(view_utils.BaseView):
             )
 
         if self.profile.torpedoes:
-            add_button("Torpedoes", self.torpedoes, api.TorpedoParams.emoji)
+            add_button("Torpedoes", self.torpedoes, self.profile.torpedoes.emoji)
 
         planes = [
             self.profile.dive_bomber,
@@ -217,7 +158,7 @@ class ShipView(view_utils.BaseView):
             add_button("Aircraft", self.aircraft, _)
 
         # Secondaries & AA
-        add_button("Auxiliary", self.auxiliary, api.ModuleParams.emoji)
+        add_button("Auxiliary", self.auxiliary, self.profile..emoji)
         self.add_function_row(buttons, row)
 
         # Dropdown - setattr
@@ -592,7 +533,7 @@ class Fittings(commands.Cog):
     async def ship(
         self,
         interaction: Interaction,
-        ship: discord.app_commands.Transform[ship.Ship, ShipTransformer],
+        ship: api.ship_transform,
     ) -> discord.InteractionMessage:
         """Search for a ship in the World of Warships API"""
         await interaction.response.defer(thinking=True)

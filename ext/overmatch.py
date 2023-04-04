@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
 
 
 DC = "https://media.discordapp.net/attachments/"

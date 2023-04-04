@@ -9,12 +9,13 @@ import discord
 from discord.ext import commands
 
 from ext.clans import ClanView
-from ext.fitting import ShipTransformer
-from ext.painezbot_utils.ship import Ship
-from ext.utils import view_utils, wows_api as api
+from ext import wows_api as api
+from ext.utils import view_utils
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
+
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
 
 # TODO: Browse all Ships command. Filter Dropdowns.
 # Dropdown to show specific ships.
@@ -29,7 +30,6 @@ logger = logging.getLogger("warships")
 
 API_PATH = "https://api.worldofwarships.eu/wows/"
 CLAN = API_PATH + "clans/glossary/"
-PLAYERS = API_PATH + "account/list/"
 
 REGION = typing.Literal["eu", "na", "sea"]
 
@@ -57,20 +57,20 @@ class PlayerView(view_utils.BaseView):
     """A View representing a World of Warships player"""
 
     bot: PBot
-    interaction: discord.Interaction[PBot]
+    interaction: Interaction
 
     def __init__(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         player: api.Player,
-        ship: typing.Optional[Ship] = None,
+        ship: typing.Optional[api.ship.Ship] = None,
         **kwargs,
     ) -> None:
         super().__init__(interaction, **kwargs)
 
         # Passed
         self.player: api.Player = player
-        self.ship: typing.Optional[Ship] = ship
+        self.ship: typing.Optional[api.ship.Ship] = ship
 
         # Fetched
         self.api_stats: typing.Optional[api.PlayerStats] = None
@@ -88,7 +88,7 @@ class PlayerView(view_utils.BaseView):
             else:
                 self.api_stats = await self.player.fetch_ship_stats(self.ship)
 
-        stats: api.PlayerModeStats
+        stats: api.PlayerStatsMode
         stats, embed.title = {
             "BRAWL": {},
             "COOPERATIVE": {
@@ -120,10 +120,10 @@ class PlayerView(view_utils.BaseView):
         if self.parent:
             self.add_page_buttons(0)
 
-        if self.player.clan:
-            itr = self.interaction
+        if self.player.clan_data is not None:
             parent = self.push_stats
-            func = ClanView(itr, self.player.clan, parent=parent).overview
+            clan = self.player.clan_data.clan
+            func = ClanView(self.interaction, clan, parent=parent).overview
             cln = view_utils.Funcable("Clan", func)
             row_0.append(cln)
         self.add_function_row(row_0, row=0)
@@ -148,7 +148,7 @@ class PlayerView(view_utils.BaseView):
             if i.tag in ["EVENT", "BRAWL", "PVE_PREMADE"]:
                 continue
             # We can't fetch CB data without a clan.
-            if i.tag == "CLAN" and not self.player.clan:
+            if i.tag == "CLAN" and not self.player.clan_data:
                 continue
 
             btn = view_utils.Funcable(f"{i.name} ({i.tag})", self.push_stats)
@@ -298,102 +298,6 @@ class PlayerView(view_utils.BaseView):
         return await edit(embed=embed, view=self)
 
 
-class ModeTransformer(discord.app_commands.Transformer):
-    """Convert user input to API Game Mode"""
-
-    async def autocomplete(
-        self,
-        interaction: discord.Interaction[PBot],
-        current: str,
-    ) -> list[discord.app_commands.Choice[str]]:
-        """Autocomplete from list of stored teams"""
-        modes: list[api.GameMode] = interaction.client.modes
-        modes = sorted(modes, key=lambda x: x.name)
-
-        curr = current.casefold()
-
-        choices = []
-        for i in modes:
-            if curr not in i.name.casefold():
-                continue
-
-            choice = discord.app_commands.Choice(name=i.name, value=i.name)
-            choices.append(choice)
-        return choices
-
-    async def transform(
-        self, interaction: discord.Interaction[PBot], value: str
-    ) -> typing.Optional[api.GameMode]:
-        return next(i for i in interaction.client.modes if i.name == value)
-
-
-class PlayerTransformer(discord.app_commands.Transformer):
-    """Conver User Input to Player Object"""
-
-    async def autocomplete(
-        self, interaction: discord.Interaction[PBot], current: str
-    ) -> list[discord.app_commands.Choice[str]]:
-        """Fetch player's account ID by searching for their name."""
-        if len(current) < 3:
-            return []
-
-        bot: PBot = interaction.client
-        params = {"application_id": api.WG_ID, "search": current, "limit": 25}
-
-        region = getattr(interaction.namespace, "region", None)
-        try:
-            region = next(i for i in api.Region if i.db_key == region)
-        except StopIteration:
-            region = api.Region.EU
-
-        link = PLAYERS.replace("eu", region.domain)
-        async with bot.session.get(link, params=params) as resp:
-            if resp.status != 200:
-                logger.error("%s connecting to %s", resp.status, link)
-                return []
-            players = await resp.json()
-
-        logger.info(players)
-        data = players.pop("data", None)
-        if data is None:
-            return []
-
-        choices = []
-        for i in data:
-            logger.info(i)
-            player = bot.get_player(i["account_id"])
-
-            if player is None:
-                player = api.Player(i["account_id"])
-                player.nickname = i["nickname"]
-                bot.players.append(player)
-
-            if player.clan and player.clan.tag:
-                name = f"[{player.clan.tag}] [{player.nickname}]"
-            else:
-                name = player.nickname
-
-            value = str(player.account_id)
-            choices.append(discord.app_commands.Choice(name=name, value=value))
-
-            if len(choices) == 25:
-                break
-
-        return choices
-
-    async def transform(
-        self, interaction: discord.Interaction[PBot], value: str
-    ) -> typing.Optional[api.Player]:
-        try:
-            player = interaction.client.get_player(int(value))
-        except ValueError:
-            plr = interaction.client.players
-            player = next((i for i in plr if value in i.nickname), None)
-
-        logger.info("Grabbed player %s", player)
-        return player
-
-
 class Warships(commands.Cog):
     """World of Warships related commands"""
 
@@ -413,14 +317,12 @@ class Warships(commands.Cog):
     )
     async def stats(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         region: REGION,
-        player: discord.app_commands.Transform[api.Player, PlayerTransformer],
-        mode: discord.app_commands.Transform[api.GameMode, ModeTransformer],
+        player: api.player_transform,
+        mode: api.mode_transform,
         division: discord.app_commands.Range[int, 0, 3] = 0,
-        ship: typing.Optional[
-            discord.app_commands.Transform[Ship, ShipTransformer]
-        ] = None,
+        ship: typing.Optional[api.ship_transform] = None,
     ) -> discord.InteractionMessage:
         """Search for a player's Stats"""
         del region  # Shut up linter.

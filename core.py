@@ -29,7 +29,7 @@ if typing.TYPE_CHECKING:
 
 
 with open("credentials.json", mode="r", encoding="utf-8") as fun:
-    credentials = json.load(fun)
+    _credentials = json.load(fun)
 
 COGS = [
     "ext.reply",  # Utility Cogs
@@ -124,7 +124,7 @@ class Bot(commands.AutoShardedBot):
         self.reddit_teams: list[asyncpg.Record] = []
         self.sidebar: asyncio.Task
 
-        rdt = asyncpraw.Reddit(**credentials["Reddit"])
+        rdt = asyncpraw.Reddit(**_credentials["Reddit"])
         self.reddit: asyncpraw.Reddit = rdt
 
         # Streams
@@ -218,7 +218,7 @@ class Bot(commands.AutoShardedBot):
 
 async def run() -> None:
     """Start the bot running, loading all credentials and the database."""
-    database = await asyncpg.create_pool(**credentials["ToonbotDB"])
+    database = await asyncpg.create_pool(**_credentials["ToonbotDB"])
 
     if database is None:
         raise ConnectionError("Failed to initialise database.")
@@ -226,7 +226,7 @@ async def run() -> None:
     bot: Bot = Bot(database=database)
 
     try:
-        await bot.start(credentials["bot"]["token"])
+        await bot.start(_credentials["bot"]["token"])
     except KeyboardInterrupt:
         for i in bot.cogs:
             await bot.unload_extension(i)

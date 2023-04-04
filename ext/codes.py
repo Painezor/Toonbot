@@ -6,10 +6,10 @@ import typing
 import discord
 from discord.ext import commands
 
-from ext.utils.wows_api import Region
+from ext.wows_api import Region
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
 
 
 CODE_IMG = "https://cdn.iconscout.com/icon/free/png-256/wargaming-1-283119.png"

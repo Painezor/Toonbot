@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
 
 INV = (
     "https://discord.com/api/oauth2/authorize?client_id=964870918738419752&"

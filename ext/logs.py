@@ -13,7 +13,7 @@ from ext.utils import view_utils, timed_events, embed_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
 # TODO: Split /logs command into subcommands with sub-views & Parent.
 # TODO: Fallback parser using regular events -- Check if bot has
@@ -106,16 +106,16 @@ def stringify_mfa(value: discord.MFALevel) -> str:
         return value.name
 
 
-# TODO: Dict This
-def stringify_notification_level(value: discord.NotificationLevel) -> str:
+def stringify_notification_level(val: discord.NotificationLevel) -> str:
     """Convert Enum to human string"""
-    match value:
-        case discord.NotificationLevel.all_messages:
-            return "All Messages"
-        case discord.NotificationLevel.only_mentions:
-            return "Mentions Only"
-        case _:
-            return value
+    try:
+        return {
+            discord.NotificationLevel.all_messages: "All Messages",
+            discord.NotificationLevel.only_mentions: "Mentions Only",
+        }[val]
+    except KeyError:
+        logger.error("No string found for %s", val)
+        return val.name
 
 
 def stringify_trigger_type(value: discord.AutoModRuleTriggerType) -> str:
@@ -138,17 +138,18 @@ def stringify_verification(value: discord.VerificationLevel) -> str:
     """Convert discord.VerificationLevel to human-readable string"""
 
     veri = discord.VerificationLevel
+    verhigh = veri.high
     try:
         return {
             veri.none: "None",
             veri.low: "Verified Email",
             veri.medium: "Verified Email, Registered 5 minutes",
-            veri.high: "Verified Email, Registered 5 minutes, Member 10 Minutes",
+            verhigh: "Verified Email, Registered 5 minutes, Member 10 Minutes",
             veri.highest: "Verified Phone",
         }[value]
     except KeyError:
-        logging.info("Failed to parse Verification Level %s", value)
-        return value
+        logging.error("Failed to parse Verification Level %s", value)
+        return value.name
 
 
 def iter_embed(
@@ -181,7 +182,7 @@ def iter_embed(
             ico = entry.guild.icon.url if entry.guild.icon else None
             embed.set_author(name=entry.guild.name, icon_url=ico)
 
-        elif isinstance(target, discord.Member | discord.User):
+        elif isinstance(target, (discord.Member, discord.User)):
             ico = target.display_avatar.url if target.display_avatar else None
             embed.set_author(name=f"{target} ({target.id})", icon_url=ico)
             embed.description = f"<@{target.id}>\n\n"
@@ -319,7 +320,7 @@ def iter_embed(
                 embed.description += f"<@&{role.id}>\n"
 
             if (
-                isinstance(extra, discord.Member | discord.User)
+                isinstance(extra, (discord.Member, discord.User))
                 or user_override
             ):
                 usr = typing.cast(discord.Member, extra)
@@ -1024,7 +1025,7 @@ class AuditLogs(commands.Cog):
             return []
 
         if entry.action == discord.AuditLogAction.message_delete:
-            if isinstance(entry.target, discord.User | discord.Member):
+            if isinstance(entry.target, (discord.User, discord.Member)):
                 if entry.target.bot:
                     return []
 

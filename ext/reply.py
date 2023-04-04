@@ -12,7 +12,7 @@ from ext.utils import view_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
 
 logger = logging.getLogger("reply")

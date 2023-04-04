@@ -11,13 +11,14 @@ from .clan import (
     ClanMember,
     ClanMemberVortexData,
 )
-from .enums import GameMode, League, Map, Nation, Region
+from .enums import League, Map, Nation, Region
+from .gamemode import GameMode
 from .player import Player, PlayerStats, PlayerStatsMode
-from .ship import Ship
-from .shipprofile import ShipProfile
+from .ship import Ship, ShipProfile, cache_ships
 from .transformers import mode_transform, player_transform, ship_transform
 
 __all__ = [
+    # clan
     "get_cb_winners",
     "Clan",
     "ClanBuilding",
@@ -28,21 +29,23 @@ __all__ = [
     "ClanVortexData",
     "ClanMember",
     "ClanMemberVortexData",
-    # Enums
-    "GameMode",
+    # enums
     "League",
     "Map",
     "Nation",
     "Region",
-    # Players,
+    # gamemode,
+    "GameMode",
+    # player,
     "Player",
     "PlayerStatsMode",
     "PlayerStats",
-    # Ships
+    # ship
+    "cache_ships",
     "Ship",
-    # Ship Profile
+    # shipprofile
     "ShipProfile",
-    # Transformers
+    # transformers
     "mode_transform",
     "player_transform",
     "ship_transform",

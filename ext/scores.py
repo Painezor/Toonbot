@@ -406,7 +406,7 @@ class Scores(commands.Cog):
             return
 
         # Used for ordinal checking,
-        now = datetime.now(tz=timezone(timedelta(hours=1)))
+        now = datetime.now(tz=timezone(timedelta(hours=2)))
         ordinal = now.toordinal()
 
         # Discard yesterday's games.
@@ -794,7 +794,7 @@ class Scores(commands.Cog):
             if time and fix.kickoff is None:
                 if ":" in time[0]:
                     time = time[0]
-                    k_o = datetime.strptime(time, "%H:%M") - timedelta(hours=1)
+                    k_o = datetime.strptime(time, "%H:%M") - timedelta(hours=2)
 
                     # We use the parsed data to create a 'cleaner'
                     # datetime object, with no second or microsecond
@@ -1001,7 +1001,7 @@ class Scores(commands.Cog):
                     VALUES ($1, $2)"""
                 await connection.execute(sql, channel.guild.id, channel.id)
 
-        self.bot.score_channels.append(chan:= ScoreChannel(channel))
+        self.bot.score_channels.append(chan := ScoreChannel(channel))
 
         try:
             await chan.channel.send(

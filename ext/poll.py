@@ -89,7 +89,7 @@ class PollSelect(discord.ui.Select):
             except ValueError:
                 continue
 
-        for i in self.view.votes:
+        for i in self.values:
             self.view.votes[i].append(interaction.user.id)
         return await self.view.update()
 
@@ -139,11 +139,13 @@ class PollView(view_utils.BaseView):
             output = f"🥇 **{key}**: {len(winning)} votes\n{voters}\n\n"
 
             for k in srt:
+                if not self.votes[k]:
+                    continue
+
                 voters = ", ".join([f"<@{i}>" for i in self.votes[k]])
                 item_votes = len(self.votes[k])
                 output += f"**{k}**: {item_votes} votes\n"
-                if item_votes:
-                    output += f"{voters}\n"
+                output += f"{voters}\n"
         else:
             output = "No Votes cast"
 
@@ -166,7 +168,8 @@ class PollView(view_utils.BaseView):
             embed.set_thumbnail(url=icon)
 
         try:
-            return await self.interaction.edit_original_response(embed=embed)
+            edit = self.interaction.edit_original_response
+            return await edit(embed=embed, view=None)
         except discord.HTTPException:
             pass
 
@@ -185,15 +188,14 @@ class PollView(view_utils.BaseView):
 
         embed.description = self.read_votes()
 
-        user = self.interaction.user
-        ico = user.display_avatar.url
-        embed.set_author(name=f"{user.name} asked…", icon_url=ico)
-
         total_votes = sum([len(self.votes[i]) for i in self.votes])
         embed.set_footer(text=f"Voting in Progress | {total_votes} votes")
 
         edit = self.interaction.edit_original_response
         return await edit(view=self, embed=embed)
+
+    async def interaction_check(self, _: discord.Interaction) -> bool:
+        return True
 
 
 class PollModal(discord.ui.Modal, title="Create a poll"):

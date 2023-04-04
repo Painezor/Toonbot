@@ -14,7 +14,7 @@ from ext.utils import embed_utils, view_utils, timed_events
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
 
 logger = logging.getLogger("reminders")

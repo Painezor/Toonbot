@@ -13,7 +13,7 @@ import yatg
 from ext.utils import flags, view_utils, embed_utils
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
 
 logger = logging.getLogger("Devblog")
 

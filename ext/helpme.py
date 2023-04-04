@@ -6,10 +6,10 @@ import typing
 import discord
 from discord.ext import commands
 
-from ext.utils.wows_api import Region
+from ext.wows_api import Region
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
 
 
 BUILDS = "http://wo.ws/builds"
@@ -31,20 +31,30 @@ DC = "https://media.discordapp.net/attachments/"
 HELP_ME_LOGO = DC + "443846252019318804/992914761723433011/Logo_Discord2.png"
 
 # Images
-ARMORY = "https://wows-static-production.gcdn.co/metashop/898c4bc5/armory.png"
-INVENTORY = DC + "303154190362869761/991811092437274655/unknown.png"
+ARM_TH = "https://wows-static-production.gcdn.co/metashop/898c4bc5/armory.png"
+INV_IMG = DC + "303154190362869761/991811092437274655/unknown.png"
 
 
 HOW_IT_WORKS = """https://wowsp-wows-eu.wgcdn.co/dcont/fb/image/tmb/2f4c2e32-43
 15-11e8-84e0-ac162d8bc1e4_1200x.jpg"""
 
+# In-Game Web Pages
+ARMORY = "https://armory.worldofwarships.%%/en/"
+INVENTORY = "https://warehouse.worldofwarships.%%"
+LOGBOOK = "https://logbook.worldofwarships.%%/"
 
-def do_buttons(view: discord.ui.View, attr: str) -> None:
+# TODO: DOCKYARD, NEWS, RECRUITING commands with do_buttons()
+DOCKYARD = "http://dockyard.worldofwarships.%%/en/"
+NEWS = "https://worldofwarships.%%/news_ingame"
+RECRUITING = "https://friends.worldofwarships.%%/en/players/"
+
+
+def do_buttons(view: discord.ui.View, val: str) -> None:
     """Make region buttons"""
-    for region in Region:
-        btn = discord.ui.Button(url=getattr(region, attr), emoji=region.emote)
+    for i in Region:
+        btn = discord.ui.Button(url=val.replace("%%", i.domain), emoji=i.emote)
         btn.style = discord.ButtonStyle.url
-        btn.label = region.name
+        btn.label = i.name
         view.add_item(btn)
 
 
@@ -107,11 +117,11 @@ class HelpMe(commands.Cog):
         embed = discord.Embed(title="World of Warships Armory")
         embed.description = "Access the armory for each region below"
 
-        embed.set_thumbnail(url=ARMORY)
+        embed.set_thumbnail(url=ARM_TH)
         embed.colour = discord.Colour.orange()
 
         view = discord.ui.View()
-        do_buttons(view, "armory")
+        do_buttons(view, ARMORY)
         return await interaction.edit_original_response(embed=embed, view=view)
 
     @discord.app_commands.command()
@@ -120,10 +130,10 @@ class HelpMe(commands.Cog):
         embed = discord.Embed(title="World of Warships Inventory")
         embed.colour = discord.Colour.lighter_grey()
         embed.description = "Manage & sell your unused modules/camos/etc below"
-        embed.set_thumbnail(url=INVENTORY)
+        embed.set_thumbnail(url=INV_IMG)
 
         view = discord.ui.View()
-        do_buttons(view, "inventory")
+        do_buttons(view, INVENTORY)
         return await interaction.response.send_message(embed=embed, view=view)
 
     @discord.app_commands.command()
@@ -133,14 +143,12 @@ class HelpMe(commands.Cog):
         embed.description = "Access your region's logbook below."
 
         # TODO: Make this a universal
-        img = (
-            HELP_ME_DISC + "303154190362869761/991811398952816790/unknown.png"
-        )
+        img = DC + "303154190362869761/991811398952816790/unknown.png"
         embed.set_thumbnail(url=img)
         embed.colour = discord.Colour.dark_orange()
 
         view = discord.ui.View()
-        do_buttons(view, "logbook")
+        do_buttons(view, LOGBOOK)
         return await interaction.response.send_message(embed=embed, view=view)
 
     # TODO: Make this into a view.

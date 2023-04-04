@@ -8,14 +8,11 @@ import discord
 from discord.ext import commands
 
 from ext.utils import embed_utils, timed_events, view_utils
-from ext.utils import wows_api as api
+from ext import wows_api as api
 
 if typing.TYPE_CHECKING:
-    from painezBot import PBot
+    from painezbot import PBot
 
-CLAN_SEARCH = "https://api.worldofwarships.eu/wows/clans/list/"
-WINNERS = "https://clans.worldofwarships.eu/api/ladder/winners/"
-REGION = typing.Literal["eu", "na", "sea"]
 
 logger = logging.getLogger("clans.py")
 
@@ -61,7 +58,7 @@ class Leaderboard(view_utils.BaseView):
                 text += f", Last: {lbt}"
             embed.description += text + "\n"
 
-            fun = ClanView(self.interaction, clan, parent=parent).from_dropdown
+            fun = ClanView(self.interaction, clan, parent=parent).overview
             label = f"{clan.tag} ({clan.region.name})"
             btn = view_utils.Funcable(label, fun)
             btn.description = clan.name
@@ -98,26 +95,12 @@ class ClanView(view_utils.BaseView):
             self.clan_details = await self.clan.fetch_details()
 
         if self.clan_vortex_data is None:
-            self.clan_vortex_data = await self.clan.fetch_clan_vortex_data()
+            self.clan_vortex_data = await self.clan.fetch_vortex_data()
 
         league = self.clan_vortex_data.league
         embed.colour = league.colour
         embed.set_thumbnail(url=league.thumbnail)
         return embed
-
-    # Entry Point but not really a ClassMethod per se.
-    async def from_dropdown(
-        self, interaction: Interaction, clan_id: int
-    ) -> discord.InteractionMessage:
-        """When initiated from a dropdown, we only have partial data,
-        so we perform a fetch and then send to update"""
-        clan = interaction.client.get_clan(clan_id)
-        if clan is None:
-            raise ValueError
-
-        self.clan = clan
-        self.clan_details = await self.clan.fetch_details()
-        return await self.overview()
 
     def handle_buttons(self, current_function: typing.Callable) -> None:
         """Add Page Buttons to our view."""
@@ -127,15 +110,15 @@ class ClanView(view_utils.BaseView):
         self.add_page_buttons()
 
         dropdown = []
-        func: typing.Callable
-        for name, func in [
-            ("Overview", self.overview),
-            ("Members", self.members),
-            ("New Members", self.new_members),
-        ]:
-            btn = view_utils.Funcable(name, func)
-            btn.disabled = current_function == func
+
+        def add_button(label: str, func: typing.Callable):
+            btn = view_utils.Funcable(label, func)
+            btn.disabled = current_function is func
             dropdown.append(btn)
+
+        add_button("Overview", self.overview)
+        add_button("Members", self.members)
+        add_button("New Members", self.new_members)
         self.add_function_row(dropdown, 1)
 
     async def overview(self) -> discord.InteractionMessage:
@@ -179,8 +162,8 @@ class ClanView(view_utils.BaseView):
 
             # Win Rate
             win_r = round(vortex.wins_count / vortex.battles_count * 100, 2)
-            rest = f"{vortex.wins_count} / {vortex.battles_count}"
-            cb_desc.append(f"**Win Rate**: {win_r}% ({rest})")
+            _ = f"{vortex.wins_count} / {vortex.battles_count}"
+            cb_desc.append(f"**Win Rate**: {win_r}% ({_})")
 
             # Win streaks
             lws = vortex.max_winning_streak
@@ -190,7 +173,7 @@ class ClanView(view_utils.BaseView):
                     cb_desc.append(f"**Win Streak**: {cws}")
                 else:
                     cb_desc.append(f"**Win Streak**: {cws} (Max: {lws})")
-            elif vortex.max_winning_streak:
+            elif lws:
                 cb_desc.append(f"**Longest Win Streak**: {lws}")
             embed.add_field(name=title, value="\n".join(cb_desc))
 
@@ -278,7 +261,7 @@ class ClanView(view_utils.BaseView):
 
     async def history(self) -> discord.InteractionMessage:
         """Get a clan's Clan Battle History"""
-        # https://clans.worldofwarships.eu/api/members/500140589/?battle_type=cvc&season=17
+        #
         # TODO: Clan Battle History
         raise NotImplementedError
         self._disabled = self.history
@@ -310,89 +293,49 @@ class ClanView(view_utils.BaseView):
         return await edit(embed=embed, view=self)
 
 
-async def clan_ac(
-    interaction: discord.Interaction[PBot], current: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Autocomplete for a list of clan names"""
-    region = getattr(interaction.namespace, "region", None)
-    rgn = next((i for i in api.Region if i.db_key == region), api.Region.EU)
-
-    link = CLAN_SEARCH.replace("eu", rgn.domain)
-    params = {
-        "search": current,
-        "limit": 25,
-        "application_id": api.WG_ID,
-    }
-
-    async with interaction.client.session.get(link, params=params) as resp:
-        if resp.status != 200:
-            logger.error("%s on %s", resp.status, link)
-            return []
-
-        clans = await resp.json()
-
-    choices = []
-    for i in clans.pop("data", []):
-        clan = api.Clan(i["clan_id"])
-        clan.tag = i["tag"]
-        clan.name = i["name"]
-        choices.append(
-            discord.app_commands.Choice(
-                name=f"[{clan.tag}] {clan.name}", value=str(clan.clan_id)
-            )
-        )
-    return choices
-
-
 class Clans(commands.Cog):
     """Fetch data about world of warships clans"""
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
 
-    clan = discord.app_commands.Group(name="clan", description="Get Clans")
+    clan = discord.app_commands.Group(
+        name="clan", description="Get Clans", guild_ids=[250252535699341312]
+    )
 
     @clan.command()
     @discord.app_commands.describe(
-        query="Clan Name or Tag", region="Which region is this clan from"
+        clan="Clan Name or Tag", region="Which region is this clan from"
     )
-    @discord.app_commands.autocomplete(query=clan_ac)
     async def search(
         self,
         interaction: discord.Interaction[PBot],
-        region: REGION,
-        query: discord.app_commands.Range[str, 2],
+        region: typing.Literal["eu", "na", "sea"],
+        clan: api.transformers.clan_transform,
     ) -> discord.InteractionMessage:
         """Get information about a World of Warships clan"""
-        _ = region  # Just to shut the linter up.
+        del region  # Just to shut the linter up.
 
         await interaction.response.defer(thinking=True)
-        return await ClanView(interaction, api.Clan(int(query))).overview()
+        return await ClanView(interaction, clan).overview()
 
     @clan.command()
     @discord.app_commands.describe(region="Get winners for a specific region")
     async def winners(
         self,
         interaction: discord.Interaction[PBot],
-        region: typing.Optional[REGION] = None,
+        region: typing.Optional[typing.Literal["eu", "na", "sea"]] = None,
     ) -> discord.InteractionMessage:
         """Get a list of all past Clan Battle Season Winners"""
 
         await interaction.response.defer(thinking=True)
 
-        async with self.bot.session.get(WINNERS) as resp:
-            match resp.status:
-                case 200:
-                    winners = await resp.json()
-                case _:
-                    err = f"{resp.status} error accessing Hall of Fame"
-                    raise ConnectionError(err)
+        data = await api.get_cb_winners()
 
-        seasons = winners.pop("winners")
         if region is None:
             rows = []
 
-            ssn = seasons.items()
+            ssn = data.items()
             tuples = sorted(ssn, key=lambda x: int(x[0]), reverse=True)
 
             rat = "public_rating"
@@ -444,8 +387,8 @@ class Clans(commands.Cog):
     async def leaderboard(
         self,
         interaction: discord.Interaction[PBot],
-        region: typing.Optional[REGION] = None,
-        season: discord.app_commands.Range[int, 1, 22] = 22,
+        region: typing.Optional[typing.Literal["eu", "na", "sea"]] = None,
+        season: typing.Optional[discord.app_commands.Range[int, 1, 22]] = None,
     ) -> discord.InteractionMessage:
         """Get the Season Clan Battle Leaderboard"""
         url = "https://clans.worldofwarships.eu/api/ladder/structure/"
@@ -468,15 +411,28 @@ class Clans(commands.Cog):
 
         clans = []
         for data in json:
-            clan = api.Clan(data["id"])
-
-            clan.tag = data["tag"]
-            clan.name = data["name"]
-
-            stats = api.ClanLeaderboardStats(clan, data)
+            stats = api.ClanLeaderboardStats(data)
             clans.append(stats)
 
-        return await Leaderboard(interaction, clans).update(season=season)
+        return await Leaderboard(interaction, clans).update()
+
+    async def cache_clan_base(self) -> list[api.ClanBuilding]:
+        """Cache the CLan Buildings from the API"""
+        raise NotImplementedError  # TODO: Cache Clan Base
+        # buildings = json.pop()
+        # output = []
+        # for i in buildings:
+        #
+        # self.building_id: int = building_id
+        # self.building_type_id: int = kwargs.pop('building_type_id', None)
+        # self.bonus_type: Optional[str] = kwargs.pop('bonus_type', None)
+        # self.bonus_value: Optional[int] = kwargs.pop('bonus_value', None)
+        # self.cost: Optional[int] = kwargs.pop('cost', None)  # Price in Oil
+        # self.max_members: Optional[int] = kwargs.pop('max_members', None)
+        #
+        # max_members = buildings.pop()
+        #
+        # b = ClanBuilding()
 
 
 async def setup(bot: PBot):

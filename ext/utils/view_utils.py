@@ -12,7 +12,7 @@ from ext.utils import embed_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
 
@@ -51,7 +51,7 @@ class BaseView(discord.ui.View):
 
         super().__init__(timeout=timeout)
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
+    async def interaction_check(self, interaction: Interaction, /) -> bool:
         """Make sure only the person running the command can select options"""
         return self.interaction.user.id == interaction.user.id
 
@@ -105,7 +105,7 @@ class BaseView(discord.ui.View):
             self.add_item(FuncSelect(items, row, placeholder))
 
     async def on_error(
-        self, _: Interaction, error: Exception, item
+        self, _: Interaction, error: Exception, item, /
     ) -> typing.Optional[discord.InteractionMessage]:
         """Log the stupid fucking error"""
         logger.error(error)
@@ -199,7 +199,7 @@ class JumpModal(discord.ui.Modal):
         self.page.placeholder = f"1 - {len(view.pages)}"
 
     async def on_submit(
-        self, interaction: Interaction
+        self, interaction: Interaction, /
     ) -> discord.InteractionMessage:
         """Validate entered data & set parent index."""
 

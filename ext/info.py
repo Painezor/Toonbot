@@ -12,7 +12,7 @@ from ext.utils import view_utils, embed_utils, timed_events
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from painezBot import PBot
+    from painezbot import PBot
 
 Interaction: typing.TypeAlias = discord.Interaction[PBot]
 
