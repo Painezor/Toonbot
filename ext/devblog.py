@@ -230,11 +230,10 @@ class Blog:
             elif node.tag == "li":
                 out.append("\n")
                 if node.text:
-                    match node.getparent().getparent().tag:
-                        case "ul" | "ol" | "li":
-                            out.append(f"∟○ {txt}")
-                        case _:
-                            out.append(f"• {txt}")
+                    if node.getparent().getparent().tag in ["ul", "ol", "li"]:
+                        out.append(f"∟○ {txt}")
+                    else:
+                        out.append(f"• {txt}")
 
                 if node.getnext() is None:
                     if len(node) == 0:  # Number of children
