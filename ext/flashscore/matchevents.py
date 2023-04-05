@@ -83,7 +83,7 @@ def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
 
         elif "card-ico" in svg_class:
             event = Booking()
-            logger.info("Fallback case reached, card-ico")
+            logger.info("Fallback reached, card-ico")
 
         # VAR
         elif "var" in svg_class:
