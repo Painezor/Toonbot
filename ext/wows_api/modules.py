@@ -1,72 +1,16 @@
 """Data retrieved from the Modules endpoint"""
-from __future__ import annotations
-
 import dataclasses
+import logging
+
+import aiohttp
+
 from .shipparameters import BomberAccuracy
+from .wg_id import WG_ID
 
 
 MODULES = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
 
-
-@dataclasses.dataclass
-class Module:
-    """A Module that can be mounted in a ship fitting"""
-
-    image: str
-    module_id: int
-    module_id_str: str
-    price_credit: int
-    name: str
-    tag: str
-    type: str
-
-    profile: ModuleProfile
-
-    def __init__(self, data: dict) -> None:
-
-        for k, val in data.items():
-            if k == "profile":
-                val = ModuleProfile(val)
-            setattr(self, k.lower(), val)
-
-    @property
-    def emoji(self) -> str:
-        """Return an emoji representing the module"""
-        return self.profile.emoji
-
-
-@dataclasses.dataclass
-class ModuleProfile:
-    """Data Not alwawys present"""
-
-    artillery: ArtilleryProfile
-    dive_bomber: DiveBomberProfile
-    engine: EngineProfile
-    fighter: FighterProfile
-    fire_control: FireControlProfile
-    flight_control: FlightControlProfile
-    hull: HullProfile
-    torpedo_bomber: TorpedoBomberProfile
-    torpedoes: TorpedoProfile
-
-    def __init__(self, data: dict) -> None:
-        for k, val in data:
-            val = {
-                "artillery": ArtilleryProfile,
-                "dive_bomber": DiveBomberProfile,
-                "engine": EngineProfile,
-                "fighter": FighterProfile,
-                "flght_control": FlightControlProfile,
-                "hull": HullProfile,
-                "torpedo_bomber": TorpedoBomberProfile,
-                "torpedoes": TorpedoProfile,
-            }[k](val)
-            setattr(self, k, val)
-
-    @property
-    def emoji(self) -> str:
-        """Return the Generic Auxiliary Armament Image"""
-        return "<:auxiliary:991806987362902088>"
+logger = logging.getLogger("ext.modules")
 
 
 @dataclasses.dataclass
@@ -158,6 +102,18 @@ class FlightControlProfile:
 
 
 @dataclasses.dataclass
+class HullArmour:
+    """The Thickness of the Ship's armour in mm"""
+
+    min: int
+    max: int
+
+    def __init__(self, data: dict) -> None:
+        for k, val in data.items():
+            setattr(self, k, val)
+
+
+@dataclasses.dataclass
 class HullProfile:
     """A 'Hull' Module"""
 
@@ -173,18 +129,6 @@ class HullProfile:
 
     def __init__(self, data: dict) -> None:
         self.range = HullArmour(data.pop("range"))
-        for k, val in data.items():
-            setattr(self, k, val)
-
-
-@dataclasses.dataclass
-class HullArmour:
-    """The Thickness of the Ship's armour in mm"""
-
-    min: int
-    max: int
-
-    def __init__(self, data: dict) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -222,3 +166,80 @@ class TorpedoProfile:
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             setattr(self, k, val)
+
+
+@dataclasses.dataclass
+class ModuleProfile:
+    """Data Not always present"""
+
+    artillery: ArtilleryProfile
+    dive_bomber: DiveBomberProfile
+    engine: EngineProfile
+    fighter: FighterProfile
+    fire_control: FireControlProfile
+    flight_control: FlightControlProfile
+    hull: HullProfile
+    torpedo_bomber: TorpedoBomberProfile
+    torpedoes: TorpedoProfile
+
+    def __init__(self, data: dict) -> None:
+        for k, val in data:
+            val = {
+                "artillery": ArtilleryProfile,
+                "dive_bomber": DiveBomberProfile,
+                "engine": EngineProfile,
+                "fighter": FighterProfile,
+                "flght_control": FlightControlProfile,
+                "hull": HullProfile,
+                "torpedo_bomber": TorpedoBomberProfile,
+                "torpedoes": TorpedoProfile,
+            }[k](val)
+            setattr(self, k, val)
+
+    @property
+    def emoji(self) -> str:
+        """Return the Generic Auxiliary Armament Image"""
+        return "<:auxiliary:991806987362902088>"
+
+
+@dataclasses.dataclass
+class Module:
+    """A Module that can be mounted in a ship fitting"""
+
+    image: str
+    module_id: int
+    module_id_str: str
+    price_credit: int
+    name: str
+    tag: str
+    type: str
+
+    profile: ModuleProfile
+
+    def __init__(self, data: dict) -> None:
+
+        for k, val in data.items():
+            if k == "profile":
+                val = ModuleProfile(val)
+            setattr(self, k.lower(), val)
+
+    @property
+    def emoji(self) -> str:
+        """Return an emoji representing the module"""
+        return self.profile.emoji
+
+
+async def get_modules(modules: list[int]) -> dict[int, Module]:
+    """Fetch Module Objects from the world of warships API"""
+    module_id = ", ".join(str(i) for i in modules)
+    params = {"application_id": WG_ID, "module_id": module_id}
+    session = aiohttp.ClientSession()
+    async with session.get(MODULES, params=params) as resp:
+        if resp.status != 200:
+            logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+        data = await resp.json()
+
+    output = dict()
+    for id_, data in data["data"].items():
+        output.update({id_: Module(data)})
+    return output

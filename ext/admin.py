@@ -16,6 +16,8 @@ if typing.TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
+
 logger = logging.getLogger("Admin")
 
 
@@ -26,17 +28,15 @@ def error_to_codeblock(error) -> str:
 
 
 async def cg_ac(
-    interaction: discord.Interaction[Bot | PBot], current: str
+    interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice]:
     """Autocomplete from list of cogs"""
     results = []
 
     cur = current.casefold()
-    for i in interaction.client.cogs.values():
-        name = i.qualified_name
-
-        if cur in name.casefold():
-            results.append(discord.app_commands.Choice(name=name, value=name))
+    for i in interaction.client.available_cogs:
+        if cur in i.casefold():
+            results.append(discord.app_commands.Choice(name=i, value=i))
     return results[:25]
 
 
@@ -71,63 +71,53 @@ class Admin(commands.Cog):
     @cogs.command(name="reload")
     @discord.app_commands.describe(cog="pick a cog to reload")
     @discord.app_commands.autocomplete(cog=cg_ac)
-    async def reload(
-        self, interaction: discord.Interaction[Bot | PBot], cog: str
-    ) -> discord.InteractionMessage:
+    async def reload(self, interaction: Interaction, cog: str) -> None:
         """Reloads a module."""
-        await interaction.response.defer(thinking=True)
-
         try:
-            await self.bot.reload_extension(f"ext.{cog.casefold()}")
+            await self.bot.reload_extension(cog.casefold())
         except commands.ExtensionError as err:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = error_to_codeblock(err)
-            return await interaction.edit_original_response(embed=embed)
+            await interaction.response.send_message(embed=embed)
+            raise
 
         embed = discord.Embed(colour=discord.Colour.og_blurple())
         embed.description = f"⚙️ Reloaded {cog}"
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     @cogs.command()
     @discord.app_commands.autocomplete(cog=cg_ac)
     @discord.app_commands.describe(cog="pick a cog to load")
-    async def load(
-        self, interaction: discord.Interaction[Bot | PBot], cog: str
-    ) -> discord.InteractionMessage:
+    async def load(self, interaction: Interaction, cog: str) -> None:
         """Loads a module."""
-        await interaction.response.defer(thinking=True)
-
         try:
-            await self.bot.load_extension(f"ext.{cog.casefold()}")
+            await self.bot.load_extension(cog.casefold())
         except commands.ExtensionError as err:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = error_to_codeblock(err)
-            return await interaction.edit_original_response(embed=embed)
+            await interaction.response.send_message(embed=embed)
+            raise
 
         embed = discord.Embed(colour=discord.Colour.og_blurple())
         embed.description = f"⚙️ Loaded {cog}"
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     @cogs.command()
     @discord.app_commands.autocomplete(cog=cg_ac)
-    async def unload(
-        self, interaction: discord.Interaction[Bot | PBot], cog: str
-    ) -> discord.InteractionMessage:
+    async def unload(self, interaction: Interaction, cog: str) -> None:
         """Unloads a module."""
-
-        await interaction.response.defer(thinking=True)
-
         try:
-            await self.bot.unload_extension(f"ext.{cog.casefold()}")
+            await self.bot.unload_extension(cog.casefold())
         except commands.ExtensionFailed as err:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = error_to_codeblock(err)
-            return await interaction.edit_original_response(embed=embed)
+            await interaction.response.send_message(embed=embed)
+            raise
 
         embed = discord.Embed(title="Modules")
         embed.colour = discord.Colour.og_blurple()
         embed.description = f":⚙️: Unloaded {cog}"
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     console = discord.app_commands.Group(
         name="console",
@@ -136,26 +126,19 @@ class Admin(commands.Cog):
     )
 
     @console.command(name="print")
-    async def _print(
-        self, interaction: discord.Interaction[Bot | PBot], to_print: str
-    ) -> discord.InteractionMessage:
+    async def _print(self, interaction: Interaction, to_print: str) -> None:
         """Print something to console."""
-
-        await interaction.response.defer(thinking=True)
         if not interaction.user.id == self.bot.owner_id:
             raise commands.NotOwner
 
         logger.info("Print command output\n%s", to_print)
         embed = discord.Embed(colour=discord.Colour.og_blurple())
         embed.description = f"```\n{to_print}```"
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     @console.command(name="clear")
-    async def clear(
-        self, interaction: discord.Interaction[Bot | PBot]
-    ) -> discord.InteractionMessage:
+    async def clear(self, interaction: Interaction) -> None:
         """Clear the command window."""
-        await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise commands.NotOwner
 
@@ -165,28 +148,24 @@ class Admin(commands.Cog):
 
         embed = discord.Embed(colour=discord.Colour.blurple())
         embed.description = "```\nConsole Log Cleared.```"
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     @discord.app_commands.command(name="quit")
     @discord.app_commands.guilds(250252535699341312)
-    async def quit(self, interaction: discord.Interaction[Bot | PBot]) -> None:
+    async def quit(self, interaction: Interaction) -> None:
         """Log the bot out gracefully."""
         await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise commands.NotOwner
 
-        await interaction.edit_original_response(content="Logging out.")
+        await interaction.response.send_message(content="Logging out.")
         return await self.bot.close()
 
     @discord.app_commands.command(name="debug")
     @discord.app_commands.guilds(250252535699341312)
     @discord.app_commands.describe(code=">>> Code Go Here")
-    async def debug(
-        self, interaction: discord.Interaction[Bot | PBot], code: str
-    ) -> discord.InteractionMessage:
+    async def debug(self, interaction: Interaction, code: str) -> None:
         """Evaluates code."""
-
-        await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise commands.NotOwner
 
@@ -220,9 +199,8 @@ class Admin(commands.Cog):
                 "Too long for discord, output sent to logger."
             )
         out_embed.description = desc
-        return await interaction.edit_original_response(
-            embeds=[in_embed, out_embed]
-        )
+        embeds = [in_embed, out_embed]
+        return await interaction.response.send_message(embeds=embeds)
 
 
 async def setup(bot: Bot | PBot) -> None:

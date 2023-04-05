@@ -14,7 +14,7 @@ if typing.TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
-Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    Interaction: typing.TypeAlias = discord.Interaction[PBot | Bot]
 
 
 class Info(commands.Cog):
@@ -30,11 +30,8 @@ class Info(commands.Cog):
         self,
         interaction: Interaction,
         user: typing.Optional[discord.User | discord.Member],
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Shows a member's avatar"""
-
-        await interaction.response.defer(thinking=True)
-
         embed = discord.Embed(timestamp=discord.utils.utcnow())
 
         if user is None:
@@ -44,17 +41,17 @@ class Info(commands.Cog):
         embed.colour = user.colour
         embed.set_footer(text=user.display_avatar.url)
         embed.set_image(url=user.display_avatar.url)
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     info = discord.app_commands.Group(
-        description="Get information about things on your server"
+        name="info", description="Get information about things on your server"
     )
 
     @info.command()
     @discord.app_commands.describe(channel="select a channel")
     async def channel(
         self, interaction: Interaction, channel: discord.abc.GuildChannel
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Get information about a channel"""
 
         await interaction.response.defer(thinking=True)
@@ -215,7 +212,7 @@ class Info(commands.Cog):
 
         # List[Role | Member | Object]
         if not channel.overwrites:
-            return await interaction.edit_original_response(embed=embed)
+            return await interaction.response.edit_message(embed=embed)
 
         target: discord.Role | discord.Member | discord.Object
         embeds: list[discord.Embed] = []
@@ -238,13 +235,11 @@ class Info(commands.Cog):
             embeds.append(emb)
 
         embeds = [embed] + embeds
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).update(interaction)
 
     @info.command()
     @discord.app_commands.describe(role="select a role")
-    async def role(
-        self, interaction: Interaction, role: discord.Role
-    ) -> discord.InteractionMessage:
+    async def role(self, interaction: Interaction, role: discord.Role) -> None:
         """Get information about a channel"""
 
         await interaction.response.defer(thinking=True)
@@ -262,14 +257,14 @@ class Info(commands.Cog):
         embed.description = f"<@&{role.id}>\n\n"
         embed.set_author(name=f"{role.name} ({role.id})", icon_url=ico)
 
-        match len(role.members):
-            case 0:
-                embed.description += "**This Role is Unused**\n"
-            case role.members if len(role.members) < 15:
-                val = ", ".join(i.mention for i in role.members)
-                embed.add_field(name="Users", value=val)
-            case _:
-                embed.description = f"**Total Users**: {len(role.members)}\n"
+        mems = len(role.members)
+        if mems == 0:
+            embed.description += "**This Role is Unused**\n"
+        elif mems < 15:
+            val = ", ".join(i.mention for i in role.members)
+            embed.add_field(name="Users", value=val)
+        else:
+            embed.description = f"**Total Users**: {len(role.members)}\n"
 
         embed.description += f"**Show Separately?**: {role.hoist}\n"
         embed.description += f"**Position**: {role.position}\n"
@@ -321,13 +316,11 @@ class Info(commands.Cog):
             perm_embed = None
 
         embeds = [i for i in [embed, perm_embed] if i]
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).update(interaction)
 
     @info.command(name="emote")
-    @discord.app_commands.describe(emoji="enter a list of emotes")
-    async def info_emote(
-        self, interaction: discord.Interaction[Bot | PBot], emote: str
-    ) -> discord.InteractionMessage:
+    @discord.app_commands.describe(emote="enter an emote")
+    async def info_emote(self, interaction: Interaction, emote: str) -> None:
         """View a bigger version of an Emoji"""
 
         await interaction.response.defer(thinking=True)
@@ -360,19 +353,16 @@ class Info(commands.Cog):
             embeds.append(embed)
 
         if not embeds:
-            err = (
-                f"No emotes found in {emote}\n\nPlease note this only works"
-                " for custom server emotes, not default emotes."
-            )
-            return await self.bot.error(interaction, err)
+            embed = discord.Embed()
+            embed.description = f"🚫 No emotes found in {emote}"
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).update(interaction)
 
     @info.command()
     @discord.app_commands.guild_only()
-    async def server(
-        self, interaction: Interaction
-    ) -> discord.InteractionMessage:
+    async def server(self, interaction: Interaction) -> None:
         """Shows information about the server"""
 
         await interaction.response.defer(thinking=True)
@@ -521,14 +511,14 @@ class Info(commands.Cog):
             r_e.description += f"**My Role**: {guild.self_role.mention}\n"
 
         embeds = [cover, chs, stickers, r_e]
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).update(interaction)
 
     @info.command()
     async def user(
         self,
         interaction: Interaction,
         member: discord.Member,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Show info about this member."""
         # Embed 1: Generic Info
 
@@ -650,7 +640,7 @@ class Info(commands.Cog):
         header = f"User found on {len(matches)} servers."
         embeds = embed_utils.rows_to_embeds(shared, matches, 20, header)
         embeds += [i for i in [generic, perm_embed, avatar] if i is not None]
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).update(interaction)
 
 
 async def setup(bot: Bot | PBot) -> None:

@@ -15,6 +15,8 @@ if typing.TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
+
 # TODO: Split /logs command into subcommands with sub-views & Parent.
 # TODO: Fallback parser using regular events -- Check if bot has
 # view_audit_log perms
@@ -148,7 +150,7 @@ def stringify_verification(value: discord.VerificationLevel) -> str:
             veri.highest: "Verified Phone",
         }[value]
     except KeyError:
-        logging.error("Failed to parse Verification Level %s", value)
+        logger.error("Failed to parse Verification Level %s", value)
         return value.name
 
 
@@ -925,9 +927,7 @@ class ToggleButton(discord.ui.Button):
         title: str = db_key.replace("_", " ").title()
         super().__init__(label=f"{title}", emoji=emoji, row=row, style=style)
 
-    async def callback(
-        self, interaction: discord.Interaction[Bot | PBot]
-    ) -> discord.Message:
+    async def callback(self, interaction: Interaction) -> None:
         """Set view value to button value"""
 
         await interaction.response.defer()
@@ -940,7 +940,7 @@ class ToggleButton(discord.ui.Button):
                 await connection.execute(sql, not self.value, chan_id)
 
         await update_cache(interaction.client)
-        return await self.view.update()
+        return await self.view.update(interaction)
 
 
 class LogsConfig(view_utils.BaseView):
@@ -948,25 +948,20 @@ class LogsConfig(view_utils.BaseView):
 
     def __init__(
         self,
-        interaction: discord.Interaction[Bot],
         channel: discord.TextChannel,
     ) -> None:
 
-        super().__init__(interaction)
+        super().__init__()
 
         self.channel: discord.TextChannel = channel
 
-    async def on_timeout(self) -> None:
-        """Hide menu on timeout."""
-        return await self.interaction.delete_original_response()
-
     async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, content: typing.Optional[str] = None
+    ) -> None:
         """Regenerate view and push to message"""
         self.clear_items()
 
-        if self.interaction.guild is None:
+        if interaction.guild is None:
             raise commands.NoPrivateMessage
 
         sql = (
@@ -978,12 +973,12 @@ class LogsConfig(view_utils.BaseView):
 
         ch_id = self.channel.id
         g_id = self.channel.guild.id
-        async with self.bot.db.acquire(timeout=60) as connection:
+        async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 if not (stg := await connection.fetchrow(sql, ch_id)):
                     await connection.execute(sq2, g_id, ch_id)
                     await connection.execute(sq3, ch_id)
-                    return await self.update(content="Generating...")
+                    return await self.update(interaction, content="Generating")
 
         embed = discord.Embed(color=0x7289DA, title="Notification Logs config")
         embed.description = "Click buttons below to toggle logging events."
@@ -999,7 +994,7 @@ class LogsConfig(view_utils.BaseView):
             self.add_item(ToggleButton(db_key=k, value=value, row=row))
         self.add_item(view_utils.Stop(row=4))
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
 
 
@@ -1260,7 +1255,7 @@ class AuditLogs(commands.Cog):
             except discord.Forbidden:
                 continue
             except discord.HTTPException as err:
-                logging.error(err)
+                logger.error(err)
 
     # Leave notif
     @commands.Cog.listener()
@@ -1587,16 +1582,16 @@ class AuditLogs(commands.Cog):
     @discord.app_commands.default_permissions(view_audit_log=True)
     async def logs(
         self,
-        interaction: discord.Interaction[Bot],
+        interaction: Interaction,
         channel: typing.Optional[discord.TextChannel] = None,
-    ) -> discord.Message:
+    ) -> None:
         """Create moderator logs in this channel."""
 
         await interaction.response.defer()
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
-        return await LogsConfig(interaction, channel).update()
+        return await LogsConfig(channel).update(interaction)
 
 
 async def setup(bot: Bot | PBot) -> None:

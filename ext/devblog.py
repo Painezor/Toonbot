@@ -15,6 +15,8 @@ from ext.utils import flags, view_utils, embed_utils
 if typing.TYPE_CHECKING:
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+
 logger = logging.getLogger("Devblog")
 
 RSS = "https://blog.worldofwarships.com/rss-en.xml"
@@ -73,7 +75,7 @@ class Blog:
         title: typing.Optional[str] = None,
         text: typing.Optional[str] = None,
     ):
-        self.id: int = _id
+        self.id: int = _id  # pylance: ignore=C0103
         self.title: typing.Optional[str] = title
         self.text: typing.Optional[str] = text
 
@@ -160,7 +162,7 @@ class Blog:
                 if node.attrib.get("class", None) == "superShipStar":
                     out.append(r"\⭐")
                 else:
-                    logging.error(
+                    logger.error(
                         "unhandled 'i' tag %s containing text %s",
                         node.attrib["class"],
                         txt,
@@ -245,7 +247,7 @@ class Blog:
                 if node.text:
                     tail = node.tail
                     tag = node.tag
-                    logging.error("Unhandled node: %s|%s|%s", tag, txt, tail)
+                    logger.error("Unhandled node: %s|%s|%s", tag, txt, tail)
                     out.append(txt)
 
             for sub_node in node.iterchildren(None):
@@ -284,25 +286,20 @@ class Blog:
 class DevBlogView(view_utils.BaseView):
     """Browse Dev Blogs"""
 
-    def __init__(
-        self,
-        interaction: discord.Interaction[PBot],
-        pages: list[asyncpg.Record],
-    ) -> None:
-        super().__init__(interaction)
+    def __init__(self, pages: list[asyncpg.Record]) -> None:
+        super().__init__()
         self.pages: list[Blog] = pages
-        self.index: int = 0
 
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Push the latest version of the view to discord."""
         self.clear_items()
         self.add_page_buttons()
         embed = await self.pages[self.index].make_embed()
-        return await self.interaction.edit_original_response(embed=embed)
+        return await interaction.response.edit_message(embed=embed)
 
 
 async def db_ac(
-    interaction: discord.Interaction[PBot], current: str
+    interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice]:
     """Autocomplete dev blog by text"""
     cur = current.casefold()
@@ -364,7 +361,7 @@ class DevBlog(commands.Cog):
             try:
                 blog_id = int(link.rsplit("/", maxsplit=1)[-1])
             except ValueError:
-                logging.error("Could not parse blog_id from link %s", link)
+                logger.error("Could not parse blog_id from link %s", link)
                 continue
 
             if blog_id in [r.id for r in self.bot.dev_blog_cache]:
@@ -412,9 +409,9 @@ class DevBlog(commands.Cog):
     @discord.app_commands.default_permissions(manage_channels=True)
     async def blog_tracker(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         enabled: typing.Literal["on", "off"],
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
         if None in (interaction.channel, interaction.guild):
@@ -422,7 +419,6 @@ class DevBlog(commands.Cog):
 
         channel = typing.cast(discord.TextChannel, interaction.channel)
         guild = typing.cast(discord.Guild, interaction.guild)
-        await interaction.response.defer(thinking=True)
 
         if enabled:
             sql = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""
@@ -440,36 +436,32 @@ class DevBlog(commands.Cog):
             output = "new Dev Blogs will now be sent to this channel."
             colour = discord.Colour.green()
 
-        await self.update_cache()
-
         embed = discord.Embed(colour=colour, title="Dev Blog Tracker")
         embed.description = output
         embed_utils.user_to_footer(embed, interaction.user)
-        return await interaction.edit_original_response(embed=embed)
+        await interaction.response.send_message(embed=embed)
+        await self.update_cache()
+        return
 
     @discord.app_commands.command()
     @discord.app_commands.autocomplete(search=db_ac)
     @discord.app_commands.describe(
         search="Search for a dev blog by text content"
     )
-    async def devblog(
-        self, interaction: discord.Interaction[PBot], search: str
-    ) -> discord.InteractionMessage:
+    async def devblog(self, interaction: Interaction, search: str) -> None:
         """Fetch a World of Warships dev blog, either search for text or
         leave blank to get latest."""
-        await interaction.response.defer(thinking=True)
-
         dbc = self.bot.dev_blog_cache
         try:
             blog = next(i for i in dbc if i.id == int(search))
             embed = await blog.make_embed()
-            return await interaction.edit_original_response(embed=embed)
+            return await interaction.response.send_message(embed=embed)
         except StopIteration:
             # If a specific blog is not selected, send the browser view.
             txt = search.casefold()
             yes = [i for i in dbc if txt in f"{i.title} {i.text}".casefold()]
-            view = DevBlogView(interaction, pages=yes)
-            return await view.update()
+            view = DevBlogView(pages=yes)
+            return await view.update(interaction)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(

@@ -1,6 +1,9 @@
 """Parameters about a ship in a specifiic fitting state"""
 import dataclasses
+import logging
 import typing
+
+logger = logging.getLogger("api.shipparams")
 
 
 @dataclasses.dataclass
@@ -114,6 +117,14 @@ class ShipArtilleryProfile:
                 val = [MainGun(i) for i in val]
             setattr(self, k, val)
 
+    @property
+    def module_id(self) -> int:
+        return self.artillery_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.artillery_id_str
+
 
 @dataclasses.dataclass
 class SecondaryGun:
@@ -143,7 +154,7 @@ class ShipSecondaryProfile:
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             if k == "slots":
-                val = [SecondaryGun(i) for i in val]
+                val = [SecondaryGun(i) for i in val.values()]
             setattr(self, k, val)
 
 
@@ -214,6 +225,14 @@ class ShipDiveBomberProfile:
                 val = SquadronSize(val)
             setattr(self, k, val)
 
+    @property
+    def module_id(self) -> int:
+        return self.dive_bomber_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.dive_bomber_id_str
+
 
 @dataclasses.dataclass
 class ShipEngineProfile:
@@ -226,6 +245,14 @@ class ShipEngineProfile:
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             setattr(self, k, val)
+
+    @property
+    def module_id(self) -> int:
+        return self.engine_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.engine_id_str
 
 
 @dataclasses.dataclass
@@ -252,6 +279,14 @@ class ShipFighterProfile:
                 val = SquadronSize(val)
             setattr(self, k, val)
 
+    @property
+    def module_id(self) -> int:
+        return self.fighters_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.fighters_id_str
+
 
 @dataclasses.dataclass
 class ShipFireControlProfile:
@@ -265,6 +300,14 @@ class ShipFireControlProfile:
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             setattr(self, k, val)
+
+    @property
+    def module_id(self) -> int:
+        return self.fire_control_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.fire_control_id_str
 
 
 @dataclasses.dataclass
@@ -280,6 +323,14 @@ class ShipFlightControlProfile:
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             setattr(self, k, val)
+
+    @property
+    def module_id(self) -> int:
+        return self.flight_control_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.flight_control_id_str
 
 
 @dataclasses.dataclass
@@ -314,6 +365,14 @@ class ShipHullProfile:
             if k == "range":
                 val = HullArmourRange(val)
             setattr(self, k, val)
+
+    @property
+    def module_id(self) -> int:
+        return self.hull_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.hull_id_str
 
 
 @dataclasses.dataclass
@@ -357,6 +416,14 @@ class ShipTorpedoBomberProfile:
                 val = SquadronSize(val)
             setattr(self, k, val)
 
+    @property
+    def module_id(self) -> int:
+        return self.torpedo_bomber_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.torpedo_bomber_id_str
+
 
 @dataclasses.dataclass
 class Torpedo:
@@ -391,8 +458,16 @@ class ShipTorpedoProfile:
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             if k == "slots":
-                val = [Torpedo(i) for i in val]
+                val = [Torpedo(i) for i in val.values()]
             setattr(self, k, val)
+
+    @property
+    def module_id(self) -> int:
+        return self.torpedoes_id
+
+    @property
+    def module_id_str(self) -> str:
+        return self.torpedoes_id_str
 
 
 @dataclasses.dataclass
@@ -433,24 +508,26 @@ class ShipProfile:
     weaponry: ShipWeaponryProfile
 
     def __init__(self, data: dict) -> None:
+
         for k, val in data.items():
-            try:
-                val = {
-                    "anti_air": ShipAAProfile,
-                    "armour": ShipArmourProfile,
-                    "artillery": ShipArtilleryProfile,
-                    "atbas": ShipSecondaryProfile,
-                    "concealment": ShipConcealmentProfile,
-                    "dive_bomber": ShipDiveBomberProfile,
-                    "engine": ShipEngineProfile,
-                    "fire_control": ShipFireControlProfile,
-                    "flight_control": ShipFlightControlProfile,
-                    "hull": ShipHullProfile,
-                    "mobility": ShipMobilityProfile,
-                    "torpedo_bomber": ShipTorpedoBomberProfile,
-                    "torpedoes": ShipTorpedoProfile,
-                    "weaponry": ShipWeaponryProfile,
-                }[k](val)
-            except KeyError:
-                pass
+            if val is not None:
+                try:
+                    val = {
+                        "anti_air": ShipAAProfile,
+                        "armour": ShipArmourProfile,
+                        "artillery": ShipArtilleryProfile,
+                        "atbas": ShipSecondaryProfile,
+                        "concealment": ShipConcealmentProfile,
+                        "dive_bomber": ShipDiveBomberProfile,
+                        "engine": ShipEngineProfile,
+                        "fire_control": ShipFireControlProfile,
+                        "flight_control": ShipFlightControlProfile,
+                        "hull": ShipHullProfile,
+                        "mobility": ShipMobilityProfile,
+                        "torpedo_bomber": ShipTorpedoBomberProfile,
+                        "torpedoes": ShipTorpedoProfile,
+                        "weaponry": ShipWeaponryProfile,
+                    }[k](val)
+                except KeyError:
+                    pass
             setattr(self, k, val)

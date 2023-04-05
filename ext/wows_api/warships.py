@@ -8,6 +8,8 @@ import typing
 import aiohttp
 import unidecode
 
+from ext.wows_api.modules import Module
+
 from .enums import Nation
 from .shipparameters import ShipProfile
 from .wg_id import WG_ID
@@ -26,42 +28,40 @@ async def get_ships() -> list[Ship]:
     _ = {"application_id": WG_ID, "language": "en"}
     params: dict[str, typing.Any] = _
 
-    session = aiohttp.ClientSession()
-
-    async with session.get(INFO, params=params) as resp:
-        if resp.status != 200:
-            logger.error("%s %s: %s", resp.status, resp.reason, INFO)
-        data = await resp.json()
-
-    ship_types: list[ShipType] = []
-    for k, values in data["data"]["ship_types"].items():
-        images = data["data"]["ship_type_images"][k]
-        ship_types.append(ShipType(k, values, images))
-
-    params.update({"page_no": 1})
-    max_iter = 1
-    ships: list[Ship] = []
-    while (count := 1) <= max_iter:
-        # Initial Pull.
-        params.update({"page_no": count})
-        async with session.get(SHIPS, params=params) as resp:
+    async with aiohttp.ClientSession() as session:
+        async with session.get(INFO, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, SHIPS)
-            items = await resp.json()
+                logger.error("%s %s: %s", resp.status, resp.reason, INFO)
+            data = await resp.json()
+
+        ship_types: list[ShipType] = []
+        for i in data["data"]["ship_types"].keys():
+            images = data["data"]["ship_type_images"][i]
+            ship_types.append(ShipType(i, images))
+
+        params.update({"page_no": 1})
+        max_iter = count = 1
+        ships: list[Ship] = []
+
+        while count <= max_iter:
+            logger.info("Scanning page %s of %s", count, max_iter)
+            params.update({"page_no": count})
+            async with session.get(SHIPS, params=params) as resp:
+                if resp.status != 200:
+                    logger.error("%s %s: %s", resp.status, resp.reason, SHIPS)
+                items = await resp.json()
+
+            meta = items.pop("meta")
             count += 1
+            max_iter = meta["page_total"]
 
-        max_iter = items["meta"]["page_total"]
+            for data in items["data"].values():
+                _type = data.pop("type")
+                ship = Ship(data)
 
-        for data in items["data"].values():
-            nation = data.pop("nation")
-            _ = data.pop("type")
-            _type = next(i for i in ship_types if i.alias == _)
-            ship = Ship(data)
+                ship.type = next(i for i in ship_types if i.name == _type)
 
-            ship.nation = Nation[nation]
-            ship.type = _type
-
-            ships.append(ship)
+                ships.append(ship)
     logger.info("%s ships fetched", len(ships))
     return ships
 
@@ -83,15 +83,12 @@ class ShipTypeImages:
 class ShipType:
     """Submarine, Destroyer, Cruiser, Battleship, Aircraft Carrier."""
 
-    match: str
-    alias: str
+    name: str
     images: ShipTypeImages
 
-    def __init__(self, match: str, alias: str, images: dict) -> None:
+    def __init__(self, name: str, images: dict) -> None:
 
-        self.match = match
-        self.alias = alias
-
+        self.name = name
         self.images = ShipTypeImages(images)
 
 
@@ -184,15 +181,16 @@ class Ship:
             if k == "module_tree":
                 self.module_tree = [TreeModule(i) for i in val.values()]
             elif k == "nation":
-                val = next(i for i in Nation if i.alias == val)
-            try:
-                val = {
-                    "default_profile": ShipProfile,
-                    "images": ShipImages,
-                    "modules": CompatibleModules,
-                }[k](val)
-            except KeyError:
-                pass
+                val = next(i for i in Nation if i.match == val)
+            else:
+                try:
+                    val = {
+                        "default_profile": ShipProfile,
+                        "images": ShipImages,
+                        "modules": CompatibleModules,
+                    }[k](val)
+                except KeyError:
+                    pass
             setattr(self, k, val)
 
     @property
@@ -201,22 +199,23 @@ class Ship:
         nation = "Unknown nation" if self.nation is None else self.nation.alias
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
-        return f"{self.tier}: {decoded} {nation} {self.type.alias}".casefold()
+        return f"{self.tier}: {decoded} {nation} {self.type.name}".casefold()
 
 
 class ShipFit:
     """A Ship Fitting"""
 
-    ship_id: int
-    artillery_id: int
-    dive_bomber_id: int
-    engine_id: int
-    fighter_id: int
-    fire_control_id: int
-    flight_control_id: int
-    hull_id: int
-    torpedo_bombers_id: int
-    torpedoes_id: int
+    ship: Ship
+
+    artillery: Module
+    dive_bomber: Module
+    engine: Module
+    fighter: Module
+    fire_control: Module
+    flight_control: Module
+    hull: Module
+    torpedo_bomber: Module
+    torpedoes: Module
 
     def __init__(self, initial_modules: list[TreeModule]) -> None:
         for i in initial_modules:

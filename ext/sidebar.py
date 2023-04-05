@@ -19,7 +19,7 @@ import discord
 from discord.ext import commands, tasks
 from lxml import html
 
-import ext.toonbot_utils.flashscore as fs
+import ext.flashscore as fs
 
 
 if typing.TYPE_CHECKING:
@@ -324,13 +324,14 @@ class NUFCSidebar(commands.Cog):
         interaction: discord.Interaction[Bot],
         caption: typing.Optional[str],
         image: typing.Optional[discord.Attachment],
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Upload an image to the sidebar, or edit the caption."""
         if not caption and not image:
-            return await self.bot.error(
-                interaction, "No caption / image provided."
-            )
-        await interaction.response.defer(thinking=True)
+            embed = discord.Embed()
+            embed.description = "🚫 Provide a caption or image"
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
+
         # Check if message has an attachment, for the new sidebar image.
         embed = discord.Embed(color=0xFF4500, url=REDDIT)
         embed.set_author(icon_url=REDDIT_THUMBNAIL, name="Sidebar updated")
@@ -353,7 +354,10 @@ class NUFCSidebar(commands.Cog):
             try:
                 await sub.stylesheet.upload("sidebar", "sidebar")
             except asyncprawcore.TooLarge:
-                return await self.bot.error(interaction, "Image is too large.")
+                embed = discord.Embed()
+                embed.description = "🚫 Image file size too large"
+                reply = interaction.response.send_message
+                return await reply(embed=embed, ephemeral=True)
 
             style = await sub.stylesheet()
 
@@ -369,8 +373,8 @@ class NUFCSidebar(commands.Cog):
         # Build
         wiki = await subreddit.wiki.get_page("config/sidebar")
         await wiki.edit(content=await self.make_sidebar())
-        edit = interaction.edit_original_response
-        return await edit(embed=embed, attachments=file)
+        edit = interaction.response.send_message
+        return await edit(embed=embed, files=file)
 
 
 async def setup(bot: Bot) -> None:

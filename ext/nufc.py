@@ -14,6 +14,8 @@ from ext.utils.view_utils import BaseView
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
 EMOJI = "<:mbemba:332196308825931777>"
 
 # Shake meme
@@ -176,10 +178,7 @@ MBEMBA = [
 class MbembaView(BaseView):
     """Generic View for the Mbemba Generator."""
 
-    def __init__(self, interaction: discord.Interaction[Bot]) -> None:
-        super().__init__(interaction)
-
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Regenerate the embed and push to view."""
         self.clear_items()
         self.add_item(MbembaButton())
@@ -188,7 +187,7 @@ class MbembaView(BaseView):
         embed = discord.Embed(title="Mbemba when")
         embed.colour = discord.Colour.purple()
         embed.description = f"<:mbemba:332196308825931777> {item}"
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
 
@@ -205,10 +204,9 @@ class MbembaButton(discord.ui.Button):
             emoji=EMOJI,
         )
 
-    async def callback(self, interaction: discord.Interaction[Bot]) -> None:
+    async def callback(self, interaction: Interaction) -> None:
         """When clicked, re roll."""
-        await interaction.response.defer()
-        await self.view.update()
+        await self.view.update(interaction)
 
 
 class NUFC(commands.Cog):
@@ -219,19 +217,15 @@ class NUFC(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def mbemba(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def mbemba(self, interaction: Interaction) -> None:
         """Mbemba When…"""
-        return await MbembaView(interaction).update()
+        return await MbembaView().update(interaction)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
     @discord.app_commands.describe(hex_code="Enter a colour #hexcode")
     @discord.app_commands.default_permissions(change_nickname=True)
-    async def colour(
-        self, interaction: discord.Interaction[Bot], hex_code: str
-    ) -> None:
+    async def colour(self, interaction: Interaction, hex_code: str) -> None:
         """Gives you a colour"""
         # Get user's old colours.
         guild = interaction.guild
@@ -250,8 +244,10 @@ class NUFC(commands.Cog):
             btn.url = "http://htmlcolorcodes.com/color-picker/"
             btn.label = "Colour picker."
             view.add_item(btn)
-            err = "Invalid colour."
-            return await self.bot.error(interaction, err, view=view)
+            embed = discord.Embed()
+            embed.description = "🚫 Invalid Colourr"
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True, view=view)
 
         role = discord.utils.get(guild.roles, name=f"#{hex_code}")
         if role is None:  # Create new role or fetch if already exists.
@@ -276,27 +272,27 @@ class NUFC(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def shake(self, interaction: discord.Interaction[Bot]) -> None:
+    async def shake(self, interaction: Interaction) -> None:
         """Well to start off with…"""
         return await interaction.response.send_message(content=SHAKE)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def gherkin(self, interaction: discord.Interaction[Bot]) -> None:
+    async def gherkin(self, interaction: Interaction) -> None:
         """DON'T LET ME GOOOOOO AGAIN"""
         url = "https://www.youtube.com/watch?v=L4f9Y-KSKJ8"
         return await interaction.response.send_message(url)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def radio(self, interaction: discord.Interaction[Bot]) -> None:
+    async def radio(self, interaction: Interaction) -> None:
         """Sends a link to the NUFC radio channel"""
         text = "Radio Coverage: https://www.nufc.co.uk/liveaudio.html"
         return await interaction.response.send_message(text)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def downhowe(self, interaction: discord.Interaction[Bot]) -> None:
+    async def downhowe(self, interaction: Interaction) -> None:
         """Adds a downvote reaction to the last 10 messages"""
         await interaction.response.defer(thinking=True)
 
@@ -320,7 +316,7 @@ class NUFC(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def uphowe(self, interaction: discord.Interaction[Bot]) -> None:
+    async def uphowe(self, interaction: Interaction) -> None:
         """Adds an upvote reaction to the last 10 messages"""
 
         if (
@@ -342,21 +338,21 @@ class NUFC(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def toon_toon(self, interaction: discord.Interaction[Bot]) -> None:
+    async def toon_toon(self, interaction: Interaction) -> None:
         """Toon. Toon, black & white army"""
         text = "**BLACK AND WHITE ARMY**"
         return await interaction.response.send_message(text)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def goala(self, interaction: discord.Interaction[Bot]) -> None:
+    async def goala(self, interaction: Interaction) -> None:
         """Party on Garth"""
         file = discord.File(fp="Images/goala.gif")
         return await interaction.response.send_message(file=file)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
-    async def ructions(self, interaction: discord.Interaction[Bot]) -> None:
+    async def ructions(self, interaction: Interaction) -> None:
         """WEW. RUCTIONS."""
         file = discord.File(fp="Images/ructions.png")
         return await interaction.response.send_message(file=file)
@@ -365,10 +361,9 @@ class NUFC(commands.Cog):
     @discord.app_commands.guilds(332159889587699712)
     @discord.app_commands.describe(timeout="Timeout duration if you lose")
     async def roulette(
-        self, interaction: discord.Interaction[Bot], timeout: int = 60
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, timeout: int = 60
+    ) -> None:
         """Russian Roulette"""
-        await interaction.response.defer(thinking=True)
         if isinstance(interaction.user, discord.User):
             raise commands.NoPrivateMessage
 
@@ -386,7 +381,7 @@ class NUFC(commands.Cog):
         else:
             embed = discord.Embed(title="Click", colour=discord.Colour.green())
             embed.description = f"{stringify_seconds(timeout)} timeout avoided"
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: Bot) -> None:

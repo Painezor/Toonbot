@@ -14,6 +14,8 @@ from ext.utils import view_utils, timed_events, flags, embed_utils
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
 
 FAVICON = (
     "https://upload.wikimedia.org/wikipedia/commons/f/fb/"
@@ -22,6 +24,9 @@ FAVICON = (
 TF = "https://www.transfermarkt.co.uk"
 
 logger = logging.getLogger("transfermarkt")
+
+
+# TODO: Convert functions to @buttons
 
 
 class SearchResult:
@@ -258,13 +263,11 @@ class Transfer:
 class TeamView(view_utils.BaseView):
     """A View representing a Team on TransferMarkt"""
 
-    def __init__(
-        self, interaction: discord.Interaction[Bot], team: Team
-    ) -> None:
-        super().__init__(interaction)
+    def __init__(self, team: Team) -> None:
+        super().__init__()
         self.team: Team = team
 
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Send the latest version of the view"""
         self.clear_items()
 
@@ -278,20 +281,17 @@ class TeamView(view_utils.BaseView):
         self.add_page_buttons()
 
         embed = self.pages[self.index]
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
-    async def push_transfers(self) -> discord.InteractionMessage:
+    async def push_transfers(self, interaction: Interaction) -> None:
         """Push transfers to View"""
         url = self.team.link.replace("startseite", "transfers")
 
-        async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"Error {resp.status} connecting to {resp.url}"
-                    return await self.bot.error(self.interaction, err)
+        async with interaction.client.session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            tree = html.fromstring(await resp.text())
 
         def parse(rows: list, out: bool = False) -> list[Transfer]:
             """Read through the transfers page and extract relevant data,
@@ -406,20 +406,17 @@ class TeamView(view_utils.BaseView):
 
         self.pages = embeds
         self.index = 0
-        return await self.update()
+        return await self.update(interaction)
 
-    async def push_rumours(self) -> discord.InteractionMessage:
+    async def push_rumours(self, interaction: Interaction) -> None:
         """Send transfer rumours for a team to View"""
         embed = self.team.base_embed
 
         url = self.team.link.replace("startseite", "geruechte")
-        async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"Error {resp.status} connecting to {resp.url}"
-                    return await self.bot.error(self.interaction, err)
+        async with interaction.client.session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            tree = html.fromstring(await resp.text())
 
         embed.url = str(resp.url)
         embed.title = f"Transfer rumours for {self.team.name}"
@@ -461,19 +458,16 @@ class TeamView(view_utils.BaseView):
 
         self.pages = embed_utils.rows_to_embeds(embed, rows)
         self.index = 0
-        return await self.update()
+        return await self.update(interaction)
 
-    async def push_trophies(self) -> discord.InteractionMessage:
+    async def push_trophies(self, interaction: Interaction) -> None:
         """Send trophies for a team to View"""
         url = self.team.link.replace("startseite", "erfolge")
 
-        async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"Error {resp.status} connecting to {resp.url}"
-                    return await self.bot.error(self.interaction, err)
+        async with interaction.client.session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+        tree = html.fromstring(await resp.text())
 
         trophies = []
         for i in tree.xpath('.//div[@class="box"][./div[@class="header"]]'):
@@ -491,22 +485,18 @@ class TeamView(view_utils.BaseView):
             trophies = ["No trophies found for team."]
         self.pages = embed_utils.rows_to_embeds(embed, trophies)
         self.index = 0
-        return await self.update()
+        return await self.update(interaction)
 
-    async def push_contracts(self) -> discord.InteractionMessage:
+    async def push_contracts(self, interaction: Interaction) -> None:
         """Push a list of a team's expiring contracts to the view"""
         embed = self.team.base_embed
         embed.description = ""
         target = self.team.link.replace("startseite", "vertragsende")
 
-        async with self.bot.session.get(target) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"Error {resp.status} connecting to {resp.url}"
-                    return await self.bot.error(self.interaction, err)
-
+        async with interaction.client.session.get(target) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            tree = html.fromstring(await resp.text())
         embed.url = target
         embed.title = f"Expiring contracts for {self.team.name}"
         embed.set_author(name="Transfermarkt", url=target, icon_url=FAVICON)
@@ -553,7 +543,7 @@ class TeamView(view_utils.BaseView):
 
         self.pages = embed_utils.rows_to_embeds(embed, rows)
         self.index = 0
-        return await self.update()
+        return await self.update(interaction)
 
 
 @dataclasses.dataclass
@@ -601,15 +591,13 @@ class StadiumAttendance:
 class CompetitionView(view_utils.BaseView):
     """A View representing a competition on TransferMarkt"""
 
-    def __init__(
-        self, interaction: discord.Interaction[Bot], comp: Competition
-    ) -> None:
-        super().__init__(interaction)
+    def __init__(self, comp: Competition) -> None:
+        super().__init__()
         self.comp: Competition = comp
 
     async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, content: typing.Optional[str] = None
+    ) -> None:
         """Send the latest version of the view"""
         self.clear_items()
         self.add_page_buttons()
@@ -619,19 +607,16 @@ class CompetitionView(view_utils.BaseView):
 
         embed = self.pages[self.index]
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
 
-    async def attendance(self) -> discord.InteractionMessage:
+    async def attendance(self, interaction: Interaction) -> None:
         """Fetch attendances for league's stadiums."""
         url = self.comp.link.replace("startseite", "besucherzahlen")
-        async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"HTTP Error {resp.status} accessing transfermarkt"
-                    return await self.bot.error(self.interaction, err)
+        async with interaction.client.session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            tree = html.fromstring(await resp.text())
 
         rows = []
         xpath = (
@@ -702,7 +687,7 @@ class CompetitionView(view_utils.BaseView):
         embeds += embed_utils.rows_to_embeds(embed, [i for i in enu], 25)
 
         self.pages = embeds
-        return await self.update()
+        return await self.update(interaction)
 
 
 class SearchSelect(discord.ui.Select):
@@ -750,12 +735,11 @@ class SearchView(view_utils.BaseView):
 
     def __init__(
         self,
-        interaction: discord.Interaction[Bot],
         query: str,
         fetch: bool = False,
     ) -> None:
 
-        super().__init__(interaction)
+        super().__init__()
         self.value: typing.Optional[Team | Competition] = None
         self.pages: list[discord.Embed] = []
         self.query: str = query
@@ -767,8 +751,8 @@ class SearchView(view_utils.BaseView):
         raise NotImplementedError
 
     async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, content: typing.Optional[str] = None
+    ) -> None:
         """Populate Initial Results"""
         url = TF + "/schnellsuche/ergebnis/schnellsuche"
 
@@ -776,11 +760,9 @@ class SearchView(view_utils.BaseView):
         # TransferMarkt Search indexes from 1.
         params = {"query": self.query, self.query_string: self.index + 1}
 
-        async with self.bot.session.post(url, params=params) as resp:
+        async with interaction.client.session.post(url, params=params) as resp:
             if resp.status != 200:
-                err = f"Error {resp.status} Connecting to Transfermarkt"
-                return await self.bot.error(err)
-
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
             tree = html.fromstring(await resp.text())
 
         # Get trs of table after matching header / {ms} name.
@@ -809,7 +791,9 @@ class SearchView(view_utils.BaseView):
         if not self._results:
             self.index = 0
             err = f"No results found for {self.category}: {self.query}"
-            return await self.bot.error(self.interaction, err)
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = "🚫 " + err
+            return await interaction.response.edit_message(embed=embed)
 
         rows = [str(i) for i in self._results]
         embed = embed_utils.rows_to_embeds(embed, rows)[0]
@@ -822,7 +806,7 @@ class SearchView(view_utils.BaseView):
         if self.fetch and self._results:
             self.add_item(SearchSelect(objects=self._results))
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
 
 
@@ -833,10 +817,8 @@ class AgentSearch(SearchView):
     query_string = "page"
     match_string = "for agents"
 
-    def __init__(
-        self, interaction: discord.Interaction[Bot], query: str
-    ) -> None:
-        super().__init__(interaction, query)
+    def __init__(self, query: str) -> None:
+        super().__init__(query)
 
     def parse(self, rows: list) -> list[Agent]:
         """Parse a transfermarkt page into a list of Agent Objects"""
@@ -857,14 +839,8 @@ class CompetitionSearch(SearchView):
     query_string = "Wettbewerb_page"
     match_string = "competitions"
 
-    def __init__(
-        self,
-        interaction: discord.Interaction[Bot],
-        query: str,
-        fetch: bool = False,
-    ) -> None:
-
-        super().__init__(interaction, query, fetch=fetch)
+    def __init__(self, query: str, fetch: bool = False) -> None:
+        super().__init__(query, fetch=fetch)
         self.value: typing.Optional[Competition] = None
 
     def parse(self, rows: list) -> list[Competition]:
@@ -889,11 +865,6 @@ class PlayerSearch(SearchView):
     category = "Players"
     query_string = "Spieler_page"
     match_string = "for players"
-
-    def __init__(
-        self, interaction: discord.Interaction[Bot], query: str
-    ) -> None:
-        super().__init__(interaction, query)
 
     def parse(self, rows) -> list[Player]:
         """Parse a transfer page to get a list of players"""
@@ -956,11 +927,6 @@ class RefereeSearch(SearchView):
     query_string = "page"
     match_string = "for referees"
 
-    def __init__(
-        self, interaction: discord.Interaction[Bot], query: str
-    ) -> None:
-        super().__init__(interaction, query)
-
     def parse(self, rows: list) -> list[Referee]:
         """Parse a transfer page to get a list of referees"""
         results = []
@@ -988,11 +954,6 @@ class StaffSearch(SearchView):
     category = "Managers"
     query_string = "Trainer_page"
     match_string = "Managers"
-
-    def __init__(
-        self, interaction: discord.Interaction[Bot], query: str
-    ) -> None:
-        super().__init__(interaction, query)
 
     def parse(self, rows: list) -> list[Staff]:
         """Parse a list of staff"""
@@ -1039,15 +1000,6 @@ class TeamSearch(SearchView):
     query_string = "Verein_page"
     match_string = "results: Clubs"
     value: Team
-
-    def __init__(
-        self,
-        interaction: discord.Interaction[Bot],
-        query: str,
-        fetch: bool = False,
-    ) -> None:
-
-        super().__init__(interaction, query, fetch=fetch)
 
     def parse(self, rows: list) -> list[Team]:
         """Fetch a list of teams from a transfermarkt page"""

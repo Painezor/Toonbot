@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import importlib
 import re
 import typing
@@ -15,17 +16,24 @@ from ext.utils import view_utils
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
+
+logger = logging.getLogger("urbandictionary")
+
 
 DEFINE = "https://www.urbandictionary.com/define.php?term="
 THUMBNAIL = (
     "http://d2gatte9o95jao.cloudfront.net/assets/"
     "apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
 )
+RANDOM = "https://api.urbandictionary.com/v0/random"
+WORD_OF_THE_DAY = "https://api.urbandictionary.com/v0/words_of_the_day"
 
 
 # TODO: Transformer
 async def ud_ac(
-    interaction: discord.Interaction[Bot], cur: str
+    interaction: Interaction, cur: str
 ) -> list[discord.app_commands.Choice]:
     """Autocomplete from list of cogs"""
     url = f"https://api.urbandictionary.com/v0/autocomplete-extra?term={cur}"
@@ -49,20 +57,16 @@ async def ud_ac(
 class UrbanView(view_utils.BaseView):
     """Generic View to paginate through multiple definitions"""
 
-    def __init__(
-        self,
-        interaction: discord.Interaction[Bot],
-        embeds: list[discord.Embed],
-    ) -> None:
-        super().__init__(interaction)
+    def __init__(self, embeds: list[discord.Embed]) -> None:
+        super().__init__()
         self.pages: list[discord.Embed] = embeds
 
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Push the latest version of the view to the user"""
         self.clear_items()
 
         self.add_page_buttons()
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=self.pages[self.index], view=self)
 
 
@@ -114,9 +118,7 @@ class UrbanDictionary(commands.Cog):
     @ud.command()
     @discord.app_commands.describe(term="enter a search term")
     @discord.app_commands.autocomplete(term=ud_ac)
-    async def search(
-        self, interaction: discord.Interaction[Bot], term: str
-    ) -> discord.InteractionMessage:
+    async def search(self, interaction: Interaction, term: str) -> None:
         """Lookup a definition from Urban Dictionary"""
 
         await interaction.response.defer(thinking=True)
@@ -124,43 +126,35 @@ class UrbanDictionary(commands.Cog):
         url = f"http://api.urbandictionary.com/v0/define?term={term}"
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
-                return await self.bot.error(
-                    interaction, f"🚫 HTTP Error, code: {resp.status}"
-                )
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+
             if not (embeds := parse(await resp.json())):
-                return await self.bot.error(
-                    interaction, f"🚫 No results found for {term}."
-                )
-            return await UrbanView(interaction, embeds).update()
+                embed = discord.Embed()
+                embed.description = f"🚫 No results for {term}"
+                reply = interaction.response.send_message
+                return await reply(embed=embed, ephemeral=True)
+            return await UrbanView(embeds).update(interaction)
 
     @ud.command()
-    async def random(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def random(self, interaction: Interaction) -> None:
         """Get some random definitions from Urban Dictionary"""
         await interaction.response.defer(thinking=True)
 
-        url = "https://api.urbandictionary.com/v0/random"
-        async with self.bot.session.get(url) as resp:
+        async with self.bot.session.get(RANDOM) as resp:
             if resp.status != 200:
-                err = f"🚫 HTTP Error, code: {resp.status}"
-                return await self.bot.error(interaction, err)
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
             data = parse(await resp.json())
-        return await UrbanView(interaction, data).update()
+        return await UrbanView(data).update(interaction)
 
     @ud.command()
-    async def word_of_the_day(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def word_of_the_day(self, interaction: Interaction) -> None:
         """Get the Word of the Day from Urban Dictionary"""
         await interaction.response.defer(thinking=True)
-        url = "https://api.urbandictionary.com/v0/words_of_the_day"
-        async with self.bot.session.get(url) as resp:
+        async with self.bot.session.get(WORD_OF_THE_DAY) as resp:
             if resp.status != 200:
-                err = f"🚫 HTTP Error, code: {resp.status}"
-                return await self.bot.error(interaction, err)
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
             data = parse(await resp.json())
-        return await UrbanView(interaction, data).update()
+        return await UrbanView(data).update(interaction)
 
 
 async def setup(bot: Bot) -> None:

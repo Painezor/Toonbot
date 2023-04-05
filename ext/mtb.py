@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import typing
 
 import asyncpg
@@ -10,12 +11,14 @@ import discord
 from discord.ext import commands, tasks
 from lxml import html
 
-from ext.toonbot_utils import flashscore as fs
+from ext.flashscore import flashscore as fs
 
 if typing.TYPE_CHECKING:
     from core import Bot
 
+logger = logging.getLogger("matchthread")
 
+LSTV = "https://www.livesoccertv.com/"
 # TODO: Delete MatchThread Bot or Rewrite it Entirely.
 
 
@@ -252,14 +255,10 @@ class MatchThread:
     async def fetch_tv(self) -> dict:
         """Fetch information about where the match will be televised"""
 
-        url = "https://www.livesoccertv.com/"
-        async with self.bot.session.get(url) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"{resp.status} fetch TV url {resp.url}"
-                    raise ConnectionError(err)
+        async with self.bot.session.get(LSTV) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            tree = html.fromstring(await resp.text())
 
         tv = {}
         for i in tree.xpath(".//tr//a"):
@@ -480,42 +479,44 @@ class MatchThreadCommands(commands.Cog):
         async with self.bot.db.acquire(timeout=60) as connection:
             records = await connection.fetch("""SELECT * FROM mtb_schedule""")
 
-        for r in records:
+        for i in records:
             # Get upcoming games from flashscore.
-            if (team := self.bot.get_team(r["team_flashscore_id"])) is None:
+            if (team := self.bot.get_team(i["team_flashscore_id"])) is None:
                 continue
 
             for fixture in await fs.parse_games(self.bot, team, "/fixtures/"):
-                await self.spool_thread(fixture, r)
+                await self.spool_thread(fixture, i)
 
     async def spool_thread(
-        self, f: fs.Fixture, settings: asyncpg.Record
+        self, fixture: fs.Fixture, settings: asyncpg.Record
     ) -> None:
         """Create match threads for all scheduled games."""
 
-        if f.kickoff is None:
-            raise AttributeError("fixture %s has no kickoff", f)
+        if fixture.kickoff is None:
+            raise AttributeError("fixture %s has no kickoff", fixture)
 
-        diff = f.kickoff - datetime.datetime.now(tz=datetime.timezone.utc)
+        diff = fixture.kickoff - datetime.datetime.now(
+            tz=datetime.timezone.utc
+        )
         if diff.days > 7:
             return
 
         sub = settings["subreddit"]
         for x in self.active_threads:
-            if x.fixture == f and x.settings == settings:
+            if x.fixture == fixture and x.settings == settings:
                 return
 
         sql = """SELECT * FROM mtb_history
                  WHERE (subreddit, fs_link) = ($1, $2)"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                record = await connection.fetchrow(sql, sub, f.url)
+                record = await connection.fetchrow(sql, sub, fixture.url)
                 if not record:
                     sql = """INSERT INTO mtb_history (subreddit, fs_link)
                              VALUES ($1, $2) RETURNING *"""
-                    record = await connection.fetchrow(sql, sub, f.url)
+                    record = await connection.fetchrow(sql, sub, fixture.url)
 
-        thread = MatchThread(self.bot, f, settings, record)
+        thread = MatchThread(self.bot, fixture, settings, record)
         self.active_threads.append(thread)
         await thread.start()
 

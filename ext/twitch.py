@@ -18,6 +18,8 @@ from ext import wows_api as api
 if typing.TYPE_CHECKING:
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+
 with open("credentials.json", mode="r", encoding="utf-8") as fun:
     credentials = json.load(fun)
 
@@ -36,6 +38,7 @@ WOWS_GAME_ID = 32502
 logger = logging.getLogger("twitch")
 
 
+# TODO: Autocompletes to transformers
 class Contributor:
     """An Object representing a World of Warships CC"""
 
@@ -223,13 +226,9 @@ class TrackerChannel:
         self.tracked = [t for t in self.tracked if t.id not in role_ids]
         return self.tracked
 
-    def view(self, interaction: discord.Interaction[PBot]) -> TrackerConfig:
-        """Return a Config View for this Tracker Channel"""
-        return TrackerConfig(interaction, self)
-
 
 async def cc_ac(
-    interaction: discord.Interaction[PBot], current: str
+    interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice]:
     """Autocomplete from the list of stored CCs"""
     bot: PBot = interaction.client
@@ -260,7 +259,7 @@ async def cc_ac(
 
 
 async def language_ac(
-    interaction: discord.Interaction[PBot], current: str
+    interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice]:
     """Filter by Language"""
 
@@ -283,50 +282,49 @@ async def language_ac(
     return choices
 
 
+# TODO: Select as decorator
 class TrackerConfig(view_utils.BaseView):
     """Config View for a Twitch Tracker channel"""
 
-    def __init__(
-        self, interaction: discord.Interaction[PBot], chan: TrackerChannel
-    ):
-        super().__init__(interaction)
+    def __init__(self, chan: TrackerChannel):
+        super().__init__()
         self.chan: TrackerChannel = chan
         self.index: int = 0
         self.pages: list[discord.Embed] = []
 
-    async def creation_dialogue(self) -> bool:
+    async def creation_dialogue(self, interaction: Interaction) -> bool:
         """Send a dialogue to check if the user
         wishes to create a new ticker."""
         self.clear_items()
 
-        itr = self.interaction
         view = view_utils.Confirmation(
-            itr, "Create tracker", "Cancel", discord.ButtonStyle.green
+            "Create tracker", "Cancel", discord.ButtonStyle.green
         )
 
         chan = self.chan.channel.mention
         notfound = f"{chan} does not have a twitch tracker, create one now?"
-        await itr.edit_original_response(content=notfound, view=view)
+        await interaction.response.edit_message(content=notfound, view=view)
         await view.wait()
 
         if not view.value:
             txt = f"Cancelled tracker creation for {chan}"
             view.clear_items()
-            await self.bot.error(self.interaction, txt, view=view)
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = "🚫 " + txt
+            await interaction.response.edit_message(embed=embed)
             return False
 
         await self.chan.create_tracker()
-        await self.update(f"Twitch Tracker was created in {chan}")
+        await self.update(interaction, f"Twitch Tracker was created in {chan}")
         return True
 
     async def remove_tracked(
-        self, roles: list[str]
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, roles: list[str]
+    ) -> None:
         """Bulk remove tracked items from a Twitch Tracker channel"""
         # Ask user to confirm their choice.
-        itr = self.interaction
         view = view_utils.Confirmation(
-            itr, "Remove", "Cancel", discord.ButtonStyle.red
+            "Remove", "Cancel", discord.ButtonStyle.red
         )
 
         mentions = "\n•".join(f"<@&{i}>" for i in roles)
@@ -335,7 +333,7 @@ class TrackerConfig(view_utils.BaseView):
         embed = discord.Embed()
         embed.description = f"Remove items from {mention}?\n\n•{mentions}"
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         await edit(embed=embed, view=view)
         await view.wait()
 
@@ -343,14 +341,14 @@ class TrackerConfig(view_utils.BaseView):
             await self.chan.untrack(roles)
             embed = discord.Embed(title="Tracked roles removed")
             embed.description = f"{mention}\n{mentions}"
-            embed_utils.user_to_footer(embed, self.interaction.user)
-            await self.interaction.followup.send(embed=embed)
+            embed_utils.user_to_footer(embed, interaction.user)
+            await interaction.followup.send(embed=embed)
 
         return await edit(view=self)
 
     async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, content: typing.Optional[str] = None
+    ) -> None:
         """Regenerate view and push to message"""
         self.clear_items()
 
@@ -395,10 +393,11 @@ class TrackerConfig(view_utils.BaseView):
             if len(roles) > 25:
                 roles = roles[self.index * 25 :][:25]
             self.add_item(Untrack(roles))
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
 
 
+# TODO: Move To Decorator
 class Untrack(discord.ui.Select):
     """Dropdown to roles from a Twitch Tracker Channel."""
 
@@ -420,13 +419,11 @@ class Untrack(discord.ui.Select):
                 value=str(i.id),
             )
 
-    async def callback(
-        self, interaction: discord.Interaction[PBot]
-    ) -> discord.InteractionMessage:
+    async def callback(self, interaction: Interaction) -> None:
         """When a league is selected, delete channel / league row from DB"""
 
         await interaction.response.defer()
-        return await self.view.remove_tracked(self.values)
+        return await self.view.remove_tracked(interaction, self.values)
 
 
 class TwitchTracker(commands.Cog):
@@ -619,9 +616,9 @@ class TwitchTracker(commands.Cog):
     )
     async def streams(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         contributor: typing.Optional[bool] = None,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Get a list of current World of Warships streams on Twitch"""
 
         await interaction.response.defer()
@@ -651,7 +648,7 @@ class TwitchTracker(commands.Cog):
         rows = [i.row for i in ordered]
 
         rows = embed_utils.rows_to_embeds(embed, rows)
-        return await view_utils.Paginator(interaction, rows).update()
+        return await view_utils.Paginator(rows).update(interaction)
 
     async def make_cc_embed(self, cont: Contributor) -> discord.Embed:
         """Create an embed about the CC"""
@@ -689,22 +686,19 @@ class TwitchTracker(commands.Cog):
     @discord.app_commands.autocomplete(search=cc_ac, language=language_ac)
     async def contributor(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         search: typing.Optional[str] = None,
         region: typing.Optional[REGIONS] = None,
         language: typing.Optional[str] = None,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Fetch The List of all CCs"""
-
-        await interaction.response.defer(thinking=True)
-
         ccs = self.bot.contributors
 
         if search is not None:
             ccs = [i for i in ccs if search == i.name]
             if len(ccs) == 1:  # Send an individual Profile
                 embed = await self.make_cc_embed(ccs[0])
-                return await interaction.edit_original_response(embed=embed)
+                return await interaction.response.send_message(embed=embed)
 
         if search is not None:
             ccs = [i for i in ccs if search in i.auto_complete]
@@ -723,7 +717,7 @@ class TwitchTracker(commands.Cog):
         embed.colour = discord.Colour.dark_blue()
 
         embeds = embed_utils.rows_to_embeds(embed, [i.row for i in ccs])
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).update(interaction)
 
     track = discord.app_commands.Group(
         name="twitch_tracker",
@@ -739,13 +733,12 @@ class TwitchTracker(commands.Cog):
     )
     async def add(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         role: discord.Role,
         channel: typing.Optional[discord.TextChannel] = None,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Add a role of this discord to the twitch tracker."""
 
-        await interaction.response.defer(thinking=True)
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
@@ -754,25 +747,25 @@ class TwitchTracker(commands.Cog):
             chan = next(i for i in tkr if i.channel.id == channel.id)
         except StopIteration:
             chan = TrackerChannel(channel)
-            success = await chan.view(interaction).creation_dialogue()
+            success = TrackerConfig(chan).creation_dialogue(interaction)
             if not success:
                 text = "Ticker Creation Cancelled"
-                edit = interaction.edit_original_response
-                return await edit(content=text, view=None)
+                edit = interaction.response.send_message
+                return await edit(content=text)
 
             self.bot.tracker_channels.append(chan)
 
         await chan.track(role)
         txt = f"Added {role.name} to {channel.mention} Twitch Tracker"
-        return await chan.view(interaction).update(content=txt)
+        return await TrackerConfig(chan).update(interaction, content=txt)
 
     @track.command()
     @discord.app_commands.describe(channel="Manage which channel's Trackers?")
     async def manage(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         channel: typing.Optional[discord.TextChannel] = None,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """View or remove tracked twitch go live roles"""
 
         await interaction.response.defer(thinking=True)
@@ -784,10 +777,10 @@ class TwitchTracker(commands.Cog):
             chan = next(i for i in tkr if i.channel.id == channel.id)
         except StopIteration:
             chan = TrackerChannel(channel)
-            success = await chan.view(interaction).creation_dialogue()
+            success = await TrackerConfig(chan).creation_dialogue(interaction)
             if success:
                 self.bot.tracker_channels.append(chan)
-        return await chan.view(interaction).update()
+        return await TrackerConfig(chan).update(interaction)
 
     # Database Cleanup
     @commands.Cog.listener()

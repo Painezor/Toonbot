@@ -56,17 +56,13 @@ SHIP_KEYS = {
 class PlayerView(view_utils.BaseView):
     """A View representing a World of Warships player"""
 
-    bot: PBot
-    interaction: Interaction
-
     def __init__(
         self,
-        interaction: Interaction,
         player: api.Player,
         ship: typing.Optional[api.warships.Ship] = None,
         **kwargs,
     ) -> None:
-        super().__init__(interaction, **kwargs)
+        super().__init__(**kwargs)
 
         # Passed
         self.player: api.Player = player
@@ -76,8 +72,8 @@ class PlayerView(view_utils.BaseView):
         self.api_stats: typing.Optional[api.PlayerStats] = None
 
     async def push_stats(
-        self, mode: api.GameMode, div_size: int = 0
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, mode: api.GameMode, div_size: int = 0
+    ) -> None:
         """Send Stats Embed to View"""
         # Can be gotten via normal API
         embed = discord.Embed()
@@ -123,8 +119,10 @@ class PlayerView(view_utils.BaseView):
         if self.player.clan_data is not None:
             parent = self.push_stats
             clan = self.player.clan_data.clan
-            func = ClanView(self.interaction, clan, parent=parent).overview
-            cln = view_utils.Funcable("Clan", func)
+
+            clan = await api.get_clan_details(clan.clan_id, self.player.region)
+            func = ClanView(clan, parent=parent).overview
+            cln = view_utils.Funcable("Clan", func, [interaction])
             row_0.append(cln)
         self.add_function_row(row_0, row=0)
 
@@ -144,7 +142,7 @@ class PlayerView(view_utils.BaseView):
 
         # Row 2: Change Mode
         row_2: list[view_utils.Funcable] = []
-        for i in self.bot.modes:
+        for i in interaction.client.modes:
             if i.tag in ["EVENT", "BRAWL", "PVE_PREMADE"]:
                 continue
             # We can't fetch CB data without a clan.
@@ -235,13 +233,14 @@ class PlayerView(view_utils.BaseView):
             r_ship_max = stats.max_ships_spotted
             r_planes = stats.max_planes_killed
 
-            s_dmg = self.bot.get_ship(stats.max_damage_dealt_ship_id)
-            s_xp = self.bot.get_ship(stats.max_xp_ship_id)
-            s_kills = self.bot.get_ship(stats.max_frags_ship_id)
-            s_pot = self.bot.get_ship(stats.max_total_agro_ship_id)
-            s_spot = self.bot.get_ship(stats.max_scouting_damage_ship_id)
-            s_ship_max = self.bot.get_ship(stats.max_ships_spotted_ship_id)
-            s_planes = self.bot.get_ship(stats.max_planes_killed_ship_id)
+            get = interaction.client.get_ship
+            s_dmg = get(stats.max_damage_dealt_ship_id)
+            s_xp = get(stats.max_xp_ship_id)
+            s_kills = get(stats.max_frags_ship_id)
+            s_pot = get(stats.max_total_agro_ship_id)
+            s_spot = get(stats.max_scouting_damage_ship_id)
+            s_ship_max = get(stats.max_ships_spotted_ship_id)
+            s_planes = get(stats.max_planes_killed_ship_id)
 
             # Records, Totals
             rec = []
@@ -294,8 +293,7 @@ class PlayerView(view_utils.BaseView):
             embed.add_field(name="Star Breakdown", value="\n".join(star_desc))
 
         embed.description = "\n".join(desc)
-        edit = self.interaction.edit_original_response
-        return await edit(embed=embed, view=self)
+        return await interaction.response.edit_message(embed=embed, view=self)
 
 
 class WowsStats(commands.Cog):
@@ -323,13 +321,11 @@ class WowsStats(commands.Cog):
         mode: api.mode_transform,
         division: discord.app_commands.Range[int, 0, 3] = 0,
         ship: typing.Optional[api.ship_transform] = None,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Search for a player's Stats"""
         del region  # Shut up linter.
-        await interaction.response.defer(thinking=True)
-
-        view = PlayerView(interaction, player, ship)
-        return await view.push_stats(mode, div_size=division)
+        view = PlayerView(player, ship)
+        return await view.push_stats(interaction, mode, div_size=division)
 
 
 async def setup(bot: PBot):

@@ -3,7 +3,6 @@
 from __future__ import annotations  # Cyclic Type hinting
 
 from importlib import reload
-from typing import ClassVar, Optional
 import typing
 import logging
 
@@ -18,7 +17,8 @@ logger = logging.getLogger("transfers.py")
 
 if typing.TYPE_CHECKING:
     from core import Bot
-    from discord import Interaction
+
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
 
 TF = "https://www.transfermarkt.co.uk"
 MIN_MARKET_VALUE = "?minMarktwert=200.000"
@@ -31,21 +31,19 @@ class CompetitionTransformer(discord.app_commands.Transformer):
     """Get a Competition from user Input"""
 
     async def autocomplete(
-        self,
-        _: discord.Interaction[Bot],
-        current: str,
+        self, _: Interaction, current: str, /
     ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete from list of stored competitions"""
         search = f"🔎 Search for '{current}'"
         return [discord.app_commands.Choice(name=search, value=current)]
 
     async def transform(
-        self, interaction: discord.Interaction[Bot], value: str
+        self, interaction: Interaction, value: str, /
     ) -> typing.Optional[tfm.Competition]:
         await interaction.response.defer(thinking=True)
 
-        view = tfm.CompetitionSearch(interaction, value, fetch=True)
-        await view.update()
+        view = tfm.CompetitionSearch(value, fetch=True)
+        await view.update(interaction)
         await view.wait()
 
         return view.value
@@ -54,7 +52,7 @@ class CompetitionTransformer(discord.app_commands.Transformer):
 class TransferChannel:
     """An object representing a channel with a Transfer Ticker"""
 
-    bot: ClassVar[Bot]
+    bot: typing.ClassVar[Bot]
 
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
@@ -87,7 +85,7 @@ class ResetLeagues(discord.ui.Button):
             label="Reset Ticker", style=discord.ButtonStyle.primary, row=1
         )
 
-    async def callback(self, interaction: Interaction[Bot]) -> None:
+    async def callback(self, interaction: Interaction) -> None:
         """Click button reset leagues"""
         await interaction.response.defer()
 
@@ -112,7 +110,7 @@ class ResetLeagues(discord.ui.Button):
         embed.description = self.view.chan.channel.mention
         embed_utils.user_to_footer(embed, interaction.user)
         await interaction.followup.send(embed=embed)
-        await self.view.update()
+        await self.view.update(interaction)
 
 
 class DeleteTicker(discord.ui.Button):
@@ -125,13 +123,10 @@ class DeleteTicker(discord.ui.Button):
             label="Delete ticker", style=discord.ButtonStyle.red, row=1
         )
 
-    async def callback(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def callback(self, interaction: Interaction) -> None:
         """Click button reset leagues"""
-        intr = self.view.interaction
         style = discord.ButtonStyle.red
-        view = view_utils.Confirmation(intr, "Confirm", "Cancel", style)
+        view = view_utils.Confirmation("Confirm", "Cancel", style)
         embed = discord.Embed(colour=discord.Colour.red())
 
         chan = self.view.chan.channel.mention
@@ -140,10 +135,10 @@ class DeleteTicker(discord.ui.Button):
             "\n\nThis action cannot be undone."
         )
 
-        await intr.edit_original_response(view=view, embed=embed)
+        await interaction.response.edit_message(view=view, embed=embed)
 
         if not view.value:
-            return await self.view.update()
+            return await self.view.update(interaction)
 
         sql = """DELETE FROM transfers_channels WHERE channel_id = $1"""
         async with interaction.client.db.acquire(timeout=60) as connection:
@@ -155,7 +150,7 @@ class DeleteTicker(discord.ui.Button):
         embed = discord.Embed(colour=discord.Colour.red())
         embed.description = f"The Transfer Ticker for {chan} was deleted."
         embed_utils.user_to_footer(embed, interaction.user)
-        return await intr.edit_original_response(embed=embed, view=None)
+        return await interaction.response.edit_message(embed=embed, view=None)
 
 
 class RemoveLeague(discord.ui.Select):
@@ -174,29 +169,21 @@ class RemoveLeague(discord.ui.Select):
             lbl = league.name[:100]
             self.add_option(label=lbl, value=league.link, emoji=league.flag)
 
-    async def callback(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def callback(self, interaction: Interaction) -> None:
         """When a league is selected"""
-
-        await interaction.response.defer()
-
         red = discord.ButtonStyle.red
-        itr = self.view.interaction
-        view = view_utils.Confirmation(itr, "Remove", "Cancel", red)
+        view = view_utils.Confirmation("Remove", "Cancel", red)
 
         lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
         chan = self.view.chan.channel.mention
 
         embed = discord.Embed(title="Transfers", colour=discord.Colour.red())
         embed.description = f"Remove these leagues from {chan}? {lg_text}"
-        await self.view.interaction.edit_original_response(
-            embed=embed, view=view
-        )
+        await interaction.response.edit_message(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
-            return await self.view.update()
+            return await self.view.update(interaction)
 
         sql = """DELETE from transfers_leagues
                  WHERE (channel_id, link) = ($1, $2)"""
@@ -215,28 +202,21 @@ class RemoveLeague(discord.ui.Select):
         embed = discord.Embed(description=msg, colour=discord.Colour.red())
         embed.title = "Transfers"
         embed_utils.user_to_footer(embed, interaction.user)
-        await self.view.interaction.followup.send(content=msg)
-        return await self.view.update()
+        await interaction.followup.send(content=msg)
+        return await self.view.update(interaction)
 
 
 class TransfersConfig(view_utils.BaseView):
     """View for configuring Transfer Tickers"""
 
     bot: Bot
-    interaction: discord.Interaction[Bot]
+    interaction: Interaction
 
-    def __init__(self, interaction: Interaction[Bot], chan: TransferChannel):
-        super().__init__(interaction)
+    def __init__(self, chan: TransferChannel):
+        super().__init__()
         self.chan: TransferChannel = chan
 
-    async def on_timeout(self) -> None:
-        """Hide menu on timeout."""
-        try:
-            await self.interaction.delete_original_response()
-        except discord.NotFound:
-            pass
-
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Push the latest version of the embed to view."""
         self.clear_items()
 
@@ -279,8 +259,7 @@ class TransfersConfig(view_utils.BaseView):
             self.add_item(RemoveLeague(this_page, row=0))
 
         self.add_page_buttons(2)
-        edit = self.interaction.edit_original_response
-        return await edit(embed=embed, view=self)
+        return await interaction.response.edit_message(embed=embed, view=self)
 
 
 class Transfers(commands.Cog):
@@ -302,16 +281,14 @@ class Transfers(commands.Cog):
 
     async def create(
         self,
-        interaction: discord.Interaction[Bot],
+        interaction: Interaction,
         channel: discord.TextChannel,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Create a ticker for the channel"""
 
         chan = channel.mention
         btn = discord.ButtonStyle.green
-        view = view_utils.Confirmation(
-            interaction, "Create ticker", "Cancel", btn
-        )
+        view = view_utils.Confirmation("Create ticker", "Cancel", btn)
 
         embed = discord.Embed(title="Create a ticker")
         embed.description = f"{chan} has no transfer ticker, create one?"
@@ -321,7 +298,7 @@ class Transfers(commands.Cog):
         if not view.value:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"❌ Cancelled transfer ticker for {chan}"
-            return await interaction.edit_original_response(embed=embed)
+            return await interaction.response.edit_message(embed=embed)
 
         leg = tfm.DEFAULT_LEAGUES
 
@@ -348,7 +325,7 @@ class Transfers(commands.Cog):
         self.bot.transfer_channels.append(chan)
         for i in leg:
             chan.leagues.add(i)
-        return await TransfersConfig(interaction, chan).update()
+        return await TransfersConfig(chan).update(interaction)
 
     async def update_cache(self) -> list[TransferChannel]:
         """Load Transfer Channels into the bot."""
@@ -539,9 +516,9 @@ class Transfers(commands.Cog):
     @discord.app_commands.describe(channel="Manage which channel?")
     async def manage(
         self,
-        interaction: discord.Interaction[Bot],
+        interaction: Interaction,
         channel: typing.Optional[discord.TextChannel],
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """View the config of this channel's transfer ticker"""
 
         await interaction.response.defer(thinking=True)
@@ -554,18 +531,18 @@ class Transfers(commands.Cog):
             chan = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
             return await self.create(interaction, channel)
-        return await TransfersConfig(interaction, chan).update()
+        return await TransfersConfig(chan).update(interaction)
 
     @tf.command()
     @discord.app_commands.describe(competition="Search for a competition name")
     async def add_league(
         self,
-        interaction: discord.Interaction[Bot],
+        interaction: Interaction,
         competition: discord.app_commands.Transform[
             tfm.Competition, CompetitionTransformer
         ],
-        channel: Optional[discord.TextChannel],
-    ) -> discord.InteractionMessage:
+        channel: typing.Optional[discord.TextChannel],
+    ) -> None:
         """Add a league to your transfer ticker channel(s)"""
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
@@ -595,7 +572,7 @@ class Transfers(commands.Cog):
         embed = discord.Embed(title="Transfers: Tracked League Added")
         embed.description = f"{chan.channel.mention}\n\n{competition.link}"
         embed_utils.user_to_footer(embed, interaction.user)
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, chan: discord.TextChannel) -> None:

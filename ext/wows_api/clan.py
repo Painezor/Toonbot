@@ -6,17 +6,16 @@ import datetime
 import logging
 
 import aiohttp
-from .enums import League, Region
+from .enums import Region
 from .wg_id import WG_ID
-
-
-# TODO: Clan Battle Season objects for Images for Leaderboard.
 
 
 logger = logging.getLogger("api.clan")
 
 
+CLAN_DETAILS = "https://api.worldofwarships.%%/wows/clans/info/"
 CB_STATS = "https://clans.worldofwarships.%%/api/members/CLAN_ID/"
+CB_SEASON_INFO = "https://api.worldofwarships.eu/wows/clans/season/"
 VORTEX_INFO = "https://clans.worldofwarships.%%/api/clanbase/CLAN_ID/claninfo/"
 WINNERS = "https://clans.worldofwarships.eu/api/ladder/winners/"
 
@@ -24,33 +23,156 @@ WINNERS = "https://clans.worldofwarships.eu/api/ladder/winners/"
 __all__ = []
 
 
-async def get_cb_winners() -> dict[int, ClanLeaderboardStats]:
+async def get_clan_details(clan_id: int, region: Region) -> Clan:
+    """Feetch a Clan's Details"""
+    params = {"application_id": WG_ID, "clan_id": clan_id, "extra": "members"}
+
+    url = CLAN_DETAILS.replace("%%", region.domain)
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params) as resp:
+            data = await resp.json()
+    return Clan(data.pop("data"), region)
+
+
+async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:
+    """Get clan data from the vortex api"""
+    url = VORTEX_INFO.replace("%%", region.domain)
+    url = url.replace("CLAN_ID", str(clan_id))
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("[%s] %s: %s", resp.status, resp.reason, url)
+        data = await resp.json()
+
+    return ClanVortexData(data.pop("clanview"))
+
+
+async def get_cb_winners() -> dict[int, list[ClanBattleWinner]]:
     """Get Winners for all Clan Battle Seasons"""
     async with aiohttp.ClientSession() as session:
         async with session.get(WINNERS) as resp:
             if resp.status != 200:
                 logger.error("%s %s %s", resp.status, resp.reason, resp.url)
-        data = await resp.json()
+            data = await resp.json()
 
     winners = data.pop("winners")
-    logger.info("remaining data %s", data)
 
     # k is season - int
     # val is dict
-    for k, val in winners.copy().items():
-        winners[k] = ClanLeaderboardStats(val)
+    for k, val in winners.items():
+        winners[k] = [ClanBattleWinner(i) for i in val]
     return winners
 
 
+async def get_cb_seasons(language: str = "en") -> list[ClanBattleSeason]:
+    """Retrieve a list of ClanBattleSeason objects from the API"""
+    params = {"application_id": WG_ID, language: language}
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(CB_SEASON_INFO, params=params) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+
+            data = await resp.json()
+            count = data.pop("meta")["count"]
+            logger.info("Fetched %s Clan Battle Seasons", count)
+            data = data.pop("data")
+
+    output = []
+    for k, val in data.items():  # Key is useless
+        if len(str(k)) == 3:
+            continue  # Discard Fucked shit.
+        output.append(ClanBattleSeason(val))
+    return output
+
+
+@dataclasses.dataclass
 class ClanBuilding:
     """A World of Warships Clan Building"""
+
+
+@dataclasses.dataclass
+class ClanBattleLeague:
+    """A League in a Clan Battle Season"""
+
+    color: str
+    icon: str
+    name: str
+
+    def __init__(self, data: dict) -> None:
+        for k, val in data.items():
+            setattr(self, k, val)
+
+    @property
+    def emote(self) -> str:
+        """Match a discord emote to the league's name"""
+        return {
+            "Hurricane League": "<:Hurricane:990599761574920332>",
+            "Typhoon League": "<:Typhoon:990599751584067584>",
+            "Storm League": "<:Storm:990599740079104070>",
+            "Gale League": "<:Gale:990599200905527329>",
+            "Squall League": "<:Squall:990597783817965568>",
+        }[self.name]
+
+    @property
+    def value(self) -> int:
+        """Convert League name to value"""
+        return {
+            "Hurricane League": 0,
+            "Typhoon League": 1,
+            "Storm League": 2,
+            "Gale League": 3,
+            "Squall League": 4,
+        }[self.name]
+
+
+@dataclasses.dataclass
+class ClanBattleSeason:
+    """Clan Battle Leagues"""
+
+    division_points: int
+    finish_time: datetime.datetime
+    name: str
+    season_id: int
+    ship_tier_max: int
+    ship_tier_min: int
+    start_time: datetime.datetime
+
+    leagues: list[ClanBattleLeague]
+
+    def __init__(self, data: dict) -> None:
+        for k, val in data.items():
+            if k == "leagues":
+                val = [ClanBattleLeague(i) for i in val]
+            elif k in ["start_time", "finish_time"]:
+                val = datetime.datetime.fromtimestamp(val)
+            setattr(self, k, val)
+
+    @property
+    def top_league(self) -> ClanBattleLeague:
+        """Hackjob to get the top league of a season"""
+        for j in [
+            "Hurricane League",
+            "Typhoon Leauge",
+            "Storm League",
+            "Gale League",
+            "Squall League",
+        ]:
+            for i in self.leagues:
+                if i.name == j:
+                    return i
+
+        vals = [i.name for i in self.leagues]
+        logger.error("No acceptable League found in %s", vals)
+        raise AttributeError
 
 
 @dataclasses.dataclass
 class ClanSeasonStats:
     """A Single Clan's statistics for a Clan Battles season"""
 
-    clan: Clan
+    clan: PartialClan
 
     season_number: int
 
@@ -58,20 +180,38 @@ class ClanSeasonStats:
     wins_count: int
 
     public_rating: int
-    league: League
+    league: str
     division: int
 
     max_division: int
     max_rating: int
-    max_league: League
+    max_league: str
     longest_winning_streak: int
 
     last_win_at: datetime.datetime
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
-            if k in ["max_league", "final_league"]:
-                val = next(i for i in League if i.value == val)
+            if k == "last_win_at":
+                val = datetime.datetime.fromtimestamp(val)
+            setattr(self, k, val)
+
+
+@dataclasses.dataclass
+class ClanBattleWinner:
+    """Winner of a Clan Battle Season"""
+
+    clan_id: int
+    division_rating: int
+    name: str
+    league: int
+    public_rating: int
+    realm: str
+    season_id: int
+    tag: str
+
+    def __init__(self, data: dict) -> None:
+        for k, val in data.items():
             setattr(self, k, val)
 
 
@@ -79,23 +219,29 @@ class ClanSeasonStats:
 class ClanLeaderboardStats:
     """Stats from the Clan Leaderboard Endpoint"""
 
-    id: int  # pylint: disable=C0103
-    tag: str
-    name: str
     battles_count: int
-    is_clan_disbanded: bool
+    color: str
+    disbanded: bool
+    division: int
+    division_rating: int
+    hex_color: str
+    id: int
     last_battle_at: datetime.datetime
+    last_win_at: datetime.datetime
     leading_team_number: int
-    league: League
+    league: int
+    members_count: int
+    name: str
     public_rating: int
     rank: int
+    rating_realm: str
+    realm: str
     season_number: int
+    tag: str
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
-            if k == "league":
-                val = next(i for i in League if i.value == val)
-            elif k in ["last_battle_at"]:
+            if k in ["last_battle_at"]:
                 val = datetime.datetime.strptime(val, "%Y-%m-%d %H:%M:%S%z")
             setattr(self, k, val)
 
@@ -151,7 +297,7 @@ class ClanMember:
 
 
 @dataclasses.dataclass
-class ClanDetails:
+class Clan:
     """Fetched from Clan Details EndPoint"""
 
     clan_id: int
@@ -171,9 +317,11 @@ class ClanDetails:
     tag: str
     updated_at: datetime.datetime
 
-    members: list[ClanMember] = []
+    members: list[ClanMember]
 
-    def __init__(self, data: dict) -> None:
+    region: Region
+
+    def __init__(self, data: dict, region: Region) -> None:
         for k, values in data.items():
 
             if k == "members":
@@ -181,6 +329,7 @@ class ClanDetails:
 
             else:
                 setattr(self, k, values)
+        self.region = region
 
 
 @dataclasses.dataclass
@@ -206,9 +355,9 @@ class ClanVortexData:
     division: int
     last_battle_at: datetime.datetime
     leading_team_number: int
-    league: League
+    league: str
     max_division: int
-    max_league: League
+    max_league: str
     max_position: int
     max_public_rating: int
     max_winning_streak: int
@@ -226,8 +375,6 @@ class ClanVortexData:
         for k, val in ladder:
             if k in ["last_battle_at", "last_win_at"]:
                 val = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S%z")
-            elif k in ["league", "max_league"]:
-                val = next(i for i in League if val == i)
             elif k == "ratings":
                 _v = []
                 for i in val:
@@ -346,19 +493,19 @@ class ClanVortexData:
         if self.public_rating:
             return "Rating Not Found"
 
-        if self.league == League.HURRICANE:
+        if self.league == "Hurricane League":
             return f"Hurricane ({self.public_rating - 2200} points)"
         else:
-            league = self.league.alias
             div = self.division * "I" if self.division else ""
-            return f"{league} {div} ({self.public_rating // 100} points)"
+            return f"{self.league} {div} ({self.public_rating // 100} points)"
 
     @property
     def max_cb_rating(self) -> str:
         """Return a string in format League II (50 points)"""
-        if self.max_league == League.HURRICANE:
+        if self.max_league == "Hurricane League":
             return f"Hurricane ({self.max_public_rating - 2200} points)"
-        league = self.max_league.alias
+
+        league = self.max_league
         div = self.max_division * "I"
         return f"{league} {div} ({self.max_public_rating // 100} points)"
 
@@ -376,7 +523,7 @@ class ClanVortexData:
 
 
 @dataclasses.dataclass
-class Clan:
+class PartialClan:
     """A World of Warships clan."""
 
     clan_id: int
@@ -388,9 +535,11 @@ class Clan:
     def __init__(self, data: dict):
 
         for k, val in data.items():
+            if k == "created_at":
+                val = datetime.datetime.fromtimestamp(val)
             setattr(self, k, val)
 
-    async def fetch_details(self) -> ClanDetails:
+    async def fetch_details(self) -> Clan:
         """Fetch clan information."""
         cid = self.clan_id
         params = {"application_id": WG_ID, "clan_id": cid, "extra": "members"}
@@ -401,20 +550,7 @@ class Clan:
             async with session.get(url, params=params) as resp:
                 if resp.status != 200:
                     raise ConnectionError(f"{resp.status} {await resp.text()}")
-                return ClanDetails(await resp.json())
-
-    async def fetch_vortex_data(self) -> ClanVortexData:
-        """Get clan data from the vortex api"""
-        url = VORTEX_INFO.replace("%%", self.region.domain)
-        url = url.replace("CLAN_ID", str(self.clan_id))
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    logger.error("[%s] %s: %s", resp.status, resp.reason, url)
-            data = await resp.json()
-
-        return ClanVortexData(data.pop("clanview"))
+                return Clan(await resp.json(), self.region)
 
     @property
     def title(self) -> str:

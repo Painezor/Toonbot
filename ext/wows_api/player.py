@@ -10,7 +10,7 @@ import aiohttp
 import discord
 from .wg_id import WG_ID
 from .enums import Region
-from .clan import Clan
+from .clan import PartialClan
 from .warships import Ship
 
 if typing.TYPE_CHECKING:
@@ -165,12 +165,12 @@ class PlayerClanData:
     joined_at: datetime.datetime
     role: str
 
-    clan: Clan
+    clan: PartialClan
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             if k == "clan":
-                val = Clan(val)
+                val = PartialClan(val)
             setattr(self, k, val)
 
 

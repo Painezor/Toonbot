@@ -23,25 +23,21 @@ logger = logging.getLogger("fitting")
 class ShipView(view_utils.BaseView):
     """A view representing a ship"""
 
-    bot: PBot
-    interaction: Interaction
-
-    def __init__(self, interaction: Interaction, ship: api.Ship) -> None:
-        super().__init__(interaction)
+    def __init__(self, ship: api.Ship) -> None:
         self.ship: api.Ship = ship
 
         fitting = api.ShipFit([i for i in ship.module_tree if i.is_default])
         self.fitting = fitting
         self.profile: typing.Optional[api.ShipProfile] = None
 
-    async def base_embed(self) -> discord.Embed:
+    def base_embed(self) -> discord.Embed:
         """Get a generic embed for the ship"""
 
         if any([self.ship.is_premium, self.ship.is_special]):
             icon_url = self.ship.type.images.image_premium
         else:
             icon_url = self.ship.type.images.image
-        cls_ = self.ship.type.alias
+        cls_ = self.ship.type.name
 
         nation = self.ship.nation.alias
         tier = f"Tier {self.ship.tier}"
@@ -55,34 +51,19 @@ class ShipView(view_utils.BaseView):
             embed.set_thumbnail(url=self.ship.images.contour)
         return embed
 
-    async def fetch_modules(self) -> None:
+    async def fetch_modules(self, interaction: Interaction) -> None:
         """Grab all data related to the ship from the API"""
         # Get needed module IDs
-        m_ids = [s.module_id for s in self.bot.modules]
-
-        avail = self.ship.modules.all_modules
-        to_fetch = [str(i) for i in avail if i not in m_ids]
-
-        if to_fetch:
-            # We want the module IDs as str for the purposes of params
-            ids = ",".join(to_fetch)
-            params = {"application_id": api.WG_ID, "module_id": ids}
-            url = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
-            async with self.bot.session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    stat = resp.status
-                    name = self.ship.name
-                    err = f"{stat} error fetching modules for {name} on {url}"
-                    raise ConnectionError(err)
-                data = await resp.json()
-
-            for module_id, data in data["data"].items():
-                self.bot.modules[module_id] = api.Module(data)
+        current_ids = interaction.client.modules.keys()
+        ship_module_ids = self.ship.modules.all_modules
+        to_fetch = [i for i in ship_module_ids if i not in current_ids]
+        interaction.client.modules.update(await api.get_modules(to_fetch))
         return
 
-    async def handle_buttons(self, current_function: typing.Callable) -> None:
+    async def handle_buttons(
+        self, interaction: Interaction, current_function: typing.Callable
+    ) -> None:
         """Handle the Funcables"""
-
         try:
             language = {
                 discord.Locale.czech: "cs",
@@ -97,26 +78,26 @@ class ShipView(view_utils.BaseView):
                 discord.Locale.turkish: "tr",
                 discord.Locale.chinese: "zh-cn",
                 discord.Locale.brazil_portuguese: "pt-br",
-            }[self.interaction.locale]
+            }[interaction.locale]
         except KeyError:
-            pass
+            language = "en"
 
         if self.profile is None:
-            self.profile = await self.fitting.get_params(self.interaction)
+            self.profile = await self.fitting.get_params(language)
 
-        await self.fetch_modules()
+        await self.fetch_modules(interaction)
 
         self.clear_items()
 
         row = 1
 
         def make_ship_button(i: api.warships.Ship, emoji: str):
-            func = ShipView(self.interaction, i).overview
+            func = ShipView(i).overview
             btn = view_utils.Funcable(f"Tier {i.tier}: {i.name}", func)
             btn.emoji = emoji
             return btn
 
-        ships = self.interaction.client.ships
+        ships = interaction.client.ships
         prv = [i for i in ships if str(self.ship.ship_id) in i.next_ships]
         buttons = [make_ship_button(i, "▶") for i in prv]
         buttons += [make_ship_button(i, "◀") for i in self.ship.next_ships]
@@ -142,7 +123,9 @@ class ShipView(view_utils.BaseView):
             )
 
         if self.profile.torpedoes:
-            add_button("Torpedoes", self.torpedoes, self.profile.torpedoes.emoji)
+            add_button(
+                "Torpedoes", self.torpedoes, self.profile.torpedoes.emoji
+            )
 
         planes = [
             self.profile.dive_bomber,
@@ -155,7 +138,7 @@ class ShipView(view_utils.BaseView):
             add_button("Aircraft", self.aircraft, _)
 
         # Secondaries & AA
-        add_button("Auxiliary", self.auxiliary, self.profile..emoji)
+        add_button("Auxiliary", self.auxiliary, self.profile.atbas.emoji)
         self.add_function_row(buttons, row)
 
         # Dropdown - setattr
@@ -168,7 +151,7 @@ class ShipView(view_utils.BaseView):
                 excluded.append(i)
 
         for module_id in excluded:
-            module = self.ship.modules[module_id]
+            module = interaction.client.modules[module_id]
 
             name = f"{module.name} ({module.__class__.__name__})"
             opt = discord.SelectOption(label=name, emoji=module.emoji)
@@ -188,11 +171,11 @@ class ShipView(view_utils.BaseView):
             buttons.append(opt)
         self.add_item(ModuleSelect(buttons, 0, current_function))
 
-    async def aircraft(self) -> discord.InteractionMessage:
+    async def aircraft(self, interaction: Interaction) -> None:
         """Get information about the ship's Aircraft"""
-        embed = await self.base_embed()
+        embed = self.base_embed()
 
-        await self.handle_buttons(self.aircraft)
+        await self.handle_buttons(interaction, self.aircraft)
         assert self.profile is not None
 
         # Rocket Planes are referred to as 'Fighters'
@@ -243,7 +226,7 @@ class ShipView(view_utils.BaseView):
             embed.add_field(name=name, value="\n".join(value), inline=False)
 
         embed.set_footer(text="Rocket planes & Skip Bombs are not in the API.")
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
     async def auxiliary(self) -> discord.InteractionMessage:
@@ -260,7 +243,7 @@ class ShipView(view_utils.BaseView):
             embed.add_field(name="No Secondary Armament", value=i)
 
         elif not sec.slots:
-            i = "```diff\n" "- Secondary armament not found in API.```"
+            i = "```diff\n- Secondary armament not found in API.```"
             embed.add_field(name="API Error", value=i)
 
         else:
@@ -301,10 +284,10 @@ class ShipView(view_utils.BaseView):
         embed.add_field(name="AA Guns", value="".join(aad), inline=False)
 
         embed.description = "\n".join(desc)
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
-    async def main_guns(self) -> discord.InteractionMessage:
+    async def main_guns(self, interaction: Interaction) -> None:
         """Get information about the ship's main battery"""
         await self.handle_buttons(self.main_guns)
         assert self.profile is not None
@@ -344,15 +327,15 @@ class ShipView(view_utils.BaseView):
             embed.add_field(name=name, value="\n".join(shell_data))
 
         embed.set_footer(text="SAP Shells are currently not in the API.")
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
-    async def torpedoes(self) -> discord.InteractionMessage:
+    async def torpedoes(self, interaction: Interaction) -> None:
         """Get information about the ship's torpedoes"""
-        await self.handle_buttons(self.torpedoes)
+        await self.handle_buttons(interaction, self.torpedoes)
         assert self.profile is not None
 
-        embed = await self.base_embed()
+        embed = self.base_embed()
 
         torps = self.profile.torpedoes
         for i in torps.slots:
@@ -375,17 +358,17 @@ class ShipView(view_utils.BaseView):
         ]
 
         embed.description = "\n".join(trp_desc)
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
-    async def overview(self) -> discord.InteractionMessage:
+    async def overview(self, interaction: Interaction) -> None:
         """Get a general overview of the ship"""
-        await self.handle_buttons(self.overview)
+        await self.handle_buttons(interaction, self.overview)
         assert self.profile is not None
 
         params = self.profile
 
-        embed = await self.base_embed()
+        embed = self.base_embed()
         tier = self.ship.tier
         slots = self.ship.mod_slots
 
@@ -454,7 +437,7 @@ class ShipView(view_utils.BaseView):
                 creds = format(nxt.price_credit, ",")
                 xp_ = format(xp_, ",")
                 text = (
-                    f"**{nxt.name}** (Tier {nxt.tier} {nxt.type.alias}):"
+                    f"**{nxt.name}** (Tier {nxt.tier} {nxt.type.name}):"
                     f"{xp_} XP, {creds} credits"
                 )
                 vals.append((nxt.tier, text))
@@ -463,8 +446,10 @@ class ShipView(view_utils.BaseView):
                 keys = [i[1] for i in sorted(vals, key=lambda x: x[0])]
                 embed.add_field(name="Next Ships", value="\n".join(keys))
 
-        edit = self.interaction.edit_original_response
-        return await edit(embed=embed, view=self)
+        if interaction.response.is_done():
+            await interaction.edit_original_response(embed=embed, view=self)
+        else:
+            await interaction.response.edit_message(embed=embed, view=self)
 
 
 class ModuleSelect(discord.ui.Select):
@@ -508,7 +493,6 @@ class Fittings(commands.Cog):
 
     async def cog_load(self) -> None:
         """Fetch Generics from API and store to bot."""
-        self.bot.modes = await api.get_game_modes()
         self.bot.ships = await api.get_ships()
 
         # if not self.bot.clan_buildings:
@@ -521,13 +505,9 @@ class Fittings(commands.Cog):
         self,
         interaction: Interaction,
         ship: api.ship_transform,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Search for a ship in the World of Warships API"""
-        await interaction.response.defer(thinking=True)
-
-        if ship is None:
-            ship = next(i for i in self.bot.ships)
-        return await ShipView(interaction, ship).overview()
+        return await ShipView(ship).overview(interaction)
 
 
 async def setup(bot: PBot) -> None:

@@ -134,20 +134,3 @@ class Competition(FlashScoreItem):
             return f"{self.country.upper()}: {self.name}"
         else:
             return self.name
-
-
-async def save_comp(bot: Bot, comp: Competition) -> None:
-    """Save the competition to the bot database"""
-    sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
-             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
-             (country, name, logo_url, url) =
-             (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
-             """
-
-    async with bot.db.acquire(timeout=60) as conn:
-        async with conn.transaction():
-            await conn.execute(
-                sql, comp.id, comp.country, comp.name, comp.logo_url, comp.url
-            )
-    bot.competitions.add(comp)
-    logger.info("saved competition. %s %s %s", comp.name, comp.id, comp.url)

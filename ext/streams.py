@@ -9,6 +9,8 @@ from discord.ext import commands
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
 
 class Stream:
     """A generic dataclass representing a stream"""
@@ -31,7 +33,7 @@ class Stream:
 
 
 async def st_ac(
-    ctx: discord.Interaction[Bot], current: str
+    ctx: Interaction, current: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Return List of Guild Streams"""
     if ctx.guild is None:
@@ -65,14 +67,17 @@ class GuildStreams(commands.Cog):
     )
 
     @streams.command()
-    async def list(self, interaction: discord.Interaction[Bot]) -> None:
+    async def list(self, interaction: Interaction) -> None:
         """List all streams for the match added by users."""
         if interaction.guild is None:
             raise commands.NoPrivateMessage
 
         if not (strms := self.bot.streams[interaction.guild.id]):
             err = "Nobody has added any streams yet."
-            return await self.bot.error(interaction, err)
+            embed = discord.Embed()
+            embed.description = "🚫 " + err
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         embed = discord.Embed(title="Streams")
         embed.description = "\n".join([str(i) for i in strms])
@@ -80,9 +85,7 @@ class GuildStreams(commands.Cog):
 
     @streams.command(name="add")
     @discord.app_commands.describe(name="Stream Name", link="Stream Link")
-    async def add_stream(
-        self, interaction: discord.Interaction[Bot], link: str, name: str
-    ):
+    async def add_stream(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
         if interaction.guild is None:
             raise commands.NoPrivateMessage
@@ -91,7 +94,10 @@ class GuildStreams(commands.Cog):
             self.bot.streams[interaction.guild.id] = []
 
         if link in [i.link for i in guild_streams]:
-            return await self.bot.error(interaction, "Already in stream list.")
+            embed = discord.Embed()
+            embed.description = "🚫 Already in stream list"
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         stream = Stream(name=name, link=link, added_by=interaction.user)
         self.bot.streams[interaction.guild.id].append(stream)
@@ -105,9 +111,7 @@ class GuildStreams(commands.Cog):
         )
 
     @streams.command(name="clear")
-    async def clear_streams(
-        self, interaction: discord.Interaction[Bot]
-    ) -> None:
+    async def clear_streams(self, interaction: Interaction) -> None:
         """Remove all streams from guild stream list"""
         if interaction.guild is None:
             raise commands.NoPrivateMessage
@@ -119,11 +123,9 @@ class GuildStreams(commands.Cog):
     @streams.command(name="delete")
     @discord.app_commands.autocomplete(stream=st_ac)
     async def delete_stream(
-        self, interaction: discord.Interaction[Bot], stream: str
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, stream: str
+    ) -> None:
         """Delete a stream from the stream list"""
-        await interaction.response.defer(thinking=True)
-
         if interaction.guild is None or interaction.channel is None:
             raise commands.NoPrivateMessage
 
@@ -134,15 +136,21 @@ class GuildStreams(commands.Cog):
         matches = [i for i in strms if name in f"{i.name} {i.link}".casefold()]
 
         if not matches:
-            err = f"{stream} not in {interaction.guild.name} stream list."
-            return await self.bot.error(interaction, err)
+            err = f"🚫 {stream} not in {interaction.guild.name} stream list."
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = err
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         perms = interaction.channel.permissions_for(interaction.guild.me)
         if not perms.manage_messages:
             user = interaction.user
             if not (matches := [i for i in matches if i.added_by == user]):
-                err = "You did not add that stream and you are not a mod."
-                return await self.bot.error(interaction, err)
+                err = "🚫 You did not add that stream and you are not a mod."
+                embed = discord.Embed(colour=discord.Colour.red())
+                embed.description = err
+                reply = interaction.response.send_message
+                return await reply(embed=embed, ephemeral=True)
 
         g_streams = self.bot.streams.get(interaction.guild.id, {})
 
@@ -154,7 +162,7 @@ class GuildStreams(commands.Cog):
 
         embed = discord.Embed(title=f"{interaction.guild.name} Streams")
         embed.description = "\n".join([str(i) for i in strms])
-        return await interaction.edit_original_response(
+        return await interaction.response.send_message(
             content=msg, embed=embed
         )
 

@@ -15,14 +15,14 @@ from discord.ext import commands, tasks
 from lxml import etree, html
 from playwright.async_api import TimeoutError as pw_TimeoutError
 
-import ext.toonbot_utils.flashscore as fs
+import ext.flashscore as fs
 from ext.fixtures import CompetitionTransformer
-from ext.toonbot_utils.gamestate import GameState
-from ext.toonbot_utils.matchevents import EventType
 from ext.utils import embed_utils, view_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
+
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
 
 logger = logging.getLogger("scores")
 
@@ -144,15 +144,11 @@ class ScoreChannel:
 class ScoresConfig(view_utils.BaseView):
     """Generic Config View"""
 
-    interaction: discord.Interaction[Bot]
-
-    def __init__(
-        self, interaction: discord.Interaction[Bot], channel: ScoreChannel
-    ) -> None:
-        super().__init__(interaction)
+    def __init__(self, channel: ScoreChannel) -> None:
+        super().__init__()
         self.chan: ScoreChannel = channel
 
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Push the newest version of view to message"""
         self.clear_items()
 
@@ -174,7 +170,7 @@ class ScoresConfig(view_utils.BaseView):
             txt = f"{NOPERMS} {missing}```"
             embed.add_field(name="Missing Permissions", value=txt)
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         if not self.chan.leagues:
             self.add_item(ResetLeagues())
             embed.description = f"{chan.mention} has no tracked leagues."
@@ -195,6 +191,7 @@ class ScoresConfig(view_utils.BaseView):
         return await edit(embed=embed, view=self)
 
 
+# TODO: Decorator Button
 class ResetLeagues(discord.ui.Button):
     """Button to reset a live score channel back to the default leagues"""
 
@@ -205,16 +202,8 @@ class ResetLeagues(discord.ui.Button):
             label="Reset to default leagues", style=discord.ButtonStyle.primary
         )
 
-    async def callback(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def callback(self, interaction: Interaction) -> None:
         """Click button reset leagues"""
-
-        try:
-            await interaction.response.defer()
-        except discord.errors.InteractionResponded:
-            pass
-
         async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 sql = """DELETE FROM scores_leagues WHERE channel_id = $1"""
@@ -235,8 +224,8 @@ class ResetLeagues(discord.ui.Button):
         embed = discord.Embed(title="LiveScores: Tracked Leagues Reset")
         embed.description = self.view.chan.channel.mention
         embed_utils.user_to_footer(embed, interaction.user)
-        await self.view.interaction.followup.send(embed=embed)
-        return await self.view.update()
+        await interaction.followup.send(embed=embed)
+        return await self.view.update(interaction)
 
 
 class RemoveLeague(discord.ui.Select):
@@ -257,15 +246,10 @@ class RemoveLeague(discord.ui.Select):
             opt.emoji = i.flag
             self.add_option(label=i.title, description=i.url, value=i.url)
 
-    async def callback(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def callback(self, interaction: Interaction) -> None:
         """When a league is selected"""
-        await interaction.response.defer()
-
         red = discord.ButtonStyle.red
-        intr = self.view.interaction
-        view = view_utils.Confirmation(intr, "Remove", "Cancel", red)
+        view = view_utils.Confirmation("Remove", "Cancel", red)
 
         lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
         ment = self.view.chan.channel.mention
@@ -273,12 +257,12 @@ class RemoveLeague(discord.ui.Select):
         embed = discord.Embed(title="LiveScores", colour=discord.Colour.red())
         embed.description = f"Remove these leagues from {ment}? {lg_text}"
 
-        edit = self.view.interaction.edit_original_response
+        edit = interaction.response.edit_message
         await edit(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
-            return await self.view.update()
+            return await self.view.update(interaction)
 
         sql = """DELETE from scores_leagues
                  WHERE (channel_id, url) = ($1, $2)"""
@@ -298,8 +282,8 @@ class RemoveLeague(discord.ui.Select):
         embed = discord.Embed(description=msg, colour=discord.Colour.red())
         embed.title = "LiveScores"
         embed_utils.user_to_footer(embed, interaction.user)
-        await self.view.interaction.followup.send(content=msg)
-        return await self.view.update()
+        await interaction.followup.send(content=msg)
+        return await self.view.update(interaction)
 
 
 class Scores(commands.Cog):
@@ -474,71 +458,6 @@ class Scores(commands.Cog):
                 await i.channel.purge(reason=rsn, check=is_me, limit=20)
             except discord.HTTPException:
                 pass
-
-    def dispatch_states(self, fix: fs.Fixture, old: GameState) -> None:
-        """Dispatch events to the ticker"""
-        evt = "fixture_event"
-        send_event = self.bot.dispatch
-
-        new = fix.state
-
-        if old == new or old is None:
-            return
-
-        if new == GameState.ABANDONED:
-            return send_event(evt, EventType.ABANDONED, fix)
-        elif new == GameState.AFTER_EXTRA_TIME:
-            return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fix)
-        elif new == GameState.AFTER_PENS:
-            return send_event(evt, EventType.PENALTY_RESULTS, fix)
-        elif new == GameState.CANCELLED:
-            return send_event(evt, EventType.CANCELLED, fix)
-        elif new == GameState.DELAYED:
-            return send_event(evt, EventType.DELAYED, fix)
-        elif new == GameState.INTERRUPTED:
-            return send_event(evt, EventType.INTERRUPTED, fix)
-        elif new == GameState.BREAK_TIME:
-            if old == GameState.EXTRA_TIME:
-                # Break Time = after regular time & before penalties
-                return send_event(evt, EventType.EXTRA_TIME_END, fix)
-            fix.breaks += 1
-            if fix.periods is not None:
-                return send_event(evt, EventType.PERIOD_END, fix)
-            else:
-                return send_event(evt, EventType.NORMAL_TIME_END, fix)
-        elif new == GameState.EXTRA_TIME:
-            if old == GameState.HALF_TIME:
-                return send_event(evt, EventType.HALF_TIME_ET_END, fix)
-            return send_event(evt, EventType.EXTRA_TIME_BEGIN, fix)
-        elif new == GameState.FULL_TIME:
-            if old == GameState.EXTRA_TIME:
-                return send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fix)
-            elif old in [GameState.SCHEDULED, GameState.HALF_TIME]:
-                return send_event(evt, EventType.FINAL_RESULT_ONLY, fix)
-            return send_event(evt, EventType.FULL_TIME, fix)
-        elif new == GameState.HALF_TIME:
-            # Half Time is fired at regular Half time & ET Half time.
-            if old == GameState.EXTRA_TIME:
-                return send_event(evt, EventType.HALF_TIME_ET_BEGIN, fix)
-            else:
-                return send_event(evt, EventType.HALF_TIME, fix)
-        elif new == GameState.LIVE:
-            if old in [GameState.SCHEDULED, GameState.DELAYED]:
-                return send_event(evt, EventType.KICK_OFF, fix)
-            elif old == GameState.INTERRUPTED:
-                return send_event(evt, EventType.RESUMED, fix)
-            elif old == GameState.HALF_TIME:
-                return send_event(evt, EventType.SECOND_HALF_BEGIN, fix)
-            elif old == GameState.BREAK_TIME:
-                return send_event(evt, EventType.PERIOD_BEGIN, fix)
-        elif new == GameState.PENALTIES:
-            return send_event(evt, EventType.PENALTIES_BEGIN, fix)
-        elif new == GameState.POSTPONED:
-            return send_event(evt, EventType.POSTPONED, fix)
-        elif new == GameState.STOPPAGE_TIME:
-            return
-
-        logger.error("States: %s -> %s %s @ %s", old, new, fix.url, fix.time)
 
     async def fetch_fixture(self, fixture: fs.Fixture, force: bool = False):
         """Fetch all data for a fixture"""
@@ -759,9 +678,9 @@ class Scores(commands.Cog):
                     if home_cards != fix.home_cards:
                         if fix.home_cards is not None:
                             if home_cards > fix.home_cards:
-                                sub_t = EventType.RED_CARD
+                                sub_t = fs.EventType.RED_CARD
                             else:
-                                sub_t = EventType.VAR_RED_CARD
+                                sub_t = fs.EventType.VAR_RED_CARD
                             self.bot.dispatch(FXE, sub_t, fix, home=True)
                         fix.home_cards = home_cards
 
@@ -769,9 +688,9 @@ class Scores(commands.Cog):
                     if away_cards != fix.away_cards:
                         if fix.away_cards is not None:
                             if away_cards > fix.away_cards:
-                                sub_t = EventType.RED_CARD
+                                sub_t = fs.EventType.RED_CARD
                             else:
-                                sub_t = EventType.VAR_RED_CARD
+                                sub_t = fs.EventType.VAR_RED_CARD
                             self.bot.dispatch(FXE, sub_t, fix, home=False)
                         fix.away_cards = away_cards
 
@@ -833,29 +752,29 @@ class Scores(commands.Cog):
                 if fix.home_score != h_score:
                     if fix.home_score is not None:
                         if h_score > fix.home_score:
-                            evt = EventType.GOAL
+                            evt = fs.EventType.GOAL
                         else:
-                            evt = EventType.VAR_GOAL
+                            evt = fs.EventType.VAR_GOAL
                         self.bot.dispatch(FXE, evt, fix, home=True)
                     fix.home_score = h_score
 
                 if fix.away_score != a_score:
                     if fix.away_score is not None:
                         if a_score > fix.away_score:
-                            evt = EventType.GOAL
+                            evt = fs.EventType.GOAL
                         else:
-                            evt = EventType.VAR_GOAL
+                            evt = fs.EventType.VAR_GOAL
                         self.bot.dispatch(FXE, evt, fix, home=False)
                     fix.away_score = a_score
 
             if override:
                 try:
                     fix.time = {
-                        "aet": GameState.AFTER_EXTRA_TIME,
-                        "fin": GameState.FULL_TIME,
-                        "pen": GameState.AFTER_PENS,
-                        "sched": GameState.SCHEDULED,
-                        "wo": GameState.WALKOVER,
+                        "aet": fs.GameState.AFTER_EXTRA_TIME,
+                        "fin": fs.GameState.FULL_TIME,
+                        "pen": fs.GameState.AFTER_PENS,
+                        "sched": fs.GameState.SCHEDULED,
+                        "wo": fs.GameState.WALKOVER,
                     }[override.casefold()]
                 except KeyError:
                     logger.error("Unhandled override: %s", override)
@@ -865,11 +784,11 @@ class Scores(commands.Cog):
                 sub_t = time[0]
                 try:
                     fix.time = {
-                        "Break Time": GameState.BREAK_TIME,
-                        "Extra Time": GameState.EXTRA_TIME,
-                        "Half Time": GameState.HALF_TIME,
-                        "Live": GameState.FINAL_RESULT_ONLY,
-                        "Penalties": GameState.PENALTIES,
+                        "Break Time": fs.GameState.BREAK_TIME,
+                        "Extra Time": fs.GameState.EXTRA_TIME,
+                        "Half Time": fs.GameState.HALF_TIME,
+                        "Live": fs.GameState.FINAL_RESULT_ONLY,
+                        "Penalties": fs.GameState.PENALTIES,
                     }[sub_t]
                 except KeyError:
                     if "'" not in sub_t and ":" not in sub_t:
@@ -881,18 +800,18 @@ class Scores(commands.Cog):
 
                 try:
                     fix.time = {
-                        "Abandoned": GameState.ABANDONED,
-                        "Cancelled": GameState.CANCELLED,
-                        "Delayed": GameState.DELAYED,
-                        "Extra Time": GameState.EXTRA_TIME,
-                        "Interrupted": GameState.INTERRUPTED,
-                        "Postponed": GameState.POSTPONED,
+                        "Abandoned": fs.GameState.ABANDONED,
+                        "Cancelled": fs.GameState.CANCELLED,
+                        "Delayed": fs.GameState.DELAYED,
+                        "Extra Time": fs.GameState.EXTRA_TIME,
+                        "Interrupted": fs.GameState.INTERRUPTED,
+                        "Postponed": fs.GameState.POSTPONED,
                     }[sub_t]
                 except KeyError:
                     logger.error("2 part time unhandled: %s", time)
 
             if old_state is not None:
-                self.dispatch_states(fix, old_state)
+                fs.dispatch_states(fix, old_state)
         return self.bot.games
 
     livescores = discord.app_commands.Group(
@@ -905,7 +824,7 @@ class Scores(commands.Cog):
     @discord.app_commands.command()
     @discord.app_commands.guilds(250252535699341312)
     async def parse_fixture(
-        self, interaction: discord.Interaction[Bot], url: str
+        self, interaction: Interaction, url: str
     ) -> discord.InteractionMessage:
         """[DEBUG] Force parse a fixture."""
         await interaction.response.defer(thinking=True)
@@ -929,9 +848,9 @@ class Scores(commands.Cog):
     @discord.app_commands.describe(channel="Target Channel")
     async def manage(
         self,
-        interaction: discord.Interaction[Bot],
+        interaction: Interaction,
         channel: typing.Optional[discord.TextChannel],
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """View or Delete tracked leagues from a live-scores channel."""
         await interaction.response.defer(thinking=True)
 
@@ -945,7 +864,10 @@ class Scores(commands.Cog):
 
         if not row:
             err = f"{channel.mention} is not a live-scores channel."
-            return await self.bot.error(interaction, err)
+            embed = discord.Embed()
+            embed.description = "🚫 " + err
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         chans = self.bot.score_channels
         try:
@@ -954,13 +876,13 @@ class Scores(commands.Cog):
             chan = ScoreChannel(channel)
             self.bot.score_channels.append(chan)
 
-        return await ScoresConfig(interaction, chan).update()
+        return await ScoresConfig(chan).update(interaction)
 
     @livescores.command()
     @discord.app_commands.describe(name="Enter a name for the channel")
     async def create(
-        self, interaction: discord.Interaction[Bot], name: str = "⚽live-scores"
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, name: str = "⚽live-scores"
+    ) -> None:
         """Create a live-scores channel for your server."""
         await interaction.response.defer(thinking=True)
 
@@ -979,7 +901,10 @@ class Scores(commands.Cog):
             )
         except discord.Forbidden:
             err = "I need manage_channels permissions to make a channel."
-            return await self.bot.error(interaction, err)
+            embed = discord.Embed()
+            embed.description = "🚫 " + err
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         dow = discord.PermissionOverwrite
         ow_ = {
@@ -1014,7 +939,7 @@ class Scores(commands.Cog):
             msg = f"{channel.mention} created, but I need send_messages perms."
         await interaction.followup.send(msg)
 
-        reset = ScoresConfig(interaction, chan).add_item(ResetLeagues())
+        reset = ScoresConfig(chan).add_item(ResetLeagues())
         return await reset.children[0].callback(interaction)
 
     @livescores.command()
@@ -1024,7 +949,7 @@ class Scores(commands.Cog):
     )
     async def add_league(
         self,
-        interaction: discord.Interaction[Bot],
+        interaction: Interaction,
         competition: discord.app_commands.Transform[
             fs.Competition, CompetitionTransformer
         ],

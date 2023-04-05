@@ -30,7 +30,6 @@ with open("credentials.json", encoding="utf-8") as fun:
 
 COGS = [
     # Utility Cogs
-    "ext.reply",
     "ext.metapainezbot",
     # Slash commands.
     "ext.admin",
@@ -73,8 +72,8 @@ class PBot(commands.AutoShardedBot):
             help_command=None,
         )
 
-        # Reply Handling
-        self.error: typing.Callable
+        # Admin
+        self.available_cogs = COGS
 
         # Database & API Credentials
         self.db: asyncpg.Pool = database  # pylint: disable=C0103
@@ -107,9 +106,11 @@ class PBot(commands.AutoShardedBot):
         # Wows
         self.contributors: list[Contributor] = []
         self.clan_buildings: list[api.ClanBuilding] = []
+        self.clan_battle_seasons: list[api.ClanBattleSeason]
+        self.clan_battle_winners: dict[int, list[api.ClanBattleWinner]]
         self.maps: set[api.Map] = set()
         self.modes: set[api.GameMode] = set()
-        self.modules: list[api.Module] = []
+        self.modules: dict[int, api.Module] = dict()
         self.ships: list[Ship] = []
 
         # Announce aliveness
@@ -131,9 +132,8 @@ class PBot(commands.AutoShardedBot):
             try:
                 await self.load_extension(i)
                 logger.info("Loaded %s", i)
-            except commands.ExtensionError as error:
-                err = f"{type(error).__name__}: {error}"
-                logger.error("Failed to load cog %s\n%s", i, err)
+            except commands.ExtensionError:
+                logger.exception("Failed to load cog %s", i, exc_info=True)
         return
 
     def get_ship(self, identifier: str | int) -> typing.Optional[Ship]:

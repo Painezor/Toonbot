@@ -1,4 +1,6 @@
 """Discord transformers for various API entities"""
+from __future__ import annotations
+
 import logging
 import typing
 
@@ -6,7 +8,7 @@ import aiohttp
 import discord
 
 from .wg_id import WG_ID
-from .clan import Clan
+from .clan import PartialClan
 from .enums import Map, Region
 from .gamemode import GameMode
 from .player import Player, PlayerClanData
@@ -40,8 +42,12 @@ class ClanTransformer(discord.app_commands.Transformer):
 
     async def autocomplete(
         self, interaction: Interaction, value: str, /
-    ) -> list[discord.app_commands.Choice[int]]:
+    ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete for a list of clan names"""
+        if len(value) < 2:
+            txt = "🚫 Search too short"
+            return [discord.app_commands.Choice(name=txt, value="0")]
+
         region = getattr(interaction.namespace, "region", None)
         rgn = next((i for i in Region if i.db_key == region), Region.EU)
 
@@ -60,19 +66,22 @@ class ClanTransformer(discord.app_commands.Transformer):
             clans = await resp.json()
 
         choices = []
-        interaction.extras["clans"] = []
-        for i in clans.pop("data", []):
-            clan = Clan(i)
-
-            name = f"[{clan.tag}] {clan.name}"
-            choice = discord.app_commands.Choice(name=name, value=clan.clan_id)
+        clans = [PartialClan(i) for i in clans.pop("data", [])]
+        interaction.extras["clans"] = clans
+        for i in clans:
+            name = f"[{i.tag}] {i.name}"
+            val = str(i.clan_id)
+            choice = discord.app_commands.Choice(name=name, value=val)
             choices.append(choice)
         return choices
 
-    async def transform(self, interaction: Interaction, value: int, /) -> Clan:
+    async def transform(
+        self, interaction: Interaction, value: str, /
+    ) -> PartialClan:
         """Conversion"""
-        clans: list[Clan] = interaction.extras["clans"]
-        return next(i for i in clans if value == i.clan_id)
+        await interaction.response.defer(thinking=True)
+        clans: list[PartialClan] = interaction.extras["clans"]
+        return next(i for i in clans if value == int(i.clan_id))
 
 
 class MapTransformer(discord.app_commands.Transformer):
@@ -80,7 +89,7 @@ class MapTransformer(discord.app_commands.Transformer):
 
     async def autocomplete(
         self, interaction: Interaction, value: str, /
-    ) -> list[discord.app_commands.Choice[int]]:
+    ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete for the list of maps in World of Warships"""
         cur = value.casefold()
 
@@ -102,7 +111,7 @@ class MapTransformer(discord.app_commands.Transformer):
                 continue
 
             name = i.ac_row[:100]
-            val = i.battle_arena_id
+            val = str(i.battle_arena_id)
             choice = discord.app_commands.Choice(name=name, value=val)
             choices.append(choice)
 
@@ -111,10 +120,10 @@ class MapTransformer(discord.app_commands.Transformer):
 
         return choices
 
-    async def transform(self, interaction: Interaction, value: int, /) -> Map:
+    async def transform(self, interaction: Interaction, value: str, /) -> Map:
         """Convert"""
         maps = interaction.client.maps
-        return next(i for i in maps if i.battle_arena_id == value)
+        return next(i for i in maps if i.battle_arena_id == int(value))
 
 
 class ModeTransformer(discord.app_commands.Transformer):
@@ -142,7 +151,7 @@ class ModeTransformer(discord.app_commands.Transformer):
         return choices
 
     async def transform(
-        self, interaction: discord.Interaction[PBot], value: str, /
+        self, interaction: Interaction, value: str, /
     ) -> typing.Optional[GameMode]:
         """Convert"""
         return next(i for i in interaction.client.modes if i.name == value)
@@ -153,7 +162,7 @@ class PlayerTransformer(discord.app_commands.Transformer):
 
     async def autocomplete(
         self, interaction: Interaction, current: str, /
-    ) -> list[discord.app_commands.Choice[int]]:
+    ) -> list[discord.app_commands.Choice[str]]:
         """Fetch player's account ID by searching for their name."""
         if len(current) < 3:
             return []
@@ -197,7 +206,7 @@ class PlayerTransformer(discord.app_commands.Transformer):
             except StopIteration:
                 name = i.nickname
 
-            value = i.account_id
+            value = str(i.account_id)
             choices.append(discord.app_commands.Choice(name=name, value=value))
 
         interaction.extras["players"] = players
@@ -208,7 +217,7 @@ class PlayerTransformer(discord.app_commands.Transformer):
     ) -> typing.Optional[Player]:
         """Conversion"""
         players: list[Player] = interaction.extras["players"]
-        return next(i for i in players if i.account_id == value)
+        return next(i for i in players if i.account_id == int(value))
 
 
 class ShipTransformer(discord.app_commands.Transformer):
@@ -221,7 +230,7 @@ class ShipTransformer(discord.app_commands.Transformer):
 
         current = current.casefold()
         choices = []
-        for i in sorted(interaction.client.ships, key=lambda s: s.name):
+        for i in sorted(interaction.client.ships, key=lambda i: i.name):
             if not i.ship_id_str:
                 continue
             if current not in i.ac_row:
@@ -243,17 +252,10 @@ class ShipTransformer(discord.app_commands.Transformer):
         return interaction.client.get_ship(value)
 
 
-_ = discord.app_commands.Transform[Clan, ClanTransformer]
-clan_transform: typing.TypeAlias = _
+Transform: typing.TypeAlias = discord.app_commands.Transform
 
-_ = discord.app_commands.Transform[Map, MapTransformer]
-map_transform: typing.TypeAlias = _
-
-_ = discord.app_commands.Transform[GameMode, ModeTransformer]
-mode_transform: typing.TypeAlias = _
-
-_ = discord.app_commands.Transform[Player, PlayerTransformer]
-player_transform: typing.TypeAlias = _
-
-_ = discord.app_commands.Transform[Ship, ShipTransformer]
-ship_transform: typing.TypeAlias = _
+clan_transform: typing.TypeAlias = Transform[PartialClan, ClanTransformer]
+map_transform: typing.TypeAlias = Transform[Map, MapTransformer]
+mode_transform: typing.TypeAlias = Transform[GameMode, ModeTransformer]
+player_transform: typing.TypeAlias = Transform[Player, PlayerTransformer]
+ship_transform: typing.TypeAlias = Transform[Ship, ShipTransformer]

@@ -1,21 +1,27 @@
 """Various image manipulation """
 from __future__ import annotations
 
-import io
-import json
-import random
 import asyncio
-from typing import Optional
+import logging
+import json
+import io
+import random
 import typing
 
-from PIL import Image, ImageDraw, ImageOps, ImageFont
+import aiohttp
 import discord
 from discord.ext import commands
+from PIL import Image, ImageDraw, ImageOps, ImageFont
 
 from ext.utils import view_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
+
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
+# Project Oxford
+API = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
 
 TINDER = """https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/51
 2/tinder-512.png"""
@@ -25,15 +31,248 @@ with open("credentials.json", mode="r", encoding="utf-8") as fun:
     credentials = json.load(fun)
 
 
+logger = logging.getLogger("images")
+
+
+class KnobButton(discord.ui.Button["ImageView"]):
+    """Push the Knob image to View"""
+
+    def __init__(self):
+        super().__init__(label="knob", emoji="🍆")
+
+    async def callback(self, interaction: Interaction) -> None:
+        assert self.view is not None
+
+        if self.view.image is None:
+            self.view.image = await self.view.get_faces()
+
+        embed = discord.Embed(colour=0xFFFFFF)
+        embed.add_field(name="Source Image", value=self.view.target_url)
+        embed.set_image(url="attachment://img")
+        output = await asyncio.to_thread(
+            self.draw, self.view.image, self.view.coordinates
+        )
+
+        file = discord.File(fp=output, filename="img")
+        edit = interaction.response.edit_message
+        return await edit(attachments=[file], embed=embed, view=self.view)
+
+    def draw(self, target: bytes, coords: dict) -> io.BytesIO:
+        """Draw a knob in someone's mouth for the knob command"""
+        assert self.view is not None
+        if self.view.cache["knob"] is not None:
+            return self.view.cache["knob"]
+
+        image = Image.open(io.BytesIO(target)).convert(mode="RGBA")
+        knob = Image.open("Images/knob.png")
+
+        for coords in self.view.coordinates:
+            mlx = int(coords["faceLandmarks"]["mouthLeft"]["x"])
+            mrx = int(coords["faceLandmarks"]["mouthRight"]["x"])
+            lip_y = int(coords["faceLandmarks"]["upperLipBottom"]["y"])
+            lip_x = int(coords["faceLandmarks"]["upperLipBottom"]["x"])
+
+            angle = int(coords["faceAttributes"]["headPose"]["roll"] * -1)
+            wid = int((mrx - mlx)) * 2
+            hght = wid
+            mask = ImageOps.fit(knob, (wid, hght)).rotate(angle)
+
+            box = (int(lip_x - wid / 2), int(lip_y))
+            image.paste(mask, box=box, mask=mask)
+
+        image.save(output := io.BytesIO(), "PNG")
+        output.seek(0)
+
+        # Cleanup.
+        image.close()
+        knob.close()
+
+        self.view.cache["knob"] = output
+        return output
+
+
+class EyesButton(discord.ui.Button["ImageView"]):
+    """Push the eyes image to View"""
+
+    def __init__(self):
+        super().__init__(label="eyes", emoji="👀")
+
+    async def callback(self, interaction: Interaction) -> None:
+        assert self.view is not None
+
+        if self.view.image is None:
+            self.view.image = await self.view.get_faces()
+
+        embed = discord.Embed(colour=0xFFFFFF)
+        embed.add_field(name="Source Image", value=self.view.target_url)
+        embed.set_image(url="attachment://img")
+        output = await asyncio.to_thread(
+            self.draw, self.view.image, self.view.coordinates
+        )
+
+        file = discord.File(fp=output, filename="img")
+        edit = interaction.response.edit_message
+        return await edit(attachments=[file], embed=embed, view=self.view)
+
+    def draw(self, target: bytes, coords: dict) -> io.BytesIO:
+        """Draw a knob in someone's mouth for the knob command"""
+        assert self.view is not None
+        if self.view.cache["eyes"] is not None:
+            return self.view.cache["eyes"]
+
+        image = Image.open(io.BytesIO(target))
+        for i in coords:
+            # Get eye bounds
+            lix = int(i["faceLandmarks"]["eyeLeftInner"]["x"])
+            lox = int(i["faceLandmarks"]["eyeLeftOuter"]["x"])
+            lty = int(i["faceLandmarks"]["eyeLeftTop"]["y"])
+            # lby = int(i["faceLandmarks"]["eyeLeftBottom"]["y"])
+            rox = int(i["faceLandmarks"]["eyeRightOuter"]["x"])
+            rix = int(i["faceLandmarks"]["eyeRightInner"]["x"])
+            rty = int(i["faceLandmarks"]["eyeRightTop"]["y"])
+            # rby = int(i["faceLandmarks"]["eyeRightBottom"]["y"])
+
+            left_width = lix - lox
+            right_width = rox - rix
+
+            # Inflate
+            lix += left_width
+            lox -= left_width
+            lty -= left_width
+            # lby = lby + lw
+            rox += right_width
+            rix -= right_width
+            rty -= right_width
+            # rby = rby + rw
+
+            # Recalculate with new sizes.
+            left_width = lix - lox
+            right_width = rox - rix
+
+            # Open Eye Image, resize, paste twice
+            eye = Image.open("Images/eye.png")
+            left = ImageOps.fit(eye, (left_width, left_width))
+            right = ImageOps.fit(eye, (right_width, right_width))
+            image.paste(left, box=(lox, lty), mask=left)
+            image.paste(right, box=(rix, rty), mask=right)
+
+        # Prepare for sending and return
+        image.save(output := io.BytesIO(), "PNG")
+        output.seek(0)
+        image.close()
+
+        self.view.cache["eyes"] = output
+        return output
+
+
+class BobButton(discord.ui.Button["ImageView"]):
+    """Push the eyes image to View"""
+
+    def __init__(self):
+        super().__init__(label="bob ross", emoji="🖌️")
+
+    async def callback(self, interaction: Interaction) -> None:
+        assert self.view is not None
+
+        if self.view.image is None:
+            self.view.image = await self.view.get_faces()
+
+        embed = discord.Embed(colour=0xFFFFFF)
+        embed.add_field(name="Source Image", value=self.view.target_url)
+        embed.set_image(url="attachment://img")
+        output = await asyncio.to_thread(
+            self.draw, self.view.image, self.view.coordinates
+        )
+
+        file = discord.File(fp=output, filename="img")
+        edit = interaction.response.edit_message
+        return await edit(attachments=[file], embed=embed, view=self.view)
+
+    def draw(self, target: bytes, coords: dict) -> io.BytesIO:
+        """Add bob ross overlay to image."""
+        assert self.view is not None
+        if self.view.cache["bob"] is not None:
+            return self.view.cache["bob"]
+
+        image = Image.open(io.BytesIO(target)).convert(mode="RGBA")
+        bob = Image.open("Images/ross face.png")
+
+        for i in coords:
+            pos_x = int(i["faceRectangle"]["left"])
+            pos_y = int(i["faceRectangle"]["top"])
+            wid = int(i["faceRectangle"]["width"])
+            hght = int(i["faceRectangle"]["height"])
+            roll = int(i["faceAttributes"]["headPose"]["roll"]) * -1
+
+            top = int(pos_x + (wid * 1.25)) - int(pos_x - (wid / 4))
+            bot = int((pos_y + (hght * 1.25))) - int(pos_y - (hght / 2))
+
+            _ = ImageOps.fit(bob, (top, bot)).rotate(roll)
+            image.paste(_, box=(top, bot), mask=_)
+
+        image.save(output := io.BytesIO(), "PNG")
+        output.seek(0)
+
+        # Cleanup.
+        image.close()
+        bob.close()
+        self.view.cache["bob"] = output
+        return output
+
+
+class RuinsButton(discord.ui.Button["ImageView"]):
+    """Local Man Ruins Everything"""
+
+    def __init__(self):
+        super().__init__(label="eyes", emoji="📰")
+
+    async def callback(self, interaction: Interaction) -> None:
+        """Push the Local man ruins everything image to view"""
+        assert self.view is not None
+
+        if self.view.image is None:
+            self.view.image = await self.view.get_faces()
+
+        embed = discord.Embed(colour=0xFFFFFF)
+        embed.add_field(name="Source Image", value=self.view.target_url)
+        embed.set_image(url="attachment://img")
+        output = await asyncio.to_thread(
+            self.draw,
+            self.view.image,
+        )
+
+        file = discord.File(fp=output, filename="img")
+        edit = interaction.response.edit_message
+        return await edit(attachments=[file], embed=embed, view=self.view)
+
+    def draw(self, target: bytes) -> io.BytesIO:
+        """Generates the Image"""
+        assert self.view is not None
+        if self.view.cache["ruins"] is not None:
+            return self.view.cache["ruins"]
+
+        img = ImageOps.fit(Image.open(io.BytesIO(target)), (256, 256))
+        base = Image.open("Images/local man.png")
+        base.paste(img, box=(175, 284, 431, 540))
+
+        base.save(output := io.BytesIO(), "PNG")
+        output.seek(0)
+
+        # Cleanup
+        img.close()
+        base.close()
+
+        self.view.cache["ruins"] = output
+        return output
+
+
 class ImageView(view_utils.BaseView):
     """Holder View for Image Manipulation functions."""
 
-    interaction: discord.Interaction[Bot]
-
     def __init__(
         self,
-        interaction: discord.Interaction[Bot],
-        user: typing.Optional[discord.User] = None,
+        interaction: Interaction,
+        user: typing.Optional[discord.User | discord.Member] = None,
         link: typing.Optional[str] = None,
         file: typing.Optional[discord.Attachment] = None,
     ) -> None:
@@ -44,29 +283,30 @@ class ImageView(view_utils.BaseView):
             self.target_url = file.url
         elif user is not None:
             self.target_url = user.display_avatar.with_format("png").url
-        else:
-            self.target_url = interaction.user.display_avatar.with_format(
-                "png"
-            ).url
 
         self.image: typing.Optional[bytes] = None
         self.coordinates: dict = {}
 
-        self.output: io.BytesIO
-
         # Cache these, so if people re-click...
-        self._with_bob: typing.Optional[io.BytesIO] = None
-        self._with_eyes: typing.Optional[io.BytesIO] = None
-        self._with_knob: typing.Optional[io.BytesIO] = None
-        self._with_ruins: typing.Optional[io.BytesIO] = None
+        self.cache: dict[str, typing.Optional[io.BytesIO]] = {
+            "bob": None,
+            "eyes": None,
+            "knob": None,
+            "ruins": None,
+        }
 
-        super().__init__(interaction)
+        super().__init__()
+        self.add_item(EyesButton())
+        self.add_item(BobButton())
+        self.add_item(RuinsButton())
 
-    async def get_faces(self) -> None:
+        if isinstance(interaction.channel, discord.TextChannel):
+            if interaction.channel.is_nsfw():
+                self.add_item(KnobButton())
+
+    async def get_faces(self) -> bytes:
         """Retrieve face features from Project Oxford,
         Returns True if fine."""
-
-        session = self.interaction.client.session
 
         # Prepare POST
         headers = {
@@ -79,216 +319,20 @@ class ImageView(view_utils.BaseView):
             "returnFaceAttributes": "headPose",
         }
         data = json.dumps({"url": self.target_url})
-        url = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
 
-        # Get Project Oxford reply
-        async with session.post(
-            url, params=params, headers=headers, data=data
-        ) as resp:
-            if resp.status != 200:
-                raise ConnectionError(f"{await resp.json()}")
-            self.coordinates = await resp.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                API, params=params, headers=headers, data=data
+            ) as resp:
+                if resp.status != 200:
+                    logger.error("%s", await resp.json(), exc_info=True)
+                self.coordinates = await resp.json()
 
-        # Get target image as file
-        async with session.get(self.target_url) as resp:
-            if resp.status == 200:
-                self.image = await resp.content.read()
-            else:
-                raise ConnectionError(f"Can't open image at {self.target_url}")
-
-    async def push_ruins(self) -> discord.InteractionMessage:
-        """Push the Local man ruins everything image to view"""
-        if self.image is None:
-            await self.get_faces()
-
-        def draw() -> io.BytesIO:
-            """Generates the Image"""
-            if self._with_ruins is not None:
-                return self._with_ruins
-
-            self.image = typing.cast(bytes, self.image)
-            img = ImageOps.fit(Image.open(io.BytesIO(self.image)), (256, 256))
-            base = Image.open("Images/local man.png")
-            base.paste(img, box=(175, 284, 431, 540))
-
-            base.save(output := io.BytesIO(), "PNG")
-            output.seek(0)
-
-            # Cleanup
-            img.close()
-            base.close()
-
-            self._with_ruins = output
-            return output
-
-        self.output = await asyncio.to_thread(draw)
-        return await self.update()
-
-    async def push_eyes(self) -> discord.InteractionMessage:
-        """Draw the googly eyes"""
-        if self.image is None:
-            await self.get_faces()
-
-        def draw_eyes() -> io.BytesIO:
-            """Draws the eyes"""
-            if self._with_eyes is not None:
-                return self._with_eyes
-
-            self.image = typing.cast(bytes, self.image)
-            image = Image.open(io.BytesIO(self.image))
-            for i in self.coordinates:
-                # Get eye bounds
-                lix = int(i["faceLandmarks"]["eyeLeftInner"]["x"])
-                lox = int(i["faceLandmarks"]["eyeLeftOuter"]["x"])
-                lty = int(i["faceLandmarks"]["eyeLeftTop"]["y"])
-                # lby = int(i["faceLandmarks"]["eyeLeftBottom"]["y"])
-                rox = int(i["faceLandmarks"]["eyeRightOuter"]["x"])
-                rix = int(i["faceLandmarks"]["eyeRightInner"]["x"])
-                rty = int(i["faceLandmarks"]["eyeRightTop"]["y"])
-                # rby = int(i["faceLandmarks"]["eyeRightBottom"]["y"])
-
-                left_width = lix - lox
-                right_width = rox - rix
-
-                # Inflate
-                lix += left_width
-                lox -= left_width
-                lty -= left_width
-                # lby = lby + lw
-                rox += right_width
-                rix -= right_width
-                rty -= right_width
-                # rby = rby + rw
-
-                # Recalculate with new sizes.
-                left_width = lix - lox
-                right_width = rox - rix
-
-                # Open Eye Image, resize, paste twice
-                eye = Image.open("Images/eye.png")
-                left = ImageOps.fit(eye, (left_width, left_width))
-                right = ImageOps.fit(eye, (right_width, right_width))
-                image.paste(left, box=(lox, lty), mask=left)
-                image.paste(right, box=(rix, rty), mask=right)
-
-            # Prepare for sending and return
-            image.save(output := io.BytesIO(), "PNG")
-            output.seek(0)
-            image.close()
-
-            self._with_eyes = output
-            return output
-
-        self.output = await asyncio.to_thread(draw_eyes)
-        return await self.update()
-
-    async def push_knob(self) -> discord.InteractionMessage:
-        """Push the bob ross image to View"""
-        if self.image is None:
-            await self.get_faces()
-
-        def draw_knob() -> io.BytesIO:
-            """Draw a knob in someone's mouth for the knob command"""
-            if self._with_knob is not None:
-                return self._with_knob
-
-            self.image = typing.cast(bytes, self.image)
-            image = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
-            knob = Image.open("Images/knob.png")
-
-            for coords in self.coordinates:
-                mlx = int(coords["faceLandmarks"]["mouthLeft"]["x"])
-                mrx = int(coords["faceLandmarks"]["mouthRight"]["x"])
-                lip_y = int(coords["faceLandmarks"]["upperLipBottom"]["y"])
-                lip_x = int(coords["faceLandmarks"]["upperLipBottom"]["x"])
-
-                angle = int(coords["faceAttributes"]["headPose"]["roll"] * -1)
-                wid = int((mrx - mlx)) * 2
-                hght = wid
-                mask = ImageOps.fit(knob, (wid, hght)).rotate(angle)
-
-                box = (int(lip_x - wid / 2), int(lip_y))
-                image.paste(mask, box=box, mask=mask)
-
-            image.save(output := io.BytesIO(), "PNG")
-            output.seek(0)
-
-            # Cleanup.
-            image.close()
-            knob.close()
-
-            self._with_knob = output
-            return output
-
-        self.output = await asyncio.to_thread(draw_knob)
-        return await self.update()
-
-    async def push_bob(self) -> discord.InteractionMessage:
-        """Push the bob ross image to View"""
-        if self.image is None:
-            await self.get_faces()
-
-        def draw() -> io.BytesIO:
-            """Add bob ross overlay to image."""
-            if self._with_bob is not None:
-                return self._with_bob
-
-            self.image = typing.cast(bytes, self.image)
-            image = Image.open(io.BytesIO(self.image)).convert(mode="RGBA")
-            bob = Image.open("Images/ross face.png")
-            for coords in self.coordinates:
-                pos_x = int(coords["faceRectangle"]["left"])
-                pos_y = int(coords["faceRectangle"]["top"])
-                wid = int(coords["faceRectangle"]["width"])
-                hght = int(coords["faceRectangle"]["height"])
-                roll = int(coords["faceAttributes"]["headPose"]["roll"]) * -1
-                top_lef = int(pos_x - (wid / 4))
-                btm_lef = int(pos_y - (hght / 2))
-                top_rig = int(pos_x + (wid * 1.25))
-                bot_rig = int((pos_y + (hght * 1.25)))
-
-                box = (top_rig - top_lef, bot_rig - btm_lef)
-                this = ImageOps.fit(bob, box).rotate(roll)
-                image.paste(this, box=box, mask=this)
-            image.save(output := io.BytesIO(), "PNG")
-            output.seek(0)
-
-            # Cleanup.
-            image.close()
-            bob.close()
-            self._with_bob = output
-            return output
-
-        self.output = await asyncio.to_thread(draw)
-        return await self.update()
-
-    async def update(self) -> discord.InteractionMessage:
-        """Push the latest versio of the view to the user"""
-        self.clear_items()
-
-        funcs = [
-            view_utils.Funcable("Eyes", self.push_eyes, emoji="👀"),
-            view_utils.Funcable("Bob Ross", self.push_bob, emoji="🖌️"),
-            view_utils.Funcable("Ruins", self.push_ruins, emoji="🏚️"),
-        ]
-
-        i = self.interaction
-        if not isinstance(i.channel, discord.PartialMessageable):
-            if i.channel:
-                if i.channel.is_nsfw():
-                    btn = view_utils.Funcable("Knob", self.push_knob)
-                    btn.emoji = "🍆"
-                    funcs.append(btn)
-
-        self.add_function_row(funcs)
-
-        embed = discord.Embed(colour=0xFFFFFF, description=i.user.mention)
-        embed.add_field(name="Source Image", value=self.target_url)
-        embed.set_image(url="attachment://img")
-        file = discord.File(fp=self.output, filename="img")
-
-        edit = self.interaction.edit_original_response
-        return await edit(attachments=[file], embed=embed, view=self)
+            # Get target image as file
+            async with session.get(self.target_url) as resp:
+                if resp.status != 200:
+                    logger.error("%s", self.target_url, exc_info=True)
+                return await resp.content.read()
 
 
 class Images(commands.Cog):
@@ -309,15 +353,17 @@ class Images(commands.Cog):
     )
     async def eyes(
         self,
-        interaction: discord.Interaction[Bot],
-        user: Optional[discord.User],
-        link: Optional[str],
-        file: Optional[discord.Attachment],
-    ) -> discord.InteractionMessage:
+        interaction: Interaction,
+        user: typing.Optional[discord.User | discord.Member],
+        link: typing.Optional[str],
+        file: typing.Optional[discord.Attachment],
+    ) -> None:
         """Draw Googly eyes on an image. Mention a user to use their avatar.
         Only works for human faces."""
-        await interaction.response.defer(thinking=True)
-        return await ImageView(interaction, user, link, file).push_eyes()
+        user = interaction.user if not user else user
+        view = ImageView(interaction, user, link, file)
+        btn = next(i for i in view.children if isinstance(i, EyesButton))
+        return await btn.callback(interaction)
 
     @images.command()
     @discord.app_commands.describe(
@@ -327,14 +373,16 @@ class Images(commands.Cog):
     )
     async def ruins(
         self,
-        interaction: discord.Interaction[Bot],
-        user: Optional[discord.User],
-        link: Optional[str],
-        file: Optional[discord.Attachment],
-    ) -> discord.InteractionMessage:
+        interaction: Interaction,
+        user: typing.Optional[discord.User | discord.Member],
+        link: typing.Optional[str],
+        file: typing.Optional[discord.Attachment],
+    ) -> None:
         """Local man ruins everything"""
-        await interaction.response.defer(thinking=True)
-        return await ImageView(interaction, user, link, file).push_ruins()
+        user = interaction.user if not user else user
+        view = ImageView(interaction, user, link, file)
+        btn = next(i for i in view.children if isinstance(i, RuinsButton))
+        return await btn.callback(interaction)
 
     @images.command()
     @discord.app_commands.describe(
@@ -344,20 +392,21 @@ class Images(commands.Cog):
     )
     async def bob_ross(
         self,
-        interaction: discord.Interaction[Bot],
-        user: Optional[discord.User],
-        link: Optional[str],
-        file: Optional[discord.Attachment],
-    ) -> discord.InteractionMessage:
+        interaction: Interaction,
+        user: typing.Optional[discord.User | discord.Member],
+        link: typing.Optional[str],
+        file: typing.Optional[discord.Attachment],
+    ) -> None:
         """Draw Bob Ross Hair on an image. Only works for human faces."""
-
-        await interaction.response.defer()
-        return await ImageView(interaction, user, link, file).push_bob()
+        user = interaction.user if not user else user
+        view = ImageView(interaction, user, link, file)
+        btn = next(i for i in view.children if isinstance(i, BobButton))
+        return await btn.callback(interaction)
 
     @images.command()
     @discord.app_commands.guild_only()
     async def tinder(
-        self, interaction: discord.Interaction[Bot]
+        self, interaction: Interaction
     ) -> discord.InteractionMessage:
         """Try to Find your next date."""
         await interaction.response.defer(thinking=True)

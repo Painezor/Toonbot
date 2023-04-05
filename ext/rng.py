@@ -13,6 +13,8 @@ from ext.utils import view_utils
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
 COIN = (
     "https://www.iconpacks.net/icons/1/"
     "free-heads-or-tails-icon-456-thumb.png"
@@ -28,11 +30,11 @@ COIN = (
 class DiceBox(view_utils.BaseView):
     """A View with buttons for various dice"""
 
-    def __init__(self, interaction: discord.Interaction[Bot]) -> None:
-        super().__init__(interaction)
+    def __init__(self) -> None:
+        super().__init__()
         self.rolls: list[list[int]] = []
 
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Update embed and push to view"""
         embed = discord.Embed(colour=discord.Colour.og_blurple())
         embed.set_author(name="Dice Tray")
@@ -52,10 +54,11 @@ class DiceBox(view_utils.BaseView):
                 f"{', '.join(str(i) for i in row)} (Sum: {sum(row)})\n"
             )
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(view=self, embed=embed)
 
 
+# TODO: Button to decorator
 class DiceButton(discord.ui.Button):
     """A Generic Button for a die"""
 
@@ -66,9 +69,7 @@ class DiceButton(discord.ui.Button):
         super().__init__(label=f"Roll D{sides}", row=row, style=style)
         self.sides: int = sides
 
-    async def callback(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def callback(self, interaction: Interaction) -> None:
         """When clicked roll"""
 
         await interaction.response.defer()
@@ -79,21 +80,21 @@ class DiceButton(discord.ui.Button):
         else:
             self.view.rolls[-1].append(roll)
 
-        return await self.view.update()
+        return await self.view.update(interaction)
 
 
 class CoinView(view_utils.BaseView):
     """A View with a counter for 2 results"""
 
-    def __init__(
-        self, interaction: discord.Interaction[Bot], count: int = 1
-    ) -> None:
-        super().__init__(interaction)
+    def __init__(self, count: int = 1) -> None:
+        super().__init__()
         self.flip_results = [random.choice(["H", "T"]) for _ in range(count)]
 
     async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+        self,
+        interaction: Interaction,
+        content: typing.Optional[str] = None,
+    ) -> None:
         """Update embed and push to view"""
         embed = discord.Embed(title=self.flip_results[-1])
         embed.colour = discord.Colour.og_blurple()
@@ -105,10 +106,11 @@ class CoinView(view_utils.BaseView):
         for item in counter.most_common():
             embed.description += f"\n**Total {item[0]}**: {item[1]}"
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(content=content, view=self, embed=embed)
 
 
+# TODO: Make Decorator
 class FlipButton(discord.ui.Button):
     """Flip a coin and pass the result to the view"""
 
@@ -120,15 +122,13 @@ class FlipButton(discord.ui.Button):
         super().__init__(label=label, emoji="🪙", style=style)
         self.count: int = count
 
-    async def callback(
-        self, interaction: discord.Interaction[Bot]
-    ) -> discord.InteractionMessage:
+    async def callback(self, interaction: Interaction) -> None:
         """When clicked roll"""
 
         await interaction.response.defer()
         results = [random.choice(["H", "T"]) for _ in range(self.count)]
         self.view.flip_results = results
-        return await self.view.update()
+        return await self.view.update(interaction)
 
 
 class ChoiceModal(discord.ui.Modal):
@@ -147,7 +147,7 @@ class ChoiceModal(discord.ui.Modal):
     def __init__(self) -> None:
         super().__init__(title="Make a Decision")
 
-    async def on_submit(self, interaction: discord.Interaction[Bot]) -> None:
+    async def on_submit(self, interaction: Interaction, /) -> None:
         """When the Modal is submitted, send a random choice back"""
 
         user = interaction.user
@@ -176,31 +176,32 @@ class Random(commands.Cog):
         self.bot = bot
 
     @discord.app_commands.command()
-    async def choose(self, interaction: discord.Interaction[Bot]) -> None:
+    async def choose(self, interaction: Interaction) -> None:
         """Make a decision for you (separate choices with new lines)"""
         return await interaction.response.send_modal(ChoiceModal())
 
     @discord.app_commands.command()
     @discord.app_commands.describe(count="Enter a number of coins")
-    async def coin(
-        self, interaction: discord.Interaction[Bot], count: int = 1
-    ) -> discord.InteractionMessage:
+    async def coin(self, interaction: Interaction, count: int = 1) -> None:
         """Flip a coin"""
         if count > 10000:
-            return await self.bot.error(interaction, content="Too many coins.")
+            embed = discord.Embed()
+            embed.description = f"🚫 Too many coins"
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
-        view = CoinView(interaction, count=count)
+        view = CoinView(count=count)
         view.add_item(FlipButton())
 
         for _ in [5, 10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
         view.add_page_buttons(1)
-        return await view.update()
+        return await view.update(interaction)
 
     @discord.app_commands.command(name="8ball")
     @discord.app_commands.describe(question="enter a question")
     async def eight_ball(
-        self, interaction: discord.Interaction[Bot], question: str
+        self, interaction: Interaction, question: str
     ) -> None:
         """Magic Geordie 8ball"""
         res = [
@@ -242,14 +243,9 @@ class Random(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.describe(dice="enter a roll (format: 1d20+3)")
-    async def roll(
-        self, interaction: discord.Interaction[Bot], dice: str = "d20"
-    ) -> discord.InteractionMessage:
+    async def roll(self, interaction: Interaction, dice: str = "d20") -> None:
         """Roll a set of dice in the format XdY+Z.
         Use 'adv' or 'dis' for (dis)advantage"""
-
-        await interaction.response.defer(thinking=True)
-
         advantage = dice.startswith("adv")
         disadvantage = dice.startswith("dis")
 
@@ -309,12 +305,22 @@ class Random(commands.Cog):
                     sides = int(sides)
 
                 if die > 1000:
-                    return await self.bot.error(interaction, "Too many dice")
+                    embed = discord.Embed()
+                    embed.description = "🚫 Too many dice."
+                    reply = interaction.response.send_message
+                    return await reply(embed=embed, ephemeral=True)
+
                 if sides > 1000000:
-                    return await self.bot.error(interaction, "Too many sides")
+                    embed = discord.Embed()
+                    embed.description = "🚫 Too many Sides"
+                    reply = interaction.response.send_message
+                    return await reply(embed=embed, ephemeral=True)
+
                 if sides < 2:
-                    err = "Not enough sides"
-                    return await self.bot.error(interaction, err)
+                    embed = discord.Embed()
+                    embed.description = "🚫 Not Enough Sides."
+                    reply = interaction.response.send_message
+                    return await reply(embed=embed, ephemeral=True)
 
             embed.description += f"{i}: "
             total_roll = 0
@@ -363,7 +369,7 @@ class Random(commands.Cog):
             total += total_roll
 
         embed.description += f"\n**Total: {total}**"
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: Bot) -> None:

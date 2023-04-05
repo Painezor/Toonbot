@@ -1,15 +1,8 @@
 """Moderation Commands"""
 from __future__ import annotations
 
-from enum import Enum
+import enum
 import typing
-
-from discord import (
-    Guild,
-    TextChannel,
-    Colour,
-    TextStyle,
-)
 import discord
 from discord.ext import commands
 
@@ -17,8 +10,10 @@ if typing.TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
 
-class DiscordColours(Enum):
+
+class DiscordColours(enum.Enum):
     """Valid Colours of discord.Colour"""
 
     BLUE = "blue"
@@ -71,7 +66,7 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
     ttl = discord.ui.TextInput(label="Embed Title", placeholder="Announcement")
 
     text = discord.ui.TextInput(label="Embed Text", max_length=4000)
-    text.style = TextStyle.paragraph
+    text.style = discord.TextStyle.paragraph
 
     thumbnail = discord.ui.TextInput(label="Thumbnail", required=False)
     thumbnail.placeholder = "Enter url for thumbnail image"
@@ -81,27 +76,20 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
 
     def __init__(
         self,
-        bot: Bot | PBot,
-        interaction: discord.Interaction[Bot | PBot],
         destination: discord.TextChannel,
         colour: discord.Colour,
     ) -> None:
 
         super().__init__()
-
-        self.bot: Bot | PBot = bot
-        self.interaction: discord.Interaction[Bot | PBot] = interaction
         self.destination: discord.TextChannel = destination
         self.colour: discord.Colour = colour
 
-    async def on_submit(
-        self, interaction: discord.Interaction[Bot | PBot]
-    ) -> None:
+    async def on_submit(self, interaction: Interaction, /) -> None:
         """Send the embed"""
         await interaction.response.send_message("Sent!", ephemeral=True)
         embed = discord.Embed(title=self.ttl, colour=self.colour)
 
-        guild = typing.cast(Guild, self.interaction.guild)
+        guild = typing.cast(discord.Guild, interaction.guild)
 
         if guild is None:
             raise commands.NoPrivateMessage
@@ -122,8 +110,9 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
         try:
             await self.destination.send(embed=embed)
         except discord.HTTPException:
-            err = "I can't send messages to that channel."
-            await self.bot.error(interaction, err)
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = "🚫 I can't send messages to that channel."
+            await interaction.edit_original_response(embed=embed, content=None)
 
 
 class Mod(commands.Cog):
@@ -140,7 +129,7 @@ class Mod(commands.Cog):
     )
     async def embed(
         self,
-        interaction: discord.Interaction[Bot | PBot],
+        interaction: Interaction,
         destination: typing.Optional[discord.TextChannel],
         colour: str = "random",
     ) -> None:
@@ -152,9 +141,9 @@ class Mod(commands.Cog):
         clr = next(
             (i.value for i in DiscordColours if i.value == colour), "random"
         )
-        colo: discord.Colour = getattr(Colour, clr)()
+        colo: discord.Colour = getattr(discord.Colour, clr)()
 
-        modal = EmbedModal(self.bot, interaction, destination, colo)
+        modal = EmbedModal(destination, colo)
 
         await interaction.response.send_modal(modal)
 
@@ -167,27 +156,29 @@ class Mod(commands.Cog):
     )
     async def say(
         self,
-        interaction: discord.Interaction[Bot | PBot],
+        interaction: Interaction,
         message: str,
         destination: typing.Optional[discord.TextChannel] = None,
     ) -> discord.Message:
         """Say something as the bot in specified channel"""
-
-        await interaction.response.defer(thinking=True, ephemeral=True)
-
         if destination is None:
-            destination = typing.cast(TextChannel, interaction.channel)
+            destination = typing.cast(discord.TextChannel, interaction.channel)
 
         if interaction.guild is None:
-            return await self.bot.error(interaction, "Can't be used in DMs")
+            raise discord.app_commands.NoPrivateMessage
 
         if len(message) > 2000:
-            err = "Message too long. Keep it under 2000."
-            return await self.bot.error(interaction, err)
+            embed = discord.Embed()
+            embed.description = "🚫 Message too long (2000 char max)."
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         if destination.guild.id != interaction.guild.id:
             err = "You cannot send messages to other servers."
-            return await self.bot.error(interaction, err)
+            embed = discord.Embed()
+            embed.description = "🚫 " + err
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         try:
             await destination.send(message)
@@ -202,7 +193,7 @@ class Mod(commands.Cog):
     @discord.app_commands.checks.bot_has_permissions(manage_messages=True)
     @discord.app_commands.describe(number="Number of messages to delete")
     async def clean(
-        self, interaction: discord.Interaction[Bot | PBot], number: int = 10
+        self, interaction: Interaction, number: int = 10
     ) -> discord.InteractionMessage:
         """Deletes my messages from the last x messages in channel"""
         await interaction.response.defer(thinking=True)
@@ -211,7 +202,7 @@ class Mod(commands.Cog):
             """Return only messages sent by the bot."""
             return message.author.id == self.bot.application_id
 
-        channel = typing.cast(TextChannel, interaction.channel)
+        channel = typing.cast(discord.TextChannel, interaction.channel)
         reason = f"/clean ran by {interaction.user}"
 
         dlt = await channel.purge(limit=number, check=is_me, reason=reason)
@@ -228,7 +219,7 @@ class Mod(commands.Cog):
     )
     async def untimeout(
         self,
-        interaction: discord.Interaction[Bot | PBot],
+        interaction: Interaction,
         member: discord.Member,
         reason: str = "Not provided",
     ) -> None:

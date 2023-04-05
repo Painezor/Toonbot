@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import typing
 
 import aiohttp
 import discord
@@ -22,7 +23,9 @@ def user_to_author(
 
 
 def user_to_footer(
-    embed: discord.Embed, user: discord.User | discord.Member, reason: str = ""
+    embed: discord.Embed,
+    user: discord.User | discord.Member,
+    reason: typing.Optional[str] = None,
 ) -> discord.Embed:
     """Add the user's name, id, avatar, and an optional reason to the footer of
     an embed"""
@@ -53,7 +56,8 @@ async def get_colour(url: str) -> discord.Colour | int:
 
     colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
     try:
-        return int("%02x%02x%02x" % colour, 16)
+        logger.info("Get_dominant_color returns %s", colour)
+        return discord.Colour.from_rgb(*colour)
     except (TypeError, ValueError):
         logger.info("get_dominant_color => %s", colour)
         return discord.Colour.og_blurple()

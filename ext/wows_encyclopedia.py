@@ -26,8 +26,11 @@ class Encyclopedia(commands.Cog):
     def __init__(self, bot: PBot) -> None:
         self.bot = bot
 
+    async def cog_load(self) -> None:
+        self.bot.modes = await api.get_game_modes()
+
     @discord.app_commands.command(name="map")
-    @discord.app_commands.describe(name="Search for a map by name")
+    @discord.app_commands.describe(obj="Search for a map by name")
     @discord.app_commands.rename(obj="name")
     async def map_info(
         self,

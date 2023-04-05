@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import random
 import typing
 
@@ -13,26 +14,29 @@ from ext.utils import view_utils
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
+logger = logging.getLogger('xkcd')
+
 
 class XKCDView(view_utils.BaseView):
     """A View to browse XKCD Comics"""
 
-    def __init__(self, interaction: discord.Interaction[Bot], index: int = 0):
-        super().__init__(interaction)
+    def __init__(self, index: int = 0):
+        super().__init__()
         self.index: int = index
 
-    async def update(self):
+    async def update(self, interaction: Interaction):
         """Get the latest version of the view."""
         url = f"https://xkcd.com/{self.index}/info.0.json"
-        async with self.bot.session.get(url) as resp:
+        async with interaction.client.session.get(url) as resp:
             if resp.status != 200:
-                err = f"{resp.status} connecting to {url}"
-                return await self.bot.error(self.interaction, err)
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
             json = await resp.json()
 
             if self.index == -1:
                 self.index = random.randrange(1, int(json["num"]))
-                return await self.update()
+                return await self.update(interaction)
 
         def parse() -> discord.Embed:
             """Convert JSON To Embed"""
@@ -47,7 +51,7 @@ class XKCDView(view_utils.BaseView):
             return embed
 
         self.clear_items()
-        return await self.interaction.edit_original_response(embed=parse())
+        return await interaction.response.edit_message(embed=parse())
 
 
 class XKCD(commands.Cog):
@@ -61,24 +65,20 @@ class XKCD(commands.Cog):
     )
 
     @xkcd.command()
-    async def latest(self, interaction: discord.Interaction[Bot]):
+    async def latest(self, interaction: Interaction):
         """Get the latest XKCD Comic"""
-
-        await interaction.response.defer(thinking=True)
-        return await XKCDView(interaction).update()
+        return await XKCDView().update(interaction)
 
     @xkcd.command()
-    async def random(self, interaction: discord.Interaction[Bot]):
+    async def random(self, interaction: Interaction):
         """Get the latest XKCD Comic"""
-
-        await interaction.response.defer(thinking=True)
-        return await XKCDView(interaction, -1).update()
+        return await XKCDView(-1).update(interaction)
 
     @xkcd.command()
-    async def number(self, interaction: discord.Interaction[Bot], number: int):
+    async def number(self, interaction: Interaction, number: int):
         """Get XKCD Comic by number..."""
         await interaction.response.defer(thinking=True)
-        return await XKCDView(interaction, number).update()
+        return await XKCDView(number).update(interaction)
 
 
 async def setup(bot: Bot) -> None:

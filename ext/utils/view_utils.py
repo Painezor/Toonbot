@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import traceback
 import typing
 
 import discord
@@ -24,18 +23,14 @@ class BaseView(discord.ui.View):
     """Error Handler."""
 
     update: typing.Callable
-    bot: Bot | PBot
+    message: discord.Message
 
     def __init__(
         self,
-        interaction: Interaction,
         *,
         parent: typing.Optional[FuncButton] = None,
         timeout: int = 180,
     ):
-
-        self.bot = interaction.client
-        self.interaction: Interaction = interaction
 
         self.index: int = 0
         self.pages: list[typing.Any] = []
@@ -53,15 +48,18 @@ class BaseView(discord.ui.View):
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         """Make sure only the person running the command can select options"""
-        return self.interaction.user.id == interaction.user.id
+        if interaction.message is None:
+            return False
 
-    async def on_timeout(self) -> typing.Optional[discord.InteractionMessage]:
+        return interaction.message.author.id == interaction.user.id
+
+    async def on_timeout(self) -> discord.Message:
         """Cleanup"""
-        edit = self.interaction.edit_original_response
-        try:
-            return await edit(view=None)
-        except discord.NotFound:
-            pass  # Shhhhhhh.
+        item: discord.ui.Item
+        for item in self.children:
+            item.disabled = True
+
+        return await self.message.edit(view=self)
 
     def add_page_buttons(self, row: int = 0) -> None:
         """Helper function to bulk add page buttons (Prev, Jump, Next, Stop)"""
@@ -105,13 +103,11 @@ class BaseView(discord.ui.View):
             self.add_item(FuncSelect(items, row, placeholder))
 
     async def on_error(
-        self, _: Interaction, error: Exception, item, /
+        self, interaction: Interaction, error: Exception, item, /
     ) -> typing.Optional[discord.InteractionMessage]:
         """Log the stupid fucking error"""
-        logger.error(error)
-        logger.error("This error brought to you by item %s", item)
-        traceback.print_exc()
-        edit = self.interaction.edit_original_response
+        logger.error("Error on view item %s", item, exc_info=True)
+        edit = interaction.response.edit_message
         txt = f"Something broke\n```py\n{error}```"
         try:
             return await edit(content=txt, embed=None)
@@ -133,7 +129,7 @@ class First(discord.ui.Button):
         """Do this when button is pressed"""
         await interaction.response.defer()
         self.view.index = 0
-        return await self.view.update()
+        return await self.view.update(interaction)
 
 
 class Previous(discord.ui.Button):
@@ -165,10 +161,12 @@ class Jump(discord.ui.Button):
 
     def __init__(self, view: BaseView, row: int = 0):
         # Super Init first so we can access the view's properties.
-        super().__init__(style=discord.ButtonStyle.blurple, emoji="🔎", row=row)
+        super().__init__(emoji="🔎", row=row)
 
         index = view.index
         pages = view.pages
+
+        self.style = discord.ButtonStyle.blurple
 
         try:
             self.label = f"{index + 1}/{len(pages)}"
@@ -269,7 +267,7 @@ class Stop(discord.ui.Button):
         """Do this when button is pressed"""
         await interaction.response.defer()
         try:
-            await self.view.interaction.delete_original_response()
+            await interaction.delete_original_response()
         except discord.NotFound:
             pass
 
@@ -346,16 +344,15 @@ class PagedItemSelect(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction,
         items: list[discord.SelectOption],
         timeout: int = 30,
     ):
-        super().__init__(interaction, timeout=timeout)
+        super().__init__(timeout=timeout)
 
         self.values: set[str] = set()
         self.items: list[discord.SelectOption] = items
 
-    async def update(self) -> discord.InteractionMessage:
+    async def update(self, interaction: Interaction) -> None:
         """Send the latest version of the view to discord1`"""
         self.clear_items()
         self.pages = embed_utils.paginate(self.items, 25)
@@ -368,8 +365,7 @@ class PagedItemSelect(BaseView):
         self.add_item(AdditiveItemSelect(items, row=0))
         self.add_page_buttons(1)
         self.add_item(ConfirmMultiple(2))
-
-        return await self.interaction.edit_original_response(view=self)
+        return await interaction.response.edit_message(view=self)
 
 
 class ConfirmMultiple(discord.ui.Button):
@@ -471,24 +467,20 @@ class FuncButton(discord.ui.Button):
 class Paginator(BaseView):
     """Generic Paginator that returns nothing."""
 
-    def __init__(
-        self,
-        interaction: Interaction,
-        embeds: list[discord.Embed],
-    ) -> None:
-        super().__init__(interaction)
+    def __init__(self, embeds: list[discord.Embed]) -> None:
+        super().__init__()
 
         self.pages = embeds
 
     async def update(
-        self, content: typing.Optional[str] = None
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, content: typing.Optional[str] = None
+    ) -> None:
         """Refresh the view and send to user"""
         self.clear_items()
         self.add_page_buttons()
         embed = self.pages[self.index]
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
 
 
@@ -497,14 +489,13 @@ class Confirmation(BaseView):
 
     def __init__(
         self,
-        interaction: Interaction,
         label_a: str = "Yes",
         label_b: str = "No",
         style_a: discord.ButtonStyle = discord.ButtonStyle.grey,
         style_b: discord.ButtonStyle = discord.ButtonStyle.grey,
     ) -> None:
 
-        super().__init__(interaction)
+        super().__init__()
 
         self.add_item(BoolButton(label_a, style_a))
         self.add_item(BoolButton(label_b, style_b, value=False))

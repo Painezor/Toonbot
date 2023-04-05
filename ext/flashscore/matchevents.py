@@ -2,11 +2,174 @@
 from __future__ import annotations
 
 import enum
+import logging
 import typing
 
 import discord
 
-import ext.toonbot_utils.flashscore as fs
+from .constants import FLASHSCORE, INBOUND_EMOJI, OUTBOUND_EMOJI
+from .fixture import Fixture
+from .players import Player
+from .team import Team
+
+logger = logging.getLogger("matchevents")
+
+
+def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
+    """Get a list of match events"""
+
+    events = []
+    for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
+        # Detection of Teams
+        team_detection = i.attrib["class"]
+        if "Header" in team_detection:
+            text = [x.strip() for x in i.xpath(".//text()")]
+            if "Penalties" in text:
+                try:
+                    fixture.penalties_home = text[1]
+                    fixture.penalties_away = text[3]
+                    logger.info("Parsed a 2 part penalties OK!!")
+                except IndexError:
+                    # If Penalties are still in progress, it's actually
+                    # in format ['Penalties', '1 - 2']
+                    _, pen_string = text
+                    home, away = pen_string.split(" - ")
+                    fixture.penalties_home = home
+                    fixture.penalties_away = away
+            continue
+
+        try:
+            # event node -- if we can't find one, we can't parse one.
+            node = i.xpath('./div[contains(@class, "incident")]')[0]
+        except IndexError:
+            continue
+
+        svg_text = "".join(node.xpath(".//svg//text()")).strip()
+        svg_class = "".join(node.xpath(".//svg/@class")).strip()
+        sub_i = "".join(node.xpath(".//div[@class='smv__subIncident']/text()"))
+
+        # Try to figure out what kind of event this is.
+        if svg_class == "soccer":
+            # This is a goal.
+
+            if sub_i == "(Penalty)":
+                event = Penalty()
+
+            elif sub_i:
+                logger.info("Unhandled goal sub_incident %s", sub_i)
+                event = Goal()
+
+            else:
+                event = Goal()
+
+        elif "footballOwnGoal-ico" in svg_class:
+            event = OwnGoal()
+
+        elif "Penalty missed" in sub_i:
+            event = Penalty(missed=True)
+
+        # cards
+        elif (
+            "Yellow card / Red card" in svg_text
+            or "redyellowcard-ico" in svg_class.casefold()
+        ):
+            event = SecondYellow()
+
+        elif "redCard-ico" in svg_class:
+            event = RedCard()
+
+        elif "yellowCard-ico" in svg_class:
+            event = Booking()
+
+        elif "card-ico" in svg_class:
+            event = Booking()
+            logger.info("Fallback case reached, card-ico")
+
+        # VAR
+        elif "var" in svg_class:
+            event = VAR()
+            if svg_class != "var":
+                logger.info("var has svg_clas %s", svg_class)
+
+        # Subs
+        elif "substitution" in svg_class:
+            event = Substitution()
+            xpath = './/div[contains(@class, "incidentSubOut")]/a/'
+            if s_name := "".join(node.xpath(xpath + "text()")):
+                s_name = s_name.strip()
+
+                s_url = "".join(node.xpath(xpath + "@href"))
+                if s_url:
+                    s_url = FLASHSCORE + s_url
+
+                try:
+                    surname, forename = s_name.rsplit(" ", 1)
+                except ValueError:
+                    forename, surname = None, s_name
+                player = Player(forename, surname, s_url)
+                event.player_off = player
+
+        else:
+            logger.info("parsing match events on %s", fixture.url)
+            logger.error("Match Event Not Handled correctly.")
+            logger.info("text: %s, class: %s", svg_text, svg_class)
+            if sub_i:
+                logger.info("sub_incident: %s", sub_i)
+
+            event = MatchEvent()
+
+        # Event Player.
+        xpath = './/a[contains(@class, "playerName")]//text()'
+        if p_name := "".join(node.xpath(xpath)).strip():
+            xpath = './/a[contains(@class, "playerName")]//@href'
+            p_url = "".join(node.xpath(xpath)).strip()
+            if p_url:
+                p_url = FLASHSCORE + p_url
+
+            try:
+                surname, forename = p_name.rsplit(" ", 1)
+            except ValueError:
+                forename, surname = None, p_name
+            event.player = Player(forename, surname, p_url)
+
+        # Assist of a goal.
+        if isinstance(event, Goal):
+            xpath = './/div[contains(@class, "assist")]//text()'
+            if a_name := "".join(node.xpath(xpath)):
+                a_name = a_name.strip("()")
+
+                xpath = './/div[contains(@class, "assist")]//@href'
+
+                a_url = "".join(node.xpath(xpath))
+                if a_url:
+                    a_url = FLASHSCORE + a_url
+
+                try:
+                    surname, forename = a_name.rsplit(" ", 1)
+                except ValueError:
+                    forename, surname = None, a_name
+
+                player = Player(forename, surname, a_url)
+                event.assist = player
+
+        if "home" in team_detection:
+            event.team = fixture.home
+        elif "away" in team_detection:
+            event.team = fixture.away
+
+        xpath = './/div[contains(@class, "timeBox")]//text()'
+        time = "".join(node.xpath(xpath)).strip()
+        event.time = time
+        event.note = svg_text
+
+        # Description of the event.
+        xpath = './/div[contains(@class, "incidentIcon")]//@title'
+        title = "".join(node.xpath(xpath)).strip()
+        description = title.replace("<br />", " ")
+        event.description = description
+
+        events.append(event)
+    return events
 
 
 class MatchEvent:
@@ -20,9 +183,9 @@ class MatchEvent:
     def __init__(self) -> None:
         self.note: typing.Optional[str] = None
         self.description: typing.Optional[str] = None
-        self.fixture: typing.Optional[fs.Fixture] = None
-        self.player: typing.Optional[fs.Player] = None
-        self.team: typing.Optional[fs.Team] = None
+        self.fixture: typing.Optional[Fixture] = None
+        self.player: typing.Optional[Player] = None
+        self.team: typing.Optional[Team] = None
         self.time: typing.Optional[str] = None
 
     def is_done(self) -> bool:
@@ -72,16 +235,16 @@ class Substitution(MatchEvent):
 
     def __init__(self) -> None:
         super().__init__()
-        self.player_off: typing.Optional[fs.Player] = None
+        self.player_off: typing.Optional[Player] = None
 
     def __str__(self) -> str:
         output = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
         if self.team is not None:
             output.append(self.team.tag)
         if self.player is not None:
-            output.append(f"{fs.INBOUND_EMOJI} {self.player.markdown}")
+            output.append(f"{INBOUND_EMOJI} {self.player.markdown}")
         if self.player_off is not None:
-            output.append(f"{fs.OUTBOUND_EMOJI} {self.player_off.markdown}")
+            output.append(f"{OUTBOUND_EMOJI} {self.player_off.markdown}")
         return " ".join(output)
 
 
@@ -92,7 +255,7 @@ class Goal(MatchEvent):
 
     def __init__(self) -> None:
         super().__init__()
-        self.assist: typing.Optional[fs.Player] = None
+        self.assist: typing.Optional[Player] = None
 
     def __str__(self) -> str:
         output = [self.timestamp]
@@ -254,7 +417,7 @@ class VAR(MatchEvent):
 
     def __init__(self, in_progress: bool = False) -> None:
         super().__init__()
-        self.assist: typing.Optional[fs.Player] = None
+        self.assist: typing.Optional[Player] = None
         self.in_progress: bool = in_progress
 
     def __str__(self) -> str:

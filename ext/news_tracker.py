@@ -18,6 +18,10 @@ from ext import wows_api as api
 if typing.TYPE_CHECKING:
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+
+RSS_NEWS = "https://worldofwarships.%%/en/rss/news/"
+
 
 async def save_article(bot: PBot, article: Article) -> None:
     """Store the article in the database for quicker retrieval in future"""
@@ -69,7 +73,7 @@ class ToggleButton(discord.ui.Button):
 
         super().__init__(label=label, emoji=region.emote, style=colour)
 
-    async def callback(self, interaction: discord.Interaction[PBot]) -> None:
+    async def callback(self, interaction: Interaction) -> None:
         """Set view value to button value"""
 
         await interaction.response.defer()
@@ -84,7 +88,8 @@ class ToggleButton(discord.ui.Button):
         toggle = "Enabled" if new_value else "Disabled"
         region = self.region.name
         ment = self.view.channel.mention
-        return await self.view.update(f"{toggle} {region} articles in {ment}")
+        txt = f"{toggle} {region} articles in {ment}"
+        return await self.view.update(interaction, txt)
 
 
 class Article:
@@ -107,9 +112,9 @@ class Article:
         self.image: typing.Optional[str] = None
 
         # A flag for each region the article has been found in.
-        self.eu: bool = False
-        self.na: bool = False
-        self.sea: bool = False
+        self.eu: bool = False  # pylint: disable=C0103
+        self.na: bool = False  # pylint: disable=C0103
+        self.sea: bool = False  # pylint: disable=C0103
 
         self.date: typing.Optional[datetime.datetime] = None
 
@@ -189,16 +194,16 @@ class NewsChannel:
         self,
         bot: PBot,
         channel: discord.TextChannel,
-        eu: bool = False,
-        na: bool = False,
+        eu: bool = False,  # pylint: disable=C0103
+        na: bool = False,  # pylint: disable=C0103
         sea: bool = False,
     ) -> None:
         self.channel: discord.TextChannel = channel
         self.bot: PBot = bot
 
         # A bool for the tracking of each region
-        self.eu: bool = eu
-        self.na: bool = na
+        self.eu: bool = eu  # pylint: disable=C0103
+        self.na: bool = na  # pylint: disable=C0103
         self.sea: bool = sea
 
         # A list of partial links for articles to see if this
@@ -235,32 +240,30 @@ class NewsChannel:
         self.sent_articles[article] = message
         return message
 
-    async def send_config(
-        self, interaction: discord.Interaction[PBot]
-    ) -> None:
+    async def send_config(self, interaction: Interaction) -> None:
         """Send the config view to the requesting user"""
-        view = NewsConfig(interaction, self.channel)
-        return await view.update()
+        return await NewsConfig(self.channel).update(interaction)
 
 
+# TODO: Decorator Buttons
 class NewsConfig(view_utils.BaseView):
     """News Tracker Config View"""
 
     def __init__(
         self,
-        interaction: discord.Interaction[PBot],
         channel: discord.TextChannel,
     ) -> None:
-        super().__init__(interaction)
+        super().__init__()
         self.channel: discord.TextChannel = channel
-        self.bot: PBot = interaction.client
 
-    async def update(self, content: typing.Optional[str] = None) -> None:
+    async def update(
+        self, interaction: Interaction, content: typing.Optional[str] = None
+    ) -> None:
         """Regenerate view and push to message"""
         self.clear_items()
 
         sql = """SELECT * FROM news_trackers WHERE channel_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
+        async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(sql, self.channel.id)
 
@@ -288,15 +291,17 @@ class NewsConfig(view_utils.BaseView):
             else:
                 embed.description += f"\n❌ {reg} News is not tracked."
 
-            self.add_item(ToggleButton(self.bot, region=region, value=value))
+            self.add_item(
+                ToggleButton(interaction.client, region=region, value=value)
+            )
         self.add_page_buttons()
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         await edit(content=content, embed=embed, view=self)
 
 
 async def news_ac(
-    ctx: discord.Interaction[PBot], cur: str
+    ctx: Interaction, cur: str
 ) -> list[discord.app_commands.Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
     choices = []
@@ -342,7 +347,7 @@ class NewsTracker(commands.Cog):
 
         for region in api.Region:
 
-            url = f"https://worldofwarships.{region.domain}/en/rss/news/"
+            url = RSS_NEWS.replace("%%", region.domain)
 
             async with self.bot.session.get(url) as resp:
                 data = bytes(await resp.text(), encoding="utf8")
@@ -352,9 +357,9 @@ class NewsTracker(commands.Cog):
                 link = "".join(i.xpath(".//guid/text()"))
                 partial = link.rsplit("/en/", maxsplit=1)[-1]
 
-                c = self.bot.news_cache
+                cache = self.bot.news_cache
                 try:
-                    article = next(i for i in c if i.partial == partial)
+                    article = next(i for i in cache if i.partial == partial)
                 except StopIteration:
                     article = Article(self.bot, partial)
                     self.bot.news_cache.append(article)
@@ -461,18 +466,14 @@ class NewsTracker(commands.Cog):
     @discord.app_commands.command()
     @discord.app_commands.describe(text="Search by article title")
     @discord.app_commands.autocomplete(text=news_ac)
-    async def newspost(
-        self, interaction: discord.Interaction[PBot], text: str
-    ):
+    async def newspost(self, interaction: Interaction, text: str):
         """Search for a recent World of Warships news article"""
-
-        await interaction.response.defer(thinking=True)
-
         try:
             article = next(i for i in self.bot.news_cache if i.link == text)
         except StopIteration:
-            err = f"Didn't find article matching {text}"
-            return await self.bot.error(interaction, err)
+            embed = discord.Embed()
+            embed.description = f"🚫 No article matching {text}"
+            return await interaction.response.send_message(embed=embed)
 
         await article.generate_embed()
         edit = interaction.edit_original_response
@@ -485,7 +486,7 @@ class NewsTracker(commands.Cog):
     @discord.app_commands.describe(channel="Select a channel to edit")
     async def news_tracker(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         channel: typing.Optional[discord.TextChannel] = None,
     ) -> None:
         """Enable/Disable the World of Warships dev blog tracker

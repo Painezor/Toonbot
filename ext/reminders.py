@@ -16,6 +16,8 @@ if typing.TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
+
 
 logger = logging.getLogger("reminders")
 
@@ -72,7 +74,7 @@ class RemindModal(discord.ui.Modal):
         super().__init__(title=title)
         self.message: typing.Optional[discord.Message] = message
 
-    async def on_submit(self, interaction: discord.Interaction[Bot | PBot]):
+    async def on_submit(self, interaction: Interaction, /):
         """Insert entry to the database when the form is submitted"""
         delta = relativedelta()
         delta.hours = int(self.hours.value) or 0
@@ -126,12 +128,14 @@ class ReminderView(discord.ui.View):
 
         channel = typing.cast(discord.TextChannel, channel)
 
-        if record["message_id"] is not None:
-            msg = await channel.fetch_message(record["message_id"])
-            if msg is not None:
-                lbl = "Original Message"
-                btn = discord.ui.Button(url=msg.jump_url, label=lbl)
-                self.add_item(btn)
+        if (msg := record["message_id"]) is not None:
+            guild = record["guild_id"]
+            cid = record["channel_id"]
+            jump = f"https://www.discord.com/channels/{guild}/{cid}/{msg}"
+
+            lbl = "Original Message"
+            btn = discord.ui.Button(url=jump, label=lbl)
+            self.add_item(btn)
 
         embed = discord.Embed(colour=0x00FF00)
         embed.set_author(name="⏰ Reminder")
@@ -145,10 +149,9 @@ class ReminderView(discord.ui.View):
         self.add_item(view_utils.Stop(row=0))
 
         try:
-            await channel.send(
-                f"<@{record['user_id']}>", embed=embed, view=self
-            )
-        except discord.HTTPException:
+            mention = f"<@{record['user_id']}>"
+            await channel.send(mention, embed=embed, view=self)
+        except (discord.HTTPException, AttributeError):
             user = self.bot.get_user(record["user_id"])
             if user is not None:
                 try:
@@ -161,16 +164,14 @@ class ReminderView(discord.ui.View):
             async with connection.transaction():
                 await connection.execute(sql, record["created_time"])
 
-    async def interaction_check(
-        self, interaction: discord.Interaction[Bot]
-    ) -> bool:
+    async def interaction_check(self, interaction: Interaction, /) -> bool:
         """Only reminder owner can interact to hide or snooze"""
         return interaction.user.id == self.record["user_id"]
 
 
 @discord.app_commands.context_menu(name="Create reminder")
 async def create_reminder(
-    interaction: discord.Interaction[Bot | PBot], message: discord.Message
+    interaction: Interaction, message: discord.Message
 ) -> None:
     """Create a reminder with a link to a message."""
     modal = RemindModal("Remind me", message)
@@ -207,16 +208,12 @@ class Reminders(commands.Cog):
     )
 
     @reminder.command()
-    async def create(
-        self, interaction: discord.Interaction[Bot | PBot]
-    ) -> None:
+    async def create(self, interaction: Interaction) -> None:
         """Remind you of something at a specified time."""
         await interaction.response.send_modal(RemindModal("Create a reminder"))
 
     @reminder.command()
-    async def list(
-        self, interaction: discord.Interaction[Bot | PBot]
-    ) -> discord.InteractionMessage:
+    async def list(self, interaction: Interaction) -> None:
         """Check your active reminders"""
 
         sql = """SELECT * FROM reminders WHERE user_id = $1"""
@@ -238,7 +235,7 @@ class Reminders(commands.Cog):
         embed = discord.Embed(colour=0x7289DA, title="Your reminders")
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).update(interaction)
 
 
 async def setup(bot: Bot | PBot) -> None:

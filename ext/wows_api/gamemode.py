@@ -24,13 +24,8 @@ async def get_game_modes() -> set[GameMode]:
                 logger.error("%s %s: %s", resp.status, resp.reason, MODES)
             data = await resp.json()
 
-    logger.info(data)
-    modes: set[GameMode] = set()
-    for i in data["data"].values():
-
-        modes.add(GameMode(i))
-
-    return modes
+    data = data.pop("data").values()
+    return set(GameMode(i) for i in data)
 
 
 @dataclasses.dataclass
@@ -45,6 +40,9 @@ class GameMode:
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             setattr(self, k, val)
+
+    def __hash__(self) -> int:
+        return hash(self.name)
 
     @property
     def emoji(self) -> typing.Optional[str]:

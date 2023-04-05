@@ -15,6 +15,8 @@ from ext.utils import view_utils, embed_utils, timed_events
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
 # aiohttp useragent.
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4)"
@@ -39,8 +41,8 @@ class TVSelect(view_utils.BaseView):
 
     bot: Bot
 
-    def __init__(self, interaction: discord.Interaction[Bot], teams: list):
-        super().__init__(interaction)
+    def __init__(self, teams: list):
+        super().__init__()
 
         self.teams: list = teams
 
@@ -53,7 +55,7 @@ class TVSelect(view_utils.BaseView):
         # Final result
         self.value: typing.Any = None  # As Yet Unset
 
-    async def update(self):
+    async def update(self, interaction: Interaction) -> None:
         """Handle Pagination"""
         targets: list = self.pages[self.index]
         sel = view_utils.ItemSelect(placeholder="Please choose a Team")
@@ -67,12 +69,12 @@ class TVSelect(view_utils.BaseView):
         self.add_item(sel)
         self.add_page_buttons(1)
 
-        edit = self.interaction.edit_original_response
+        edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
 
 async def tv_ac(
-    interaction: discord.Interaction[Bot], current: str
+    interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Return list of live teams"""
     cur = current.casefold()
@@ -98,12 +100,9 @@ class Tv(commands.Cog):
     @discord.app_commands.describe(team="Search for a team")
     @discord.app_commands.autocomplete(team=tv_ac)
     async def tv_cmd(
-        self, interaction: discord.Interaction[Bot], team: typing.Optional[str]
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, team: typing.Optional[str]
+    ) -> None:
         """Lookup next televised games for a team"""
-
-        await interaction.response.defer(thinking=True)
-
         embed = discord.Embed(colour=0x034F76)
         embed.set_author(name="LiveSoccerTV.com")
 
@@ -121,9 +120,12 @@ class Tv(commands.Cog):
 
                 if not matches:
                     err = f"Could not find a matching team for {team}."
-                    return await self.bot.error(interaction, err)
+                    embed = discord.Embed()
+                    embed.description = "🚫 " + err
+                    reply = interaction.response.send_message
+                    return await reply(embed=embed, ephemeral=True)
 
-                await (view := TVSelect(interaction, matches)).update()
+                await (view := TVSelect(matches)).update(interaction)
                 await view.wait()
                 embed.url = self.bot.tv_dict[view.value[0]]
                 embed.title = f"Televised Fixtures for {view.value[0]}"
@@ -132,12 +134,9 @@ class Tv(commands.Cog):
             embed.title = "Today's Televised Matches"
 
         async with self.bot.session.get(embed.url, headers=HEADERS) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    err = f"{embed.url} returned a HTTP {resp.status} error."
-                    return await self.bot.error(interaction, err)
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            tree = html.fromstring(await resp.text())
 
         # match_column = 3 if not team else 5
         match_column = 3
@@ -184,8 +183,8 @@ class Tv(commands.Cog):
             rows = [f"No televised matches found, check online at {embed.url}"]
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        view = view_utils.Paginator(interaction, embeds)
-        return await view.update()
+        view = view_utils.Paginator(embeds)
+        return await view.update(interaction)
 
 
 async def setup(bot: Bot) -> None:

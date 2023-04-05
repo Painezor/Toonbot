@@ -21,7 +21,7 @@ if typing.TYPE_CHECKING:
 
     from playwright.async_api import BrowserContext
 
-    import ext.toonbot_utils.flashscore as fs
+    import ext.flashscore as fs
     from ext.scores import ScoreChannel
     from ext.streams import Stream
     from ext.ticker import TickerChannel
@@ -32,7 +32,6 @@ with open("credentials.json", mode="r", encoding="utf-8") as fun:
     _credentials = json.load(fun)
 
 COGS = [
-    "ext.reply",  # Utility Cogs
     # Slash commands.
     "ext.metatoonbot",
     "ext.admin",
@@ -85,11 +84,11 @@ class Bot(commands.AutoShardedBot):
             help_command=None,
         )
 
-        # Reply Handling
-        self.error: typing.Callable
+        # Admin
+        self.available_cogs = COGS
 
         # Database & Credentials
-        self.db: asyncpg.Pool = database
+        self.db: asyncpg.Pool = database  # pylint: disable=C0103
         self.initialised_at: datetime.datetime = datetime.datetime.utcnow()
         self.invite: str = INVITE_URL
 

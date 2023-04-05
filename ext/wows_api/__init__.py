@@ -1,37 +1,51 @@
 """Utilities to work with the world of warhips API"""
 from .clan import (
     get_cb_winners,
-    Clan,
+    get_cb_seasons,
+    get_clan_details,
+    get_clan_vortex_data,
+    PartialClan,
+    ClanBattleSeason,
+    ClanBattleWinner,
     ClanBuilding,
     ClanSeasonStats,
     ClanLeaderboardStats,
     PlayerCBStats,
-    ClanDetails,
+    Clan,
     ClanVortexData,
     ClanMember,
     ClanMemberVortexData,
 )
-from .enums import League, Map, Nation, Region
+from .enums import Map, Nation, Region
 from .gamemode import GameMode, get_game_modes
-from .modules import Module
+from .modules import Module, get_modules
 from .player import Player, PlayerStats, PlayerStatsMode
-from .warships import Ship, ShipProfile, get_ships
-from .transformers import mode_transform, player_transform, ship_transform
+from .warships import Ship, ShipProfile, get_ships, ShipFit
+from .transformers import (
+    clan_transform,
+    mode_transform,
+    player_transform,
+    ship_transform,
+)
 
 __all__ = [
     # clan
+    "get_cb_seasons",
     "get_cb_winners",
-    "Clan",
+    "get_clan_details",
+    "get_clan_vortex_data",
+    "PartialClan",
+    "ClanBattleSeason",
+    "ClanBattleWinner",
     "ClanBuilding",
     "ClanSeasonStats",
     "ClanLeaderboardStats",
     "PlayerCBStats",
-    "ClanDetails",
+    "Clan",
     "ClanVortexData",
     "ClanMember",
     "ClanMemberVortexData",
     # enums
-    "League",
     "Map",
     "Nation",
     "Region",
@@ -40,6 +54,7 @@ __all__ = [
     "GameMode",
     # modules,
     "Module",
+    "get_modules",
     # player,
     "Player",
     "PlayerStatsMode",
@@ -47,9 +62,10 @@ __all__ = [
     # ship
     "get_ships",
     "Ship",
-    # shipprofile
     "ShipProfile",
+    "ShipFit",
     # transformers
+    "clan_transform",
     "mode_transform",
     "player_transform",
     "ship_transform",
