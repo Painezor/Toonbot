@@ -48,6 +48,20 @@ async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:
     return ClanVortexData(data.pop("clanview"))
 
 
+async def get_member_vortex(
+    clan: int, region: Region
+) -> list[ClanMemberVortexData]:
+    """Attempt to fetch clan battle stats for members"""
+    url = f"https://clans.worldofwarships.{region.domain}/api/members/{clan}/"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            data = await resp.json()
+
+    return [ClanMemberVortexData(i) for i in data.pop("items")]
+
+
 async def get_cb_winners() -> dict[int, list[ClanBattleWinner]]:
     """Get Winners for all Clan Battle Seasons"""
     async with aiohttp.ClientSession() as session:
@@ -87,12 +101,16 @@ async def get_cb_seasons(language: str = "en") -> list[ClanBattleSeason]:
     return output
 
 
-@dataclasses.dataclass
+async def get_clan_leaderboard() -> list[ClanLeaderboardStats]:
+    """"""
+
+
+@dataclasses.dataclass(slots=True)
 class ClanBuilding:
     """A World of Warships Clan Building"""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ClanBattleLeague:
     """A League in a Clan Battle Season"""
 
@@ -127,7 +145,7 @@ class ClanBattleLeague:
         }[self.name]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ClanBattleSeason:
     """Clan Battle Leagues"""
 
@@ -168,7 +186,7 @@ class ClanBattleSeason:
         raise AttributeError
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ClanSeasonStats:
     """A Single Clan's statistics for a Clan Battles season"""
 
@@ -197,7 +215,7 @@ class ClanSeasonStats:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ClanBattleWinner:
     """Winner of a Clan Battle Season"""
 
@@ -215,7 +233,7 @@ class ClanBattleWinner:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ClanLeaderboardStats:
     """Stats from the Clan Leaderboard Endpoint"""
 
@@ -225,7 +243,7 @@ class ClanLeaderboardStats:
     division: int
     division_rating: int
     hex_color: str
-    id: int
+    id: int  # pylint: disable=C0103
     last_battle_at: datetime.datetime
     last_win_at: datetime.datetime
     leading_team_number: int
@@ -246,7 +264,7 @@ class ClanLeaderboardStats:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class PlayerCBStats:
     """A Player's Clan Battle Stats for a season"""
 
@@ -260,7 +278,7 @@ class PlayerCBStats:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ClanMemberVortexData:
     """A member's data, from Vortex API"""
 
@@ -282,7 +300,7 @@ class ClanMemberVortexData:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ClanMember:
     """A Clan Member From the clans API"""
 
@@ -296,7 +314,7 @@ class ClanMember:
             setattr(self, k, value)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Clan:
     """Fetched from Clan Details EndPoint"""
 
@@ -323,7 +341,6 @@ class Clan:
 
     def __init__(self, data: dict, region: Region) -> None:
         for k, values in data.items():
-
             if k == "members":
                 self.members = [ClanMember(i) for i in values.values()]
 
@@ -331,8 +348,13 @@ class Clan:
                 setattr(self, k, values)
         self.region = region
 
+    @property
+    def title(self) -> str:
+        """[Tag] Name"""
+        return f"[{self.tag}] {self.name}"
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(slots=True)
 class ClanVortexData:
     """Data about a clan from the Vortex Endpoint"""
 
@@ -522,7 +544,7 @@ class ClanVortexData:
         return ", ".join(rewards[: len(self.treasury)])
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class PartialClan:
     """A World of Warships clan."""
 
@@ -533,7 +555,6 @@ class PartialClan:
     tag: str
 
     def __init__(self, data: dict):
-
         for k, val in data.items():
             if k == "created_at":
                 val = datetime.datetime.fromtimestamp(val)
@@ -585,18 +606,3 @@ class PartialClan:
 
         logging.info("DEBUG: Season Stats\n%s", season_stats)
         return [PlayerCBStats(i) for i in season_stats["items"]]
-
-    async def get_members_vortex(self) -> list[ClanMemberVortexData]:
-        """Attempt to fetch clan battle stats for members"""
-        dom = self.region.domain
-        cid = self.clan_id
-        url = f"https://clans.worldofwarships.{dom}/api/members/{cid}/"
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    err = "Error %s fetching %s (%s)"
-                    txt = await resp.text()
-                    raise ConnectionError(err, resp.status, url, txt)
-                data = await resp.json()
-
-        return [ClanMemberVortexData(i) for i in data.pop("items")]

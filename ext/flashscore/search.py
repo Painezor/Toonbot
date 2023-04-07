@@ -1,7 +1,7 @@
 """Flashscore Search Function for automcompleting"""
 import logging
 import typing
-import urllib
+from urllib.parse import quote
 
 import discord
 
@@ -65,8 +65,7 @@ async def search(
 ) -> list[Competition | Team]:
     """Fetch a list of items from flashscore matching the user's query"""
     replace = query.translate(dict.fromkeys(map(ord, "'[]#<>"), None))
-    query = urllib.parse.quote(replace)
-
+    query = quote(replace)
 
     try:
         lang_id = locales[interaction.locale]
@@ -87,7 +86,7 @@ async def search(
 
     async with interaction.client.session.get(url) as resp:
         if resp.status != 200:
-            logger.error('%s %s: %s', resp.status, resp.reason, resp.url)
+            logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
         res = await resp.json()
 
     results: list[Competition | Team] = []
@@ -116,38 +115,38 @@ async def search(
                 logging.info("unhandled particpant types %s", types)
         else:
             for type_ in i["participantTypes"]:
-                match type_["name"]:
-                    case "National" | "Team":
-                        if mode == "comp":
-                            continue
+                t_name = type_["name"]
+                if t_name in ["National", "Team"]:
+                    if mode == "comp":
+                        continue
 
-                        if not (team := interaction.client.get_team(i["id"])):
+                    if not (team := interaction.client.get_team(i["id"])):
 
-                            team = Team(i["id"], i["name"], i["url"])
-                            try:
-                                team.logo_url = i["images"][0]["path"]
-                            except IndexError:
-                                pass
-                            team.gender = i["gender"]["name"]
-                            await save_team(interaction.client, team)
-                        results.append(team)
-                    case "TournamentTemplate":
-                        if mode == "team":
-                            continue
-                        
-                        comp = interaction.client.get_competition(i["id"])
-                        if not comp:
-                            ctry = i["defaultCountry"]["name"]
-                            nom = i["name"]
-                            comp = Competition(i["id"], nom, ctry, i["url"])
-                            try:
-                                comp.logo_url = i["images"][0]["path"]
-                            except IndexError:
-                                pass
-                            await save_comp(interaction.client, comp)
-                            results.append(comp)
-                    case _:
-                        continue  # This is a player, we don't want those.
+                        team = Team(i["id"], i["name"], i["url"])
+                        try:
+                            team.logo_url = i["images"][0]["path"]
+                        except IndexError:
+                            pass
+                        team.gender = i["gender"]["name"]
+                        await save_team(interaction.client, team)
+                    results.append(team)
+                elif t_name == "TournamentTemplate":
+                    if mode == "team":
+                        continue
+
+                    comp = interaction.client.get_competition(i["id"])
+                    if not comp:
+                        ctry = i["defaultCountry"]["name"]
+                        nom = i["name"]
+                        comp = Competition(i["id"], nom, ctry, i["url"])
+                        try:
+                            comp.logo_url = i["images"][0]["path"]
+                        except IndexError:
+                            pass
+                        await save_comp(interaction.client, comp)
+                        results.append(comp)
+                else:
+                    continue  # This is a player, we don't want those.
 
     return results
 

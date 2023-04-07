@@ -9,6 +9,8 @@ from discord.ext import commands
 if typing.TYPE_CHECKING:
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+
 
 RAGNAR = (
     "Ragnar is inherently underpowered. It lacks the necessary"
@@ -30,12 +32,10 @@ class MemesWows(commands.Cog):
         self.bot = bot
 
     @discord.app_commands.command()
-    async def ragnar(
-        self, interaction: discord.Interaction[PBot]
-    ) -> discord.InteractionMessage:
+    async def ragnar(self, interaction: Interaction) -> None:
         """Ragnar is inherently underpowered"""
         await interaction.response.defer(thinking=True)
-        return await interaction.edit_original_response(content=RAGNAR)
+        return await interaction.response.send_message(content=RAGNAR)
 
 
 async def setup(bot: PBot):

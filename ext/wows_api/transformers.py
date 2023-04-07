@@ -79,9 +79,8 @@ class ClanTransformer(discord.app_commands.Transformer):
         self, interaction: Interaction, value: str, /
     ) -> PartialClan:
         """Conversion"""
-        await interaction.response.defer(thinking=True)
         clans: list[PartialClan] = interaction.extras["clans"]
-        return next(i for i in clans if value == int(i.clan_id))
+        return next(i for i in clans if int(value) == i.clan_id)
 
 
 class MapTransformer(discord.app_commands.Transformer):
@@ -161,14 +160,14 @@ class PlayerTransformer(discord.app_commands.Transformer):
     """Conver User Input to Player Object"""
 
     async def autocomplete(
-        self, interaction: Interaction, current: str, /
+        self, interaction: Interaction, value: str, /
     ) -> list[discord.app_commands.Choice[str]]:
         """Fetch player's account ID by searching for their name."""
-        if len(current) < 3:
-            return []
+        if len(value) < 2:
+            txt = "🚫 Search too short"
+            return [discord.app_commands.Choice(name=txt, value="0")]
 
-        params = {"application_id": WG_ID, "search": current, "limit": 25}
-
+        params = {"application_id": WG_ID, "search": value, "limit": 25}
         region = getattr(interaction.namespace, "region", None)
         region = next((i for i in Region if i.db_key == region), Region.EU)
 
@@ -178,13 +177,12 @@ class PlayerTransformer(discord.app_commands.Transformer):
                 logger.error("%s on %s: %s", resp.status, link, resp.reason)
             clan_data = await resp.json()
 
-        players = clan_data.pop("data", None)
-        logger.info("remaining data %s", clan_data)
+        players = [Player(i) for i in clan_data.pop("data", [])]
 
         link = PLAYER_CLAN.replace("%%", region.domain)
         parms = {
             "application_id": WG_ID,
-            "account_id": ", ".join([i.account_id for i in players]),
+            "account_id": ", ".join([str(i.account_id) for i in players]),
             "extra": "clan",
         }
 
@@ -196,10 +194,10 @@ class PlayerTransformer(discord.app_commands.Transformer):
                 clan_data = clan_raw.pop("data")
 
         cln = [PlayerClanData(i) for i in clan_data]
+        logger.info(cln)
 
         choices = []
-        for i in (players := [Player(i) for i in players][:25]):
-
+        for i in players[:25]:
             try:
                 plr = next(j for j in cln if i.account_id == i.account_id)
                 name = f"[{plr.clan.tag}] {plr.account_name}"
@@ -210,6 +208,7 @@ class PlayerTransformer(discord.app_commands.Transformer):
             choices.append(discord.app_commands.Choice(name=name, value=value))
 
         interaction.extras["players"] = players
+        logger.info("Made %s choices", len(choices))
         return choices
 
     async def transform(

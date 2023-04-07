@@ -151,7 +151,7 @@ class Lookup(commands.Cog):
 
         comp = view.value
         if comp is None:
-            await interaction.edit_original_response(content="Not found")
+            await view.interaction.response.send_meessage(content="Not found")
             return  # shrug
 
         view = tfm.CompetitionView(comp)

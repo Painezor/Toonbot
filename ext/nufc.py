@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
 
+CLR_PICKER = "http://htmlcolorcodes.com/color-picker/"
 EMOJI = "<:mbemba:332196308825931777>"
 
 # Shake meme
@@ -240,8 +241,7 @@ class NUFC(commands.Cog):
             d_colo = discord.Colour(int(code, 16))
         except ValueError:
             view = discord.ui.View()
-            btn = discord.ui.Button(style=discord.ButtonStyle.url)
-            btn.url = "http://htmlcolorcodes.com/color-picker/"
+            btn = discord.ui.Button(url=CLR_PICKER)
             btn.label = "Colour picker."
             view.add_item(btn)
             embed = discord.Embed()
@@ -294,47 +294,31 @@ class NUFC(commands.Cog):
     @discord.app_commands.guilds(332159889587699712)
     async def downhowe(self, interaction: Interaction) -> None:
         """Adds a downvote reaction to the last 10 messages"""
-        await interaction.response.defer(thinking=True)
-
-        if (
-            isinstance(
-                interaction.channel,
-                discord.ForumChannel
-                | discord.StageChannel
-                | discord.CategoryChannel,
-            )
-            or interaction.channel is None
-            or not interaction.app_permissions.add_reactions
-        ):
+        channel = typing.cast(discord.TextChannel, interaction.channel)
+        try:
+            async for message in channel.history(limit=10):
+                await message.add_reaction(":downvote:332196251959427073")
+        except discord.Forbidden:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = "❌ I can't react in this channel"
-            await interaction.edit_original_response(embed=embed)
+            await interaction.response.send_message(embed=embed)
             return
-
-        async for message in interaction.channel.history(limit=10):
-            await message.add_reaction(":downvote:332196251959427073")
+        await interaction.response.send_message(":downvote:332196251959427073")
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
     async def uphowe(self, interaction: Interaction) -> None:
         """Adds an upvote reaction to the last 10 messages"""
-
-        if (
-            isinstance(
-                interaction.channel,
-                discord.ForumChannel
-                | discord.StageChannel
-                | discord.CategoryChannel,
-            )
-            or interaction.channel is None
-        ):
+        channel = typing.cast(discord.TextChannel, interaction.channel)
+        try:
+            async for message in channel.history(limit=10):
+                await message.add_reaction(":upvote:332196220460072970")
+        except discord.Forbidden:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = "❌ I can't react in this channel"
-            await interaction.edit_original_response(embed=embed)
+            await interaction.response.send_message(embed=embed)
             return
-
-        async for message in interaction.channel.history(limit=10):
-            await message.add_reaction(":upvote:332196220460072970")
+        await interaction.response.send_message(":upvote:332196220460072970")
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)

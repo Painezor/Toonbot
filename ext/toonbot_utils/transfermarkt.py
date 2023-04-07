@@ -505,7 +505,6 @@ class TeamView(view_utils.BaseView):
 
         xpath = './/div[@class="large-8 columns"]/div[@class="box"]'
         for i in tree.xpath(xpath)[0].xpath(".//tbody/tr"):
-
             xpath = './/tm-tooltip[@data-type="player"]/a/@title'
             if not (name := "".join(i.xpath(xpath)).strip()):
                 name = "".join(i.xpath('.//td[@class="hauptlink"]/a/@title'))
@@ -546,7 +545,7 @@ class TeamView(view_utils.BaseView):
         return await self.update(interaction)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class StadiumAttendance:
     """A Generic container representing the attendance data of a stadium"""
 
@@ -698,7 +697,6 @@ class SearchSelect(discord.ui.Select):
     def __init__(
         self, objects: list[Team | Competition], row: int = 4
     ) -> None:
-
         super().__init__(row=row, placeholder="Select correct option")
 
         self.objects: list[Team | Competition] = objects
@@ -738,7 +736,6 @@ class SearchView(view_utils.BaseView):
         query: str,
         fetch: bool = False,
     ) -> None:
-
         super().__init__()
         self.value: typing.Optional[Team | Competition] = None
         self.pages: list[discord.Embed] = []
@@ -870,7 +867,6 @@ class PlayerSearch(SearchView):
         """Parse a transfer page to get a list of players"""
         results = []
         for i in rows:
-
             xpath = (
                 './/tm-tooltip[@data-type="player"]/a/@title |'
                 './/td[@class="hauptlink"]/a/text()'
@@ -1006,7 +1002,6 @@ class TeamSearch(SearchView):
         results = []
 
         for i in rows:
-
             xpath = './/tm-tooltip[@data-type="club"]/a/@title'
             if not (name := "".join(i.xpath(xpath)).strip()):
                 name = "".join(i.xpath('.//td[@class="hauptlink"]/a/@title'))

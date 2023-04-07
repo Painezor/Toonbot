@@ -28,14 +28,11 @@ for record in discord.Locale:
 class TL(discord.app_commands.Translator):
     """The Translation module"""
 
-    async def load(self):
+    async def load(self) -> None:
         """On load."""
-        # this gets called when the translator first gets loaded!
 
-    async def unload(self):
+    async def unload(self) -> None:
         """On Unload."""
-        # in case you need to switch translators, this gets called
-        # when being removed
 
     async def translate(
         self,

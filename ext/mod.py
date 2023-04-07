@@ -86,7 +86,7 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
 
     async def on_submit(self, interaction: Interaction, /) -> None:
         """Send the embed"""
-        await interaction.response.send_message("Sent!", ephemeral=True)
+
         embed = discord.Embed(title=self.ttl, colour=self.colour)
 
         guild = typing.cast(discord.Guild, interaction.guild)
@@ -109,10 +109,13 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
 
         try:
             await self.destination.send(embed=embed)
+            await interaction.response.send_message("Sent!", ephemeral=True)
+            return
         except discord.HTTPException:
-            embed = discord.Embed(colour=discord.Colour.red())
-            embed.description = "🚫 I can't send messages to that channel."
-            await interaction.edit_original_response(embed=embed, content=None)
+            pass
+        embed = discord.Embed(colour=discord.Colour.red())
+        embed.description = "🚫 I can't send messages to that channel."
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class Mod(commands.Cog):
@@ -159,7 +162,7 @@ class Mod(commands.Cog):
         interaction: Interaction,
         message: str,
         destination: typing.Optional[discord.TextChannel] = None,
-    ) -> discord.Message:
+    ) -> None:
         """Say something as the bot in specified channel"""
         if destination is None:
             destination = typing.cast(discord.TextChannel, interaction.channel)
@@ -182,11 +185,13 @@ class Mod(commands.Cog):
 
         try:
             await destination.send(message)
-            msg = "Message sent."
-            return await interaction.edit_original_response(content=msg)
+            return await interaction.response.send_message(content="Sent!")
         except discord.HTTPException:
-            err = "I can't send messages to that channel."
-            return await interaction.edit_original_response(content=err)
+            pass
+
+        err = "🚫 I can't send messages to that channel."
+        embed = discord.Embed(colour=discord.Colour.red())
+        return await interaction.response.send_message(embed=embed)
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(manage_messages=True)
@@ -194,10 +199,8 @@ class Mod(commands.Cog):
     @discord.app_commands.describe(number="Number of messages to delete")
     async def clean(
         self, interaction: Interaction, number: int = 10
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Deletes my messages from the last x messages in channel"""
-        await interaction.response.defer(thinking=True)
-
         def is_me(message):
             """Return only messages sent by the bot."""
             return message.author.id == self.bot.application_id
@@ -208,7 +211,7 @@ class Mod(commands.Cog):
         dlt = await channel.purge(limit=number, check=is_me, reason=reason)
 
         msg = f'♻ Deleted {len(dlt)} bot message{"s" if len(dlt) > 1 else ""}'
-        return await interaction.edit_original_response(content=msg)
+        await interaction.response.send_message(content=msg, delete_after=5)
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(moderate_members=True)

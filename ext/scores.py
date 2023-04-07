@@ -228,6 +228,7 @@ class ResetLeagues(discord.ui.Button):
         return await self.view.update(interaction)
 
 
+# TODO: Decorator
 class RemoveLeague(discord.ui.Select):
     """Button to bring up the remove leagues dropdown."""
 
@@ -248,8 +249,8 @@ class RemoveLeague(discord.ui.Select):
 
     async def callback(self, interaction: Interaction) -> None:
         """When a league is selected"""
-        red = discord.ButtonStyle.red
-        view = view_utils.Confirmation("Remove", "Cancel", red)
+        view = view_utils.Confirmation("Remove", "Cancel")
+        view.true.style = discord.ButtonStyle.red
 
         lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
         ment = self.view.chan.channel.mention
@@ -403,7 +404,6 @@ class Scores(commands.Cog):
                     continue
 
                 if ordinal > i.kickoff.toordinal():
-                    logger.info("Removing old game %s", i.score_line)
                     self.bot.games.remove(i)
             self.last_ordinal = ordinal
 
@@ -811,7 +811,7 @@ class Scores(commands.Cog):
                     logger.error("2 part time unhandled: %s", time)
 
             if old_state is not None:
-                fs.dispatch_states(fix, old_state)
+                fs.dispatch_events(self.bot, fix, old_state)
         return self.bot.games
 
     livescores = discord.app_commands.Group(
@@ -823,17 +823,12 @@ class Scores(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(250252535699341312)
-    async def parse_fixture(
-        self, interaction: Interaction, url: str
-    ) -> discord.InteractionMessage:
+    async def parse_fixture(self, interaction: Interaction, url: str) -> None:
         """[DEBUG] Force parse a fixture."""
-        await interaction.response.defer(thinking=True)
-
         home = away = fs.Team(None, "debug", None)
         fixture = fs.Fixture(home, away, None, url)
         await self.fetch_fixture(fixture, force=True)
 
-        edit = interaction.edit_original_response
         comp = fixture.competition
         if comp is None:
             embed = discord.Embed(title="Parsing Failed")
@@ -842,7 +837,7 @@ class Scores(commands.Cog):
             embed = discord.Embed(title=comp.title, description="Parsed.")
             embed.colour = discord.Colour.green()
             embed.set_thumbnail(url=comp.logo_url)
-        return await edit(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     @livescores.command()
     @discord.app_commands.describe(channel="Target Channel")
@@ -944,7 +939,7 @@ class Scores(commands.Cog):
 
     @livescores.command()
     @discord.app_commands.describe(
-        competition="league name to search for or direct flashscore link",
+        competition="league name to search for",
         channel="Target Channel",
     )
     async def add_league(
@@ -954,17 +949,18 @@ class Scores(commands.Cog):
             fs.Competition, CompetitionTransformer
         ],
         channel: typing.Optional[discord.TextChannel],
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Add a league to an existing live-scores channel"""
 
         if competition.title == "WORLD: Club Friendly":
-            err = "You can't add club friendlies as a competition, sorry."
-            raise ValueError(err)
+            err = "🚫 You can't add club friendlies as a competition, sorry."
+            embed = discord.Embed(colour=discord.Colour.red(), description=err)
+            return await interaction.response.send_message(embed=embed)
 
         if competition.url is None:
-            raise LookupError(
-                f"{competition} url is None",
-            )
+            err = "🚫 Could not fetch url from competition"
+            embed = discord.Embed(colour=discord.Colour.red(), description=err)
+            return await interaction.response.send_message(embed=embed)
 
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
@@ -975,8 +971,13 @@ class Scores(commands.Cog):
         except StopIteration:
             embed = discord.Embed(colour=discord.Colour.red())
             ment = channel.mention
-            embed.description = f"{ment} is not a live-scores channel."
-            return await interaction.edit_original_response(embed=embed)
+            embed.description = f"🚫 {ment} is not a live-scores channel."
+            return await interaction.response.send_message(embed=embed)
+
+        embed = discord.Embed(title="LiveScores: Tracked League Added")
+        embed.description = f"{chan.channel.mention}\n\n{competition.url}"
+        embed_utils.user_to_footer(embed, interaction.user)
+        await interaction.response.send_message(embed=embed)
 
         sql = """INSERT INTO scores_leagues (channel_id, url, league)
                 VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"""
@@ -988,10 +989,6 @@ class Scores(commands.Cog):
                 await connection.execute(sql, chan.channel.id, url, title)
 
         chan.leagues.add(competition)
-        embed = discord.Embed(title="LiveScores: Tracked League Added")
-        embed.description = f"{chan.channel.mention}\n\n{competition.url}"
-        embed_utils.user_to_footer(embed, interaction.user)
-        return await interaction.edit_original_response(embed=embed)
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()

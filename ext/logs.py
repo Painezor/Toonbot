@@ -1503,7 +1503,7 @@ class AuditLogs(commands.Cog):
 
         view = discord.ui.View()
         uri = before.jump_url
-        btn = discord.ui.Button(style=discord.ButtonStyle.url, url=uri)
+        btn = discord.ui.Button(url=uri)
         btn.label = "Jump to message"
         view.add_item(btn)
 

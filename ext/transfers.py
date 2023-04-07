@@ -125,8 +125,8 @@ class DeleteTicker(discord.ui.Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """Click button reset leagues"""
-        style = discord.ButtonStyle.red
-        view = view_utils.Confirmation("Confirm", "Cancel", style)
+        view = view_utils.Confirmation("Confirm", "Cancel")
+        view.true.style = discord.ButtonStyle.red
         embed = discord.Embed(colour=discord.Colour.red())
 
         chan = self.view.chan.channel.mention
@@ -287,12 +287,12 @@ class Transfers(commands.Cog):
         """Create a ticker for the channel"""
 
         chan = channel.mention
-        btn = discord.ButtonStyle.green
-        view = view_utils.Confirmation("Create ticker", "Cancel", btn)
+        view = view_utils.Confirmation("Create ticker", "Cancel")
+        view.true.style = discord.ButtonStyle.green
 
         embed = discord.Embed(title="Create a ticker")
         embed.description = f"{chan} has no transfer ticker, create one?"
-        await interaction.edit_original_response(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
@@ -370,12 +370,9 @@ class Transfers(commands.Cog):
             return
 
         async with self.bot.session.get(LOOP_URL) as resp:
-            match resp.status:
-                case 200:
-                    tree = html.fromstring(await resp.text())
-                case _:
-                    logger.error("Loop returned Bad status: %s", resp.status)
-                    return
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            tree = html.fromstring(await resp.text())
 
         skip_output = True if not self.bot.parsed_transfers else False
 

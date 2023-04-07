@@ -12,6 +12,8 @@ from PIL import Image
 
 logger = logging.getLogger("embed_utils")
 
+T = typing.TypeVar("T")
+
 
 def user_to_author(
     embed: discord.Embed, user: discord.User | discord.Member
@@ -63,7 +65,7 @@ async def get_colour(url: str) -> discord.Colour | int:
         return discord.Colour.og_blurple()
 
 
-def paginate(items: list, num: int = 25) -> list[list]:
+def paginate(items: list[T], num: int = 25) -> list[list[T]]:
     """Paginate a list into a list of lists of length num"""
     return [items[i : i + num] for i in range(0, len(items), num)]
 

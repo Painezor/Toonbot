@@ -24,6 +24,8 @@ class ShipView(view_utils.BaseView):
     """A view representing a ship"""
 
     def __init__(self, ship: api.Ship) -> None:
+        super().__init__()
+
         self.ship: api.Ship = ship
 
         fitting = api.ShipFit([i for i in ship.module_tree if i.is_default])
@@ -187,6 +189,11 @@ class ShipView(view_utils.BaseView):
                 # TODO: Flesh out rest of rocket plane data
                 "\n*Rocket Plane Damage not available in the API, sorry*",
             ]
+            logger.info("Rkt avg_damage: %s", rkt.avg_damage)
+            logger.info("rkt gunner_damage: %s", rkt.gunner_damage)
+            logger.info("rkt max_ammo %s", rkt.max_ammo)
+            logger.info("rkt prepare_time %s", rkt.prepare_time)
+            logger.info("rkt squarons %s", rkt.squadrons)
             embed.add_field(name=name, value="\n".join(value), inline=False)
 
         if (t_b := self.profile.torpedo_bomber) is not None:
@@ -229,7 +236,7 @@ class ShipView(view_utils.BaseView):
         edit = interaction.response.edit_message
         return await edit(embed=embed, view=self)
 
-    async def auxiliary(self) -> discord.InteractionMessage:
+    async def auxiliary(self, interaction: Interaction) -> None:
         """Get information on the ship's secondaries and anti-air."""
         await self.handle_buttons(self.auxiliary)
         assert self.profile is not None
@@ -292,7 +299,7 @@ class ShipView(view_utils.BaseView):
         await self.handle_buttons(self.main_guns)
         assert self.profile is not None
 
-        embed = await self.base_embed()
+        embed = self.base_embed()
 
         # Guns
         mains = self.profile.artillery
@@ -429,8 +436,8 @@ class ShipView(view_utils.BaseView):
 
         if self.ship.next_ships:
             vals: list[tuple] = []
-            for (ship_id, xp_) in self.ship.next_ships:  # ShipID, XP Cost
-                nxt = self.bot.get_ship(int(ship_id))
+            for ship_id, xp_ in self.ship.next_ships:  # ShipID, XP Cost
+                nxt = interaction.client.get_ship(int(ship_id))
                 if nxt is None:
                     continue
 
@@ -446,10 +453,7 @@ class ShipView(view_utils.BaseView):
                 keys = [i[1] for i in sorted(vals, key=lambda x: x[0])]
                 embed.add_field(name="Next Ships", value="\n".join(keys))
 
-        if interaction.response.is_done():
-            await interaction.edit_original_response(embed=embed, view=self)
-        else:
-            await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 class ModuleSelect(discord.ui.Select):

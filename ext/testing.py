@@ -2,25 +2,24 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+import typing
 
 import discord
-from discord import Interaction
-from discord.app_commands import guilds
 from discord.ext import commands
 from playwright.async_api import Request
 
-if TYPE_CHECKING:
+if typing.TYPE_CHECKING:
     from core import Bot
-    from painezbot import PBot
+    from painezbot import PBot  #
+
+    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
 
 URI = (
     "https://worldofwarships.eu/en/content/"
     "contents-and-drop-rates-of-containers/"
 )
+
 # TODO: Container drops
-
-
 class Test(commands.Cog):
     """Various testing functions"""
 
@@ -40,9 +39,8 @@ class Test(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(250252535699341312)
-    async def lootboxes(self, interaction: Interaction[PBot]):
+    async def lootboxes(self, interaction: Interaction):
         """Get lootbox data."""
-
         await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()
 

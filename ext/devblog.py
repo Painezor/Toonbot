@@ -75,7 +75,7 @@ class Blog:
         title: typing.Optional[str] = None,
         text: typing.Optional[str] = None,
     ):
-        self.id: int = _id  # pylance: ignore=C0103
+        self.id: int = _id  # pylint: disable=C0103
         self.title: typing.Optional[str] = title
         self.text: typing.Optional[str] = text
 
@@ -281,19 +281,16 @@ class Blog:
         return embed
 
 
-class DevBlogView(view_utils.BaseView):
+class DevBlogView(view_utils.Paginator):
     """Browse Dev Blogs"""
 
     def __init__(self, pages: list[asyncpg.Record]) -> None:
-        super().__init__()
+        super().__init__(pages)
         self.pages: list[Blog] = pages
 
-    async def update(self, interaction: Interaction) -> None:
-        """Push the latest version of the view to discord."""
-        self.clear_items()
-        self.add_page_buttons()
+    async def handle_page(self, interaction: Interaction) -> None:
         embed = await self.pages[self.index].make_embed()
-        return await interaction.response.edit_message(embed=embed)
+        return await interaction.response.edit_message(embed=embed, view=self)
 
 
 async def db_ac(
@@ -459,7 +456,7 @@ class DevBlog(commands.Cog):
             txt = search.casefold()
             yes = [i for i in dbc if txt in f"{i.title} {i.text}".casefold()]
             view = DevBlogView(pages=yes)
-            return await view.update(interaction)
+            return await view.handle_page(interaction)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(

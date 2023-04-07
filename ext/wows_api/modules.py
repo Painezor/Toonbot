@@ -13,7 +13,7 @@ MODULES = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
 logger = logging.getLogger("ext.modules")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ArtilleryProfile:
     """An 'Artillery' Module"""
 
@@ -28,7 +28,7 @@ class ArtilleryProfile:
             setattr(self, k.lower(), val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class DiveBomberProfile:
     """A 'Dive Bomber' Module"""
 
@@ -46,7 +46,7 @@ class DiveBomberProfile:
             setattr(self, k.lower(), val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class EngineProfile:
     """An 'Engine' Module"""
 
@@ -58,7 +58,7 @@ class EngineProfile:
             setattr(self, k.lower(), val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class FighterProfile:
     """A 'Fighter' Module"""
 
@@ -74,7 +74,7 @@ class FighterProfile:
             setattr(self, k.lower(), val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class FireControlProfile:
     """A 'Fire Control' Module"""
 
@@ -88,7 +88,7 @@ class FireControlProfile:
             setattr(self, k.lower(), val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class FlightControlProfile:
     """Deprecated - CV FlightControl"""
 
@@ -101,7 +101,7 @@ class FlightControlProfile:
             setattr(self, k.lower(), val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class HullArmour:
     """The Thickness of the Ship's armour in mm"""
 
@@ -113,7 +113,7 @@ class HullArmour:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class HullProfile:
     """A 'Hull' Module"""
 
@@ -133,7 +133,7 @@ class HullProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class TorpedoBomberProfile:
     """A 'Torpedo Bomber' Module"""
 
@@ -152,7 +152,7 @@ class TorpedoBomberProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class TorpedoProfile:
     """A 'Torpedoes' Module"""
 
@@ -168,7 +168,7 @@ class TorpedoProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ModuleProfile:
     """Data Not always present"""
 
@@ -202,7 +202,7 @@ class ModuleProfile:
         return "<:auxiliary:991806987362902088>"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Module:
     """A Module that can be mounted in a ship fitting"""
 
@@ -217,7 +217,6 @@ class Module:
     profile: ModuleProfile
 
     def __init__(self, data: dict) -> None:
-
         for k, val in data.items():
             if k == "profile":
                 val = ModuleProfile(val)

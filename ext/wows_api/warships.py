@@ -66,7 +66,7 @@ async def get_ships() -> list[Ship]:
     return ships
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipTypeImages:
     """Images representing the different types of ship in the game"""
 
@@ -79,7 +79,7 @@ class ShipTypeImages:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipType:
     """Submarine, Destroyer, Cruiser, Battleship, Aircraft Carrier."""
 
@@ -87,12 +87,11 @@ class ShipType:
     images: ShipTypeImages
 
     def __init__(self, name: str, images: dict) -> None:
-
         self.name = name
         self.images = ShipTypeImages(images)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipImages:
     """A List of images representing the ship
     contour: str  #  URL to 186 x 48 px outline image of ship
@@ -151,7 +150,7 @@ class TreeModule:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Ship:
     """A World of Warships Ship."""
 

@@ -174,12 +174,8 @@ class Article:
                 dom = region.domain
                 name = region.name
                 url = f"https://worldofwarships.{dom}/en/{self.partial}"
-                btn = discord.ui.Button(
-                    style=discord.ButtonStyle.url,
-                    label=f"{name} article",
-                    emoji=region.emote,
-                    url=url,
-                )
+                btn = discord.ui.Button(emoji=region.emote, url=url)
+                btn.label = f"{name} article"
                 view.add_item(btn)
 
         self.embed = embed
@@ -294,6 +290,8 @@ class NewsConfig(view_utils.BaseView):
             self.add_item(
                 ToggleButton(interaction.client, region=region, value=value)
             )
+
+        # TODO: super.previous.callback()
         self.add_page_buttons()
 
         edit = interaction.response.edit_message
@@ -301,11 +299,11 @@ class NewsConfig(view_utils.BaseView):
 
 
 async def news_ac(
-    ctx: Interaction, cur: str
+    interaction: Interaction, cur: str
 ) -> list[discord.app_commands.Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
     choices = []
-    cache = ctx.client.news_cache
+    cache = interaction.client.news_cache
     now = datetime.datetime.now()
 
     cur = cur.casefold()
@@ -476,8 +474,8 @@ class NewsTracker(commands.Cog):
             return await interaction.response.send_message(embed=embed)
 
         await article.generate_embed()
-        edit = interaction.edit_original_response
-        return await edit(view=article.view, embed=article.embed)
+        send = interaction.response.send_message
+        return await send(view=article.view, embed=article.embed)
 
     # Command for tracker management.
     @discord.app_commands.command()

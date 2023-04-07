@@ -9,6 +9,7 @@ from .constants import (
 )
 from .competitions import Competition
 from .fixture import Fixture, parse_games
+from .gamestate import GameState, dispatch_events
 from .matchevents import MatchEvent, EventType, Penalty, Substitution
 from .players import Player
 from .team import Team
@@ -20,13 +21,16 @@ __all__ = [
     "DEFAULT_LEAGUES",
     "FLASHSCORE",
     "INBOUND_EMOJI",
-    "INJURY_EMOJI".
+    "INJURY_EMOJI",
     "OUTBOUND_EMOJI",
     # competition
     "Competition",
     # fixture
     "Fixture",
     "parse_games",
+    # gamestate,
+    "GameState",
+    "dispatch_events",
     # match events
     "EventType",
     "MatchEvent",
@@ -40,5 +44,4 @@ __all__ = [
     "search",
     "save_comp",
     "save_team",
-
 ]

@@ -39,6 +39,7 @@ COGS = [
     "ext.devblog",
     "ext.fitting",
     "ext.helpme",
+    "ext.howitworks",
     "ext.images",
     "ext.info",
     "ext.logs",

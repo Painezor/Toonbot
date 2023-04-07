@@ -404,30 +404,18 @@ class Images(commands.Cog):
         return await btn.callback(interaction)
 
     @images.command()
-    @discord.app_commands.guild_only()
-    async def tinder(
-        self, interaction: Interaction
-    ) -> discord.InteractionMessage:
+    async def tinder(self, interaction: Interaction) -> None:
         """Try to Find your next date."""
-        await interaction.response.defer(thinking=True)
         avata = await interaction.user.display_avatar.with_format("png").read()
 
-        if interaction.guild is None:
-            raise discord.app_commands.errors.NoPrivateMessage
-
-        for _ in range(10):
-            match = random.choice(interaction.guild.members)
+        if members := getattr(interaction.channel, "members", []):
+            match = random.choice(members)
             name = match.display_name
-            try:
-                target = await match.display_avatar.with_format("png").read()
-                break
-            except AttributeError:
-                continue
+            target = await match.display_avatar.with_format("png").read()
         else:
             embed = discord.Embed(colour=discord.Colour.red())
-            # Exhaust All Bans.
             embed.description = "❌ Nobody swiped right on you."
-            return await interaction.edit_original_response(embed=embed)
+            return await interaction.response.send_message(embed=embed)
 
         def draw(image: bytes, avatar: bytes, user_name: str) -> io.BytesIO:
             """Draw Images for the tinder command"""
@@ -484,9 +472,8 @@ class Images(commands.Cog):
         embed.set_author(name="Tinder", icon_url=TINDER)
         embed.set_image(url="attachment://Tinder.png")
         file = discord.File(fp=output, filename="Tinder.png")
-
-        edit = interaction.edit_original_response
-        return await edit(attachments=[file], embed=embed)
+        send = interaction.response.send_message
+        return await send(file=file, embed=embed)
 
 
 async def setup(bot: Bot) -> None:

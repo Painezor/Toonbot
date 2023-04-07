@@ -25,7 +25,7 @@ class MetaToonbot(commands.Cog):
     async def invite(self, interaction: discord.Interaction[Bot]) -> None:
         """Get the bots invite link"""
         view = discord.ui.View()
-        btn = discord.ui.Button(style=discord.ButtonStyle.url, url=INV)
+        btn = discord.ui.Button(url=INV)
         btn.label = "Invite me to your server"
         view.add_item(btn)
         embed = discord.Embed()
@@ -45,26 +45,27 @@ class MetaToonbot(commands.Cog):
         # statistics
         total_members = sum(len(g.members) for g in self.bot.guilds)
 
-        g = format(len(self.bot.guilds), ",")
-        members = f"{format(total_members, ',')} users across {g} servers."
+        count = format(len(self.bot.guilds), ",")
+        members = format(total_members, ",")
 
         embed.description = (
-            f"I do football lookup related things.\n I serve commands from"
-            f"{members}\n I was created by Painezor#8489 as a hobby, feel free"
-            " to send a  donation if you would like to help support me with "
-            "this project. \nToonbot has no premium features and is offered "
+            f"I do football lookup related things.\n\n"
+            f"{members} users on {count} servers,\n\n"
+            "I was created by Painezor#8489 as a hobby, feel free to send a "
+            "donation if you would like to help support me with this project. "
+            "\n\nToonbot has no premium features and is offered "
             " completely for free at the expense of my  own time and hosting."
         )
 
         view = discord.ui.View()
-        text = (
+        support = (
             "Join my Support Server",
             "http://www.discord.gg/a5NHvPx",
             "<:Toonbot:952717855474991126>",
         )
         invite = ("Invite me to your server", INV, None)
         dono = ("Donate", "https://paypal.me/Toonbot", None)
-        for label, link, emoji in [text, invite, dono]:
+        for label, link, emoji in [support, invite, dono]:
             btn = discord.ui.Button(url=link, label=label, emoji=emoji)
             view.add_item(btn)
         return await interaction.response.send_message(embed=embed, view=view)

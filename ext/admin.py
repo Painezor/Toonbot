@@ -36,6 +36,7 @@ async def cg_ac(
     cur = current.casefold()
     for i in interaction.client.available_cogs:
         if cur in i.casefold():
+            i = i.rsplit(".", maxsplit=1)[-1]
             results.append(discord.app_commands.Choice(name=i, value=i))
     return results[:25]
 
@@ -74,7 +75,7 @@ class Admin(commands.Cog):
     async def reload(self, interaction: Interaction, cog: str) -> None:
         """Reloads a module."""
         try:
-            await self.bot.reload_extension(cog.casefold())
+            await self.bot.reload_extension("ext." + cog.casefold())
         except commands.ExtensionError as err:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = error_to_codeblock(err)
@@ -91,7 +92,7 @@ class Admin(commands.Cog):
     async def load(self, interaction: Interaction, cog: str) -> None:
         """Loads a module."""
         try:
-            await self.bot.load_extension(cog.casefold())
+            await self.bot.load_extension("ext." + cog.casefold())
         except commands.ExtensionError as err:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = error_to_codeblock(err)
@@ -107,7 +108,7 @@ class Admin(commands.Cog):
     async def unload(self, interaction: Interaction, cog: str) -> None:
         """Unloads a module."""
         try:
-            await self.bot.unload_extension(cog.casefold())
+            await self.bot.unload_extension("ext." + cog.casefold())
         except commands.ExtensionFailed as err:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = error_to_codeblock(err)
@@ -154,7 +155,6 @@ class Admin(commands.Cog):
     @discord.app_commands.guilds(250252535699341312)
     async def quit(self, interaction: Interaction) -> None:
         """Log the bot out gracefully."""
-        await interaction.response.defer(thinking=True)
         if interaction.user.id != self.bot.owner_id:
             raise commands.NotOwner
 

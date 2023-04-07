@@ -16,37 +16,29 @@ if typing.TYPE_CHECKING:
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot]
 
-
-importlib.reload(api)
-
 logger = logging.getLogger("clans.py")
 
 
-class Leaderboard(view_utils.BaseView):
+class Leaderboard(view_utils.Paginator):
     """Leaderboard View with dropdowns."""
 
-    def __init__(self, clans: list[api.ClanLeaderboardStats]) -> None:
-        super().__init__()
-        self.pages: list[list[api.ClanLeaderboardStats]]
-        self.clans: list[api.ClanLeaderboardStats] = clans  # Rank, Clan
-
-    async def update(
-        self, interaction: Interaction, ssn_id: int | None
+    def __init__(
+        self,
+        clans: list[api.ClanLeaderboardStats],
+        season: typing.Optional[api.ClanBattleSeason],
+        region: typing.Optional[api.Region],
     ) -> None:
-        """Push the latest version of the view to the user"""
-        self.clear_items()
-
-        embed = discord.Embed(colour=discord.Colour.purple())
-        embed.title = f"Clan Battle Season {ssn_id} Ranking"
-        embed.description = ""
-
-        self.pages = embed_utils.paginate(self.clans, 10)
-        clans = self.pages[self.index]
-
         dropdown = []
+        embed = discord.Embed(colour=discord.Colour.purple())
+
+        rgn = "" if region is None else f" ({region.name})"
+        ssn = "" if season is None else f" Season {season}"
+        embed.title = f"Clan Battle{ssn} Leaderboard{rgn}"
+
+        rows = []
         for clan in clans:
-            ban = "⛔" if clan else str(clan.public_rating)
-            rank = f"#{clan.rank}."
+            ban = "⛔" if clan.disbanded else str(clan.public_rating)
+            rank = f"`{str(clan.rank).rjust(2)}.`"
             region = next(i for i in api.Region if i.realm == clan.realm)
 
             text = f"{rank} {region.emote} **[{clan.tag}]** {clan.name}\n"
@@ -55,81 +47,79 @@ class Leaderboard(view_utils.BaseView):
             if clan.last_battle_at:
                 lbt = timed_events.Timestamp(clan.last_battle_at).relative
                 text += f", Last: {lbt}"
-            embed.description += text + "\n"
+            text += "\n"
+            rows.append(text)
 
-            clan_details = await api.get_clan_details(clan.id, region)
-            c_view = ClanView(clan_details, parent=self.update)
+            label = f"[{clan.tag}] {clan.name}"
+            option = discord.SelectOption(label=label, value=str(clan.id))
+            option.emoji = region.emote
+            dropdown.append(option)
 
-            label = f"{clan.tag} ({region.name})"
-            btn = view_utils.Funcable(label, c_view.overview)
-            btn.description = clan.name
+        embeds = embed_utils.rows_to_embeds(embed, rows)
 
-            client = interaction.client
-            ssn: list[api.ClanBattleSeason] = client.clan_battle_seasons
-            season = next(i for i in ssn if i.season_id == clan.season_number)
+        dropdowns = embed_utils.paginate(dropdown, 10)
+        super().__init__(embeds, dropdowns)
+        self.dropdown.options = dropdowns[0]
 
-            league = next(i for i in season.leagues if i.value == clan.league)
-            btn.emoji = league.emote
-            dropdown.append(btn)
+        # Store so it can be accessed by dropdown
+        self.clans: list[api.ClanLeaderboardStats] = clans
 
-        self.add_page_buttons()
-        self.add_function_row(dropdown, 1, "Go To Clan")
-
-        return await interaction.response.edit_message(embed=embed, view=self)
+    @discord.ui.select(row=1, options=[], placeholder="View Clan")
+    async def dropdown(
+        self, interaction: Interaction, sel: discord.ui.Select
+    ) -> None:
+        """Push the latest version of the view to the user"""
+        clan = next(i for i in self.clans if i.id == int(sel.values[0]))
+        region = next(i for i in api.Region if i.realm == clan.realm)
+        clan_details = await api.get_clan_details(clan.id, region)
+        view = ClanView(clan_details, parent=self)
+        embed = await view.base_embed()
+        return await interaction.response.edit_message(embed=embed, view=view)
 
 
 class ClanView(view_utils.BaseView):
     """A View representing a World of Warships Clan"""
 
-    bot: PBot
-
     def __init__(self, clan: api.Clan, **kwargs) -> None:
         super().__init__(**kwargs)
         self.clan: api.Clan = clan
-        self.clan_member_vortex: list[api.ClanMemberVortexData] | None
-        self.clan_vortex_data: api.ClanVortexData | None
+
+        self._clan_vortex: typing.Optional[api.ClanVortexData] = None
+        self._member_vortex: list[api.ClanMemberVortexData] = []
+
+    async def clan_vortex(self) -> api.ClanVortexData:
+        """Fetch Clan Vortex data or return cached"""
+        if self._clan_vortex is None:
+            cid = self.clan.clan_id
+            rgn = self.clan.region
+            self._clan_vortex = await api.get_clan_vortex_data(cid, rgn)
+        return self._clan_vortex
+
+    async def member_vortex(self) -> list[api.ClanMemberVortexData]:
+        """Fetch Member Clan Vortex data or return cached"""
+        if not self._member_vortex:
+            cid = self.clan.clan_id
+            rgn = self.clan.region
+            self._member_vortex = await api.get_member_vortex(cid, rgn)
+        return self._member_vortex
 
     async def base_embed(self) -> discord.Embed:
         """Generic Embed for all view functions"""
         embed = discord.Embed()
         embed.set_author(name=self.clan.title)
 
-        if self.clan_vortex_data is None:
-            cid = self.clan.clan_id
-            rgn = self.clan.region
-            self.clan_vortex_data = await api.get_clan_vortex_data(cid, rgn)
-
-        league = self.clan_vortex_data.league
+        clan_vortex = await self.clan_vortex()
+        league = clan_vortex.league
         # TODO: Fix League
-        embed.colour = league.colour
-        embed.set_thumbnail(url=league.thumbnail)
+        logger.info("clan_vortex_data.league = %s", league)
+        # embed.colour = league.colour
+        # embed.set_thumbnail(url=league.thumbnail)
         return embed
 
-    def handle_buttons(self, current_function: typing.Callable) -> None:
-        """Add Page Buttons to our view."""
-        self.clear_items()
-
-        # Parent.
-        self.add_page_buttons()
-
-        dropdown = []
-
-        def add_button(label: str, func: typing.Callable):
-            btn = view_utils.Funcable(label, func)
-            btn.disabled = current_function is func
-            dropdown.append(btn)
-
-        add_button("Overview", self.overview)
-        add_button("Members", self.members)
-        add_button("New Members", self.new_members)
-        self.add_function_row(dropdown, 1)
-
-    async def overview(self, interaction: Interaction) -> None:
-        """Get General overview of the clan"""
+    async def generate_overview(self) -> discord.Embed:
+        """Entry point for a clan view"""
         embed = await self.base_embed()
-        self.handle_buttons(self.overview)
-
-        assert (vortex := self.clan_vortex_data) is not None
+        vortex = await self.clan_vortex()
 
         desc = []
         if self.clan.updated_at is not None:
@@ -189,13 +179,20 @@ class ClanView(view_utils.BaseView):
             embed.add_field(name="Banned Clan", value=val)
 
         embed.set_footer(text=self.clan.description)
+        return embed
+
+    @discord.ui.button(label="Overview")
+    async def overview(self, interaction: Interaction, _) -> None:
+        """Get General overview of the clan"""
+        embed = await self.generate_overview()
         return await interaction.response.edit_message(embed=embed)
 
-    async def members(self, interaction: Interaction) -> None:
+    @discord.ui.button()
+    async def members(self, interaction: Interaction, _) -> None:
         """Display an embed of the clan members"""
         embed = await self.base_embed()
         embed.title = f"Clan Members ({self.clan.members_count} Total)"
-        mems = sorted(self.clan_member_vortex, key=lambda x: x.nickname)
+        mems = sorted(await self.member_vortex(), key=lambda x: x.nickname)
 
         text = [
             f"`🟢` {i.nickname}" if i.is_online else i.nickname
@@ -209,8 +206,6 @@ class ClanView(view_utils.BaseView):
             embed.add_field(name="Banned Members", value=", ".join(banned))
 
         # Clan Records:
-        await api.get_clan_member_vortex_data()
-
         c_wr = round(sum(i.win_rate for i in mems) / len(mems), 2)
 
         avg_dmg = round(sum(i.average_damage for i in mems) / len(mems))
@@ -252,26 +247,15 @@ class ClanView(view_utils.BaseView):
             f"{round(m_p.battles_per_day, 2)} ({m_p.nickname})",
         )
 
-        return await self.update(embed=embed)
+        return await interaction.response.edit_message(embed=embed)
 
-    async def history(self) -> discord.InteractionMessage:
-        """Get a clan's Clan Battle History"""
-        # TODO: Clan Battle History
-        self.handle_buttons(self.history)
-        embed = await self.base_embed()
-        embed.description = "```diff\n-Not Implemented Yet.```"
-        return await self.update(embed=embed)
-
-    async def new_members(self, interaction: Interaction) -> None:
+    @discord.ui.button(label="New Members")
+    async def new_members(self, interaction: Interaction, _) -> None:
         """Get a list of the clan's newest members"""
-        self.handle_buttons(self.new_members)
         embed = await self.base_embed()
         embed.title = "Newest Clan Members"
 
-        if self.clan_member_vortex is None:
-            self.clan_member_vortex = await api.get_clan_member_vortex_data()
-
-        vtx = self.clan_member_vortex
+        vtx = await self.member_vortex()
         members = sorted(vtx, key=lambda x: x.joined_clan_at, reverse=True)
 
         embed.description = ""
@@ -280,13 +264,20 @@ class ClanView(view_utils.BaseView):
             embed.description += f"{time}: {i.nickname}"
         return await interaction.response.edit_message(embed=embed, view=self)
 
+    # TODO: Clan Battle History
+    async def history(self) -> discord.InteractionMessage:
+        """Get a clan's Clan Battle History"""
+        embed = await self.base_embed()
+        embed.description = "```diff\n-Not Implemented Yet.```"
+        return await self.update(embed=embed)
+
 
 class Clans(commands.Cog):
     """Fetch data about world of warships clans"""
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
-        importlib.reload(api)
+        importlib.reload(view_utils)
 
     async def cog_load(self) -> None:
         """Fetch Clan Related Data on startup"""
@@ -294,16 +285,15 @@ class Clans(commands.Cog):
         self.bot.clan_battle_winners = await api.get_cb_winners()
 
     clan = discord.app_commands.Group(
-        name="clan", description="Get Clans", guild_ids=[250252535699341312]
+        name="clan",
+        description="Get Information about World of Warships Clans",
+        guild_ids=[250252535699341312],
     )
 
-    # TODO: Conver to View with dropdowns.
+    # TODO: Convert to View with dropdowns.
     @clan.command()
-    async def winners(
-        self, interaction: Interaction
-    ) -> discord.InteractionMessage:
+    async def winners(self, interaction: Interaction) -> None:
         """Get a list of all past Clan Battle Season Winners"""
-        await interaction.response.defer(thinking=True)
 
         def write_winner_row(clan: api.ClanBattleWinner) -> str:
             """Convert Clan Row to Winner Item"""
@@ -343,23 +333,24 @@ class Clans(commands.Cog):
             embed.set_thumbnail(url=season.top_league.icon)
             embed.color = discord.Colour.from_str(season.top_league.color)
             embeds.append(embed)
-        return await view_utils.Paginator(interaction, embeds).update()
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
     @clan.command()
     @discord.app_commands.describe(
-        clan="Clan Name or Tag", region="Which region is this clan from"
+        clan="Clan Name or Tag", _="Which region is this clan from"
     )
+    @discord.app_commands.rename(_="region")  # Stfu linter.
     async def search(
         self,
         interaction: Interaction,
-        region: typing.Literal["eu", "na", "sea"],
+        _: typing.Literal["eu", "na", "sea"],
         clan: api.transformers.clan_transform,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Get information about a World of Warships clan"""
-        del region  # Just to shut the linter up.
-
-        await interaction.response.defer(thinking=True)
-        return await ClanView(clan).overview(interaction)
+        view = ClanView(clan)
+        embed = await view.generate_overview()
+        await interaction.response.send_message(embed=embed, view=view)
+        interaction.message = await interaction.original_response()
 
     @clan.command()
     @discord.app_commands.describe(region="Get Rankings for a specific region")
@@ -368,26 +359,31 @@ class Clans(commands.Cog):
         interaction: Interaction,
         region: typing.Optional[typing.Literal["eu", "na", "sea"]] = None,
         season: typing.Optional[discord.app_commands.Range[int, 1, 22]] = None,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Get the Season Clan Battle Leaderboard"""
         url = "https://clans.worldofwarships.eu/api/ladder/structure/"
-        params = {  # league: int, 0 = Hurricane.
-            # division: int, 1-3
-            "realm": "global"
-        }
+        params = {"realm": "global"}
+
+        # league: int, 0 = Hurricane.
+        # division: int, 1-3
 
         if season is not None:
             params.update({"season": str(season)})
 
-        if region is not None:
-            rgn = next(i for i in api.Region if i.db_key == region)
+        rgn = next((i for i in api.Region if i.db_key == region), None)
+        if rgn is not None:
             params.update({"realm": rgn.realm})
 
         async with self.bot.session.get(url, params=params) as resp:
             data = await resp.json()
 
         clans = [api.ClanLeaderboardStats(i) for i in data]
-        return await Leaderboard(clans).update(interaction, season)
+
+        seasons = interaction.client.clan_battle_seasons
+        ssn = next((i for i in seasons if season == i.season_id), None)
+        view = Leaderboard(clans, ssn, rgn)
+        embed = view.pages[view.index]
+        return await interaction.response.send_message(view=view, embed=embed)
 
     async def cache_clan_base(self) -> list[api.ClanBuilding]:
         """Cache the CLan Buildings from the API"""

@@ -468,6 +468,7 @@ class ResetLeagues(discord.ui.Button):
 
 
 # TODO: Select to decorator
+# TODO: Delete to decorator
 class DeleteTicker(discord.ui.Button):
     """Button to delete a ticker entirely"""
 
@@ -478,8 +479,8 @@ class DeleteTicker(discord.ui.Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """Click button delete ticker"""
-        style = discord.ButtonStyle.red
-        view = view_utils.Confirmation("Confirm", "Cancel", style)
+        view = view_utils.Confirmation("Confirm", "Cancel")
+        view.true.style = discord.ButtonStyle.red
 
         ment = self.view.chan.channel.mention
         embed = discord.Embed(colour=discord.Colour.red())
@@ -528,7 +529,8 @@ class RemoveLeague(discord.ui.Select):
         """When a league is selected, delete channel / league row from DB"""
 
         red = discord.ButtonStyle.red
-        view = view_utils.Confirmation("Remove", "Cancel", red)
+        view = view_utils.Confirmation("Remove", "Cancel")
+        view.true.style = discord.ButtonStyle.red
 
         lg_text = "```yaml\n" + "\n".join(sorted(self.values)) + "```"
         ment = self.view.chan.channel.mention
@@ -653,7 +655,6 @@ class Ticker(commands.Cog):
         """Reset the cache on load."""
         await self.update_cache()
 
-    # TODO: Undent this sql
     async def create(
         self,
         interaction: Interaction,
@@ -661,36 +662,33 @@ class Ticker(commands.Cog):
     ) -> None:
         """Send a dialogue to create a new ticker."""
         # Ticker Verify -- NOT A SCORES CHANNEL
+        sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
+
         async with self.bot.db.acquire(timeout=60) as connection:
             # Verify that this is not a livescores channel.
             async with connection.transaction():
-
-                sql2 = (
-                    """SELECT * FROM scores_channels WHERE channel_id = $1"""
-                )
-
-                invalidate = await connection.fetchrow(sql2, channel.id)
-            if invalidate:
-                err = "You cannot create a ticker in a livescores channel."
-                embed = discord.Embed()
-                embed.description = "🚫 " + err
-                reply = interaction.response.send_message
-                return await reply(embed=embed, ephemeral=True)
+                invalidate = await connection.fetchrow(sql, channel.id)
+        if invalidate:
+            err = "🚫 You cannot create a ticker in a livescores channel."
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = err
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
         ment = channel.mention
-        btn = discord.ButtonStyle.green
-        view = view_utils.Confirmation("Create ticker", "Cancel", btn)
+        view = view_utils.Confirmation("Create", "Cancel")
+        view.true.style = discord.ButtonStyle.blurple
 
         embed = discord.Embed(title="Create a ticker")
         embed.description = f"{ment} has no ticker, create one?"
-        await interaction.edit_original_response(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
             txt = f"Cancelled ticker creation for {ment}"
             embed = discord.Embed()
             embed.description = "🚫 " + txt
-            reply = interaction.response.send_message
+            reply = view.interaction.response.send_message
             return await reply(embed=embed, ephemeral=True)
 
         guild = channel.guild.id
@@ -702,9 +700,9 @@ class Ticker(commands.Cog):
                          ON CONFLICT DO NOTHING"""
                 await connection.execute(sql, guild)
 
-                sql2 = """INSERT INTO ticker_channels (guild_id, channel_id)
+                sql = """INSERT INTO ticker_channels (guild_id, channel_id)
                        VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-                await connection.execute(sql2, guild, channel.id)
+                await connection.execute(sql, guild, channel.id)
 
                 sql3 = """INSERT INTO ticker_settings (channel_id) VALUES ($1)
                         ON CONFLICT DO NOTHING"""
@@ -718,7 +716,7 @@ class Ticker(commands.Cog):
         chan = TickerChannel(channel)
         await chan.configure_channel()
         self.bot.ticker_channels.append(chan)
-        return await TickerConfig(chan).update(interaction)
+        return await TickerConfig(chan).update(view.interaction)
 
     async def update_cache(self) -> list[TickerChannel]:
         """Store a list of all Ticker Channels into the bot"""

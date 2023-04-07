@@ -26,8 +26,7 @@ class MetaPainezbot(commands.Cog):
         """Get the bots invite link"""
         view = discord.ui.View()
 
-        btn = discord.ui.Button(style=discord.ButtonStyle.url, url=INV)
-        btn.label = "Invite me"
+        btn = discord.ui.Button(url=INV, label="Invite Me")
         view.add_item(btn)
         return await interaction.response.send_message(view=view)
 

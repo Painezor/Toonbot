@@ -28,7 +28,7 @@ async def get_game_modes() -> set[GameMode]:
     return set(GameMode(i) for i in data)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class GameMode:
     """ "An Object representing different Game Modes"""
 

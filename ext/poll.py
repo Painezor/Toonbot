@@ -229,7 +229,6 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
 
     async def on_submit(self, interaction: Interaction, /) -> None:
         """When the Modal is submitted, pick at random and send back"""
-        await interaction.response.defer(thinking=True)
         question = self.question.value
         answers = self.answers.value.split("\n")[:25]
 
@@ -258,8 +257,8 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
             embed.description = err
             await interaction.followup.send(embed=embed, ephemeral=True)
         view = PollView(question, answers, time, votes)
+        await interaction.response.send_message(view=view)
         view.message = await interaction.original_response()
-        return await view.update(interaction)
 
 
 class Poll(commands.Cog):

@@ -29,9 +29,8 @@ class BaseView(discord.ui.View):
         self,
         *,
         parent: typing.Optional[FuncButton] = None,
-        timeout: int = 180,
+        timeout: typing.Optional[float] = 180,
     ):
-
         self.index: int = 0
         self.pages: list[typing.Any] = []
         self.parent: typing.Optional[FuncButton] = parent
@@ -58,25 +57,7 @@ class BaseView(discord.ui.View):
         item: discord.ui.Item
         for item in self.children:
             item.disabled = True
-
         return await self.message.edit(view=self)
-
-    def add_page_buttons(self, row: int = 0) -> None:
-        """Helper function to bulk add page buttons (Prev, Jump, Next, Stop)"""
-        # Clear Old Items on our row.
-        for i in self.children:
-            if i.row == row:
-                self.remove_item(i)
-
-        if self.parent:
-            self.parent.row = row
-            self.add_item(self.parent)
-
-        if len(self.pages) > 1:
-            self.add_item(Previous(self, row))
-            self.add_item(Jump(self, row))
-            self.add_item(Next(self, row))
-        self.add_item(Stop(row))
 
     def add_function_row(
         self,
@@ -104,8 +85,8 @@ class BaseView(discord.ui.View):
 
     async def on_error(
         self, interaction: Interaction, error: Exception, item, /
-    ) -> typing.Optional[discord.InteractionMessage]:
-        """Log the stupid fucking error"""
+    ) -> None:
+        """Log errors"""
         logger.error("Error on view item %s", item, exc_info=True)
         edit = interaction.response.edit_message
         txt = f"Something broke\n```py\n{error}```"
@@ -115,144 +96,27 @@ class BaseView(discord.ui.View):
             self.stop()
 
 
-class First(discord.ui.Button):
-    """Get the first item in a Pagination View"""
-
-    view: BaseView
-
-    def __init__(self, row: int = 0) -> None:
-        super().__init__(emoji="⏮", row=row)
-
-    async def callback(
-        self, interaction: Interaction
-    ) -> discord.InteractionMessage:
-        """Do this when button is pressed"""
-        await interaction.response.defer()
-        self.view.index = 0
-        return await self.view.update(interaction)
-
-
-class Previous(discord.ui.Button):
-    """Get the previous item in a Pagination View"""
-
-    view: BaseView
-
-    def __init__(self, view: BaseView, row: int = 0) -> None:
-        disabled = getattr(view, "index", 0) == 0
-        super().__init__(emoji="◀", row=row, disabled=disabled)
-
-    async def callback(
-        self, interaction: Interaction
-    ) -> discord.InteractionMessage:
-        """Do this when button is pressed"""
-
-        await interaction.response.defer()
-        try:
-            self.view.index = max(self.view.index - 1, 0)
-        except AttributeError:
-            self.view.index = 0
-        return await self.view.update()
-
-
-class Jump(discord.ui.Button):
-    """Jump to a specific page in a Pagination view"""
-
-    view: BaseView
-
-    def __init__(self, view: BaseView, row: int = 0):
-        # Super Init first so we can access the view's properties.
-        super().__init__(emoji="🔎", row=row)
-
-        index = view.index
-        pages = view.pages
-
-        self.style = discord.ButtonStyle.blurple
-
-        try:
-            self.label = f"{index + 1}/{len(pages)}"
-        except TypeError:
-            # View.pages is not Iterable
-            self.label = f"{index + 1}/{pages}"
-        except AttributeError:
-            pass
-
-        try:
-            self.disabled = len(pages) < 3
-        except AttributeError:
-            self.disabled = True
-
-    async def callback(self, interaction: Interaction) -> None:
-        """When button is clicked…"""
-        return await interaction.response.send_modal(JumpModal(self.view))
-
-
 class JumpModal(discord.ui.Modal):
     """Type page number in box, set index to that page."""
 
     page = discord.ui.TextInput(label="Enter a page number")
 
-    def __init__(self, view: BaseView, title: str = "Jump to page") -> None:
+    def __init__(self, view: Paginator, title: str = "Jump to page") -> None:
         super().__init__(title=title)
         self.view = view
         self.page.placeholder = f"1 - {len(view.pages)}"
 
-    async def on_submit(
-        self, interaction: Interaction, /
-    ) -> discord.InteractionMessage:
+    async def on_submit(self, interaction: Interaction, /) -> None:
         """Validate entered data & set parent index."""
 
         await interaction.response.defer()
 
-        pages: list = self.view.pages
-        update: typing.Callable = getattr(self.view, "update")
         try:
-            _ = pages[int(self.page.value)]
+            _ = self.view.pages[int(self.page.value)]
             self.view.index = int(self.page.value) - 1  # Humans index from 1
-            return await update()
         except (ValueError, IndexError):  # Number was out of range.
-            self.view.index = len(pages) - 1
-            return await update()
-
-
-class Next(discord.ui.Button):
-    """Get the next item in a Pagination View"""
-
-    view: BaseView
-
-    def __init__(self, view: BaseView, row: int = 0) -> None:
-        pg_len = len(view.pages)
-        disabled = view.index + 1 >= pg_len
-        super().__init__(emoji="▶", row=row, disabled=disabled)
-
-    async def callback(
-        self, interaction: Interaction
-    ) -> discord.InteractionMessage:
-        """Do this when button is pressed"""
-
-        await interaction.response.defer()
-        if self.view.index + 1 < len(self.view.pages):
-            self.view.index += 1
-        return await self.view.update()
-
-
-class Last(discord.ui.Button):
-    """Get the last item in a Pagination View"""
-
-    view: BaseView
-
-    def __init__(self, view: BaseView, row: int = 0) -> None:
-        super().__init__(label="Last", emoji="⏭", row=row)
-        pg_len = len(view.pages)
-        self.disabled = pg_len == view.index
-
-    async def callback(
-        self, interaction: discord.Interaction
-    ) -> discord.InteractionMessage:
-        """Do this when button is pressed"""
-
-        await interaction.response.defer()
-        self.view.index = len(getattr(self.view, "pages", []))
-        return await self.view.update()
+            self.view.index = len(self.view.pages) - 1
+        return await self.view.handle_page(interaction)
 
 
 class Stop(discord.ui.Button):
@@ -275,32 +139,6 @@ class Stop(discord.ui.Button):
         await self.view.on_timeout()
 
         self.view.stop()
-
-
-class PageSelect(discord.ui.Select):
-    """Page Selector Dropdown"""
-
-    view: BaseView
-
-    def __init__(
-        self,
-        placeholder: typing.Optional[str] = None,
-        options: typing.Optional[list] = None,
-        row: int = 4,
-    ) -> None:
-        if options is None:
-            options = []
-        super().__init__(placeholder=placeholder, options=options, row=row)
-
-    async def callback(
-        self, interaction: discord.Interaction
-    ) -> discord.InteractionMessage:
-        """Set View Index"""
-
-        await interaction.response.defer()
-        self.view.index = int(self.values[0]) - 1
-        self.view.remove_item(self)
-        return await self.view.update()
 
 
 class ItemSelect(discord.ui.Select):
@@ -382,7 +220,7 @@ class ConfirmMultiple(discord.ui.Button):
         self.view.stop()
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Funcable:
     """A 'Selectable Function' to be used with generate_function_row to
     create either a FuncSelect or row of FuncButtons"""
@@ -398,7 +236,6 @@ class Funcable:
         style: discord.ButtonStyle = discord.ButtonStyle.gray,
         disabled: bool = False,
     ):
-
         self.label: str = label
         self.emoji: typing.Optional[str] = emoji
         self.description: typing.Optional[str] = description
@@ -419,7 +256,6 @@ class FuncSelect(discord.ui.Select):
         row: int,
         placeholder: typing.Optional[str] = None,
     ):
-
         self.items: dict[str, Funcable] = {}
 
         super().__init__(row=row, placeholder=placeholder)
@@ -450,7 +286,6 @@ class FuncButton(discord.ui.Button):
         kw: typing.Optional[dict] = None,
         **kwargs,
     ) -> None:
-
         super().__init__(**kwargs)
 
         self.function: typing.Callable = function
@@ -465,61 +300,83 @@ class FuncButton(discord.ui.Button):
 
 
 class Paginator(BaseView):
-    """Generic Paginator that returns nothing."""
+    """A Paginator, takes a lsit of Embeds and an Optional list of
+    lists of SelectOptions. When a button is clicked, the page is changed
+    and the embed at the current index is pushed. If a list of selects
+    is also provided that matches the embed, the options are also updated"""
 
-    def __init__(self, embeds: list[discord.Embed]) -> None:
+    def __init__(
+        self,
+        embeds: list[discord.Embed],
+        dropdowns: typing.Optional[list[list[discord.SelectOption]]] = None,
+    ) -> None:
         super().__init__()
 
         self.pages = embeds
+        if dropdowns:
+            self.dropdown: discord.ui.Select
+            self.dropdown.options = dropdowns[0]
+            self.dropdowns = dropdowns
+        else:
+            self.dropdowns = []
 
-    async def update(
+        if self.index + 1 > len(self.pages):
+            self.next.disabled = True
+        if self.index == 0:
+            self.previous.disabled = True
+
+        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+        self.jump.disabled = len(self.pages) < 3
+
+    async def handle_page(
         self, interaction: Interaction, content: typing.Optional[str] = None
     ) -> None:
         """Refresh the view and send to user"""
-        self.clear_items()
-        self.add_page_buttons()
         embed = self.pages[self.index]
-
+        if self.dropdowns:
+            self.dropdown.options = self.dropdowns[self.index]
         edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
+
+    @discord.ui.button(label="◀", row=0)
+    async def previous(self, interaction: Interaction, _) -> None:
+        """Go to previous page"""
+        self.index = max(self.index - 1, 0)
+        await self.handle_page(interaction)
+
+    @discord.ui.button(emoji="🔎", row=0, style=discord.ButtonStyle.blurple)
+    async def jump(self, interaction: Interaction, _) -> None:
+        """When button is clicked…"""
+        return await interaction.response.send_modal(JumpModal(self))
+
+    @discord.ui.button(emoji="▶", row=0)
+    async def next(self, interaction: Interaction, _) -> None:
+        """Go To next Page"""
+        self.index = min(self.index + 1, len(self.pages))
+        await self.handle_page(interaction)
 
 
 class Confirmation(BaseView):
     """Ask the user if they wish to confirm an option."""
 
-    def __init__(
-        self,
-        label_a: str = "Yes",
-        label_b: str = "No",
-        style_a: discord.ButtonStyle = discord.ButtonStyle.grey,
-        style_b: discord.ButtonStyle = discord.ButtonStyle.grey,
-    ) -> None:
-
+    def __init__(self, true: str = "Yes", false: str = "No") -> None:
         super().__init__()
-
-        self.add_item(BoolButton(label_a, style_a))
-        self.add_item(BoolButton(label_b, style_b, value=False))
-
+        # Set By Buttons before stopping
         self.value: bool
+        self.interaction: Interaction
+        self.true.label = true
+        self.false.label = false
 
+    @discord.ui.button(label="Yes")
+    async def true(self, interaction: Interaction, _) -> None:
+        """Set Value to true, stop the view, save the interaction"""
+        self.value = True
+        self.interaction = interaction
+        self.stop()
 
-class BoolButton(discord.ui.Button):
-    """Set View value"""
-
-    view: Confirmation
-
-    def __init__(
-        self,
-        label: str = "Yes",
-        style: discord.ButtonStyle = discord.ButtonStyle.gray,
-        value: bool = True,
-    ) -> None:
-
-        super().__init__(label=label, style=style)
-        self.value: bool = value
-
-    async def callback(self, interaction: Interaction) -> None:
-        """On Click Event"""
-        await interaction.response.defer()
-        self.view.value = self.value
-        self.view.stop()
+    @discord.ui.button(label="No")
+    async def false(self, interaction: Interaction, _) -> None:
+        """Set Value to false, stop the view, save the interaction"""
+        self.value = False
+        self.interaction = interaction
+        self.stop()

@@ -15,7 +15,7 @@ if typing.TYPE_CHECKING:
     Interaction: typing.TypeAlias = discord.Interaction[PBot]
 
 # TODO: CommanderXP Command (Show Total Commander XP per Rank)
-
+# TODO: Maps View
 
 logger = logging.getLogger("wows_encyclopedia")
 
@@ -36,14 +36,12 @@ class Encyclopedia(commands.Cog):
         self,
         interaction: Interaction,
         obj: api.transformers.map_transform,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Fetch a map from the world of warships API"""
-        await interaction.response.defer(thinking=True)
-
         embed = discord.Embed(title=obj.name, colour=discord.Colour.greyple())
         embed.set_image(url=obj.icon)
         embed.set_footer(text=obj.description)
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: PBot) -> None:

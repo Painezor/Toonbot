@@ -33,13 +33,13 @@ class Stream:
 
 
 async def st_ac(
-    ctx: Interaction, current: str
+    interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Return List of Guild Streams"""
-    if ctx.guild is None:
+    if interaction.guild is None:
         return []
 
-    strms = ctx.client.streams[ctx.guild.id]
+    strms = interaction.client.streams[interaction.guild.id]
     cur = current.casefold()
     matches = [i.name[:100] for i in strms if cur in i.ac_row]
 

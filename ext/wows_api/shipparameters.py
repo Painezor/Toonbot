@@ -6,7 +6,7 @@ import typing
 logger = logging.getLogger("api.shipparams")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class AAGun:
     """Details about a ship's AA gun"""
 
@@ -21,7 +21,7 @@ class AAGun:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipAAProfile:
     """Information about a ship profile's Anti Aircraft"""
 
@@ -35,7 +35,7 @@ class ShipAAProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ArmourSegment:
     """Armour for a specific section of a ship"""
 
@@ -49,7 +49,7 @@ class ArmourSegment:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipArmourProfile:
     """Information about a ship profile's Armour"""
 
@@ -65,7 +65,7 @@ class ShipArmourProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class MainGun:
     """Details about a ship's main gun"""
 
@@ -78,7 +78,7 @@ class MainGun:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Shell:
     """Information about a Shell"""
 
@@ -94,7 +94,7 @@ class Shell:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipArtilleryProfile:
     """Information about a ship profile's Main Battery"""
 
@@ -126,7 +126,7 @@ class ShipArtilleryProfile:
         return self.artillery_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class SecondaryGun:
     """A Secondary Gun Module"""
 
@@ -144,7 +144,7 @@ class SecondaryGun:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipSecondaryProfile:
     """Information about a ship profile's Secondary Armaments"""
 
@@ -158,7 +158,7 @@ class ShipSecondaryProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipConcealmentProfile:
     """Information about a ship profile's Concealment"""
 
@@ -171,7 +171,7 @@ class ShipConcealmentProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class BomberAccuracy:
     """THe accuracy of a divebomber"""
 
@@ -183,7 +183,7 @@ class BomberAccuracy:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class SquadronSize:
     """The amount of planes in a Squadron"""
 
@@ -195,7 +195,7 @@ class SquadronSize:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipDiveBomberProfile:
     """Information about a ship profile's Dive Bombers"""
 
@@ -234,7 +234,7 @@ class ShipDiveBomberProfile:
         return self.dive_bomber_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipEngineProfile:
     """Information about a ship profile's Engine"""
 
@@ -255,7 +255,7 @@ class ShipEngineProfile:
         return self.engine_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipFighterProfile:
     """Information about a ship profile's Fighters"""
 
@@ -288,7 +288,7 @@ class ShipFighterProfile:
         return self.fighters_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipFireControlProfile:
     """Information about a ship profile's Fire Control System"""
 
@@ -310,7 +310,7 @@ class ShipFireControlProfile:
         return self.fire_control_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipFlightControlProfile:
     """Information about a ship profile's Flight Control System"""
 
@@ -333,7 +333,7 @@ class ShipFlightControlProfile:
         return self.flight_control_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class HullArmourRange:
     """Min and Max Values of a ship's hull's Armour"""
 
@@ -345,7 +345,7 @@ class HullArmourRange:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipHullProfile:
     """Information about a ship profile's Hull"""
 
@@ -375,7 +375,7 @@ class ShipHullProfile:
         return self.hull_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipMobilityProfile:
     """Information about a ship profile's Mobility"""
 
@@ -389,7 +389,7 @@ class ShipMobilityProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipTorpedoBomberProfile:
     """Information about a ship profile's Torpedo Bombers"""
 
@@ -425,7 +425,7 @@ class ShipTorpedoBomberProfile:
         return self.torpedo_bomber_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Torpedo:
     """A Torpedo Module"""
 
@@ -439,7 +439,7 @@ class Torpedo:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipTorpedoProfile:
     """Information about a ship profile's Torpedoes"""
 
@@ -470,7 +470,7 @@ class ShipTorpedoProfile:
         return self.torpedoes_id_str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipWeaponryProfile:
     """Ratings for the ship's weaponry"""
 
@@ -484,7 +484,7 @@ class ShipWeaponryProfile:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class ShipProfile:
     """Information about a ship in a specific configuration (A "Profile")"""
 
@@ -508,7 +508,6 @@ class ShipProfile:
     weaponry: ShipWeaponryProfile
 
     def __init__(self, data: dict) -> None:
-
         for k, val in data.items():
             if val is not None:
                 try:

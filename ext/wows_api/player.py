@@ -68,7 +68,7 @@ MODE_STRINGS = [
 #         self.clan_battle_stats: dict[int, PlayerCBStats] = {}
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class Player:
     """A World of Warships player."""
 
@@ -155,7 +155,7 @@ class Player:
         return f"https://{dom}.wows-numbers.com/player/{acc_id},{name}/"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class PlayerClanData:
     """Information about the player's current clan"""
 
@@ -174,7 +174,7 @@ class PlayerClanData:
             setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class PlayerStats:
     """Generics for a Player"""
 
@@ -201,7 +201,7 @@ class PlayerStats:
                 setattr(self, k, val)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class PlayerStatsMode:
     """Generic Container for all API Data"""
 
@@ -268,7 +268,7 @@ class PlayerStatsMode:
         return self.art_agro + self.torpedo_agro
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(slots=True)
 class PlayerModeArmamentStats:
     """A player's stats for a specific armament within a gamemode"""
 

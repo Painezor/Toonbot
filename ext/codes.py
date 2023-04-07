@@ -11,6 +11,8 @@ from ext.wows_api import Region
 if typing.TYPE_CHECKING:
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+
 
 CODE_IMG = "https://cdn.iconscout.com/icon/free/png-256/wargaming-1-283119.png"
 
@@ -28,17 +30,14 @@ class Codes(commands.Cog):
     @discord.app_commands.default_permissions(manage_messages=True)
     async def code(
         self,
-        interaction: discord.Interaction[PBot],
+        interaction: Interaction,
         code: str,
         contents: str,
-        eu: bool = True,
-        na: bool = True,
+        eu: bool = True,  # pylint: disable=C0103
+        na: bool = True,  # pylint: disable=C0103
         asia: bool = True,
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Send a message with region specific redeem buttons"""
-
-        await interaction.response.defer(thinking=True)
-
         regions = []
         if eu:
             regions.append("eu")
@@ -67,10 +66,9 @@ class Codes(commands.Cog):
             url = f"https://{dom}.wargaming.net/shop/redeem/?bonus_mode={code}"
             btn = discord.ui.Button(url=url, label=region.name)
             btn.emoji = region.emote
-            btn.style = discord.ButtonStyle.url
             view.add_item(btn)
 
-        return await interaction.edit_original_response(embed=embed, view=view)
+        return await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot: PBot):

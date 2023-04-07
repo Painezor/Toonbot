@@ -188,7 +188,7 @@ class TeamTransformer(discord.app_commands.Transformer):
         return choices
 
     async def transform(
-        self, interaction: Interaction, value: str
+        self, interaction: Interaction, value: str, /
     ) -> typing.Optional[fs.Team]:
         await interaction.response.defer(thinking=True)
 
@@ -246,7 +246,7 @@ class CompetitionTransformer(discord.app_commands.Transformer):
         return choices
 
     async def transform(
-        self, interaction: Interaction, value: str
+        self, interaction: Interaction, value: str, /
     ) -> typing.Optional[fs.Competition]:
         await interaction.response.defer(thinking=True)
 
@@ -550,7 +550,6 @@ class ItemView(view_utils.BaseView):
             sub_loc = locator.nth(i).locator("a")
 
             for count in range(await sub_loc.count()):
-
                 text = await sub_loc.nth(count).text_content()
                 if not text:
                     continue
@@ -801,7 +800,7 @@ class ItemView(view_utils.BaseView):
         embed.title = "Top Scorers"
 
         btn = self.page.locator(".topScorers__showMore")
-        while await (btn).count():
+        while await btn.count():
             await btn.last.click()
 
         raw = await tab_class.inner_html()
@@ -1010,7 +1009,6 @@ class ItemView(view_utils.BaseView):
 
             sub = subloc.nth(i).locator("button")
             for count in range(await sub.count()):
-
                 text = await sub.nth(count).text_content()
 
                 if not text:
@@ -1195,7 +1193,6 @@ class ItemView(view_utils.BaseView):
         tf_buttons = []
         filters = self.page.locator("button.filter__filter")
         for count in range(await filters.count()):
-
             text = await filters.nth(count).text_content()
             if count == click_number:
                 await filters.nth(count).click(force=True)
@@ -1293,7 +1290,6 @@ class ItemView(view_utils.BaseView):
 
             sub = loc.nth(i).locator("a")
             for count in range(await sub.count()):
-
                 text = await sub.nth(count).text_content()
 
                 if not text:
@@ -1349,12 +1345,11 @@ class ItemView(view_utils.BaseView):
         rows = {}
 
         loc = self.page.locator(".subTabs")
-        for i in range(await (loc).count()):
+        for i in range(await loc.count()):
             rows[i] = []
 
             sub = loc.nth(i).locator("a")
             for count in range(await sub.count()):
-
                 text = await sub.nth(count).text_content()
                 if not text:
                     continue
@@ -1479,7 +1474,6 @@ class CompetitionView(ItemView):
         competition: fs.Competition,
         **kwargs,
     ) -> None:
-
         self.object: fs.Competition = competition
         super().__init__(page, **kwargs)
 
@@ -1811,13 +1805,15 @@ class Fixtures(commands.Cog):
         self,
         interaction: Interaction,
         team: discord.app_commands.Transform[fs.Team, TeamTransformer],
-    ) -> discord.InteractionMessage:
+    ) -> None:
         """Set the default team for your flashscore lookups"""
         embed = await team.base_embed()
         embed.description = f"Commands will use  default team {team.markdown}"
 
         if interaction.guild is None:
             raise commands.NoPrivateMessage
+
+        await interaction.response.send_message(embed=embed)
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -1830,7 +1826,6 @@ class Fixtures(commands.Cog):
                        DO UPDATE SET default_team = $2
                        WHERE excluded.guild_id = $1"""
                 await connection.execute(sql, interaction.guild.id, team.id)
-        return await interaction.edit_original_response(embed=embed)
 
     @default.command(name="competition")
     @discord.app_commands.describe(competition=COMPETITION)
@@ -1842,20 +1837,21 @@ class Fixtures(commands.Cog):
         ],
     ) -> None:
         """Set the default competition for your flashscore lookups"""
+        embed = await competition.base_embed()
+        embed.description = "Default Competition set"
+        await interaction.response.send_message(embed=embed)
+
         if interaction.guild is None:
             raise commands.NoPrivateMessage
-        fsr = competition
         sql = """INSERT INTO fixtures_defaults (guild_id, default_league)
                 VALUES ($1,$2) ON CONFLICT (guild_id)
                 DO UPDATE SET default_league = $2
                 WHERE excluded.guild_id = $1"""
+
+        cid = competition.id
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(sql, interaction.guild.id, fsr.id)
-
-        embed = await fsr.base_embed()
-        embed.description = f"Default Competition is now {fsr.markdown}"
-        await interaction.edit_original_response(embed=embed)
+                await connection.execute(sql, interaction.guild.id, cid)
 
     match = discord.app_commands.Group(
         name="match",
@@ -2041,7 +2037,7 @@ class Fixtures(commands.Cog):
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""
         if interaction.client.games:
-            embed = discord.Embed()
+            embed = discord.Embed(colour=discord.Colour.red())
             embed.description = "🚫 No live games found"
             return await interaction.response.send_message(embed=embed)
 
@@ -2070,7 +2066,7 @@ class Fixtures(commands.Cog):
                 embed = base_embed.copy()
                 embed.description = f"\n**{i}**\n{j}\n"
         embeds.append(embed)
-        return await view_utils.Paginator(embeds).update(interaction)
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
 
 async def setup(bot: Bot):

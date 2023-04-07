@@ -17,6 +17,9 @@ if typing.TYPE_CHECKING:
     Interaction: typing.TypeAlias = discord.Interaction[PBot | Bot]
 
 
+# TODO: Donate Button Command.
+
+
 class Info(commands.Cog):
     """Get information about users or servers."""
 
@@ -235,7 +238,7 @@ class Info(commands.Cog):
             embeds.append(emb)
 
         embeds = [embed] + embeds
-        return await view_utils.Paginator(embeds).update(interaction)
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
     @info.command()
     @discord.app_commands.describe(role="select a role")
@@ -316,7 +319,7 @@ class Info(commands.Cog):
             perm_embed = None
 
         embeds = [i for i in [embed, perm_embed] if i]
-        return await view_utils.Paginator(embeds).update(interaction)
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
     @info.command(name="emote")
     @discord.app_commands.describe(emote="enter an emote")
@@ -358,7 +361,7 @@ class Info(commands.Cog):
             reply = interaction.response.send_message
             return await reply(embed=embed, ephemeral=True)
 
-        return await view_utils.Paginator(embeds).update(interaction)
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
     @info.command()
     @discord.app_commands.guild_only()
@@ -511,7 +514,7 @@ class Info(commands.Cog):
             r_e.description += f"**My Role**: {guild.self_role.mention}\n"
 
         embeds = [cover, chs, stickers, r_e]
-        return await view_utils.Paginator(embeds).update(interaction)
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
     @info.command()
     async def user(
@@ -640,7 +643,7 @@ class Info(commands.Cog):
         header = f"User found on {len(matches)} servers."
         embeds = embed_utils.rows_to_embeds(shared, matches, 20, header)
         embeds += [i for i in [generic, perm_embed, avatar] if i is not None]
-        return await view_utils.Paginator(embeds).update(interaction)
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
 
 async def setup(bot: Bot | PBot) -> None:

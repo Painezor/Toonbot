@@ -9,11 +9,15 @@ from discord.ext import commands
 if typing.TYPE_CHECKING:
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+
 
 DC = "https://media.discordapp.net/attachments/"
 OVERMATCH = DC + "303154190362869761/990588535201484800/unknown.png"
 
-# TODO: Overmatch DD
+# TODO: Overmatch DD Dict
+# TODO: Overmatch Ship (guns) command
+
 OM_BB = {
     13: ["Tier 5 Superstructure"],
     16: [
@@ -120,11 +124,9 @@ class OverMatch(commands.Cog):
     @om.command()
     @discord.app_commands.describe(shell_calibre="Calibre of shell (mm)")
     async def calibre(
-        self, interaction: discord.Interaction[PBot], shell_calibre: int
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, shell_calibre: int
+    ) -> None:
         """Get information about what a shell's overmatch parameters"""
-
-        await interaction.response.defer(thinking=True)
         value = round(shell_calibre / 14.3)
 
         embed = discord.Embed(colour=0x0BCDFB)
@@ -141,13 +143,13 @@ class OverMatch(commands.Cog):
 
         embed.set_thumbnail(url=OVERMATCH)
         embed.set_footer(text=f"{shell_calibre}mm / 14.3 = {value}mm")
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
     @om.command()
     @discord.app_commands.describe(armour_thickness="Thickness of armour (mm)")
     async def armour(
-        self, interaction: discord.Interaction[PBot], armour_thickness: int
-    ) -> discord.InteractionMessage:
+        self, interaction: Interaction, armour_thickness: int
+    ) -> None:
         """Get what gun size is required to overmatch an armour thickness"""
         thk = armour_thickness
         value = round(armour_thickness * 14.3)
@@ -165,7 +167,7 @@ class OverMatch(commands.Cog):
 
         embed.set_thumbnail(url=OVERMATCH)
         embed.set_footer(text=f"{value}mm * 14.3 = {value}mm")
-        return await interaction.edit_original_response(embed=embed)
+        return await interaction.response.send_message(embed=embed)
 
 
 async def setup(bot: PBot):

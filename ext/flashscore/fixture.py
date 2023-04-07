@@ -201,15 +201,13 @@ class Fixture:
         self.win: typing.Optional[str] = None
 
     def __str__(self) -> str:
-        match self.time:
-            case (
-                GameState.LIVE | GameState.STOPPAGE_TIME | GameState.EXTRA_TIME
-            ):
-                time = self.state.name if self.state else None
-            case GameState():
-                time = self.ko_relative
-            case _:
-                time = self.time
+        gs = GameState
+        if self.time in [gs.LIVE, gs.STOPPAGE_TIME, gs.EXTRA_TIME]:
+            time = self.state.name if self.state else None
+        elif isinstance(self.time, GameState):
+            time = self.ko_relative
+        else:
+            time = self.time
 
         return f"{time}: {self.bold_markdown}"
 
@@ -303,13 +301,11 @@ class Fixture:
 
         def parse_cards(cards: typing.Optional[int]) -> str:
             """Get a number of icons matching number of cards"""
-            match cards:
-                case 0 | None:
-                    return ""
-                case 1:
-                    return "`🟥` "
-                case _:
-                    return f"`🟥 x{cards}` "
+            if not cards:
+                return ""
+            if cards == 1:
+                return "`🟥` "
+            return f"`🟥 x{cards}` "
 
         h_s, a_s = self.home_score, self.away_score
         h_c = parse_cards(self.home_cards)
@@ -378,12 +374,11 @@ class Fixture:
         if self.time is None:
             return embed
 
-        match self.time:
-            case GameState.SCHEDULED:
-                time = timed_events.Timestamp(self.kickoff).time_relative
-                embed.description = f"Kickoff: {time}"
-            case GameState.POSTPONED:
-                embed.description = "This match has been postponed."
+        if self.time == GameState.SCHEDULED:
+            time = timed_events.Timestamp(self.kickoff).time_relative
+            embed.description = f"Kickoff: {time}"
+        elif self.time == GameState.POSTPONED:
+            embed.description = "This match has been postponed."
 
         if self.competition:
             embed.set_footer(text=f"{self.time} - {self.competition.title}")

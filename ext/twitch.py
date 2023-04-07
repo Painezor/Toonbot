@@ -66,7 +66,6 @@ class Contributor:
         """Return comma separated list of [name](link) social markdowns"""
         output = []
         for i in self.links:
-
             if "youtube" in i:
                 output.append(f"• [YouTube]({i})")
             elif "twitch" in i:
@@ -297,9 +296,8 @@ class TrackerConfig(view_utils.BaseView):
         wishes to create a new ticker."""
         self.clear_items()
 
-        view = view_utils.Confirmation(
-            "Create tracker", "Cancel", discord.ButtonStyle.green
-        )
+        view = view_utils.Confirmation("Create tracker", "Cancel")
+        view.true.style = discord.ButtonStyle.green
 
         chan = self.chan.channel.mention
         notfound = f"{chan} does not have a twitch tracker, create one now?"
@@ -323,9 +321,8 @@ class TrackerConfig(view_utils.BaseView):
     ) -> None:
         """Bulk remove tracked items from a Twitch Tracker channel"""
         # Ask user to confirm their choice.
-        view = view_utils.Confirmation(
-            "Remove", "Cancel", discord.ButtonStyle.red
-        )
+        view = view_utils.Confirmation("Remove", "Cancel")
+        view.true.style = discord.ButtonStyle.red
 
         mentions = "\n•".join(f"<@&{i}>" for i in roles)
 
@@ -648,7 +645,7 @@ class TwitchTracker(commands.Cog):
         rows = [i.row for i in ordered]
 
         rows = embed_utils.rows_to_embeds(embed, rows)
-        return await view_utils.Paginator(rows).update(interaction)
+        return await view_utils.Paginator(rows).handle_page(interaction)
 
     async def make_cc_embed(self, cont: Contributor) -> discord.Embed:
         """Create an embed about the CC"""
@@ -717,7 +714,7 @@ class TwitchTracker(commands.Cog):
         embed.colour = discord.Colour.dark_blue()
 
         embeds = embed_utils.rows_to_embeds(embed, [i.row for i in ccs])
-        return await view_utils.Paginator(embeds).update(interaction)
+        return await view_utils.Paginator(embeds).handle_page(interaction)
 
     track = discord.app_commands.Group(
         name="twitch_tracker",

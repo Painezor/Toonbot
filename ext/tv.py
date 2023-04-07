@@ -184,7 +184,7 @@ class Tv(commands.Cog):
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
         view = view_utils.Paginator(embeds)
-        return await view.update(interaction)
+        return await view.handle_page(interaction)
 
 
 async def setup(bot: Bot) -> None:
