@@ -138,7 +138,6 @@ class Blog:
 
             out = []
 
-            # Nuke excessive whitespace.
             if node.text is not None:
                 txt = node.text.strip()
             else:
