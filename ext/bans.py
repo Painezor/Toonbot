@@ -47,9 +47,7 @@ class BanView(view_utils.DropdownPaginator):
         self.dropdown.max_values = len(self.dropdown.options)
 
     @discord.ui.select(placeholder="Unban members")
-    async def dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Perform unbans on the entries passed back from the SelectOption"""
 
         embed = discord.Embed(colour=discord.Colour.green())
@@ -57,10 +55,10 @@ class BanView(view_utils.DropdownPaginator):
         embed.description = ""
         embed.timestamp = discord.utils.utcnow()
 
-        guild = typing.cast(discord.Guild, interaction.guild)
-        embed_utils.user_to_footer(embed, interaction.user)
+        guild = typing.cast(discord.Guild, itr.guild)
+        embed_utils.user_to_footer(embed, itr.user)
 
-        reason = f"Requested by {interaction.user}"
+        reason = f"Requested by {itr.user}"
         for ban in sel.values:
             entry = next(i for i in self.bans if str(i.user.id) == ban)
             user = entry.user
@@ -68,10 +66,10 @@ class BanView(view_utils.DropdownPaginator):
 
             embed.description += f"{user} {user.mention} ({user.id})\n"
             self.bans.remove(entry)
-        await interaction.followup.send(embed=embed)
+        await itr.followup.send(embed=embed)
 
-        new_view = BanView(interaction.user, self.bans)
-        edit = interaction.response.edit_message
+        new_view = BanView(itr.user, self.bans)
+        edit = itr.response.edit_message
         return await edit(embed=embed, view=new_view)
 
 

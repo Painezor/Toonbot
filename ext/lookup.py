@@ -90,7 +90,7 @@ class Lookup(commands.Cog):
         """Get this window's transfers for a team on transfermarkt"""
 
         await interaction.response.defer(thinking=True)
-        view = tfm.TeamSearch(team_name, fetch=True)
+        view = tfm.TeamSearch(team_name)
         await view.update(interaction)
         await view.wait()
 
@@ -103,7 +103,7 @@ class Lookup(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        view = tfm.TeamSearch(team_name, fetch=True)
+        view = tfm.TeamSearch(team_name)
         await view.update(interaction)
         await view.wait()
 
@@ -116,7 +116,7 @@ class Lookup(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        view = tfm.TeamSearch(team, fetch=True)
+        view = tfm.TeamSearch(team)
         await view.update(interaction)
         await view.wait()
 
@@ -129,7 +129,7 @@ class Lookup(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        view = tfm.TeamSearch(team, fetch=True)
+        view = tfm.TeamSearch(team)
         await view.update(interaction)
         await view.wait()
         return await tfm.TeamView(view.value).push_trophies(interaction)
@@ -145,13 +145,13 @@ class Lookup(commands.Cog):
 
         await interaction.response.defer(thinking=True)
 
-        view = tfm.CompetitionSearch(league_name, fetch=True)
+        view = tfm.CompetitionSearch(league_name)
         await view.update(interaction)
         await view.wait()
 
         comp = view.value
         if comp is None:
-            await view.interaction.response.send_meessage(content="Not found")
+            await view.interaction.response.send_message(content="Not found")
             return  # shrug
 
         view = tfm.CompetitionView(comp)

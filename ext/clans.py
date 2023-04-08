@@ -73,16 +73,14 @@ class Leaderboard(view_utils.DropdownPaginator):
         self.clans: list[api.ClanLeaderboardStats] = clans
 
     @discord.ui.select(row=1, options=[], placeholder="View Clan")
-    async def dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Push the latest version of the view to the user"""
         clan = next(i for i in self.clans if i.id == int(sel.values[0]))
         region = next(i for i in api.Region if i.realm == clan.realm)
         clan_details = await api.get_clan_details(clan.id, region)
-        view = ClanView(interaction.user, clan_details, parent=self)
+        view = ClanView(itr.user, clan_details, parent=self)
         embed = await view.base_embed()
-        return await interaction.response.edit_message(embed=embed, view=view)
+        return await itr.response.edit_message(embed=embed, view=view)
 
 
 class ClanView(view_utils.BaseView):

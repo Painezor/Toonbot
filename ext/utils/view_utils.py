@@ -157,6 +157,10 @@ class ItemSelect(discord.ui.Select):
         self.view.stop()
 
 
+# TODO: refactor Paginator to take rows instead of embeds
+# TODO: Deperecate rows_to_embeds
+# TODO: Stop() to decorator of baseview
+# TODO: Nuke ItemSelect
 class Paginator(BaseView):
     """A Paginator takes a list of Embeds and an Optional list of
     lists of SelectOptions. When a button is clicked, the page is changed
