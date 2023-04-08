@@ -19,6 +19,7 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 with open("credentials.json", mode="r", encoding="utf-8") as fun:
     credentials = json.load(fun)
@@ -169,6 +170,16 @@ class TrackerChannel:
         self.tracked: list[discord.Role] = []
         self.channel: discord.TextChannel = channel
 
+    @property
+    def id(self) -> int:  # pylint: disable=C0103
+        """Return ID from parent channel"""
+        return self.channel.id
+
+    @property
+    def mention(self) -> str:  # pylint: disable=C0103
+        """Return ID from parent channel"""
+        return self.channel.mention
+
     async def create_tracker(self) -> TrackerChannel:
         """Create a ticker for the channel"""
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -281,25 +292,23 @@ async def language_ac(
     return choices
 
 
-# TODO: Select as decorator
+# TODO: Select as decorator, Make Paginator
 class TrackerConfig(view_utils.BaseView):
     """Config View for a Twitch Tracker channel"""
 
-    def __init__(self, chan: TrackerChannel):
-        super().__init__()
-        self.chan: TrackerChannel = chan
+    def __init__(self, invoker: User, chan: TrackerChannel):
+        super().__init__(invoker)
+        self.channel: TrackerChannel = chan
         self.index: int = 0
         self.pages: list[discord.Embed] = []
 
     async def creation_dialogue(self, interaction: Interaction) -> bool:
         """Send a dialogue to check if the user
         wishes to create a new ticker."""
-        self.clear_items()
-
-        view = view_utils.Confirmation("Create tracker", "Cancel")
+        view = view_utils.Confirmation(interaction.user, "Create", "Cancel")
         view.true.style = discord.ButtonStyle.green
 
-        chan = self.chan.channel.mention
+        chan = self.channel.mention
         notfound = f"{chan} does not have a twitch tracker, create one now?"
         await interaction.response.edit_message(content=notfound, view=view)
         await view.wait()
@@ -312,7 +321,7 @@ class TrackerConfig(view_utils.BaseView):
             await interaction.response.edit_message(embed=embed)
             return False
 
-        await self.chan.create_tracker()
+        await self.channel.create_tracker()
         await self.update(interaction, f"Twitch Tracker was created in {chan}")
         return True
 
@@ -326,7 +335,7 @@ class TrackerConfig(view_utils.BaseView):
 
         mentions = "\n•".join(f"<@&{i}>" for i in roles)
 
-        mention = self.chan.channel.mention
+        mention = self.channel.mention
         embed = discord.Embed()
         embed.description = f"Remove items from {mention}?\n\n•{mentions}"
 
@@ -335,7 +344,7 @@ class TrackerConfig(view_utils.BaseView):
         await view.wait()
 
         if view.value:
-            await self.chan.untrack(roles)
+            await self.channel.untrack(roles)
             embed = discord.Embed(title="Tracked roles removed")
             embed.description = f"{mention}\n{mentions}"
             embed_utils.user_to_footer(embed, interaction.user)
@@ -349,14 +358,15 @@ class TrackerConfig(view_utils.BaseView):
         """Regenerate view and push to message"""
         self.clear_items()
 
-        if not self.chan.tracked:
-            await self.chan.get_tracks()
+        if not self.channel.tracked:
+            await self.channel.get_tracks()
 
         embed = discord.Embed(colour=0x9146FF, title="Twitch Go Live Tracker")
         embed.set_thumbnail(url=TWITCH_LOGO)
 
         missing = []
-        perms = self.chan.channel.permissions_for(self.chan.channel.guild.me)
+        chan = self.channel.channel
+        perms = chan.permissions_for(chan.guild.me)
         if not perms.send_messages:
             missing.append("send_messages")
         if not perms.embed_links:
@@ -369,21 +379,21 @@ class TrackerConfig(view_utils.BaseView):
             )
             embed.add_field(name="Missing Permissions", value=txt)
 
-        if not self.chan.tracked:
-            ment = self.chan.channel.mention
+        if not self.channel.tracked:
+            ment = self.channel.channel.mention
             embed.description = f"{ment} has no tracked roles."
 
         else:
-            header = f"Tracked roles for {self.chan.channel.mention}\n"
+            embed.description = f"Tracked roles for {self.channel.mention}\n"
 
-            rows = [i.mention for i in self.chan.tracked]
-            embeds = embed_utils.rows_to_embeds(embed, rows, 25, header)
+            rows = [i.mention for i in self.channel.tracked]
+            embeds = embed_utils.rows_to_embeds(embed, rows, 25)
             self.pages = embeds
 
             self.add_item(view_utils.Stop(row=1))
             embed = self.pages[self.index]
 
-            roles = sorted(self.chan.tracked, key=lambda i: i.name)
+            roles = sorted(self.channel.tracked, key=lambda i: i.name)
 
             # Get everything after index * 25 (page len),
             #  then up to 25 items from that page.

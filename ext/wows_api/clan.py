@@ -4,6 +4,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
+import typing
 
 import aiohttp
 from .enums import Region
@@ -16,6 +17,7 @@ logger = logging.getLogger("api.clan")
 CLAN_DETAILS = "https://api.worldofwarships.%%/wows/clans/info/"
 CB_STATS = "https://clans.worldofwarships.%%/api/members/CLAN_ID/"
 CB_SEASON_INFO = "https://api.worldofwarships.eu/wows/clans/season/"
+LEADERBOARD = "https://clans.worldofwarships.eu/api/ladder/structure/"
 VORTEX_INFO = "https://clans.worldofwarships.%%/api/clanbase/CLAN_ID/claninfo/"
 WINNERS = "https://clans.worldofwarships.eu/api/ladder/winners/"
 
@@ -31,7 +33,7 @@ async def get_clan_details(clan_id: int, region: Region) -> Clan:
     async with aiohttp.ClientSession() as session:
         async with session.get(url, params=params) as resp:
             data = await resp.json()
-    return Clan(data.pop("data"), region)
+    return Clan(data.pop("data")[str(clan_id)], region)
 
 
 async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:
@@ -62,21 +64,24 @@ async def get_member_vortex(
     return [ClanMemberVortexData(i) for i in data.pop("items")]
 
 
-async def get_cb_winners() -> dict[int, list[ClanBattleWinner]]:
-    """Get Winners for all Clan Battle Seasons"""
+async def get_cb_leaderboard(
+    season: typing.Optional[int] = None, region: typing.Optional[Region] = None
+) -> list[ClanLeaderboardStats]:
+    """Get the leaderboard for a clan battle season"""
+    params = dict()
+
+    # league: int, 0 = Hurricane.
+    # division: int, 1-3
+
+    if season is not None:
+        params.update({"season": str(season)})
+
+    params.update({"realm": region.realm if region is not None else "global"})
     async with aiohttp.ClientSession() as session:
-        async with session.get(WINNERS) as resp:
+        async with session.get(LEADERBOARD, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s %s", resp.status, resp.reason, resp.url)
-            data = await resp.json()
-
-    winners = data.pop("winners")
-
-    # k is season - int
-    # val is dict
-    for k, val in winners.items():
-        winners[k] = [ClanBattleWinner(i) for i in val]
-    return winners
+                logger.info("%s %s: %s", resp.status, resp.reason, resp.url)
+            return [ClanLeaderboardStats(i) for i in await resp.json()]
 
 
 async def get_cb_seasons(language: str = "en") -> list[ClanBattleSeason]:
@@ -101,8 +106,21 @@ async def get_cb_seasons(language: str = "en") -> list[ClanBattleSeason]:
     return output
 
 
-async def get_clan_leaderboard() -> list[ClanLeaderboardStats]:
-    """"""
+async def get_cb_winners() -> dict[int, list[ClanBattleWinner]]:
+    """Get Winners for all Clan Battle Seasons"""
+    async with aiohttp.ClientSession() as session:
+        async with session.get(WINNERS) as resp:
+            if resp.status != 200:
+                logger.error("%s %s %s", resp.status, resp.reason, resp.url)
+            data = await resp.json()
+
+    winners = data.pop("winners")
+
+    # k is season - int
+    # val is dict
+    for k, val in winners.items():
+        winners[k] = [ClanBattleWinner(i) for i in val]
+    return winners
 
 
 @dataclasses.dataclass(slots=True)
@@ -340,12 +358,11 @@ class Clan:
     region: Region
 
     def __init__(self, data: dict, region: Region) -> None:
-        for k, values in data.items():
+        for k, val in data.items():
             if k == "members":
-                self.members = [ClanMember(i) for i in values.values()]
-
+                self.members = [ClanMember(i) for i in val.values()]
             else:
-                setattr(self, k, values)
+                setattr(self, k, val)
         self.region = region
 
     @property
@@ -562,16 +579,7 @@ class PartialClan:
 
     async def fetch_details(self) -> Clan:
         """Fetch clan information."""
-        cid = self.clan_id
-        params = {"application_id": WG_ID, "clan_id": cid, "extra": "members"}
-        domain = self.region.domain
-        url = f"https://api.worldofwarships.{domain}/wows/clans/info/"
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    raise ConnectionError(f"{resp.status} {await resp.text()}")
-                return Clan(await resp.json(), self.region)
+        return await get_clan_details(self.clan_id, self.region)
 
     @property
     def title(self) -> str:

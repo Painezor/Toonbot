@@ -62,6 +62,16 @@ async def get_ships() -> list[Ship]:
                 ship.type = next(i for i in ship_types if i.name == _type)
 
                 ships.append(ship)
+
+    for i in ships:
+        i.next_ship_objects = {}
+        for k, val in i.next_ships.items():
+            ship = next(i for i in ships if str(i.ship_id) == k)
+            i.next_ship_objects.update({ship: val})
+
+        prevs = [j for j in ships if str(i.ship_id) in i.next_ships.keys()]
+        i.previous_ship_objects = prevs
+
     logger.info("%s ships fetched", len(ships))
     return ships
 
@@ -132,6 +142,7 @@ class CompatibleModules:
             setattr(self, k, val)
 
 
+@dataclasses.dataclass(slots=True)
 class TreeModule:
     """Meta information about the location of this module in the module tree"""
 
@@ -161,7 +172,9 @@ class Ship:
     mod_slots: int
     name: str
     nation: Nation
-    next_ships: list
+    next_ships: dict[str, int]
+    next_ship_objects: dict[Ship, int]
+    previous_ship_objects: list[Ship]
     price_credit: int
     price_gold: int
     ship_id: int
@@ -173,12 +186,15 @@ class Ship:
     default_profile: ShipProfile
     images: ShipImages
     modules: CompatibleModules
-    module_tree: list[TreeModule]
+    modules_tree: list[TreeModule]
+
+    def __hash__(self) -> int:
+        return hash(self.ship_id)
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
-            if k == "module_tree":
-                self.module_tree = [TreeModule(i) for i in val.values()]
+            if k == "modules_tree":
+                val = [TreeModule(i) for i in val.values()]
             elif k == "nation":
                 val = next(i for i in Nation if i.match == val)
             else:
@@ -198,7 +214,7 @@ class Ship:
         nation = "Unknown nation" if self.nation is None else self.nation.alias
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
-        return f"{self.tier}: {decoded} {nation} {self.type.name}".casefold()
+        return f"{decoded} ({self.tier} {nation} {self.type.name})"
 
 
 class ShipFit:
@@ -216,12 +232,20 @@ class ShipFit:
     torpedo_bomber: Module
     torpedoes: Module
 
-    def __init__(self, initial_modules: list[TreeModule]) -> None:
+    profile: ShipProfile
+
+    def __init__(self, ship: Ship, initial_modules: list[Module]) -> None:
+        self.ship = ship
+
         for i in initial_modules:
             self.set_module(i)
 
-    def set_module(self, module: TreeModule) -> None:
+        self.profile = self.ship.default_profile
+
+    def set_module(self, module: Module) -> None:
         """Set a module into the internal fitting"""
+        logger.info('Recieved module type "%s" in set_module', module.type)
+        return
         attr = {"": ""}[module.type]
         setattr(self, attr, module.module_id)
 
@@ -239,7 +263,7 @@ class ShipFit:
             output.append(getattr(self, i))
         return output
 
-    async def get_params(self, language: str) -> ShipProfile:
+    async def get_params(self, language: str = "en") -> ShipProfile:
         """Fetch the ship's parameters with the current fitting"""
         params = {"application_id": WG_ID, "language": language}
 
@@ -258,4 +282,5 @@ class ShipFit:
                 logger.error("[%s] %s %s", resp.status, resp.url, resp.reason)
             data = await resp.json()
 
-        return ShipProfile(data)
+        self.profile = ShipProfile(data)
+        return self.profile

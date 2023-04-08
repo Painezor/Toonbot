@@ -7,7 +7,7 @@ import importlib
 import discord
 from discord.ext import commands
 
-import ext.logs as logs
+from ext import logs
 from ext.utils import view_utils, embed_utils, timed_events
 
 if typing.TYPE_CHECKING:
@@ -18,6 +18,7 @@ if typing.TYPE_CHECKING:
 
 
 # TODO: Donate Button Command.
+# TODO: Subclass Embeds for Info (Too many branches linter warning)
 
 
 class Info(commands.Cog):
@@ -54,11 +55,8 @@ class Info(commands.Cog):
     @discord.app_commands.describe(channel="select a channel")
     async def channel(
         self, interaction: Interaction, channel: discord.abc.GuildChannel
-    ) -> None:
+    ) -> discord.InteractionMessage:
         """Get information about a channel"""
-
-        await interaction.response.defer(thinking=True)
-
         created = channel.created_at
         base_embed = discord.Embed(timestamp=created)
         base_embed.set_author(name=f"{channel.name} ({channel.id})")
@@ -215,10 +213,11 @@ class Info(commands.Cog):
 
         # List[Role | Member | Object]
         if not channel.overwrites:
-            return await interaction.response.edit_message(embed=embed)
+            await interaction.response.send_message(embed=embed)
+            return await interaction.original_response()
 
         target: discord.Role | discord.Member | discord.Object
-        embeds: list[discord.Embed] = []
+        embeds: list[discord.Embed] = [embed]
         for target, ovw in channel.overwrites.items():
             emb = base_embed.copy()
             emb.title = "Permission Overwrites"
@@ -237,15 +236,15 @@ class Info(commands.Cog):
                 emb.add_field(name="Denied", value=deny)
             embeds.append(emb)
 
-        embeds = [embed] + embeds
-        return await view_utils.Paginator(embeds).handle_page(interaction)
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
+        return view.message
 
     @info.command()
     @discord.app_commands.describe(role="select a role")
     async def role(self, interaction: Interaction, role: discord.Role) -> None:
         """Get information about a channel"""
-
-        await interaction.response.defer(thinking=True)
 
         embed = discord.Embed(description=f"{role.mention}\n\n")
         embed.colour = role.colour
@@ -319,17 +318,17 @@ class Info(commands.Cog):
             perm_embed = None
 
         embeds = [i for i in [embed, perm_embed] if i]
-        return await view_utils.Paginator(embeds).handle_page(interaction)
+
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
+        return
 
     @info.command(name="emote")
     @discord.app_commands.describe(emote="enter an emote")
     async def info_emote(self, interaction: Interaction, emote: str) -> None:
         """View a bigger version of an Emoji"""
-
-        await interaction.response.defer(thinking=True)
-
         embeds = []
-
         regex = r"<(?P<animated>a?):(?P<name>\w{2,32}):(?P<id>\d{18,22})>"
 
         for anim, name, e_id in re.findall(regex, emote):
@@ -356,20 +355,21 @@ class Info(commands.Cog):
             embeds.append(embed)
 
         if not embeds:
-            embed = discord.Embed()
+            embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"🚫 No emotes found in {emote}"
-            reply = interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            _ = interaction.response.send_message
+            await _(embed=embed, ephemeral=True)
+            return
 
-        return await view_utils.Paginator(embeds).handle_page(interaction)
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
+        return
 
     @info.command()
     @discord.app_commands.guild_only()
     async def server(self, interaction: Interaction) -> None:
         """Shows information about the server"""
-
-        await interaction.response.defer(thinking=True)
-
         guild = interaction.guild
         if guild is None:
             raise discord.app_commands.errors.NoPrivateMessage
@@ -514,19 +514,18 @@ class Info(commands.Cog):
             r_e.description += f"**My Role**: {guild.self_role.mention}\n"
 
         embeds = [cover, chs, stickers, r_e]
-        return await view_utils.Paginator(embeds).handle_page(interaction)
+
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
+        return
 
     @info.command()
     async def user(
-        self,
-        interaction: Interaction,
-        member: discord.Member,
+        self, interaction: Interaction, member: discord.Member
     ) -> None:
         """Show info about this member."""
         # Embed 1: Generic Info
-
-        await interaction.response.defer(thinking=True)
-
         base_embed = discord.Embed(colour=member.accent_colour)
         base_embed.timestamp = discord.utils.utcnow()
 
@@ -640,10 +639,14 @@ class Info(commands.Cog):
         matches = [f"`{i.id}:` **{i.name}**" for i in member.mutual_guilds]
         shared = discord.Embed(colour=discord.Colour.og_blurple())
 
-        header = f"User found on {len(matches)} servers."
-        embeds = embed_utils.rows_to_embeds(shared, matches, 20, header)
+        shared.description = f"User found on {len(matches)} servers."
+        embeds = embed_utils.rows_to_embeds(shared, matches, 20)
         embeds += [i for i in [generic, perm_embed, avatar] if i is not None]
-        return await view_utils.Paginator(embeds).handle_page(interaction)
+
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
+        return
 
 
 async def setup(bot: Bot | PBot) -> None:

@@ -17,6 +17,7 @@ if typing.TYPE_CHECKING:
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot]
 
+# TODO: Wows Numbers Ship Leaderboard Command.
 # TODO: Browse all Ships command. Filter Dropdowns.
 # Dropdown to show specific ships.
 # TODO: Clan Base Commands
@@ -26,10 +27,6 @@ if typing.TYPE_CHECKING:
 # TODO: Refactor to take player stats from website instead.
 
 logger = logging.getLogger("warships")
-
-
-API_PATH = "https://api.worldofwarships.eu/wows/"
-CLAN = API_PATH + "clans/glossary/"
 
 REGION = typing.Literal["eu", "na", "sea"]
 
@@ -58,11 +55,12 @@ class PlayerView(view_utils.BaseView):
 
     def __init__(
         self,
+        invoker: discord.User | discord.Member,
         player: api.Player,
         ship: typing.Optional[api.warships.Ship] = None,
         **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(invoker, **kwargs)
 
         # Passed
         self.player: api.Player = player
@@ -70,6 +68,33 @@ class PlayerView(view_utils.BaseView):
 
         # Fetched
         self.api_stats: typing.Optional[api.PlayerStats] = None
+
+        if player.clan is None:
+            self.remove_item(self.clan)
+        else:
+            self.clan.label = f"[{player.clan.tag}]"
+
+        self.wows_numbers.url = self.player.wows_numbers
+        self.profile.url = self.player.community_link
+
+    @discord.ui.button()
+    async def clan(self, interaction: Interaction, _) -> None:
+        """Button to go to the player's clan"""
+        assert self.player.clan is not None
+        clan = await self.player.clan.fetch_details()
+        view = ClanView(interaction.user, clan, parent=self)
+        embed = await view.generate_overview()
+        await interaction.response.send_message(embed=embed, view=view)
+
+    @discord.ui.button(label="WoWs Numbers", style=discord.ButtonStyle.url)
+    async def wows_numbers(self, _: Interaction, __) -> None:
+        """A button with a link to the player's wowsnumbers page"""
+        return
+
+    @discord.ui.button(label="Profile", style=discord.ButtonStyle.url)
+    async def profile(self, _: Interaction, __) -> None:
+        """A button with a link to the player's profile page"""
+        return
 
     async def push_stats(
         self, interaction: Interaction, mode: api.GameMode, div_size: int = 0
@@ -108,24 +133,6 @@ class PlayerView(view_utils.BaseView):
         }[mode.tag][div_size]
 
         # Handle Buttons
-        self.clear_items()
-
-        # Row 0: Parent, Clan
-        row_0: list[view_utils.Funcable] = []
-        # Clan
-        if self.parent:
-            self.add_page_buttons(0)
-
-        if self.player.clan_data is not None:
-            parent = self.push_stats
-            clan = self.player.clan_data.clan
-
-            clan = await api.get_clan_details(clan.clan_id, self.player.region)
-            func = ClanView(clan, parent=parent).overview
-            cln = view_utils.Funcable("Clan", func, [interaction])
-            row_0.append(cln)
-        self.add_function_row(row_0, row=0)
-
         # Row 1: Change Div Size
         row_1: list[view_utils.Funcable] = []
         if mode.tag in ["RANKED", "PVP", "COOPERATIVE"]:
@@ -146,7 +153,7 @@ class PlayerView(view_utils.BaseView):
             if i.tag in ["EVENT", "BRAWL", "PVE_PREMADE"]:
                 continue
             # We can't fetch CB data without a clan.
-            if i.tag == "CLAN" and not self.player.clan_data:
+            if i.tag == "CLAN" and not self.player.clan:
                 continue
 
             btn = view_utils.Funcable(f"{i.name} ({i.tag})", self.push_stats)
@@ -156,15 +163,6 @@ class PlayerView(view_utils.BaseView):
             btn.disabled = mode == i
             row_2.append(btn)
         self.add_function_row(row_2, row=2)
-
-        # Row 3 - Wows Numbers & Profile Page
-        btn = discord.ui.Button(url=self.player.wows_numbers, row=3)
-        btn.label = "WoWs Numbers"
-        self.add_item(btn)
-
-        btn = discord.ui.Button(url=self.player.community_link, row=3)
-        btn.label = "Profile Page"
-        self.add_item(btn)
 
         # Overall Rates - Survival, WR, Wins, Loss, Draw
         survived = stats.survived_battles
@@ -233,7 +231,10 @@ class PlayerView(view_utils.BaseView):
             r_ship_max = stats.max_ships_spotted
             r_planes = stats.max_planes_killed
 
-            get = interaction.client.get_ship
+            def get(ship_id: int) -> api.Ship:
+                ships = interaction.client.ships
+                return next(i for i in ships if i.ship_id == ship_id)
+
             s_dmg = get(stats.max_damage_dealt_ship_id)
             s_xp = get(stats.max_xp_ship_id)
             s_kills = get(stats.max_frags_ship_id)
@@ -324,8 +325,8 @@ class WowsStats(commands.Cog):
     ) -> None:
         """Search for a player's Stats"""
         del region  # Shut up linter.
-        view = PlayerView(player, ship)
-        return await view.push_stats(interaction, mode, div_size=division)
+        view = PlayerView(interaction.user, player, ship)
+        await view.push_stats(interaction, mode, div_size=division)
 
 
 async def setup(bot: PBot):

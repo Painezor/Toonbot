@@ -14,20 +14,21 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 logger = logging.getLogger("bans")
 
 
-class BanView(view_utils.Paginator):
+class BanView(view_utils.DropdownPaginator):
     """View to hold the BanList"""
 
-    def __init__(self, bans: list[discord.BanEntry]) -> None:
+    def __init__(self, invoker: User, bans: list[discord.BanEntry]) -> None:
         self.bans: list[discord.BanEntry] = bans
 
         embed = discord.Embed(title="Banned Users")
         embed.colour = discord.Colour.dark_red()
 
-        dropdown = []
+        options = []
         rows = []
 
         for i in self.bans:
@@ -35,15 +36,17 @@ class BanView(view_utils.Paginator):
             opt.value = str(i.user.id)
             opt.emoji = "☠"
             opt.description = f"User #{i.user.id}"
-            dropdown.append(opt)
+            options.append(opt)
             rows.append(f"`{i.user.id}` {i.user.mention} ({i.user})")
 
-        embeds = embed_utils.rows_to_embeds(embed, rows, 25)
-        dropdowns = embed_utils.paginate(dropdown, 25)
+        super().__init__(invoker, embed, rows, options)
+        self.dropdown.max_values = len(self.dropdown.options)
 
-        super().__init__(embeds, dropdowns)
+    async def handle_page(self, interaction: Interaction) -> None:
+        await super().handle_page(interaction)
+        self.dropdown.max_values = len(self.dropdown.options)
 
-    @discord.ui.select(placeholder="Unban members", max_values=25)
+    @discord.ui.select(placeholder="Unban members")
     async def dropdown(
         self, interaction: Interaction, sel: discord.ui.Select
     ) -> None:
@@ -67,7 +70,7 @@ class BanView(view_utils.Paginator):
             self.bans.remove(entry)
         await interaction.followup.send(embed=embed)
 
-        new_view = BanView(self.bans)
+        new_view = BanView(interaction.user, self.bans)
         edit = interaction.response.edit_message
         return await edit(embed=embed, view=new_view)
 
@@ -148,9 +151,8 @@ class BanCog(commands.Cog):
                 await interaction.response.send_message(embed=embed)
                 return
 
-        view = BanView(bans)
-        embed = view.pages[0]
-        return await BanView(bans).update(interaction)
+        view = BanView(interaction.user, bans)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
 
 
 async def setup(bot: Bot | PBot) -> None:

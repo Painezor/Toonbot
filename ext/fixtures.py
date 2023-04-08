@@ -19,7 +19,6 @@ import asyncio
 import io
 import logging
 import datetime
-import importlib
 import typing
 
 import discord
@@ -43,228 +42,6 @@ TEAM_NAME = "Enter the name of a team to search for"
 FIXTURE = "Search for a fixture by team name"
 COMPETITION = "Enter the name of a competition to search for"
 H2H = typing.Literal["overall", "home", "away"]
-
-
-async def set_default(
-    interaction: Interaction,
-    param: typing.Literal["default_league", "default_team"],
-) -> None:
-    """Fetch the default team or default league for this server"""
-    if interaction.guild is None:
-        interaction.extras["default"] = None
-        return
-
-    records = interaction.client.fixture_defaults
-    gid = interaction.guild.id
-    record = next((i for i in records if i["guild_id"] == gid), None)
-
-    if record is None or record[param] is None:
-        interaction.extras["default"] = None
-        return
-
-    if param == "default_team":
-        default = interaction.client.get_team(record[param])
-    else:
-        default = interaction.client.get_competition(record[param])
-
-    if default is None:
-        interaction.extras["default"] = None
-        return
-
-    if (def_id := default.id) is None or (name := default.name) is None:
-        interaction.extras["default"] = None
-        return
-
-    name = f"⭐ Server default: {name}"[:100]
-    default = discord.app_commands.Choice(name=name, value=def_id)
-    interaction.extras["default"] = default
-    return
-
-
-async def choose_recent_fixture(
-    interaction: Interaction, fsr: fs.Competition | fs.Team
-):
-    """Allow the user to choose from the most recent games of a fixture"""
-    fixtures = await fs.parse_games(interaction.client, fsr, "/results/")
-    await (view := FixtureSelect(fixtures)).update(interaction)
-    await view.wait()
-    return next(i for i in fixtures if i.score_line == view.value[0])
-
-
-# Autocompletes
-class FixtureTransformer(discord.app_commands.Transformer):
-    """Convert User Input to a fixture Object"""
-
-    async def autocomplete(
-        self, interaction: Interaction, current: str, /
-    ) -> list[discord.app_commands.Choice[str]]:
-        """Check if user's typing is in list of live games"""
-        cur = current.casefold()
-
-        choices = []
-        for i in interaction.client.games:
-            ac_row = i.ac_row.casefold()
-            if cur and cur not in ac_row:
-                continue
-
-            if i.id is None:
-                continue
-
-            name = i.ac_row[:100]
-            choice = discord.app_commands.Choice(name=name, value=i.id)
-
-            choices.append(choice)
-
-            if len(choices) == 25:
-                break
-
-        if current:
-            search = f"🔎 Search for '{current}'"
-            srch = [discord.app_commands.Choice(name=search, value=current)]
-            choices = choices[:24] + srch
-        return choices
-
-    async def transform(
-        self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[fs.Fixture]:
-        await interaction.response.defer(thinking=True)
-
-        if fix := interaction.client.get_fixture(value):
-            return fix
-
-        if not (fsr := interaction.client.get_team(value)):
-            teams = await fs.search(value, "team", interaction)
-            teams = typing.cast(list[fs.Team], teams)
-
-            await (view := TeamSelect(teams)).update(interaction)
-            await view.wait()
-
-            if not view.value:
-                return None
-            fsr = next(i for i in teams if i.id == view.value[0])
-        return await choose_recent_fixture(interaction, fsr)
-
-
-class TeamTransformer(discord.app_commands.Transformer):
-    """Convert user Input to a Team Object"""
-
-    async def autocomplete(
-        self,
-        interaction: Interaction,
-        current: str,
-        /,
-    ) -> list[discord.app_commands.Choice[str]]:
-        """Autocomplete from list of stored teams"""
-        teams = interaction.client.teams
-        teams: list[fs.Team] = sorted(teams, key=lambda x: x.name)
-
-        # Run Once - Set Default for interaction.
-        if "default" not in interaction.extras:
-            await set_default(interaction, "default_team")
-
-        curr = current.casefold()
-
-        choices = []
-        for i in teams:
-            if i.id is None:
-                continue
-
-            if curr not in i.title.casefold():
-                continue
-
-            choice = discord.app_commands.Choice(name=i.name[:100], value=i.id)
-            choices.append(choice)
-
-            if len(choices) == 25:
-                break
-
-        if interaction.extras["default"] is not None:
-            choices = [interaction.extras["default"]] + choices
-
-        if current:
-            search = f"🔎 Search for '{current}'"
-            srch = [discord.app_commands.Choice(name=search, value=current)]
-            choices = choices[:24] + srch
-        return choices
-
-    async def transform(
-        self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[fs.Team]:
-        await interaction.response.defer(thinking=True)
-
-        if fsr := interaction.client.get_team(value):
-            return fsr
-
-        teams = await fs.search(value, "team", interaction)
-        teams = typing.cast(list[fs.Team], teams)
-
-        await (view := TeamSelect(teams)).update(interaction)
-        await view.wait()
-
-        if not view.value:
-            return None
-        return next(i for i in teams if i.id == view.value[0])
-
-
-class CompetitionTransformer(discord.app_commands.Transformer):
-    """Converts user input to a Competition object"""
-
-    async def autocomplete(
-        self,
-        interaction: Interaction,
-        current: str,
-        /,
-    ) -> list[discord.app_commands.Choice[str]]:
-        """Autocomplete from list of stored competitions"""
-        lgs = sorted(interaction.client.competitions, key=lambda x: x.title)
-
-        if "default" not in interaction.extras:
-            await set_default(interaction, "default_league")
-
-        curr = current.casefold()
-
-        choices = []
-
-        for i in lgs:
-            if curr not in i.title.casefold() or i.id is None:
-                continue
-
-            opt = discord.app_commands.Choice(name=i.title[:100], value=i.id)
-
-            choices.append(opt)
-
-            if len(choices) == 25:
-                break
-
-        if interaction.extras["default"] is not None:
-            choices = [interaction.extras["default"]] + choices[:24]
-
-        if current:
-            search = f"🔎 Search for '{current}'"
-            srch = [discord.app_commands.Choice(name=search, value=current)]
-            choices = choices[:24] + srch
-        return choices
-
-    async def transform(
-        self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[fs.Competition]:
-        await interaction.response.defer(thinking=True)
-
-        if fsr := interaction.client.get_competition(value):
-            return fsr
-
-        if "http" in value:
-            return await fs.Competition.by_link(interaction.client, value)
-
-        comps = await fs.search(value, "comp", interaction)
-        comps = typing.cast(list[fs.Competition], comps)
-
-        await (view := CompetitionSelect(comps)).update(interaction)
-        await view.wait()
-
-        if not view.value:
-            return None
-        return next(i for i in comps if i.id == view.value[0])
 
 
 # Searching
@@ -725,10 +502,8 @@ class ItemView(view_utils.BaseView):
         xpath = ".//div[@class='reportTabContent']/p/text()"
         content = [f"{x}\n" for x in tree.xpath(xpath)]
 
-        hdr = f"**{title}**\n\n"
-        self.pages = embed_utils.rows_to_embeds(
-            embed, content, 5, hdr, "", 2500
-        )
+        embed.description = f"**{title}**\n\n"
+        self.pages = embed_utils.rows_to_embeds(embed, content, 5, "", 2500)
         await self.handle_tabs()
         return await self.update(interaction)
 
@@ -1600,115 +1375,6 @@ class PlayerView(view_utils.BaseView):
         return await edit(content="Coming ... Eventually ... Maybe")
 
 
-class CompetitionSelect(view_utils.BaseView):
-    """View for asking user to select a specific fixture"""
-
-    def __init__(self, comps: list[fs.Competition]) -> None:
-        super().__init__()
-
-        self.comps: list[fs.Competition] = comps
-        # Pagination
-        pages = [self.comps[i : i + 25] for i in range(0, len(self.comps), 25)]
-        self.pages: list[list[fs.Competition]] = pages
-
-    async def update(self, interaction: Interaction) -> None:
-        """Handle Pagination"""
-        targets: list[fs.Competition] = self.pages[self.index]
-
-        emo = fs.Competition.emoji
-        embed = discord.Embed(title="Choose a Competition")
-        embed.description = ""
-
-        sel = view_utils.ItemSelect(placeholder="Please choose a competition")
-
-        for comp in targets:
-            if comp.id is None:
-                continue
-
-            name = comp.title
-            dsc = comp.url
-            sel.add_option(
-                label=name, description=dsc, emoji=emo, value=comp.id
-            )
-            embed.description += f"`{comp.id}` {comp.markdown}\n"
-
-        self.add_item(sel)
-        self.add_page_buttons(1)
-        edit = interaction.response.edit_message
-        return await edit(embed=embed, view=self)
-
-
-class TeamSelect(view_utils.BaseView):
-    """View for asking user to select a specific fixture"""
-
-    def __init__(self, teams: list[fs.Team]) -> None:
-        super().__init__()
-
-        self.teams: list[fs.Team] = teams
-        pages = [self.teams[i : i + 25] for i in range(0, len(self.teams), 25)]
-        self.pages: list[list[fs.Team]] = pages
-
-    async def update(self, interaction: Interaction) -> None:
-        """Handle Pagination"""
-        targets: list[fs.Team] = self.pages[self.index]
-        sel = view_utils.ItemSelect(placeholder="Please choose a team")
-        embed = discord.Embed(title="Choose a Team")
-        embed.description = ""
-
-        emo = fs.Team.emoji
-        for team in targets:
-            if team.id is None:
-                continue
-
-            name = team.name
-            dsc = team.url
-            val = team.id
-            sel.add_option(label=name, description=dsc, value=val, emoji=emo)
-            embed.description += f"`{team.id}` {team.markdown}\n"
-
-        self.add_item(sel)
-        self.add_page_buttons(1)
-        edit = interaction.response.edit_message
-        return await edit(embed=embed, view=self)
-
-
-class FixtureSelect(view_utils.BaseView):
-    """View for asking user to select a specific fixture"""
-
-    def __init__(self, fixtures: list[fs.Fixture]):
-        super().__init__()
-
-        # Pagination
-        self.fixtures: list[fs.Fixture] = fixtures
-
-        pages = [fixtures[i : i + 25] for i in range(0, len(fixtures), 25)]
-        self.pages: list[list[fs.Fixture]] = pages
-
-        # Final result
-        self.value: typing.Any = None  # As Yet Unset
-
-    async def update(self, interaction: Interaction) -> None:
-        """Handle Pagination"""
-        targets: list[fs.Fixture] = self.pages[self.index]
-        sel = view_utils.ItemSelect(placeholder="Please choose a Fixture")
-        embed = discord.Embed(title="Choose a Fixture")
-        embed.description = ""
-
-        for i in targets:
-            if i.competition:
-                desc = i.competition.title
-            else:
-                desc = None
-
-            if i.id is not None:
-                sel.add_option(label=i.score_line, description=desc)
-            embed.description += f"`{i.id}` {i.bold_markdown}\n"
-
-        self.add_item(sel)
-        self.add_page_buttons(1)
-        await interaction.response.edit_message(embed=embed, view=self)
-
-
 class NationalityFilter(discord.ui.Button):
     """A button that when clicked generates a nationality filter dropdown"""
 
@@ -1756,8 +1422,8 @@ class TeamFilter(discord.ui.Button):
         for i in sorted(teams):
             opts.append(discord.SelectOption(label=i, emoji="👕", value=i))
 
-        view = view_utils.PagedItemSelect(opts)
-        await view.update(interaction)
+        view = view_utils.PagedItemSelect(interaction.user, opts)
+        await interaction.response.edit_message(view=view, embed=view.pages[0])
         await view.wait()
 
         link = self.view.page.url
@@ -1772,11 +1438,6 @@ class Fixtures(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        importlib.reload(fs)
-        importlib.reload(view_utils)
-        importlib.reload(image_utils)
-        importlib.reload(timed_events)
-        importlib.reload(embed_utils)
 
     async def cog_load(self) -> None:
         """When cog loads, load up our defaults cache"""
@@ -1804,7 +1465,7 @@ class Fixtures(commands.Cog):
     async def d_team(
         self,
         interaction: Interaction,
-        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
+        team: fs.team_trnsf,
     ) -> None:
         """Set the default team for your flashscore lookups"""
         embed = await team.base_embed()
@@ -1830,11 +1491,7 @@ class Fixtures(commands.Cog):
     @default.command(name="competition")
     @discord.app_commands.describe(competition=COMPETITION)
     async def d_comp(
-        self,
-        interaction: Interaction,
-        competition: discord.app_commands.Transform[
-            fs.Competition, CompetitionTransformer
-        ],
+        self, interaction: Interaction, competition: fs.comp_trnsf
     ) -> None:
         """Set the default competition for your flashscore lookups"""
         embed = await competition.base_embed()
@@ -1862,9 +1519,7 @@ class Fixtures(commands.Cog):
     @match.command(name="table")
     @discord.app_commands.describe(match=FIXTURE)
     async def fx_table(
-        self,
-        interaction: Interaction,
-        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
+        self, interaction: Interaction, match: fs.fix_transf
     ) -> None:
         """Look up the table for a fixture."""
         page = await self.bot.browser.new_page()
@@ -1873,9 +1528,7 @@ class Fixtures(commands.Cog):
     @match.command()
     @discord.app_commands.describe(match=FIXTURE)
     async def stats(
-        self,
-        interaction: Interaction,
-        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
+        self, interaction: Interaction, match: fs.fix_trnsf
     ) -> None:
         """Look up the stats for a fixture."""
         page = await self.bot.browser.new_page()
@@ -1884,9 +1537,7 @@ class Fixtures(commands.Cog):
     @match.command()
     @discord.app_commands.describe(match=FIXTURE)
     async def lineups(
-        self,
-        interaction: Interaction,
-        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
+        self, interaction: Interaction, match: fs.fix_trnsf
     ) -> None:
         """Look up the lineups and/or formations for a Fixture."""
         page = await self.bot.browser.new_page()
@@ -1895,9 +1546,7 @@ class Fixtures(commands.Cog):
     @match.command()
     @discord.app_commands.describe(match=FIXTURE)
     async def summary(
-        self,
-        interaction: Interaction,
-        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
+        self, interaction: Interaction, match: fs.fix_trnsf
     ) -> None:
         """Get a summary for a fixture"""
         page = await self.bot.browser.new_page()
@@ -1906,9 +1555,7 @@ class Fixtures(commands.Cog):
     @match.command(name="h2h")
     @discord.app_commands.describe(match=FIXTURE)
     async def h2h(
-        self,
-        interaction: Interaction,
-        match: discord.app_commands.Transform[fs.Fixture, FixtureTransformer],
+        self, interaction: Interaction, match: fs.team_trnsf
     ) -> None:
         """Lookup the head-to-head details for a Fixture"""
         page = await self.bot.browser.new_page()
@@ -1921,9 +1568,7 @@ class Fixtures(commands.Cog):
     @team.command(name="fixtures")
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_fixtures(
-        self,
-        interaction: Interaction,
-        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
+        self, interaction: Interaction, team: fs.team_trnsf
     ) -> None:
         """Fetch upcoming fixtures for a team."""
         page = await self.bot.browser.new_page()
@@ -1932,9 +1577,7 @@ class Fixtures(commands.Cog):
     @team.command(name="results")
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_results(
-        self,
-        interaction: Interaction,
-        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
+        self, interaction: Interaction, team: fs.team_trnsf
     ) -> None:
         """Get recent results for a Team"""
         page = await self.bot.browser.new_page()
@@ -1943,9 +1586,7 @@ class Fixtures(commands.Cog):
     @team.command(name="table")
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_table(
-        self,
-        interaction: Interaction,
-        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
+        self, interaction: Interaction, team: fs.team_transf
     ) -> None:
         """Get the Table of one of a Team's competitions"""
         page = await self.bot.browser.new_page()
@@ -1954,9 +1595,7 @@ class Fixtures(commands.Cog):
     @team.command(name="news")
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_news(
-        self,
-        interaction: Interaction,
-        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
+        self, interaction: Interaction, team: fs.team_trnsf
     ) -> None:
         """Get the latest news for a team"""
         page = await self.bot.browser.new_page()
@@ -1965,9 +1604,7 @@ class Fixtures(commands.Cog):
     @team.command(name="squad")
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_squad(
-        self,
-        interaction: Interaction,
-        team: discord.app_commands.Transform[fs.Team, TeamTransformer],
+        self, interaction: Interaction, team: fs.team_trnsf
     ) -> None:
         """Lookup a team's squad members"""
         page = await self.bot.browser.new_page()
@@ -1981,11 +1618,7 @@ class Fixtures(commands.Cog):
     @league.command(name="fixtures")
     @discord.app_commands.describe(competition=COMPETITION)
     async def comp_fixtures(
-        self,
-        interaction: Interaction,
-        competition: discord.app_commands.Transform[
-            fs.Competition, CompetitionTransformer
-        ],
+        self, interaction: Interaction, competition: fs.comp_trnsf
     ) -> None:
         """Fetch upcoming fixtures for a competition."""
         page = await self.bot.browser.new_page()
@@ -1994,11 +1627,7 @@ class Fixtures(commands.Cog):
     @league.command(name="results")
     @discord.app_commands.describe(competition=COMPETITION)
     async def comp_results(
-        self,
-        interaction: Interaction,
-        competition: discord.app_commands.Transform[
-            fs.Competition, CompetitionTransformer
-        ],
+        self, interaction: Interaction, competition: fs.comp_trnsf
     ) -> None:
         """Get recent results for a competition"""
         page = await self.bot.browser.new_page()
@@ -2007,11 +1636,7 @@ class Fixtures(commands.Cog):
     @league.command(name="top_scorers")
     @discord.app_commands.describe(competition=COMPETITION)
     async def comp_scorers(
-        self,
-        interaction: Interaction,
-        competition: discord.app_commands.Transform[
-            fs.Competition, CompetitionTransformer
-        ],
+        self, interaction: Interaction, competition: fs.comp_trnsf
     ) -> None:
         """Get top scorers from a competition."""
         page = await self.bot.browser.new_page()
@@ -2022,16 +1647,13 @@ class Fixtures(commands.Cog):
     @league.command(name="table")
     @discord.app_commands.describe(competition=COMPETITION)
     async def comp_table(
-        self,
-        interaction: Interaction,
-        competition: discord.app_commands.Transform[
-            fs.Competition, CompetitionTransformer
-        ],
+        self, interaction: Interaction, competition: fs.comp_trnsf
     ) -> None:
         """Get the Table of a competition"""
         page = await self.bot.browser.new_page()
         return await CompetitionView(page, competition).standings(interaction)
 
+    # TODO: Scores Transformer with Autocomplete
     @discord.app_commands.command()
     async def scores(self, interaction: Interaction) -> None:
         """Fetch current scores for a specified competition,
@@ -2066,7 +1688,10 @@ class Fixtures(commands.Cog):
                 embed = base_embed.copy()
                 embed.description = f"\n**{i}**\n{j}\n"
         embeds.append(embed)
-        return await view_utils.Paginator(embeds).handle_page(interaction)
+
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
 
 
 async def setup(bot: Bot):

@@ -13,11 +13,10 @@ from PIL import Image
 logger = logging.getLogger("embed_utils")
 
 T = typing.TypeVar("T")
+User: typing.TypeAlias = discord.User | discord.Member
 
 
-def user_to_author(
-    embed: discord.Embed, user: discord.User | discord.Member
-) -> discord.Embed:
+def user_to_author(embed: discord.Embed, user: User) -> discord.Embed:
     """Add a user's name, id, and profile picture to the author field"""
     name = f"{user} ({user.id})"
     embed.set_author(name=name, icon_url=user.display_avatar.url)
@@ -74,35 +73,33 @@ def rows_to_embeds(
     embed: discord.Embed,
     items: list[str],
     rows: int = 10,
-    header: str = "",
     footer: str = "",
     max_length: int = 4096,
 ) -> list[discord.Embed]:
     """Create evenly distributed rows of text from a list of data"""
-    desc: str = f"{header}\n" if header else ""
+
+    desc = embed.description if embed.description else ""
+
     count: int = 0
     embeds: list[discord.Embed] = []
 
+    current = embed.copy()
     for row in items:
         # If we haven't hit embed size limit or max count (max_rows)
-        if len(f"{desc}{footer}{row}") <= max_length:
-            if count < rows:
-                desc += f"{row}\n"
-                count += 1
-                continue
+        if len(f"{desc}{footer}{row}") <= max_length & count < rows:
+            desc += f"{row}\n"
+            count += 1
+            continue
 
-        if footer is not None:  # Usually "```" to end a codeblock
-            desc += footer
-
-        embed.description = desc
-        embeds.append(embed.copy())
+        current.description = desc + footer
+        embeds.append(current)
+        current = embed.copy()
 
         # Reset loop
-        desc = f"{header}\n{row}\n" if header else f"{row}\n"
         count = 1
 
-    embed.description = f"{desc}{footer}" if footer is not None else desc
-    embeds.append(embed.copy())
+    current.description = desc + footer
+    embeds.append(current)
     return embeds
 
 

@@ -37,6 +37,28 @@ __all__ = [
 ]
 
 
+def get_locale(interaction: Interaction) -> str:
+    """Convert an interaction's locale into API language field"""
+    try:
+        language = {
+            discord.Locale.czech: "cs",
+            discord.Locale.german: "de",
+            discord.Locale.spain_spanish: "es",
+            discord.Locale.french: "fr",
+            discord.Locale.japanese: "ja",
+            discord.Locale.polish: "pl",
+            discord.Locale.russian: "ru",
+            discord.Locale.thai: "th",
+            discord.Locale.taiwan_chinese: "zh-tw",
+            discord.Locale.turkish: "tr",
+            discord.Locale.chinese: "zh-cn",
+            discord.Locale.brazil_portuguese: "pt-br",
+        }[interaction.locale]
+    except KeyError:
+        language = "en"
+    return language
+
+
 class ClanTransformer(discord.app_commands.Transformer):
     """Convert User Input to a Clan Object"""
 
@@ -171,13 +193,15 @@ class PlayerTransformer(discord.app_commands.Transformer):
         region = getattr(interaction.namespace, "region", None)
         region = next((i for i in Region if i.db_key == region), Region.EU)
 
+        logger.info("Fetching players")
         link = PLAYER_SEARCH.replace("%%", region.domain)
         async with interaction.client.session.get(link, params=params) as resp:
             if resp.status != 200:
                 logger.error("%s on %s: %s", resp.status, link, resp.reason)
-            clan_data = await resp.json()
+            data = await resp.json()
 
-        players = [Player(i) for i in clan_data.pop("data", [])]
+        players = [Player(i) for i in data.pop("data", [])]
+        logger.info("Generated %s players", len(players))
 
         link = PLAYER_CLAN.replace("%%", region.domain)
         parms = {
@@ -193,15 +217,18 @@ class PlayerTransformer(discord.app_commands.Transformer):
                 clan_raw = await resp.json()
                 clan_data = clan_raw.pop("data")
 
-        cln = [PlayerClanData(i) for i in clan_data]
-        logger.info(cln)
+        logger.info("Clan data results %s", clan_data)
+
+        for k, val in clan_data.items():
+            # k is the player's id
+            player = next(i for i in players if i.account_id == int(k))
+            player.clan = PlayerClanData(val)
 
         choices = []
         for i in players[:25]:
-            try:
-                plr = next(j for j in cln if i.account_id == i.account_id)
-                name = f"[{plr.clan.tag}] {plr.account_name}"
-            except StopIteration:
+            if i.clan is not None:
+                name = f"[{i.clan.tag}] {i.nickname}"
+            else:
                 name = i.nickname
 
             value = str(i.account_id)
@@ -211,11 +238,9 @@ class PlayerTransformer(discord.app_commands.Transformer):
         logger.info("Made %s choices", len(choices))
         return choices
 
-    async def transform(
-        self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[Player]:
+    async def transform(self, itr: Interaction, value: str, /) -> Player:
         """Conversion"""
-        players: list[Player] = interaction.extras["players"]
+        players: list[Player] = itr.extras["players"]
         return next(i for i in players if i.account_id == int(value))
 
 
@@ -232,7 +257,8 @@ class ShipTransformer(discord.app_commands.Transformer):
         for i in sorted(interaction.client.ships, key=lambda i: i.name):
             if not i.ship_id_str:
                 continue
-            if current not in i.ac_row:
+
+            if current not in i.name.casefold():
                 continue
 
             value = i.ship_id_str
@@ -244,11 +270,10 @@ class ShipTransformer(discord.app_commands.Transformer):
 
         return choices
 
-    async def transform(
-        self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[Ship]:
-        """Convert"""
-        return interaction.client.get_ship(value)
+    async def transform(self, interaction: Interaction, value: str, /) -> Ship:
+        """Retrieve the ship object for the selected autocomplete"""
+        ships = interaction.client.ships
+        return next(i for i in ships if i.ship_id_str == value)
 
 
 Transform: typing.TypeAlias = discord.app_commands.Transform

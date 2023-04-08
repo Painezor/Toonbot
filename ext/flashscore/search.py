@@ -121,7 +121,6 @@ async def search(
                         continue
 
                     if not (team := interaction.client.get_team(i["id"])):
-
                         team = Team(i["id"], i["name"], i["url"])
                         try:
                             team.logo_url = i["images"][0]["path"]

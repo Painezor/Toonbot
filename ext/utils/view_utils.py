@@ -15,6 +15,8 @@ if typing.TYPE_CHECKING:
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
 
+    User: typing.TypeAlias = discord.User | discord.Member
+
 
 logger = logging.getLogger("view_utils")
 
@@ -22,15 +24,18 @@ logger = logging.getLogger("view_utils")
 class BaseView(discord.ui.View):
     """Error Handler."""
 
-    update: typing.Callable
     message: discord.Message
 
     def __init__(
         self,
+        invoker: User,
         *,
         parent: typing.Optional[FuncButton] = None,
         timeout: typing.Optional[float] = 180,
     ):
+        # User ID of the person who invoked the command.
+        self.invoker: int = invoker.id
+
         self.index: int = 0
         self.pages: list[typing.Any] = []
         self.parent: typing.Optional[FuncButton] = parent
@@ -47,16 +52,12 @@ class BaseView(discord.ui.View):
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         """Make sure only the person running the command can select options"""
-        if interaction.message is None:
-            return False
-
-        return interaction.message.author.id == interaction.user.id
+        return interaction.user.id == self.invoker
 
     async def on_timeout(self) -> discord.Message:
         """Cleanup"""
-        item: discord.ui.Item
-        for item in self.children:
-            item.disabled = True
+        for i in self.children:
+            i.disabled = True
         return await self.message.edit(view=self)
 
     def add_function_row(
@@ -156,68 +157,135 @@ class ItemSelect(discord.ui.Select):
         self.view.stop()
 
 
-class AdditiveItemSelect(discord.ui.Select):
-    """One page of a PagedItemSelect"""
-
-    view: PagedItemSelect
+class Paginator(BaseView):
+    """A Paginator takes a list of Embeds and an Optional list of
+    lists of SelectOptions. When a button is clicked, the page is changed
+    and the embed at the current index is pushed. If a list of selects
+    is also provided that matches the embed, the options are also updated"""
 
     def __init__(
-        self, options: list[discord.SelectOption], row: int = 1
+        self,
+        invoker: discord.User | discord.Member,
+        embeds: list[discord.Embed],
+        **kwargs,
     ) -> None:
-        super().__init__(max_values=len(options), row=row, options=options)
+        super().__init__(invoker, **kwargs)
 
-    async def callback(self, interaction: Interaction) -> None:
-        """Response object for view"""
-        await interaction.response.defer()
+        self.pages = embeds
 
-        for i in self.options:
-            if i.value in self.view.values and i.value not in self.values:
-                self.view.values.remove(i.value)
-            elif i.value not in self.view.values and i.value in self.values:
-                self.view.values.add(i.value)
+        if self.index + 1 > len(self.pages):
+            self.next.disabled = True
+        if self.index == 0:
+            self.previous.disabled = True
+
+        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+        self.jump.disabled = len(self.pages) < 3
+
+    async def handle_page(self, interaction: Interaction) -> None:
+        """Refresh the view and send to user"""
+        embed = self.pages[self.index]
+        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+        return await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="◀️", row=0)
+    async def previous(self, interaction: Interaction, _) -> None:
+        """Go to previous page"""
+        self.index = max(self.index - 1, 0)
+        await self.handle_page(interaction)
+
+    @discord.ui.button(emoji="🔎", row=0, style=discord.ButtonStyle.blurple)
+    async def jump(self, interaction: Interaction, _) -> None:
+        """When button is clicked…"""
+        return await interaction.response.send_modal(JumpModal(self))
+
+    @discord.ui.button(emoji="▶️", row=0)
+    async def next(self, interaction: Interaction, _) -> None:
+        """Go To next Page"""
+        logger.info("You pressed the next button.")
+        self.index = min(self.index + 1, len(self.pages))
+        await self.handle_page(interaction)
 
 
-class PagedItemSelect(BaseView):
+class DropdownPaginator(Paginator):
+    """A Paginator takes an embed, a list of rows, and a list of SelectOptions.
+
+    When a button is clicked, the page is changed and the embed at the current
+    index is pushed. The options for that page are also updated"""
+
+    def __init__(
+        self,
+        invoker: User,
+        embed: discord.Embed,
+        rows: list[str],
+        options: list[discord.SelectOption],
+        length: int = 25,
+        footer: str = "",
+    ) -> None:
+        embeds = embed_utils.rows_to_embeds(embed, rows, length, footer)
+        self.dropdowns = embed_utils.paginate(options, length)
+
+        self.dropdown: discord.ui.Select
+        self.dropdown.options = self.dropdowns[0]
+        self.options = options
+        super().__init__(invoker, embeds)
+
+    @discord.ui.select()
+    async def dropdown(self, itr: Interaction, _: discord.ui.Select) -> None:
+        """Raise because you didn't subclass, dickweed."""
+        logger.info(itr.command.__dict__)
+        raise NotImplementedError  # Always subclass this!
+
+    async def handle_page(self, interaction: Interaction) -> None:
+        """Refresh the view and send to user"""
+        embed = self.pages[self.index]
+        self.dropdown.options = self.dropdowns[self.index]
+        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+        return await interaction.response.edit_message(embed=embed, view=self)
+
+
+class PagedItemSelect(DropdownPaginator):
     """An Item Select with multiple dropdowns the user can cycle through"""
 
     def __init__(
         self,
-        items: list[discord.SelectOption],
-        timeout: int = 30,
+        invoker: User,
+        options: list[discord.SelectOption],
+        **kwargs,
     ):
-        super().__init__(timeout=timeout)
+        embed = discord.Embed(title="Select from multiple pages")
+        rows = [i.label for i in options]
+        super().__init__(invoker, embed, rows, options, **kwargs)
+        self.dropdown.max_values = len(self.dropdown.options)
 
         self.values: set[str] = set()
-        self.items: list[discord.SelectOption] = items
+        self.interaction: Interaction  # passback
 
-    async def update(self, interaction: Interaction) -> None:
-        """Send the latest version of the view to discord1`"""
-        self.clear_items()
-        self.pages = embed_utils.paginate(self.items, 25)
-        items = self.pages[self.index]
+    async def handle_page(self, interaction: Interaction) -> None:
+        """Set the items to checked"""
+        embed = self.pages[self.index]
+        self.dropdown.options = self.dropdowns[self.index]
+        self.dropdown.max_values = len(self.dropdown.options)
+        await interaction.response.edit_message(embed=embed, view=self)
 
-        # Set Defaults based on whether it has been selected.
-        for i in items:
-            i.default = i.value in self.values
+    @discord.ui.select(row=1, options=[])
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+        """Response object for view"""
+        await itr.response.defer()
 
-        self.add_item(AdditiveItemSelect(items, row=0))
-        self.add_page_buttons(1)
-        self.add_item(ConfirmMultiple(2))
-        return await interaction.response.edit_message(view=self)
+        for i in sel.options:
+            # If this item has been selected:
+            if i.value in sel.values and i.value not in self.values:
+                self.values.add(i.value)
 
+            # if this item has NOT been selected
+            elif i.value not in sel.values and i.value in self.values:
+                self.values.remove(i.value)
 
-class ConfirmMultiple(discord.ui.Button):
-    """Confirm the selection of items from multiple pages"""
-
-    view: PagedItemSelect
-
-    def __init__(self, row: int = 2):
-        super().__init__(style=discord.ButtonStyle.primary, label="Save")
-        self.row = row
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        self.view.stop()
+    @discord.ui.button(label="Done", row=2, style=discord.ButtonStyle.primary)
+    async def confirm(self, interaction: Interaction, _) -> None:
+        """Stop the view and allow retrieval of interaction and values"""
+        self.stop()
+        self.interaction = interaction
 
 
 @dataclasses.dataclass(slots=True)
@@ -299,68 +367,16 @@ class FuncButton(discord.ui.Button):
         return await self.function(*self.args, **self.kwargs)
 
 
-class Paginator(BaseView):
-    """A Paginator, takes a lsit of Embeds and an Optional list of
-    lists of SelectOptions. When a button is clicked, the page is changed
-    and the embed at the current index is pushed. If a list of selects
-    is also provided that matches the embed, the options are also updated"""
-
-    def __init__(
-        self,
-        embeds: list[discord.Embed],
-        dropdowns: typing.Optional[list[list[discord.SelectOption]]] = None,
-    ) -> None:
-        super().__init__()
-
-        self.pages = embeds
-        if dropdowns:
-            self.dropdown: discord.ui.Select
-            self.dropdown.options = dropdowns[0]
-            self.dropdowns = dropdowns
-        else:
-            self.dropdowns = []
-
-        if self.index + 1 > len(self.pages):
-            self.next.disabled = True
-        if self.index == 0:
-            self.previous.disabled = True
-
-        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
-        self.jump.disabled = len(self.pages) < 3
-
-    async def handle_page(
-        self, interaction: Interaction, content: typing.Optional[str] = None
-    ) -> None:
-        """Refresh the view and send to user"""
-        embed = self.pages[self.index]
-        if self.dropdowns:
-            self.dropdown.options = self.dropdowns[self.index]
-        edit = interaction.response.edit_message
-        return await edit(content=content, embed=embed, view=self)
-
-    @discord.ui.button(label="◀", row=0)
-    async def previous(self, interaction: Interaction, _) -> None:
-        """Go to previous page"""
-        self.index = max(self.index - 1, 0)
-        await self.handle_page(interaction)
-
-    @discord.ui.button(emoji="🔎", row=0, style=discord.ButtonStyle.blurple)
-    async def jump(self, interaction: Interaction, _) -> None:
-        """When button is clicked…"""
-        return await interaction.response.send_modal(JumpModal(self))
-
-    @discord.ui.button(emoji="▶", row=0)
-    async def next(self, interaction: Interaction, _) -> None:
-        """Go To next Page"""
-        self.index = min(self.index + 1, len(self.pages))
-        await self.handle_page(interaction)
-
-
 class Confirmation(BaseView):
     """Ask the user if they wish to confirm an option."""
 
-    def __init__(self, true: str = "Yes", false: str = "No") -> None:
-        super().__init__()
+    def __init__(
+        self,
+        invoker: discord.Member | discord.User,
+        true: str = "Yes",
+        false: str = "No",
+    ) -> None:
+        super().__init__(invoker)
         # Set By Buttons before stopping
         self.value: bool
         self.interaction: Interaction

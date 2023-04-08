@@ -40,7 +40,6 @@ COGS = [
     "ext.fitting",
     "ext.helpme",
     "ext.howitworks",
-    "ext.images",
     "ext.info",
     "ext.logs",
     "ext.memeswows",
@@ -63,7 +62,6 @@ class PBot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
     def __init__(self, database: asyncpg.Pool) -> None:
-
         super().__init__(
             description="World of Warships bot by Painezor#8489",
             command_prefix=commands.when_mentioned,
@@ -136,16 +134,6 @@ class PBot(commands.AutoShardedBot):
             except commands.ExtensionError:
                 logger.exception("Failed to load cog %s", i, exc_info=True)
         return
-
-    def get_ship(self, identifier: str | int) -> typing.Optional[Ship]:
-        """Get a Ship object from a list of the bots ships"""
-        for i in self.ships:
-            if i.ship_id_str == identifier:
-                return i
-
-            if i.ship_id == identifier:
-                return i
-        return None
 
 
 async def run() -> None:

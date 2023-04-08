@@ -58,6 +58,12 @@ class ShipArmourProfile:
     health: int
     total: float  # Damage Reduction %  -- This is dead.
 
+    casemate: ArmourSegment
+    citadel: ArmourSegment
+    deck: ArmourSegment
+    extremities: ArmourSegment
+    range: ArmourSegment
+
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
             if k in ["casemate", "citadel", "deck", "extremities", "range"]:
@@ -491,7 +497,7 @@ class ShipProfile:
     battle_level_range_max: int
     battle_level_range_min: int
 
-    anti_air: ShipAAProfile
+    anti_aircraft: ShipAAProfile
     armour: ShipArmourProfile
     artillery: ShipArtilleryProfile
     atbas: ShipSecondaryProfile

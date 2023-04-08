@@ -4,6 +4,16 @@ import logging
 
 import aiohttp
 
+from .emojis import (
+    ARTILLERY_EMOJI,
+    DIVE_BOMBER_EMOJI,
+    ENGINE_EMOJI,
+    FIRE_CONTROL_EMOJI,
+    HULL_EMOJI,
+    ROCKET_PLANE_EMOJII,
+    TORPEDO_PLANE_EMOJI,
+    TORPEDOES_EMOJI,
+)
 from .shipparameters import BomberAccuracy
 from .wg_id import WG_ID
 
@@ -21,7 +31,7 @@ class ArtilleryProfile:
     max_damage_ap: int
     max_damage_he: int
     rotation_time: float
-    emoji = "<:Artillery:991026648935718952>"
+    emoji = ARTILLERY_EMOJI
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
@@ -38,7 +48,7 @@ class DiveBomberProfile:
     max_damage: int
     max_health: int
 
-    emoji = "<:DiveBomber:991027856496791682>"
+    emoji = DIVE_BOMBER_EMOJI
 
     def __init__(self, data: dict) -> None:
         self.accuracy = BomberAccuracy(data.pop("accuracy"))
@@ -51,7 +61,8 @@ class EngineProfile:
     """An 'Engine' Module"""
 
     max_speed: float
-    emoji = "<:Engine:991025095772373032>"
+
+    emoji = ENGINE_EMOJI
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
@@ -67,7 +78,7 @@ class FighterProfile:
     max_ammo: int
     max_health: int
 
-    emoji = "<:RocketPlane:991027006554656898>"
+    emoji = ROCKET_PLANE_EMOJII
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
@@ -81,7 +92,7 @@ class FireControlProfile:
     distance: float
     distance_increase: int
 
-    emoji = "<:FireControl:991026256722161714>"
+    emoji = FIRE_CONTROL_EMOJI
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
@@ -95,6 +106,8 @@ class FlightControlProfile:
     bomber_squadrons: int
     fighter_squadrons: int
     torpedo_squadrons: int
+
+    emoji = ROCKET_PLANE_EMOJII
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
@@ -125,7 +138,7 @@ class HullProfile:
     torpedoes_barrels: int
     range: HullArmour
 
-    emoji = "<:Hull:991022247546347581>"
+    emoji = HULL_EMOJI
 
     def __init__(self, data: dict) -> None:
         self.range = HullArmour(data.pop("range"))
@@ -145,7 +158,7 @@ class TorpedoBomberProfile:
     torpedo_max_speed: int
     torpedo_name: str
 
-    emoji = "<:TorpedoBomber:991028330251829338>"
+    emoji = TORPEDO_PLANE_EMOJI
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
@@ -161,7 +174,7 @@ class TorpedoProfile:
     shot_speed: int  # Reload Time
     torpedo_speed: int
 
-    emoji = "<:Torpedoes:990731144565764107>"
+    emoji = TORPEDOES_EMOJI
 
     def __init__(self, data: dict) -> None:
         for k, val in data.items():
@@ -183,7 +196,7 @@ class ModuleProfile:
     torpedoes: TorpedoProfile
 
     def __init__(self, data: dict) -> None:
-        for k, val in data:
+        for k, val in data.items():
             val = {
                 "artillery": ArtilleryProfile,
                 "dive_bomber": DiveBomberProfile,

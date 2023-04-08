@@ -11,7 +11,7 @@ from lxml import html
 from ext.utils import flags
 
 from .abc import FlashScoreItem
-from .constants import FLASHSCORE, LOGO_URL
+from .constants import COMPETITION_EMOJI, FLASHSCORE, LOGO_URL
 
 
 if typing.TYPE_CHECKING:
@@ -25,7 +25,7 @@ class Competition(FlashScoreItem):
     """An object representing a Competition on Flashscore"""
 
     # Constant
-    emoji: typing.ClassVar[str] = "🏆"
+    emoji = COMPETITION_EMOJI
 
     def __init__(
         self,
@@ -34,7 +34,6 @@ class Competition(FlashScoreItem):
         country: typing.Optional[str],
         url: typing.Optional[str],
     ) -> None:
-
         # Sanitise inputs.
         if country is not None and ":" in country:
             country = country.split(":")[0]

@@ -131,7 +131,7 @@ class QuotesView(view_utils.BaseView):
     def __init__(
         self, interaction: Interaction, all_guilds: bool = False
     ) -> None:
-        super().__init__()
+        super().__init__(interaction.user)
         self.all_guilds: bool = all_guilds
         self.all_quotes: list[asyncpg.Record] = interaction.client.quotes
 
@@ -194,7 +194,6 @@ class QuotesView(view_utils.BaseView):
             interaction.guild is None
             or interaction.guild.id != quote["guild_id"]
         ):
-
             if interaction.user.id not in override:
                 err = "🚫 You can't delete other servers quotes."
                 embed = discord.Embed(colour=discord.Colour.red())
@@ -206,9 +205,9 @@ class QuotesView(view_utils.BaseView):
                 err = "🚫 Only moderators, submitter, or author can delete."
                 embed = discord.Embed(colour=discord.Colour.red())
                 embed.description = err
-                return await interaction.response.edit_message(embed=embed)
+                return await interaction.followup.send(embed=embed)
 
-        view = view_utils.Confirmation()
+        view = view_utils.Confirmation(interaction.user)
         view.true.style = discord.ButtonStyle.red
         txt = "Delete this quote?"
         await interaction.response.edit_message(content=txt, view=view)
@@ -355,7 +354,7 @@ class QuoteDB(commands.Cog):
 
         view = QuotesView(interaction, False)
         view.index = random.randrange(0, len(view.guild_quotes) - 1)
-        embed = QuoteEmbed(interaction, view.pages[view.index])
+        embed = QuoteEmbed(interaction, view.pages[0])
         return await interaction.response.send_message(embed=embed, view=view)
 
     @quotes.command()
@@ -476,15 +475,15 @@ class QuoteDB(commands.Cog):
 
         if user_id in self.bot.quote_blacklist:
             #   Opt Back In confirmation Dialogue
-            confirm = view_utils.Confirmation("Opt In", "Cancel")
-            confirm.true.style = discord.ButtonStyle.green
-
-            await interaction.response.send_message(
-                content=OPT_IN, view=confirm
+            view = view_utils.Confirmation(
+                interaction.user, "Opt In", "Cancel"
             )
-            await confirm.wait()
+            view.true.style = discord.ButtonStyle.green
 
-            if confirm.value:
+            await interaction.response.send_message(content=OPT_IN, view=view)
+            await view.wait()
+
+            if view.value:
                 # User has chosen to opt in.
                 sql = """DELETE FROM quotes_optout WHERE userid = $1"""
                 async with self.bot.db.acquire(timeout=60) as connection:
@@ -494,19 +493,18 @@ class QuoteDB(commands.Cog):
             else:
                 msg = "Opt in cancelled, quotes cannot be added about you."
 
-            send = confirm.interaction.response.edit_message
-            return await send(content=msg, view=None)
+            _ = view.interaction.response.edit_message
+            return await _(content=msg, view=None)
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 rec = await connection.fetchrow(QT_SQL, user_id, guild_id)
 
-        confirm = view_utils.Confirmation("Opt Out", "Cancel")
-        confirm.true.style = discord.ButtonStyle.red
+        view = view_utils.Confirmation(interaction.user, "Opt Out", "Cancel")
+        view.true.style = discord.ButtonStyle.red
 
-        txt = "Opt out of QuoteDB?"
-        send = interaction.response.send_message
         # Warn about quotes that will be deleted.
+        embed = discord.Embed(colour=discord.Colour.red())
         if any([rec["author"], rec["auth_g"], rec["sub"], rec["sub_g"]]):
             output = [f"You have been quoted {rec['author']} times"]
 
@@ -519,24 +517,23 @@ class QuoteDB(commands.Cog):
             if rec["sub"] and guild is not None:
                 output.append(f" ({rec['sub_g']} times on {guild.name})")
 
-            war = "\n\n**ALL of these quotes will be deleted if you opt out.**"
-            output.append(war)
-
-            embed = discord.Embed(colour=discord.Colour.red())
-
+            _ = "\n\n**ALL of these quotes will be deleted if you opt out.**"
+            output.append(_)
             embed.description = "".join(output)
             embed.title = "Your quotes will be deleted if you opt out."
-            await send(content=txt, embed=embed, view=confirm)
         else:
-            await send(content=txt, view=confirm)
+            embed.title = "Opt out of Quote Database?"
 
-        await confirm.wait()
-        if not confirm.value:
+        await interaction.response.send_message(embed=embed, view=view)
+
+        await view.wait()
+        if not view.value:
             err = "🚫 Opt out cancelled, you can still quote and be quoted"
             embed = discord.Embed(colour=discord.Color.red())
             embed.description = err
-            reply = interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            _ = view.interaction.response.send_message
+            await _(embed=embed, ephemeral=True)
+            return
 
         sql = """DELETE FROM quotes WHERE author_user_id = $1
                  OR submitter_user_id = $2"""
@@ -545,9 +542,10 @@ class QuoteDB(commands.Cog):
             async with connection.transaction():
                 rec = await connection.execute(sql, user_id, user_id)
 
-        deleted = rec.split(" ")[-1] + " quotes were deleted."
-        txt = f"You were removed from the Quote Database. {deleted}"
-        await confirm.interaction.response.edit_message(content=txt, view=None)
+        _ = rec.rsplit(" ", maxsplit=1)[-1] + " quotes were deleted."
+        txt = f"You were removed from the Quote Database. {_}"
+        await view.interaction.response.edit_message(content=txt, view=None)
+        return
 
 
 async def setup(bot: Bot):

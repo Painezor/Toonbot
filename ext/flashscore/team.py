@@ -7,7 +7,8 @@ import asyncpg
 
 from .abc import FlashScoreItem
 from .competitions import Competition
-from .constants import FLASHSCORE
+from .constants import FLASHSCORE, TEAM_EMOJI
+from .search import save_team
 
 if typing.TYPE_CHECKING:
     from core import Bot
@@ -23,12 +24,11 @@ class Team(FlashScoreItem):
     }
 
     # Constant
-    emoji: typing.ClassVar[str] = "👕"
+    emoji = TEAM_EMOJI
 
     def __init__(
         self, fs_id: typing.Optional[str], name: str, url: typing.Optional[str]
     ) -> None:
-
         # Example URL:
         # https://www.flashscore.com/team/thailand-stars/jLsL0hAF/
         # https://www.flashscore.com/?r=3:jLsL0hAF

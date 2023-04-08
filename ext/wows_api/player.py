@@ -10,7 +10,7 @@ import aiohttp
 import discord
 from .wg_id import WG_ID
 from .enums import Region
-from .clan import PartialClan
+from .clan import Clan, PartialClan
 from .warships import Ship
 
 if typing.TYPE_CHECKING:
@@ -75,7 +75,7 @@ class Player:
     account_id: int
     nickname: str
 
-    clan_data: typing.Optional[PlayerClanData] = None
+    clan: typing.Optional[PlayerClanData] = None
 
     def __init__(self, data: dict) -> None:
         # Player Search Endpoint
@@ -167,11 +167,23 @@ class PlayerClanData:
 
     clan: PartialClan
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: typing.Optional[dict]) -> None:
+        if data is None:
+            return
+
         for k, val in data.items():
             if k == "clan":
                 val = PartialClan(val)
             setattr(self, k, val)
+
+    @property
+    def tag(self) -> str:
+        """Fetch tag from parent"""
+        return self.clan.tag
+
+    async def fetch_details(self) -> Clan:
+        """Fetch clan details from the parent"""
+        return await self.clan.fetch_details()
 
 
 @dataclasses.dataclass(slots=True)

@@ -52,46 +52,6 @@ async def save_article(bot: PBot, article: Article) -> None:
             )
 
 
-class ToggleButton(discord.ui.Button):
-    """A Button to toggle the notifications settings."""
-
-    view: NewsConfig
-
-    def __init__(self, bot: PBot, region: api.Region, value: bool) -> None:
-        self.value: bool = value
-        self.region: api.Region = region
-        self.bot: PBot = bot
-
-        if value:
-            colour = discord.ButtonStyle.blurple
-            toggle = "On"
-        else:
-            colour = discord.ButtonStyle.gray
-            toggle = "Off"
-
-        label = f"{toggle} ({region.db_key})"
-
-        super().__init__(label=label, emoji=region.emote, style=colour)
-
-    async def callback(self, interaction: Interaction) -> None:
-        """Set view value to button value"""
-
-        await interaction.response.defer()
-        new_value: bool = not self.value
-
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = f"""UPDATE news_trackers SET {self.label} = $1
-                          WHERE channel_id = $2"""
-                await connection.execute(sql, new_value, self.view.channel.id)
-
-        toggle = "Enabled" if new_value else "Disabled"
-        region = self.region.name
-        ment = self.view.channel.mention
-        txt = f"{toggle} {region} articles in {ment}"
-        return await self.view.update(interaction, txt)
-
-
 class Article:
     """An Object representing a World of Warships News Article"""
 
@@ -189,18 +149,16 @@ class NewsChannel:
     def __init__(
         self,
         bot: PBot,
+        record: asyncpg.Record,
         channel: discord.TextChannel,
-        eu: bool = False,  # pylint: disable=C0103
-        na: bool = False,  # pylint: disable=C0103
-        sea: bool = False,
     ) -> None:
         self.channel: discord.TextChannel = channel
         self.bot: PBot = bot
 
         # A bool for the tracking of each region
-        self.eu: bool = eu  # pylint: disable=C0103
-        self.na: bool = na  # pylint: disable=C0103
-        self.sea: bool = sea
+        self.eu: bool = record["eu"]  # pylint: disable=C0103
+        self.na: bool = record["na"]  # pylint: disable=C0103
+        self.sea: bool = record["sea"]
 
         # A list of partial links for articles to see if this
         # channel has already sent one.
@@ -236,66 +194,75 @@ class NewsChannel:
         self.sent_articles[article] = message
         return message
 
-    async def send_config(self, interaction: Interaction) -> None:
-        """Send the config view to the requesting user"""
-        return await NewsConfig(self.channel).update(interaction)
 
-
-# TODO: Decorator Buttons
 class NewsConfig(view_utils.BaseView):
     """News Tracker Config View"""
 
-    def __init__(
-        self,
-        channel: discord.TextChannel,
-    ) -> None:
+    def __init__(self, channel: NewsChannel) -> None:
         super().__init__()
-        self.channel: discord.TextChannel = channel
+        self.channel: NewsChannel = channel
 
-    async def update(
-        self, interaction: Interaction, content: typing.Optional[str] = None
+        style = discord.ButtonStyle
+
+        self.eu_news.style = style.green if channel.eu else style.red
+        self.na_news.style = style.green if channel.na else style.red
+        self.sea_news.style = style.green if channel.sea else style.red
+
+    @discord.ui.button(label="EU", emoji=api.Region.EU.emote)
+    async def eu_news(self, interaction: Interaction, btn) -> None:
+        """Button for EU News Articles"""
+        self.channel.eu = not self.channel.eu
+
+        style = discord.ButtonStyle
+        btn.style = style.green if self.channel.eu else style.red
+
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+        await self.update_database(interaction, "eu", self.channel.eu)
+
+    @discord.ui.button(label="NA", emoji=api.Region.NA.emote)
+    async def na_news(self, interaction: Interaction, btn):
+        """Button for NA News Articles"""
+        self.channel.na = not self.channel.na
+
+        style = discord.ButtonStyle
+        btn.style = style.green if self.channel.na else style.red
+
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+        await self.update_database(interaction, "na", self.channel.na)
+
+    @discord.ui.button(label="SEA", emoji=api.Region.SEA.emote)
+    async def sea_news(self, interaction: Interaction, btn):
+        """Button for SEA news articles"""
+        self.channel.sea = not self.channel.sea
+
+        style = discord.ButtonStyle
+        btn.style = style.green if self.channel.sea else style.red
+
+        await interaction.response.edit_message(embed=self.embed(), view=self)
+        await self.update_database(interaction, "sea", self.channel.sea)
+
+    async def update_database(
+        self, interaction: Interaction, field: str, new: bool
     ) -> None:
-        """Regenerate view and push to message"""
-        self.clear_items()
-
-        sql = """SELECT * FROM news_trackers WHERE channel_id = $1"""
+        """Apply changes to the database."""
+        ch_id = self.channel.channel.id
         async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                record = await connection.fetchrow(sql, self.channel.id)
+                sql = f"""UPDATE news_trackers SET {field} = $1
+                          WHERE channel_id = $2"""
+                await connection.execute(sql, new, ch_id)
 
+    def embed(self) -> discord.Embed:
+        """Regenerate view and push to message"""
         embed = discord.Embed(colour=discord.Colour.dark_teal())
         embed.title = "World of Warships News Tracker config"
         embed.description = (
             "```yaml\nClick on the buttons below to enable "
-            "tracking for a region.\n\nDuplicate articles from"
-            " different regions will not be output multiple times"
+            "tracking for a region.\n\nDuplicate articles from "
+            "different regions will not be output multiple times"
             ".```"
         )
-
-        for k, value in sorted(record.items()):
-            if k == "channel_id":
-                continue
-
-            if k == "cis":
-                continue
-
-            region = next(i for i in api.Region if k == i.db_key)
-
-            reg = f"{region.emote} {region.name}"
-            if value:  # Bool: True/False
-                embed.description += f"\n✅ {reg} News is tracked.**"
-            else:
-                embed.description += f"\n❌ {reg} News is not tracked."
-
-            self.add_item(
-                ToggleButton(interaction.client, region=region, value=value)
-            )
-
-        # TODO: super.previous.callback()
-        self.add_page_buttons()
-
-        edit = interaction.response.edit_message
-        await edit(content=content, embed=embed, view=self)
+        return embed
 
 
 async def news_ac(
@@ -344,7 +311,6 @@ class NewsTracker(commands.Cog):
         # If we already have parsed the articles once, flag it now.
 
         for region in api.Region:
-
             url = RSS_NEWS.replace("%%", region.domain)
 
             async with self.bot.session.get(url) as resp:
@@ -431,14 +397,13 @@ class NewsTracker(commands.Cog):
         for record in articles:
             if record["partial"] in partials:
                 continue
-            else:
-                article = Article(self.bot, partial=record["partial"])
-                for k, value in record.items():
-                    if k == "partial":
-                        continue
+            article = Article(self.bot, partial=record["partial"])
+            for k, value in record.items():
+                if k == "partial":
+                    continue
 
-                    setattr(article, k, value)
-                self.bot.news_cache.append(article)
+                setattr(article, k, value)
+            self.bot.news_cache.append(article)
 
         # Append new ones.
         cached_ids = [x.channel.id for x in self.bot.news_channels]
@@ -451,14 +416,7 @@ class NewsTracker(commands.Cog):
 
             channel = typing.cast(discord.TextChannel, channel)
 
-            # TODO: Move this to init of newschannel
-            chan = NewsChannel(
-                self.bot,
-                channel,
-                record["eu"],
-                record["na"],
-                record["sea"],
-            )
+            chan = NewsChannel(self.bot, record, channel)
             self.bot.news_channels.append(chan)
 
     @discord.app_commands.command()
@@ -469,7 +427,7 @@ class NewsTracker(commands.Cog):
         try:
             article = next(i for i in self.bot.news_cache if i.link == text)
         except StopIteration:
-            embed = discord.Embed()
+            embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"🚫 No article matching {text}"
             return await interaction.response.send_message(embed=embed)
 
@@ -490,7 +448,6 @@ class NewsTracker(commands.Cog):
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
 
-        await interaction.response.defer(thinking=True)
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
@@ -501,12 +458,15 @@ class NewsTracker(commands.Cog):
             async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     sql = """INSERT INTO news_trackers (channel_id)
-                             VALUES ($1)"""
-                    await connection.execute(sql, channel.id)
+                             VALUES ($1) returning *"""
+                    record = await connection.fetchrow(sql, channel.id)
 
-            target = NewsChannel(self.bot, channel=channel)
+            target = NewsChannel(self.bot, channel, record)
             self.bot.news_channels.append(target)
-        return await target.send_config(interaction)
+
+        view = NewsConfig(target)
+        await interaction.response.send_message(view=view, embed=view.embed())
+        view.message = await interaction.original_response()
 
     # Event Listeners for database cleanup.
     @commands.Cog.listener()
