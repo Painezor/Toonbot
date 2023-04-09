@@ -74,7 +74,6 @@ class Bot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
     def __init__(self, database: asyncpg.Pool) -> None:
-
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=commands.when_mentioned,

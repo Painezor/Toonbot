@@ -15,6 +15,7 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 
 class PollButton(discord.ui.Button):
@@ -25,7 +26,6 @@ class PollButton(discord.ui.Button):
     def __init__(
         self, custom_id: str, label: str, emoji: typing.Optional[str] = None
     ) -> None:
-
         super().__init__(
             emoji=emoji,
             label=label,
@@ -99,6 +99,7 @@ class PollView(view_utils.BaseView):
 
     def __init__(
         self,
+        invoker: User,
         question: str,
         answers: list[str],
         minutes: int,
@@ -110,7 +111,7 @@ class PollView(view_utils.BaseView):
         self.end = discord.utils.utcnow() + datetime.timedelta(minutes=minutes)
         self.ends_at = timed_events.Timestamp(self.end).countdown
 
-        super().__init__()
+        super().__init__(invoker)
 
         # Validate Uniqueness.
         if votes > 1 or len(self.votes) > 5:
@@ -256,7 +257,7 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
             err = "Invalid number of minutes provided, defaulting to 60"
             embed.description = err
             await interaction.followup.send(embed=embed, ephemeral=True)
-        view = PollView(question, answers, time, votes)
+        view = PollView(interaction.user, question, answers, time, votes)
         await interaction.response.send_message(view=view)
         view.message = await interaction.original_response()
 

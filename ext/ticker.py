@@ -639,7 +639,7 @@ class Ticker(commands.Cog):
         self,
         interaction: Interaction,
         channel: discord.TextChannel,
-    ) -> None:
+    ) -> typing.Optional[TickerChannel]:
         """Send a dialogue to create a new ticker."""
         # Ticker Verify -- NOT A SCORES CHANNEL
         sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
@@ -665,11 +665,11 @@ class Ticker(commands.Cog):
         await view.wait()
 
         if not view.value:
-            txt = f"Cancelled ticker creation for {ment}"
-            embed = discord.Embed()
-            embed.description = "🚫 " + txt
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = f"❌ Cancelled ticker creation for {ment}"
             reply = view.interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            await reply(embed=embed, ephemeral=True)
+            return None
 
         guild = channel.guild.id
 
@@ -694,12 +694,9 @@ class Ticker(commands.Cog):
                 await connection.executemany(sql4, rows)
 
         chan = TickerChannel(channel)
-        cfg = TickerConfig(interaction.user, chan)
         await chan.configure_channel()
-
         self.bot.ticker_channels.append(chan)
-        edit = view.interaction.response.edit_message
-        await edit(embed=cfg.pages[0], view=view)
+        return chan
 
     async def update_cache(self) -> list[TickerChannel]:
         """Store a list of all Ticker Channels into the bot"""
@@ -864,7 +861,10 @@ class Ticker(commands.Cog):
             tkrs = self.bot.ticker_channels
             chan = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
-            return await self.create(interaction, channel)
+            chan = await self.create(interaction, channel)
+            if chan is None:
+                return
+
         view = TickerConfig(interaction.user, chan)
         embed = view.pages[0]
         await interaction.response.send_message(view=view, embed=embed)
@@ -902,21 +902,23 @@ class Ticker(commands.Cog):
         try:
             tkr_chan = next(i for i in tickers if i.channel.id == channel.id)
         except StopIteration:
-            return await self.create(interaction, channel)
+            tkr_chan = await self.create(interaction, channel)
 
-        # Find the Competition Object.
+            if tkr_chan is None:
+                return
+
+        embed = discord.Embed(title="Ticker: Tracked League Added")
+        embed.description = f"{tkr_chan.channel.mention}\n\n{competition.url}"
+        embed_utils.user_to_footer(embed, interaction.user)
+        await interaction.response.send_message(embed=embed)
+
         sql = """INSERT INTO ticker_leagues (channel_id, url)
                  VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 await connection.execute(sql, channel.id, competition.url)
 
         tkr_chan.leagues.add(competition)
-        embed = discord.Embed(title="Ticker: Tracked League Added")
-        embed.description = f"{tkr_chan.channel.mention}\n\n{competition.url}"
-        embed_utils.user_to_footer(embed, interaction.user)
-        return await interaction.response.send_message(embed=embed)
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()

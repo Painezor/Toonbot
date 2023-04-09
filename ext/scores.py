@@ -530,10 +530,20 @@ class Scores(commands.Cog):
                 await page.wait_for_url("**standings/#/**")
 
             if "#" in page.url:
-                fs_id = page.url.split("/")[-1]
+                splt = page.url.rsplit("/")
+                splt.reverse()
 
-                if fs_id in ["live", "table", "overall"]:
-                    logger.info("Bad ID from %s", page.url)
+                for i in splt:
+                    if i in ["live", "table", "overall"]:
+                        continue
+
+                    if i == "#":
+                        logger.info("Could not parsee ID from %s", page.url)
+                        fs_id = None
+                        break
+
+                    fs_id = i
+                    break
 
             else:
                 t_bar = page.locator(".tabs__tab")

@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 # TODO: Split /logs command into subcommands with sub-views & Parent.
 # TODO: Fallback parser using regular events -- Check if bot has
@@ -160,7 +161,6 @@ def iter_embed(
     main: bool = False,
     last: bool = False,
 ) -> discord.Embed:
-
     # Diff is either entry.changes.before or entry.changes.after
 
     embed = discord.Embed()
@@ -946,12 +946,8 @@ class ToggleButton(discord.ui.Button):
 class LogsConfig(view_utils.BaseView):
     """Generic Config View"""
 
-    def __init__(
-        self,
-        channel: discord.TextChannel,
-    ) -> None:
-
-        super().__init__()
+    def __init__(self, invoker: User, channel: discord.TextChannel) -> None:
+        super().__init__(invoker)
 
         self.channel: discord.TextChannel = channel
 
@@ -1133,7 +1129,6 @@ class AuditLogs(commands.Cog):
     async def on_audit_log_entry_create(
         self, entry: discord.AuditLogEntry
     ) -> None:
-
         channels = await self.get_channels(entry)
 
         if entry.category == discord.AuditLogActionCategory.create:
@@ -1562,7 +1557,7 @@ class AuditLogs(commands.Cog):
     @commands.Cog.listener()
     async def on_app_command_completion(
         self,
-        interaction: discord.Interaction[PBot | Bot],
+        interaction: Interaction,
         cmd: discord.app_commands.Command | discord.app_commands.ContextMenu,
     ) -> None:
         """Log commands as they are run"""
@@ -1591,7 +1586,7 @@ class AuditLogs(commands.Cog):
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
-        return await LogsConfig(channel).update(interaction)
+        return await LogsConfig(interaction.user, channel).update(interaction)
 
 
 async def setup(bot: Bot | PBot) -> None:

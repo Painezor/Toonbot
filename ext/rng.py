@@ -14,6 +14,7 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 COIN = (
     "https://www.iconpacks.net/icons/1/"
@@ -30,8 +31,8 @@ COIN = (
 class DiceBox(view_utils.BaseView):
     """A View with buttons for various dice"""
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, invoker: User) -> None:
+        super().__init__(invoker)
         self.rolls: list[list[int]] = []
 
     async def update(self, interaction: Interaction) -> None:
@@ -71,43 +72,38 @@ class DiceButton(discord.ui.Button):
 
     async def callback(self, interaction: Interaction) -> None:
         """When clicked roll"""
-
-        await interaction.response.defer()
         roll = random.randrange(1, self.sides + 1)
-
         if not self.view.rolls:
             self.view.rolls = [[roll]]
         else:
             self.view.rolls[-1].append(roll)
-
         return await self.view.update(interaction)
 
 
 class CoinView(view_utils.BaseView):
     """A View with a counter for 2 results"""
 
-    def __init__(self, count: int = 1) -> None:
-        super().__init__()
+    def __init__(self, invoker: User, count: int = 1) -> None:
+        super().__init__(invoker)
+
         self.flip_results = [random.choice(["H", "T"]) for _ in range(count)]
 
-    async def update(
-        self,
-        interaction: Interaction,
-        content: typing.Optional[str] = None,
-    ) -> None:
-        """Update embed and push to view"""
         embed = discord.Embed(title=self.flip_results[-1])
         embed.colour = discord.Colour.og_blurple()
         embed.set_thumbnail(url=COIN)
         embed.set_author(name="Coin Flip")
+        self.embed = embed
 
+    async def update(self, interaction: Interaction) -> None:
+        """Update embed and push to view"""
         counter = collections.Counter(self.flip_results)
+
+        embed = self.embed
         embed.description = f"*{self.flip_results[-50:]}*"
         for item in counter.most_common():
             embed.description += f"\n**Total {item[0]}**: {item[1]}"
 
-        edit = interaction.response.edit_message
-        return await edit(content=content, view=self, embed=embed)
+        return await interaction.response.edit_message(view=self, embed=embed)
 
 
 # TODO: Make Decorator
@@ -117,7 +113,6 @@ class FlipButton(discord.ui.Button):
     view: CoinView
 
     def __init__(self, label: str = "Flip a Coin", count: int = 1) -> None:
-
         style = discord.ButtonStyle.primary
         super().__init__(label=label, emoji="🪙", style=style)
         self.count: int = count
@@ -185,18 +180,18 @@ class Random(commands.Cog):
     async def coin(self, interaction: Interaction, count: int = 1) -> None:
         """Flip a coin"""
         if count > 10000:
-            embed = discord.Embed()
-            embed.description = f"🚫 Too many coins"
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = "🚫 Too many coins"
             reply = interaction.response.send_message
             return await reply(embed=embed, ephemeral=True)
 
-        view = CoinView(count=count)
+        view = CoinView(interaction.user, count)
         view.add_item(FlipButton())
 
         for _ in [5, 10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
-        view.add_page_buttons(1)
-        return await view.update(interaction)
+        embed = view.embed
+        return await interaction.response.send_message(view=view, embed=embed)
 
     @discord.app_commands.command(name="8ball")
     @discord.app_commands.describe(question="enter a question")

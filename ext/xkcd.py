@@ -15,15 +15,16 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
-logger = logging.getLogger('xkcd')
+logger = logging.getLogger("xkcd")
 
 
 class XKCDView(view_utils.BaseView):
     """A View to browse XKCD Comics"""
 
-    def __init__(self, index: int = 0):
-        super().__init__()
+    def __init__(self, invoker: User, index: int = 0):
+        super().__init__(invoker)
         self.index: int = index
 
     async def update(self, interaction: Interaction):
@@ -67,18 +68,18 @@ class XKCD(commands.Cog):
     @xkcd.command()
     async def latest(self, interaction: Interaction):
         """Get the latest XKCD Comic"""
-        return await XKCDView().update(interaction)
+        return await XKCDView(interaction.user).update(interaction)
 
     @xkcd.command()
     async def random(self, interaction: Interaction):
         """Get the latest XKCD Comic"""
-        return await XKCDView(-1).update(interaction)
+        return await XKCDView(interaction.user, -1).update(interaction)
 
     @xkcd.command()
     async def number(self, interaction: Interaction, number: int):
         """Get XKCD Comic by number..."""
         await interaction.response.defer(thinking=True)
-        return await XKCDView(number).update(interaction)
+        return await XKCDView(interaction.user, number).update(interaction)
 
 
 async def setup(bot: Bot) -> None:

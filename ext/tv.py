@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    User: typing.TypeAlias = discord.Interaction[Bot]
 
 # aiohttp useragent.
 HEADERS = {
@@ -39,10 +40,8 @@ LST = "http://www.livesoccertv.com/"
 class TVSelect(view_utils.BaseView):
     """View for asking user to select a specific fixture"""
 
-    bot: Bot
-
-    def __init__(self, teams: list):
-        super().__init__()
+    def __init__(self, invoker: User, teams: list):
+        super().__init__(invoker)
 
         self.teams: list = teams
 
@@ -63,7 +62,7 @@ class TVSelect(view_utils.BaseView):
         embed.description = ""
 
         for team in targets:
-            value = self.bot.tv_dict[team]
+            value = interaction.client.tv_dict[team]
             sel.add_option(emoji="📺", label=team, value=value)
             embed.description += f"{team}\n"
         self.add_item(sel)

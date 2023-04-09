@@ -17,7 +17,7 @@ if typing.TYPE_CHECKING:
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
 
 CLR_PICKER = "http://htmlcolorcodes.com/color-picker/"
-EMOJI = "<:mbemba:332196308825931777>"
+M_EMOJI = "<:mbemba:332196308825931777>"
 
 # Shake meme
 SHAKE = (
@@ -181,33 +181,18 @@ class MbembaView(BaseView):
 
     async def update(self, interaction: Interaction) -> None:
         """Regenerate the embed and push to view."""
-        self.clear_items()
-        self.add_item(MbembaButton())
-
         item = random.choice(MBEMBA)
         embed = discord.Embed(title="Mbemba when")
         embed.colour = discord.Colour.purple()
         embed.description = f"<:mbemba:332196308825931777> {item}"
-        edit = interaction.response.edit_message
-        return await edit(embed=embed, view=self)
+        return await interaction.response.edit_message(embed=embed, view=self)
 
-
-class MbembaButton(discord.ui.Button):
-    """Re-roll button"""
-
-    view: MbembaView
-
-    def __init__(self) -> None:
-
-        super().__init__(
-            label="Mbemba Again",
-            style=discord.ButtonStyle.blurple,
-            emoji=EMOJI,
-        )
-
-    async def callback(self, interaction: Interaction) -> None:
+    @discord.ui.button(
+        label="Mbemba Again", style=discord.ButtonStyle.blurple, emoji=M_EMOJI
+    )
+    async def again(self, interaction: Interaction, _) -> None:
         """When clicked, re roll."""
-        await self.view.update(interaction)
+        await self.update(interaction)
 
 
 class NUFC(commands.Cog):
@@ -220,7 +205,7 @@ class NUFC(commands.Cog):
     @discord.app_commands.guilds(332159889587699712)
     async def mbemba(self, interaction: Interaction) -> None:
         """Mbemba When…"""
-        return await MbembaView().update(interaction)
+        return await MbembaView(interaction.user).update(interaction)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)

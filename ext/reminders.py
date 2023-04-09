@@ -235,7 +235,8 @@ class Reminders(commands.Cog):
         embed = discord.Embed(colour=0x7289DA, title="Your reminders")
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        return await view_utils.Paginator(embeds).handle_page(interaction)
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
 
 
 async def setup(bot: Bot | PBot) -> None:

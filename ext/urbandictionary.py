@@ -1,5 +1,4 @@
 """Fetch Definitions from UrbanDictionary"""
-# TODO: Fix Jump Button to be clickable and to show page number.
 from __future__ import annotations
 
 import datetime
@@ -22,7 +21,7 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("urbandictionary")
 
 
-DEFINE = "https://www.urbandictionary.com/define.php?term="
+DEFINE = "https://www.urbandictionary.com/v0/define.php?term="
 THUMBNAIL = (
     "http://d2gatte9o95jao.cloudfront.net/assets/"
     "apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
@@ -52,22 +51,6 @@ async def ud_ac(
         if len(choices) == 25:
             break
     return choices
-
-
-class UrbanView(view_utils.BaseView):
-    """Generic View to paginate through multiple definitions"""
-
-    def __init__(self, embeds: list[discord.Embed]) -> None:
-        super().__init__()
-        self.pages: list[discord.Embed] = embeds
-
-    async def update(self, interaction: Interaction) -> None:
-        """Push the latest version of the view to the user"""
-        self.clear_items()
-
-        self.add_page_buttons()
-        edit = interaction.response.edit_message
-        return await edit(embed=self.pages[self.index], view=self)
 
 
 def parse(results: dict) -> list[discord.Embed]:
@@ -121,30 +104,29 @@ class UrbanDictionary(commands.Cog):
     async def search(self, interaction: Interaction, term: str) -> None:
         """Lookup a definition from Urban Dictionary"""
 
-        await interaction.response.defer(thinking=True)
-
-        url = f"http://api.urbandictionary.com/v0/define?term={term}"
+        url = DEFINE + term
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
                 logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
 
             if not (embeds := parse(await resp.json())):
-                embed = discord.Embed()
+                embed = discord.Embed(colour=discord.Colour.red())
                 embed.description = f"🚫 No results for {term}"
                 reply = interaction.response.send_message
                 return await reply(embed=embed, ephemeral=True)
-            return await UrbanView(embeds).update(interaction)
+
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
 
     @ud.command()
     async def random(self, interaction: Interaction) -> None:
         """Get some random definitions from Urban Dictionary"""
-        await interaction.response.defer(thinking=True)
-
         async with self.bot.session.get(RANDOM) as resp:
             if resp.status != 200:
                 logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
-            data = parse(await resp.json())
-        return await UrbanView(data).update(interaction)
+            embeds = parse(await resp.json())
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
 
     @ud.command()
     async def word_of_the_day(self, interaction: Interaction) -> None:
@@ -153,8 +135,9 @@ class UrbanDictionary(commands.Cog):
         async with self.bot.session.get(WORD_OF_THE_DAY) as resp:
             if resp.status != 200:
                 logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
-            data = parse(await resp.json())
-        return await UrbanView(data).update(interaction)
+            embeds = parse(await resp.json())
+        view = view_utils.Paginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
 
 
 async def setup(bot: Bot) -> None:

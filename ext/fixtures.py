@@ -1519,7 +1519,7 @@ class Fixtures(commands.Cog):
     @match.command(name="table")
     @discord.app_commands.describe(match=FIXTURE)
     async def fx_table(
-        self, interaction: Interaction, match: fs.fix_transf
+        self, interaction: Interaction, match: fs.fix_trnsf
     ) -> None:
         """Look up the table for a fixture."""
         page = await self.bot.browser.new_page()
@@ -1586,7 +1586,7 @@ class Fixtures(commands.Cog):
     @team.command(name="table")
     @discord.app_commands.describe(team=TEAM_NAME)
     async def team_table(
-        self, interaction: Interaction, team: fs.team_transf
+        self, interaction: Interaction, team: fs.team_trnsf
     ) -> None:
         """Get the Table of one of a Team's competitions"""
         page = await self.bot.browser.new_page()

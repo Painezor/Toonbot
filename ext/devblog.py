@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 logger = logging.getLogger("Devblog")
 
@@ -284,8 +285,8 @@ class Blog:
 class DevBlogView(view_utils.Paginator):
     """Browse Dev Blogs"""
 
-    def __init__(self, pages: list[asyncpg.Record]) -> None:
-        super().__init__(pages)
+    def __init__(self, invoker: User, pages: list[asyncpg.Record]) -> None:
+        super().__init__(invoker, pages)
         self.pages: list[Blog] = pages
 
     async def handle_page(self, interaction: Interaction) -> None:
@@ -455,7 +456,7 @@ class DevBlog(commands.Cog):
             # If a specific blog is not selected, send the browser view.
             txt = search.casefold()
             yes = [i for i in dbc if txt in f"{i.title} {i.text}".casefold()]
-            view = DevBlogView(pages=yes)
+            view = DevBlogView(interaction.user, pages=yes)
             return await view.handle_page(interaction)
 
     @commands.Cog.listener()

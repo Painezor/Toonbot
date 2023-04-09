@@ -8,9 +8,10 @@ from discord.ext import commands
 from ext.utils import view_utils
 
 if typing.TYPE_CHECKING:
-    from core import Bot
+    from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 # TODO: Fetch YouTube Playlist via API?
 HIW = {
@@ -47,7 +48,7 @@ class HowItWorksTransformer(discord.app_commands.Transformer):
     """Convert user input to video url"""
 
     async def autocomplete(
-        self, _: Interaction, current: str
+        self, _: Interaction, current: str, /
     ) -> list[discord.app_commands.Choice]:
         """Send matching choices"""
         options = []
@@ -57,7 +58,7 @@ class HowItWorksTransformer(discord.app_commands.Transformer):
             options.append(discord.app_commands.Choice(name=k, value=val))
         return options
 
-    async def transform(self, interaction: Interaction, value: str):
+    async def transform(self, interaction: Interaction, value: str, /):
         """Get Value"""
         return value
 
@@ -65,18 +66,21 @@ class HowItWorksTransformer(discord.app_commands.Transformer):
 class HowItWorks(view_utils.BaseView):
     """Video Browser"""
 
-    def __init__(self):
-        super().__init__(timeout=None)
+    def __init__(self, invoker: User):
+        super().__init__(invoker, timeout=None)
 
     @discord.ui.select(placeholder="Change Video", options=opts)
-    async def callback(self, interaction: Interaction, sel: discord.ui.Select):
+    async def dropdown(self, interaction: Interaction, sel: discord.ui.Select):
+        """When the dropdown is clicked edit with new content"""
         value = sel.values[0]
         return await interaction.response.edit_message(content=value)
 
 
 class HowItWorksCog(commands.Cog):
-    def __init__(self, bot: Bot) -> None:
-        self.bot = bot
+    """Browse the How It Works Video Series"""
+
+    def __init__(self, bot: PBot) -> None:
+        self.bot: PBot = bot
 
     @discord.app_commands.command()
     async def how_it_works(
@@ -85,9 +89,10 @@ class HowItWorksCog(commands.Cog):
         video: discord.app_commands.Transform[str, HowItWorksTransformer],
     ) -> None:
         """Links to the various How It Works videos"""
-        view = HowItWorks()
+        view = HowItWorks(interaction.user)
         await interaction.response.send_message(content=video, view=view)
 
 
-async def setup(bot: Bot):
+async def setup(bot: PBot):
+    """Load the How it Works Cog into the bot"""
     await bot.add_cog(HowItWorksCog(bot))

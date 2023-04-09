@@ -19,6 +19,7 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 RSS_NEWS = "https://worldofwarships.%%/en/rss/news/"
 
@@ -198,8 +199,8 @@ class NewsChannel:
 class NewsConfig(view_utils.BaseView):
     """News Tracker Config View"""
 
-    def __init__(self, channel: NewsChannel) -> None:
-        super().__init__()
+    def __init__(self, invoker: User, channel: NewsChannel) -> None:
+        super().__init__(invoker)
         self.channel: NewsChannel = channel
 
         style = discord.ButtonStyle
@@ -451,6 +452,7 @@ class NewsTracker(commands.Cog):
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
+        # TODO: Confirmation Dialogue
         try:
             chan = self.bot.news_channels
             target = next(i for i in chan if i.channel.id == channel.id)
@@ -464,7 +466,7 @@ class NewsTracker(commands.Cog):
             target = NewsChannel(self.bot, channel, record)
             self.bot.news_channels.append(target)
 
-        view = NewsConfig(target)
+        view = NewsConfig(interaction.user, target)
         await interaction.response.send_message(view=view, embed=view.embed())
         view.message = await interaction.original_response()
 
