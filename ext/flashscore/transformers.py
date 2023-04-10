@@ -7,7 +7,7 @@ import discord
 from ext.utils import view_utils
 
 from .competitions import Competition
-from .fixture import Fixture, parse_games
+from .fixture import Fixture
 from .team import Team
 from .search import search
 
@@ -117,7 +117,7 @@ class FixtureSelect(view_utils.DropdownPaginator):
 
     @discord.ui.select(placeholder="Choose a fixture")
     async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
-        self.fixture = next(i for i in self.fixtures if i.id == sel.values[0])
+        self.fixture = next(i for i in self.fixtures if i.id in sel.values)
         self.interaction = itr
         return
 
@@ -157,16 +157,20 @@ async def choose_recent_fixture(
     interaction: Interaction, fsr: Competition | Team
 ) -> Fixture:
     """Allow the user to choose from the most recent games of a fixture"""
-    fixtures = await parse_games(interaction.client, fsr, "/results/")
+    cache = interaction.client.competitions
+    page = await interaction.client.browser.new_page()
+    try:
+        fixtures = await fsr.results(page, cache)
+    finally:
+        await page.close()
 
     view = FixtureSelect(interaction.user, fixtures)
     await interaction.response.edit_message(view=view, embed=view.pages[0])
     await view.wait()
 
-    if not view.value:
+    if not view.fixture:
         raise TimeoutError
-
-    return next(i for i in fixtures if i.score_line == view.value[0])
+    return view.fixture
 
 
 class TeamTransformer(discord.app_commands.Transformer):
@@ -177,7 +181,7 @@ class TeamTransformer(discord.app_commands.Transformer):
     ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete from list of stored teams"""
         teams = interaction.client.teams
-        teams: list[Team] = sorted(teams, key=lambda x: x.name)
+        teams.sort(key=lambda x: x.name)
 
         # Run Once - Set Default for interaction.
         if "default" not in interaction.extras:

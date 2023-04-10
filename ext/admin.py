@@ -21,7 +21,7 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("Admin")
 
 
-def error_to_codeblock(error) -> str:
+def error_to_codeblock(error: Exception) -> str:
     """Formatting of python errors into codeblocks"""
     fmt = format_exception(type(error), error, error.__traceback__)
     return f"🚫 {type(error).__name__}: {error}\n```py\n" f'{"".join(fmt)}```'

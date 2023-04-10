@@ -109,8 +109,13 @@ class NUFCSidebar(commands.Cog):
         if fsr is None:
             raise ValueError(f"Team with ID {team_id} not found in db")
 
-        fixtures = await fs.parse_games(self.bot, fsr, "/fixtures/")
-        results = await fs.parse_games(self.bot, fsr, "/results/")
+        cache = self.bot.competitions
+        page = await self.bot.browser.new_page()
+        try:
+            fixtures = await fsr.fixtures(page, cache)
+            results = await fsr.results(page, cache)
+        finally:
+            await page.close()
 
         url = "http://www.bbc.co.uk/sport/football/premier-league/table"
         async with self.bot.session.get(url) as resp:
@@ -338,7 +343,6 @@ class NUFCSidebar(commands.Cog):
 
         subreddit = await self.bot.reddit.subreddit("NUFC")
         if caption:
-
             page = await subreddit.wiki.get_page("sidebar")
 
             new_txt = f"---\n\n> {caption}\n\n---"

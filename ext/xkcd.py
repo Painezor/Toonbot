@@ -20,14 +20,65 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("xkcd")
 
 
-class XKCDView(view_utils.BaseView):
+class XKCDView(view_utils.AsyncPaginator):
     """A View to browse XKCD Comics"""
 
-    def __init__(self, invoker: User, index: int = 0):
-        super().__init__(invoker)
-        self.index: int = index
+    def __init__(
+        self, invoker: User, index: int, max_page: int, embed: discord.Embed
+    ):
+        super().__init__(invoker, max_page)
 
-    async def update(self, interaction: Interaction):
+        if index is None:
+            index = random.randrange(1, max_page)
+        elif index == -1:
+            index = max_page
+        self.index = index
+
+        self.initial_embed = embed  # Used once.
+
+    @classmethod
+    async def create(
+        cls, interaction: Interaction, *, start: typing.Optional[int] = -1
+    ) -> XKCDView:
+        """Spawn a view asynchronously"""
+        url = "https://xkcd.com/info.0.json"
+        async with interaction.client.session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            json = await resp.json()
+
+        max_page = int(json["num"])
+
+        if start is None:
+            start = random.randrange(1, max_page)
+        elif start == -1:
+            start = max_page
+
+        url = f"https://xkcd.com/{start}/info.0.json"
+        async with interaction.client.session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            json = await resp.json()
+
+        embed = cls.make_embed(json)
+
+        view = XKCDView(interaction.user, start, max_page, embed)
+        return view
+
+    @staticmethod
+    def make_embed(json: dict) -> discord.Embed:
+        """Convert JSON To Embed"""
+        embed = discord.Embed(title=f"{json['num']}: {json['safe_title']}")
+
+        year = int(json["year"])
+        month = int(json["month"])
+        time = datetime.datetime(year, month, int(json["day"]))
+        embed.timestamp = time
+        embed.set_footer(text=json["alt"])
+        embed.set_image(url=json["img"])
+        return embed
+
+    async def handle_page(self, interaction: Interaction):
         """Get the latest version of the view."""
         url = f"https://xkcd.com/{self.index}/info.0.json"
         async with interaction.client.session.get(url) as resp:
@@ -35,24 +86,9 @@ class XKCDView(view_utils.BaseView):
                 logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
             json = await resp.json()
 
-            if self.index == -1:
-                self.index = random.randrange(1, int(json["num"]))
-                return await self.update(interaction)
-
-        def parse() -> discord.Embed:
-            """Convert JSON To Embed"""
-            embed = discord.Embed(title=f"{json['num']}: {json['safe_title']}")
-
-            year = int(json["year"])
-            month = int(json["month"])
-            time = datetime.datetime(year, month, int(json["day"]))
-            embed.timestamp = time
-            embed.set_footer(text=json["alt"])
-            embed.set_image(url=json["img"])
-            return embed
-
-        self.clear_items()
-        return await interaction.response.edit_message(embed=parse())
+        embed = self.make_embed(json)
+        await super().handle_page(interaction)
+        return await interaction.response.edit_message(embed=embed)
 
 
 class XKCD(commands.Cog):
@@ -66,20 +102,25 @@ class XKCD(commands.Cog):
     )
 
     @xkcd.command()
-    async def latest(self, interaction: Interaction):
+    async def latest(self, interaction: Interaction) -> None:
         """Get the latest XKCD Comic"""
-        return await XKCDView(interaction.user).update(interaction)
+        view = await XKCDView.create(interaction, start=-1)
+        embed = view.initial_embed
+        await interaction.response.send_message(view=view, embed=embed)
 
     @xkcd.command()
-    async def random(self, interaction: Interaction):
+    async def random(self, interaction: Interaction) -> None:
         """Get the latest XKCD Comic"""
-        return await XKCDView(interaction.user, -1).update(interaction)
+        view = await XKCDView.create(interaction)
+        embed = view.initial_embed
+        await interaction.response.send_message(view=view, embed=embed)
 
-    @xkcd.command()
-    async def number(self, interaction: Interaction, number: int):
+    @xkcd.command(name="number")
+    async def num(self, interaction: Interaction, number: int) -> None:
         """Get XKCD Comic by number..."""
-        await interaction.response.defer(thinking=True)
-        return await XKCDView(interaction.user, number).update(interaction)
+        view = await XKCDView.create(interaction, start=number)
+        embed = view.initial_embed
+        await interaction.response.send_message(view=view, embed=embed)
 
 
 async def setup(bot: Bot) -> None:

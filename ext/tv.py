@@ -1,6 +1,7 @@
 """Fetch the televised matches from livesoccertv.com"""
 from __future__ import annotations
 
+import dataclasses
 import logging
 import json
 import typing
@@ -16,60 +17,71 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.Interaction[Bot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 # aiohttp useragent.
+LST = "http://www.livesoccertv.com/"
+AC_URL = "https://www.livesoccertv.com/include/autocomplete.php"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4)"
-    " AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 "
-    " Safari/537.36"
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_14_4) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36"
 }
 
 logger = logging.getLogger("tv")
 
-LST = "http://www.livesoccertv.com/"
 
 # TODO: Team / League Split
 # TODO: Initial Passover of fixture upon view creation
 # to get all available buttons in the style of Fixtures rewrite.
 # TODO: Make functions for all buttons.
 
-# TODO: New Version of Select View
+
+#
+# <div class="hints">
+#   <a href="/slog.php?q=testi&url=%2Fteams%2Fromania%2Farge-pite-ti%2F" style="color:#333;text-decoration:none;">
+#       <div class="flaticon crest lblue" title="Team"></div>
+#       <span class="name" title="Club"></span>
+#       Argeş Piteşti
+#       <div class="sdesc"># Romania </div>
+#   </a>
+# </div>
+# <div class="hints">
+#   <a href="/slog.php?q=testi&url=%2Fteams%2Fromania%2Fminerul-coste-ti%2F" style="color:#333;text-decoration:none;">
+#       <div class="flaticon crest lblue" title="Team"></div>
+#       <span class="name" title="Club"></span>
+#       Minerul Costeşti
+#       <div class="sdesc"># Romania </div>
+#   </a>
+# </div>
+# <div class="hints">
+# <a href="/slog.php?q=testi&url=%2Fcompetitions%2Finternational%2Fclub-friendly%2F" style="color:#333;text-decoration:none;">
+# <div class="flaticon cup lred" title="Competition"></div>
+# <span class="name" title="Competition"></span>
+# Club Friendly <div class="sdesc">
+# International </div>
+# </a>
+# </div>
+# <div class="hints">
+# <a href="/slog.php?q=testi&url=%2Fplayer%2Fivanaldo%2F317736%2F" style="color:#333;text-decoration:none;">
+# <div class="flaticon player lggrey" title="Player"></div>
+# <span class="name" title="Player"></span>
+# Testinha <div class="sdesc">
+# Pacajus </div>
+# </a>
+# </div>
 
 
-class TVSelect(view_utils.BaseView):
-    """View for asking user to select a specific fixture"""
+@dataclasses.dataclass(slots=True)
+class SearchResult:
+    pass
 
-    def __init__(self, invoker: User, teams: list):
-        super().__init__(invoker)
 
-        self.teams: list = teams
+class TVTeam:
+    pass
 
-        # Pagination
-        self.index: int = 0
-        self.pages: list[list] = [
-            self.teams[i : i + 25] for i in range(0, len(self.teams), 25)
-        ]
 
-        # Final result
-        self.value: typing.Any = None  # As Yet Unset
-
-    async def update(self, interaction: Interaction) -> None:
-        """Handle Pagination"""
-        targets: list = self.pages[self.index]
-        sel = view_utils.ItemSelect(placeholder="Please choose a Team")
-        embed = discord.Embed(title="Choose a Team")
-        embed.description = ""
-
-        for team in targets:
-            value = interaction.client.tv_dict[team]
-            sel.add_option(emoji="📺", label=team, value=value)
-            embed.description += f"{team}\n"
-        self.add_item(sel)
-        self.add_page_buttons(1)
-
-        edit = interaction.response.edit_message
-        return await edit(embed=embed, view=self)
+class TVCompetition:
+    pass
 
 
 async def tv_ac(
@@ -78,11 +90,17 @@ async def tv_ac(
     """Return list of live teams"""
     cur = current.casefold()
 
+    data = {"search": cur}
+    async with interaction.client.session.post(AC_URL, data=data) as resp:
+        if resp.status != 200:
+            logger.error("%s %s %s", resp.status, resp.reason, resp.url)
+        tree = html.fromstring(await resp.text())
+
+    for i in tree.xpath("./div"):
+        pass
+
+    logger.info("FINISH TV_AC!")
     choices = []
-    for key in interaction.client.tv_dict.keys():
-        if cur not in key.casefold():
-            continue
-        choices.append(discord.app_commands.Choice(name=key[:100], value=key))
 
     return choices[:25]
 
@@ -182,7 +200,7 @@ class Tv(commands.Cog):
             rows = [f"No televised matches found, check online at {embed.url}"]
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        view = view_utils.Paginator(embeds)
+        view = view_utils.Paginator(interaction.user, embeds)
         return await view.handle_page(interaction)
 
 

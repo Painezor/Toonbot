@@ -68,14 +68,15 @@ def stringify_seconds(value: int) -> str:
     try:
         return {
             0: "`None`",
-            60: "1 Minute",
+            60: "1 minute",
             120: "2 minutes",
-            1800: "30 Minutes",
-            3600: "1 Hour",
-            7200: "2 Hours",
-            21600: "6 Hours",
-            86400: "1 Day",
-            604800: "7 Days",
+            600: "10 minutes",
+            1800: "30 minutes",
+            3600: "1 hour",
+            7200: "2 hours",
+            21600: "6 hours",
+            86400: "1 day",
+            604800: "7 days",
         }[value]
     except KeyError:
         if value > 60:
@@ -342,9 +343,9 @@ def iter_embed(
 
                     # For Warnings
                     if i.channel_id:
-                        text += f" in <#{i.channel_id}"
+                        text += f" in <#{i.channel_id}>"
                     text += "\n"
-                embed.add_field(name=key, value=text)
+                embed.add_field(name="Actions", value=text)
 
         elif key == "afk_channel":
             afk_chan: discord.VoiceChannel | None = value
@@ -543,8 +544,9 @@ def iter_embed(
             # The list of channels or threads that are
             # exempt from the automod rule.
             e_roles: list[discord.Role | discord.Object] = value
-            ment = ", ".join([f"<&{i.id}>" for i in e_roles])
-            embed.add_field(name="Exempt Roles", value=ment)
+            if e_roles:
+                ment = ", ".join([f"<&{i.id}>" for i in e_roles])
+                embed.add_field(name="Exempt Roles", value=ment)
 
         elif key == "expire_behavior":
             pass  # Alias
@@ -705,7 +707,7 @@ def iter_embed(
                 embed.add_field(name="Permission Overwrites", value=output)
 
         elif key == "owner":
-            owner: discord.Member | discord.User = value
+            owner: User = value
             onr = owner.mention if owner else "None"
             embed.description += f"**Owner**: {onr}\n"
 
@@ -1271,7 +1273,7 @@ class AuditLogs(commands.Cog):
         if not channels:
             return
 
-        user: discord.User | discord.Member = payload.user
+        user: User = payload.user
         embed = discord.Embed(title="Member Left", description=user.mention)
         embed.colour = discord.Colour.dark_red()
         embed.timestamp = discord.utils.utcnow()

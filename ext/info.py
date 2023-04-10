@@ -15,7 +15,7 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot | Bot]
-
+    User: typing.TypeAlias = discord.User | discord.Member
 
 # TODO: Donate Button Command.
 # TODO: Subclass Embeds for Info (Too many branches linter warning)
@@ -33,7 +33,7 @@ class Info(commands.Cog):
     async def avatar(
         self,
         interaction: Interaction,
-        user: typing.Optional[discord.User | discord.Member],
+        user: typing.Optional[User],
     ) -> None:
         """Shows a member's avatar"""
         embed = discord.Embed(timestamp=discord.utils.utcnow())

@@ -157,13 +157,9 @@ class ModeTransformer(discord.app_commands.Transformer):
         /,
     ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete from list of stored teams"""
-        modes = interaction.client.modes
-        modes = sorted(modes, key=lambda x: x.name)
-
         curr = current.casefold()
-
         choices = []
-        for i in modes:
+        for i in sorted(interaction.client.modes, key=lambda x: x.name):
             if curr not in i.name.casefold():
                 continue
 
@@ -179,7 +175,7 @@ class ModeTransformer(discord.app_commands.Transformer):
 
 
 class PlayerTransformer(discord.app_commands.Transformer):
-    """Conver User Input to Player Object"""
+    """Convert User Input to Player Object"""
 
     async def autocomplete(
         self, interaction: Interaction, value: str, /

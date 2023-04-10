@@ -19,6 +19,7 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("bans")
 
 
+# TODO: DropdownPaginatorMultiple
 class BanView(view_utils.DropdownPaginator):
     """View to hold the BanList"""
 
@@ -47,7 +48,9 @@ class BanView(view_utils.DropdownPaginator):
         self.dropdown.max_values = len(self.dropdown.options)
 
     @discord.ui.select(placeholder="Unban members")
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, select: discord.ui.Select[BanView]
+    ) -> None:
         """Perform unbans on the entries passed back from the SelectOption"""
 
         embed = discord.Embed(colour=discord.Colour.green())
@@ -59,7 +62,7 @@ class BanView(view_utils.DropdownPaginator):
         embed_utils.user_to_footer(embed, itr.user)
 
         reason = f"Requested by {itr.user}"
-        for ban in sel.values:
+        for ban in select.values:
             entry = next(i for i in self.bans if str(i.user.id) == ban)
             user = entry.user
             await guild.unban(user, reason=reason)
@@ -76,12 +79,12 @@ class BanView(view_utils.DropdownPaginator):
 class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
     """Modal for user to enter multi line bans on."""
 
-    ban_list: discord.ui.TextInput = discord.ui.TextInput(
+    ban_list: discord.ui.TextInput[BanModal] = discord.ui.TextInput(
         label="Enter User IDs to ban, one per line",
         style=discord.TextStyle.paragraph,
         placeholder="12345678901234\n12345678901235\n12345678901236\n…",
     )
-    reason: discord.ui.TextInput = discord.ui.TextInput(
+    reason: discord.ui.TextInput[BanModal] = discord.ui.TextInput(
         label="Enter a reason",
         placeholder="<Insert your reason here>",
         default="No reason provided",

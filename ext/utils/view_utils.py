@@ -30,35 +30,42 @@ class BaseView(discord.ui.View):
         self,
         invoker: User,
         *,
-        parent: typing.Optional[FuncButton] = None,
+        parent: typing.Optional[BaseView] = None,
         timeout: typing.Optional[float] = 180,
     ):
         # User ID of the person who invoked the command.
-        self.invoker: int = invoker.id
-
-        self.index: int = 0
-        self.pages: list[typing.Any] = []
-        self.parent: typing.Optional[FuncButton] = parent
-
-        if parent is not None:
-            if not parent.label:
-                parent.label = "Back"
-            if not parent.emoji:
-                parent.emoji = "🔼"
-
-        self.value: list[str] = []
-
         super().__init__(timeout=timeout)
+
+        self.invoker: int = invoker.id
+        self.index: int = 0
+
+        self.parent = parent
+        if parent is None:
+            self.remove_item(self.parent_button)
+
+    @discord.ui.button(label="Back", emoji="🔼")
+    async def parent_button(self, interaction: Interaction, _) -> None:
+        """Send Parent View"""
+        assert self.parent is not None
+        return await self.parent.entry_point(interaction)
+
+    async def entry_point(self, interaction: Interaction):
+        """Handle instantiation of a view from interaction alone"""
+        await interaction.response.edit_message(view=self, embed=None)
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         """Make sure only the person running the command can select options"""
         return interaction.user.id == self.invoker
 
-    async def on_timeout(self) -> discord.Message:
+    async def on_timeout(self) -> None:
         """Cleanup"""
         for i in self.children:
             i.disabled = True
-        return await self.message.edit(view=self)
+
+        if self.message is None:
+            logger.error("Message not set on view %s", self.__class__.__name__)
+            return
+        await self.message.edit(view=self)
 
     def add_function_row(
         self,
@@ -142,25 +149,10 @@ class Stop(discord.ui.Button):
         self.view.stop()
 
 
-class ItemSelect(discord.ui.Select):
-    """A Select that sets the view value to one selected item"""
-
-    view: BaseView
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-
-    async def callback(self, interaction: Interaction) -> None:
-        """Response object for view"""
-        await interaction.response.defer()
-        self.view.value = self.values
-        self.view.stop()
-
-
-# TODO: refactor Paginator to take rows instead of embeds
+# TODO: AsyncPaginator
+# TODO: AsyncDropdownPaginator
 # TODO: Deperecate rows_to_embeds
 # TODO: Stop() to decorator of baseview
-# TODO: Nuke ItemSelect
 class Paginator(BaseView):
     """A Paginator takes a list of Embeds and an Optional list of
     lists of SelectOptions. When a button is clicked, the page is changed
@@ -169,11 +161,13 @@ class Paginator(BaseView):
 
     def __init__(
         self,
-        invoker: discord.User | discord.Member,
+        invoker: User,
         embeds: list[discord.Embed],
-        **kwargs,
+        *,
+        parent: typing.Optional[BaseView] = None,
+        timeout: typing.Optional[float] = None,
     ) -> None:
-        super().__init__(invoker, **kwargs)
+        super().__init__(invoker, parent=parent, timeout=timeout)
 
         self.pages = embeds
 
@@ -185,11 +179,15 @@ class Paginator(BaseView):
         self.jump.label = f"{self.index + 1}/{len(self.pages)}"
         self.jump.disabled = len(self.pages) < 3
 
+    async def entry_point(self, interaction: Interaction):
+        embed = self.pages[self.index]
+        await interaction.response.edit_message(view=self, embed=embed)
+        self.message = await interaction.original_response()
+
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
         embed = self.pages[self.index]
-        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
-        return await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="◀️", row=0)
     async def previous(self, interaction: Interaction, _) -> None:
@@ -207,6 +205,7 @@ class Paginator(BaseView):
         """Go To next Page"""
         logger.info("You pressed the next button.")
         self.index = min(self.index + 1, len(self.pages))
+        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
         await self.handle_page(interaction)
 
 
@@ -224,6 +223,9 @@ class DropdownPaginator(Paginator):
         options: list[discord.SelectOption],
         length: int = 25,
         footer: str = "",
+        *,
+        parent: typing.Optional[BaseView] = None,
+        timeout: typing.Optional[float] = None,
     ) -> None:
         embeds = embed_utils.rows_to_embeds(embed, rows, length, footer)
         self.dropdowns = embed_utils.paginate(options, length)
@@ -231,7 +233,7 @@ class DropdownPaginator(Paginator):
         self.dropdown: discord.ui.Select
         self.dropdown.options = self.dropdowns[0]
         self.options = options
-        super().__init__(invoker, embeds)
+        super().__init__(invoker, embeds, parent=parent, timeout=timeout)
 
     @discord.ui.select()
     async def dropdown(self, itr: Interaction, _: discord.ui.Select) -> None:
@@ -376,7 +378,7 @@ class Confirmation(BaseView):
 
     def __init__(
         self,
-        invoker: discord.Member | discord.User,
+        invoker: User,
         true: str = "Yes",
         false: str = "No",
     ) -> None:

@@ -130,25 +130,25 @@ class Competition(SearchResult):
         embed = self.base_embed.copy()
         embed.title = f"Average Attendance data for {self.name}"
         embed.url = url
-        ranked = sorted(rows, key=lambda x: x.average, reverse=True)
+        rows.sort(key=lambda x: x.average, reverse=True)
 
-        enu = [f"{i[0]}: {i[1].average_row}" for i in enumerate(ranked, 1)]
+        enu = [f"{i[0]}: {i[1].average_row}" for i in enumerate(rows, 1)]
         embeds += embed_utils.rows_to_embeds(embed, [i for i in enu], 25)
 
         embed = self.base_embed.copy()
         embed.title = f"Total Attendance data for {self.name}"
         embed.url = url
-        ranked = sorted(rows, key=lambda x: x.total, reverse=True)
+        rows.sort(key=lambda x: x.total, reverse=True)
 
-        enu = [f"{i[0]}: {i[1].total_row}" for i in enumerate(ranked, 1)]
+        enu = [f"{i[0]}: {i[1].total_row}" for i in enumerate(rows, 1)]
         embeds += embed_utils.rows_to_embeds(embed, [i for i in enu], 25)
 
         embed = self.base_embed.copy()
         embed.title = f"Max Capacity data for {self.name}"
         embed.url = url
-        ranked = sorted(rows, key=lambda x: x.capacity, reverse=True)
+        rows.sort(key=lambda x: x.capacity, reverse=True)
 
-        enu = [f"{i[0]}: {i[1].capacity_row}" for i in enumerate(ranked, 1)]
+        enu = [f"{i[0]}: {i[1].capacity_row}" for i in enumerate(rows, 1)]
         embeds += embed_utils.rows_to_embeds(embed, [i for i in enu], 25)
 
         return embeds
@@ -316,7 +316,7 @@ class Team(SearchResult):
                     logger.error("%s %s: %s", resp.status, resp.reason, url)
                 tree = html.fromstring(await resp.text())
 
-        def parse(rows: list, out: bool = False) -> list[Transfer]:
+        def parse(rows: list, out: bool = False) -> list[FSTransfer]:
             """Read through the transfers page and extract relevant data,
             returning a list of transfers"""
 
@@ -352,7 +352,7 @@ class Team(SearchResult):
                     _.strip() for _ in i.xpath(xpath) if _.strip()
                 ]
 
-                transfer = Transfer(player=player)
+                transfer = FSTransfer(player=player)
 
                 # Block 5 - Other Team
                 xpath = './td[5]//td[@class="hauptlink"]/a/text()'
@@ -518,7 +518,7 @@ class Agent(SearchResult):
 
 
 # TODO: Dataclass & Unpack from xpath
-class Transfer:
+class FSTransfer:
     """An Object representing a transfer from transfermarkt"""
 
     def __init__(self, player: Player) -> None:
@@ -844,7 +844,7 @@ class SearchView(view_utils.DropdownPaginator):
     @discord.ui.select(row=4, placeholder="Select correct item")
     async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Set self.value to target object"""
-        self.value = next(i for i in self.items if i.link == sel.values[0])
+        self.value = next(i for i in self.items if i.link in sel.values)
         self.interaction = itr
 
     @staticmethod

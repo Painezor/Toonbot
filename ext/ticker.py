@@ -18,7 +18,7 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.Member | discord.User
+    User: typing.TypeAlias = discord.User | discord.Member
 
 _ticker_tasks = set()
 
@@ -222,10 +222,10 @@ class TickerEvent:
 
             if self.long and index:
                 evts = self.fixture.events[: index + 1]
-                if all(i.player is not None for i in evts):
+                if all(i.is_done() for i in evts):
                     break
             else:
-                if self.event and self.event.player:
+                if self.event and self.event.is_done():
                     break
 
             full = await self.full_embed() if self.long else None

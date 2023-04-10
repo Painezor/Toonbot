@@ -10,17 +10,16 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 
 class Stream:
     """A generic dataclass representing a stream"""
 
-    def __init__(
-        self, name: str, link: str, added_by: discord.Member | discord.User
-    ) -> None:
+    def __init__(self, name: str, link: str, added_by: User) -> None:
         self.name: str = name
         self.link: str = link
-        self.added_by: discord.Member | discord.User = added_by
+        self.added_by: User = added_by
 
     def __str__(self):
         text = self.link if self.name is None else self.name

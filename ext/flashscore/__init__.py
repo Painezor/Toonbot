@@ -4,36 +4,42 @@ from .constants import (
     COMPETITION_EMOJI,
     DEFAULT_LEAGUES,
     FLASHSCORE,
+    GOAL_EMOJI,
     INBOUND_EMOJI,
     INJURY_EMOJI,
-    TEAM_EMOJI,
     OUTBOUND_EMOJI,
+    PLAYER_EMOJI,
+    RED_CARD_EMOJI,
+    TEAM_EMOJI,
+    YELLOW_CARD_EMOJI,
 )
 from .competitions import Competition
-from .fixture import Fixture, parse_games
+from .fixture import Fixture
 from .gamestate import GameState, dispatch_events
 from .matchevents import MatchEvent, EventType, Penalty, Substitution
 from .players import Player
-from .team import Team
+from .team import FSTransfer, Team, SquadMember
 from .search import search, save_comp, save_team
 from .transformers import comp_trnsf, fix_trnsf, team_trnsf
 
 __all__ = [
     # constants
     "ADS",
+    "COMPETITION_EMOJI",
     "DEFAULT_LEAGUES",
     "FLASHSCORE",
+    "GOAL_EMOJI",
     "INBOUND_EMOJI",
     "INJURY_EMOJI",
     "OUTBOUND_EMOJI",
+    "PLAYER_EMOJI",
+    "RED_CARD_EMOJI",
+    "TEAM_EMOJI",
+    "YELLOW_CARD_EMOJI",
     # competition
     "Competition",
-    # emojis
-    "COMPETITION_EMOJI",
-    "TEAM_EMOJI",
     # fixture
     "Fixture",
-    "parse_games",
     # gamestate,
     "GameState",
     "dispatch_events",
@@ -46,6 +52,8 @@ __all__ = [
     "Player",
     # team
     "Team",
+    "FSTransfer",
+    "SquadMember",
     # search
     "search",
     "save_comp",

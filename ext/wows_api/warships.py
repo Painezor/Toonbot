@@ -1,6 +1,7 @@
 """Ship Objects and associated classes"""
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import logging
 import typing
@@ -40,20 +41,17 @@ async def get_ships() -> list[Ship]:
             ship_types.append(ShipType(i, images))
 
         params.update({"page_no": 1})
-        max_iter = count = 1
         ships: list[Ship] = []
 
-        while count <= max_iter:
-            logger.info("Scanning page %s of %s", count, max_iter)
+        async def get_page(count: int, session: aiohttp.ClientSession) -> int:
             params.update({"page_no": count})
             async with session.get(SHIPS, params=params) as resp:
                 if resp.status != 200:
                     logger.error("%s %s: %s", resp.status, resp.reason, SHIPS)
                 items = await resp.json()
 
+            logger.info("Scanning page %s", count)
             meta = items.pop("meta")
-            count += 1
-            max_iter = meta["page_total"]
 
             for data in items["data"].values():
                 _type = data.pop("type")
@@ -62,6 +60,14 @@ async def get_ships() -> list[Ship]:
                 ship.type = next(i for i in ship_types if i.name == _type)
 
                 ships.append(ship)
+            return meta["page_total"]
+
+        max_iter = await get_page(1, session)
+
+        # Fetch all remaiing pages simultaneously
+        await asyncio.gather(
+            *[get_page(i, session) for i in range(2, max_iter)]
+        )
 
     for i in ships:
         i.next_ship_objects = {}

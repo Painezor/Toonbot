@@ -7,17 +7,14 @@ import typing
 
 import discord
 from lxml import html
-from playwright.async_api import Page, TimeoutError as pw_TimeoutError
 
 from ext.utils import timed_events
 
-from .abc import FlashScoreItem
 from .competitions import Competition
-from .constants import FLASHSCORE
+from .constants import FLASHSCORE, GOAL_EMOJI, RED_CARD_EMOJI
 from .gamestate import GameState
 from .matchevents import MatchEvent, parse_events
 from .team import Team
-
 
 if typing.TYPE_CHECKING:
     from core import Bot
@@ -26,134 +23,10 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("flashscore.fixture")
 
 
-async def parse_games(
-    bot: Bot, object_: FlashScoreItem, sub_page: str
-) -> list[Fixture]:
-    """Parse games from raw HTML from fixtures or results function"""
-    page: Page = await bot.browser.new_page()
-
-    if object_.url is None:
-        raise ValueError(f"No URL found in {object_}")
-    try:
-        await page.goto(object_.url + sub_page, timeout=5000)
-        loc = page.locator("#live-table")
-        await loc.wait_for()
-        tree = html.fromstring(await page.content())
-    except pw_TimeoutError:
-        logger.error("Timed out parsing games on %s", object_.url + sub_page)
-        return []
-    finally:
-        await page.close()
-
-    fixtures: list[Fixture] = []
-
-    if isinstance(object_, Competition):
-        comp = object_
-    else:
-        comp = Competition(None, "Unknown", "Unknown", None)
-
-    xpath = './/div[contains(@class, "sportName soccer")]/div'
-    if not (games := tree.xpath(xpath)):
-        return []
-
-    for i in games:
-        try:
-            fx_id = i.xpath("./@id")[0].split("_")[-1]
-            url = f"{FLASHSCORE}/match/{fx_id}"
-        except IndexError:
-            # This (might be) a header row.
-            if "event__header" in i.classes:
-                xpath = './/div[contains(@class, "event__title")]//text()'
-                country, league = i.xpath(xpath)
-                league = league.split(" - ")[0]
-
-                ctr = country.casefold()
-                league = league.casefold().split(" -")[0]
-
-                comp = bot.get_competition(f"{ctr.upper()}: {league}")
-                if comp is None:
-                    comp = Competition(None, league, country, None)
-            continue
-
-        xpath = './/div[contains(@class,"event__participant")]/text()'
-        home, away = i.xpath(xpath)
-
-        # TODO: Fetch team ID & URL
-        home = Team(None, home.strip(), None)
-        away = Team(None, away.strip(), None)
-
-        fixture = Fixture(home, away, fx_id, url)
-        fixture.competition = comp
-
-        fixture.win = "".join(i.xpath(".//div[@class='formIcon']/@title"))
-
-        # score
-        try:
-            xpath = './/div[contains(@class,"event__score")]//text()'
-            score_home, score_away = i.xpath(xpath)
-
-            fixture.home_score = int(score_home.strip())
-            fixture.away_score = int(score_away.strip())
-        except ValueError:
-            pass
-        state = None
-
-        # State Corrections
-        time = "".join(i.xpath('.//div[@class="event__time"]//text()'))
-        override = "".join([i for i in time if i.isalpha()])
-        time = time.replace(override, "")
-
-        if override:
-            try:
-                state = {
-                    "Abn": GameState.ABANDONED,
-                    "AET": GameState.AFTER_EXTRA_TIME,
-                    "Awrd": GameState.AWARDED,
-                    "FRO": GameState.FINAL_RESULT_ONLY,
-                    "Pen": GameState.AFTER_PENS,
-                    "Postp": GameState.POSTPONED,
-                    "WO": GameState.WALKOVER,
-                }[override]
-            except KeyError:
-                logger.error("missing state for override %s", override)
-
-        dtn = datetime.datetime.now(tz=datetime.timezone.utc)
-        for string, fmt in [
-            (time, "%d.%m.%Y."),
-            (time, "%d.%m.%Y"),
-            (f"{dtn.year}.{time}", "%Y.%d.%m. %H:%M"),
-            (f"{dtn.year}.{dtn.day}.{dtn.month}.{time}", "%Y.%d.%m.%H:%M"),
-        ]:
-            try:
-                k_o = datetime.datetime.strptime(string, fmt)
-                fixture.kickoff = k_o.astimezone(datetime.timezone.utc)
-
-                if fixture.kickoff < dtn:
-                    state = GameState.SCHEDULED
-                else:
-                    state = GameState.FULL_TIME
-                break
-            except ValueError:
-                continue
-        else:
-            logger.error("Failed to convert %s to datetime.", time)
-
-        # Bypass time setter by directly changing _private val.
-        if isinstance(state, GameState):
-            fixture.time = state
-        else:
-            if "'" in time or "+" in time or time.isdigit():
-                fixture.time = time
-            else:
-                logger.error('state "%s" (%s) not handled.', state, time)
-        fixtures.append(fixture)
-    return fixtures
-
-
 class Fixture:
     """An object representing a Fixture from the Flashscore Website"""
 
-    emoji: typing.ClassVar[str] = "⚽"
+    emoji = GOAL_EMOJI
 
     def __init__(
         self,
@@ -162,7 +35,6 @@ class Fixture:
         fs_id: typing.Optional[str],
         url: typing.Optional[str],
     ) -> None:
-
         if fs_id and not url:
             url = f"https://www.flashscore.com/?r=5:{fs_id}"
 
@@ -304,8 +176,8 @@ class Fixture:
             if not cards:
                 return ""
             if cards == 1:
-                return "`🟥` "
-            return f"`🟥 x{cards}` "
+                return f"`{RED_CARD_EMOJI}` "
+            return f"`{RED_CARD_EMOJI} x{cards}` "
 
         h_s, a_s = self.home_score, self.away_score
         h_c = parse_cards(self.home_cards)

@@ -226,8 +226,8 @@ class MainGunEmbed(ShipEmbed):
                 f"**Shell Weight**: {format(i.bullet_mass, ',')}kg",
             ]
 
-            if (fire_chance := i.burn_probability) is not None:
-                shell_data.append(f"**Fire Chance**: {fire_chance}%")
+            if i.burn_probability:
+                shell_data.append(f"**Fire Chance**: {i.burn_probability}%")
 
             name = f"{i.type}: {i.name}"
             self.add_field(name=name, value="\n".join(shell_data))
@@ -300,7 +300,7 @@ class OverviewEmbed(ShipEmbed):
         self.description = "\n".join(desc)
 
         if fitting.ship.next_ships:
-            vals = []
+            vals: list[tuple] = []
             for ship, xp_ in fitting.ship.next_ship_objects.items():
                 if ship is None:
                     continue

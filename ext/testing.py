@@ -19,6 +19,7 @@ URI = (
     "contents-and-drop-rates-of-containers/"
 )
 
+
 # TODO: Container drops
 class Test(commands.Cog):
     """Various testing functions"""
@@ -32,7 +33,7 @@ class Test(commands.Cog):
         if "get_lootbox/" not in request.url:
             return
 
-        logging.debug(f"REQUEST RECEIVED {request.url}\n")
+        logging.debug("REQUEST RECEIVED %s\n", request.url)
         resp = await request.response()
         if resp is not None:
             logging.debug(resp.json())

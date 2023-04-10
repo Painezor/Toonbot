@@ -249,7 +249,7 @@ async def cc_ac(
     if region := interaction.namespace.region:
         ccs = [i for i in ccs if i.region.name.lower() == region]
 
-    ccs = sorted(ccs, key=lambda x: x.name)
+    ccs.sort(key=lambda x: x.name)
     cur = current.casefold()
 
     choices = []
@@ -423,7 +423,7 @@ class TwitchTracker(commands.Cog):
         await self.update_cache()
         client = TBot.from_client_credentials(**credentials["Twitch API"])
         self.bot.twitch = client
-        self.bot.loop.create_task(self.bot.twitch.connect())
+        await self.bot.twitch.connect()
 
     async def update_cache(self) -> list[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""

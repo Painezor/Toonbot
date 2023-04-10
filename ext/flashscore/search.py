@@ -16,6 +16,9 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger("flashscore.search")
 
+
+# TODO: Save Team & Save Comp as methods of their respective classes.
+
 # slovak - 7
 # Hebrew - 17
 # Slovenian - 24

@@ -25,7 +25,7 @@ def user_to_author(embed: discord.Embed, user: User) -> discord.Embed:
 
 def user_to_footer(
     embed: discord.Embed,
-    user: discord.User | discord.Member,
+    user: User,
     reason: typing.Optional[str] = None,
 ) -> discord.Embed:
     """Add the user's name, id, avatar, and an optional reason to the footer of

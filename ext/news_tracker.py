@@ -452,7 +452,6 @@ class NewsTracker(commands.Cog):
         if channel is None:
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
-        # TODO: Confirmation Dialogue
         try:
             chan = self.bot.news_channels
             target = next(i for i in chan if i.channel.id == channel.id)
@@ -463,7 +462,8 @@ class NewsTracker(commands.Cog):
                              VALUES ($1) returning *"""
                     record = await connection.fetchrow(sql, channel.id)
 
-            target = NewsChannel(self.bot, channel, record)
+            # TODO: Confirmation Dialogue
+            target = NewsChannel(self.bot, record, channel)
             self.bot.news_channels.append(target)
 
         view = NewsConfig(interaction.user, target)

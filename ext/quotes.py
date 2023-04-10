@@ -125,7 +125,8 @@ async def cache_quotes(bot: Bot) -> None:
             bot.quotes = await connection.fetch(sql)
 
 
-class QuotesView(view_utils.BaseView):
+# TODO: AsyncPaginator
+class QuotesView(view_utils.AsyncPaginator):
     """Generic Paginator that returns nothing."""
 
     def __init__(
@@ -451,7 +452,7 @@ class QuoteDB(commands.Cog):
         guild_id = interaction.guild.id if interaction.guild else None
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                record = await connection.fetchrow(QT_SQL, member.id, guild_id)
+                rec = await connection.fetchrow(QT_SQL, member.id, guild_id)
 
         embed = discord.Embed(color=discord.Colour.og_blurple())
         embed.title = "Quote Stats"
@@ -459,10 +460,13 @@ class QuoteDB(commands.Cog):
         nom = f"{member} ({member.id})"
         embed.set_author(icon_url=member.display_avatar.url, name=nom)
 
-        embed.description = (
-            f"Quoted {record['auth_g']} times ({record['auth']} Globally)\n"
-            f"Added {record['sub_g']} quotes ({record['sub']} Globally)"
-        )
+        if rec is not None:
+            embed.description = (
+                f"Quoted {rec['auth_g']} times ({rec['auth']} Globally)\n"
+                f"Added {rec['sub_g']} quotes ({rec['sub']} Globally)"
+            )
+        else:
+            embed.description = "No Quotes found for that user."
 
         return await interaction.response.send_message(embed=embed)
 
@@ -505,7 +509,9 @@ class QuoteDB(commands.Cog):
 
         # Warn about quotes that will be deleted.
         embed = discord.Embed(colour=discord.Colour.red())
-        if any([rec["author"], rec["auth_g"], rec["sub"], rec["sub_g"]]):
+        if rec is None:
+            embed.title = "Opt out of Quote Database?"
+        elif any([rec["author"], rec["auth_g"], rec["sub"], rec["sub_g"]]):
             output = [f"You have been quoted {rec['author']} times"]
 
             guild = interaction.guild

@@ -1,13 +1,21 @@
 """Match Events used for the ticker"""
 from __future__ import annotations
 
+import dataclasses
 import enum
 import logging
 import typing
 
 import discord
 
-from .constants import FLASHSCORE, INBOUND_EMOJI, OUTBOUND_EMOJI
+from .constants import (
+    FLASHSCORE,
+    INBOUND_EMOJI,
+    OUTBOUND_EMOJI,
+    GOAL_EMOJI,
+    RED_CARD_EMOJI,
+    YELLOW_CARD_EMOJI,
+)
 from .fixture import Fixture
 from .players import Player
 from .team import Team
@@ -53,47 +61,47 @@ def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
             # This is a goal.
 
             if sub_i == "(Penalty)":
-                event = Penalty()
+                event = Penalty(fixture)
 
             elif sub_i:
                 logger.info("Unhandled goal sub_incident %s", sub_i)
-                event = Goal()
+                event = Goal(fixture)
 
             else:
-                event = Goal()
+                event = Goal(fixture)
 
         elif "footballOwnGoal-ico" in svg_class:
-            event = OwnGoal()
+            event = OwnGoal(fixture)
 
         elif "Penalty missed" in sub_i:
-            event = Penalty(missed=True)
+            event = Penalty(fixture, missed=True)
 
         # cards
         elif (
             "Yellow card / Red card" in svg_text
             or "redyellowcard-ico" in svg_class.casefold()
         ):
-            event = SecondYellow()
+            event = SecondYellow(fixture)
 
         elif "redCard-ico" in svg_class:
-            event = RedCard()
+            event = RedCard(fixture)
 
         elif "yellowCard-ico" in svg_class:
-            event = Booking()
+            event = Booking(fixture)
 
         elif "card-ico" in svg_class:
-            event = Booking()
+            event = Booking(fixture)
             logger.info("Fallback reached, card-ico")
 
         # VAR
         elif "var" in svg_class:
-            event = VAR()
+            event = VAR(fixture)
             if svg_class != "var":
                 logger.info("var has svg_clas %s", svg_class)
 
         # Subs
         elif "substitution" in svg_class:
-            event = Substitution()
+            event = Substitution(fixture)
             xpath = './/div[contains(@class, "incidentSubOut")]/a/'
             if s_name := "".join(node.xpath(xpath + "text()")):
                 s_name = s_name.strip()
@@ -116,7 +124,7 @@ def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
             if sub_i:
                 logger.info("sub_incident: %s", sub_i)
 
-            event = MatchEvent()
+            event = MatchEvent(fixture)
 
         # Event Player.
         xpath = './/a[contains(@class, "playerName")]//text()'
@@ -150,6 +158,7 @@ def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
                     forename, surname = None, a_name
 
                 player = Player(forename, surname, a_url)
+
                 event.assist = player
 
         if "home" in team_detection:
@@ -172,28 +181,24 @@ def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
     return events
 
 
+@dataclasses.dataclass(slots=True)
 class MatchEvent:
     """An object representing an event happening in a fixture"""
 
-    __slots__ = ("note", "description", "player", "team", "time", "fixture")
+    fixture: Fixture
 
-    colour: discord.Colour
-    icon_url: str
-
-    def __init__(self) -> None:
-        self.note: typing.Optional[str] = None
-        self.description: typing.Optional[str] = None
-        self.fixture: typing.Optional[Fixture] = None
-        self.player: typing.Optional[Player] = None
-        self.team: typing.Optional[Team] = None
-        self.time: typing.Optional[str] = None
+    assist: typing.Optional[Player] = None
+    colour: discord.Colour = discord.Colour.dark_embed()
+    description: typing.Optional[str] = None
+    icon_url: typing.Optional[str] = None
+    player: typing.Optional[Player] = None
+    team: typing.Optional[Team] = None
+    note: typing.Optional[str] = None
+    time: typing.Optional[str] = None
 
     def is_done(self) -> bool:
         """Check to see if more information is required"""
-        if self.player is None:
-            return False
-        else:
-            return True
+        return self.player is not None
 
     @property
     def embed(self) -> discord.Embed:
@@ -216,7 +221,6 @@ class MatchEvent:
         embed = self.embed
 
         if self.fixture:
-
             embed.description = ""
 
             for i in self.fixture.events:
@@ -232,10 +236,7 @@ class Substitution(MatchEvent):
     """A substitution event for a fixture"""
 
     colour = discord.Colour.greyple()
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.player_off: typing.Optional[Player] = None
+    player_off: typing.Optional[Player] = None
 
     def __str__(self) -> str:
         output = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
@@ -252,10 +253,7 @@ class Goal(MatchEvent):
     """A Generic Goal Event"""
 
     colour = discord.Colour.green()
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.assist: typing.Optional[Player] = None
+    assist: typing.Optional[Player] = None
 
     def __str__(self) -> str:
         output = [self.timestamp]
@@ -272,15 +270,14 @@ class Goal(MatchEvent):
     @property
     def emote(self) -> str:
         """An Emoji representing a Goal"""
-        return "⚽"
+        return GOAL_EMOJI
 
     @property
     def timestamp(self) -> str:
         """String representing the emoji of the goal type and the time"""
         if self.time is None:
             return f"`{self.emote}`"
-        else:
-            return f"`{self.emote} {self.time}`"
+        return f"`{self.emote} {self.time}`"
 
 
 class OwnGoal(Goal):
@@ -297,13 +294,12 @@ class OwnGoal(Goal):
 class Penalty(Goal):
     """A Penalty Event"""
 
-    __slots__ = ["missed"]
-
     colour = discord.Colour.brand_green()
+    missed: bool
 
-    def __init__(self, missed: bool = False) -> None:
-        super().__init__()
-        self.missed: bool = missed
+    def __init__(self, fixture: Fixture, missed: bool = False) -> None:
+        self.fixture = fixture
+        self.missed = missed
 
     @property
     def emote(self) -> str:
@@ -324,7 +320,6 @@ class RedCard(MatchEvent):
     colour = discord.Colour.red()
 
     def __str__(self) -> str:
-
         if self.time is None:
             output = [f"`{self.emote}`"]
         else:
@@ -344,7 +339,7 @@ class RedCard(MatchEvent):
     @property
     def emote(self) -> str:
         """Return an emoji representing a red card"""
-        return "🟥"
+        return RED_CARD_EMOJI
 
 
 class SecondYellow(RedCard):
@@ -354,7 +349,6 @@ class SecondYellow(RedCard):
     colour = discord.Colour.brand_red()
 
     def __str__(self) -> str:
-
         if self.time is None:
             output = [f"{self.emote}`"]
         else:
@@ -374,7 +368,7 @@ class SecondYellow(RedCard):
     @property
     def emote(self) -> str:
         """Return an emoji representing a second yellow card"""
-        return "🟨🟥"
+        return f"{YELLOW_CARD_EMOJI} {RED_CARD_EMOJI}"
 
 
 class Booking(MatchEvent):
@@ -384,7 +378,6 @@ class Booking(MatchEvent):
     colour = discord.Colour.yellow()
 
     def __str__(self) -> str:
-
         if self.time is None:
             output = [f"`{self.emote}`"]
         else:
@@ -404,21 +397,16 @@ class Booking(MatchEvent):
     @property
     def emote(self) -> str:
         """Return an emoji representing a booking"""
-        return "🟨"
+        return YELLOW_CARD_EMOJI
 
 
 class VAR(MatchEvent):
     """An Object Representing the event of a
     Video Assistant Referee Review Decision"""
 
-    __slots__ = ["in_progress", "assist"]
-
+    in_progress: bool = False
     colour = discord.Colour.og_blurple()
-
-    def __init__(self, in_progress: bool = False) -> None:
-        super().__init__()
-        self.assist: typing.Optional[Player] = None
-        self.in_progress: bool = in_progress
+    assist: typing.Optional[Player] = None
 
     def __str__(self) -> str:
         out = ["`📹 VAR`"] if self.time is None else [f"`📹 VAR {self.time}`"]

@@ -152,7 +152,7 @@ class PollView(view_utils.BaseView):
             output += f"\n\nPoll ends: {self.ends_at}"
         return output
 
-    async def destruct(self) -> typing.Optional[discord.Message]:
+    async def destruct(self) -> None:
         """End the poll after the specified amount of minutes."""
         await discord.utils.sleep_until(self.end)
 
@@ -168,14 +168,15 @@ class PollView(view_utils.BaseView):
 
         try:
             edit = self.message.edit
-            return await edit(embed=embed, view=None)
+            await edit(embed=embed, view=None)
+            return
         except discord.HTTPException:
             pass
 
         chan = typing.cast(discord.TextChannel, self.message.channel)
         if chan is not None:
             try:
-                return await chan.send(embed=embed)
+                await chan.send(embed=embed)
             except (discord.NotFound, discord.Forbidden):
                 pass
 

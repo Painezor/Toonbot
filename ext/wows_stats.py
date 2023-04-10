@@ -16,6 +16,7 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    User: typing.TypeAlias = discord.User | discord.Member
 
 # TODO: Wows Numbers Ship Leaderboard Command.
 # TODO: Browse all Ships command. Filter Dropdowns.
@@ -55,7 +56,7 @@ class PlayerView(view_utils.BaseView):
 
     def __init__(
         self,
-        invoker: discord.User | discord.Member,
+        invoker: User,
         player: api.Player,
         ship: typing.Optional[api.warships.Ship] = None,
         **kwargs,

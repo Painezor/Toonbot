@@ -73,7 +73,7 @@ discord.utils.setup_logging()
 class Bot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
-    def __init__(self, database: asyncpg.Pool) -> None:
+    def __init__(self, datab: asyncpg.Pool[asyncpg.Record]) -> None:
         super().__init__(
             description="Football lookup bot by Painezor#8489",
             command_prefix=commands.when_mentioned,
@@ -87,7 +87,7 @@ class Bot(commands.AutoShardedBot):
         self.available_cogs = COGS
 
         # Database & Credentials
-        self.db: asyncpg.Pool = database  # pylint: disable=C0103
+        self.db: asyncpg.Pool[asyncpg.Record] = datab  # pylint: disable=C0103
         self.initialised_at: datetime.datetime = datetime.datetime.utcnow()
         self.invite: str = INVITE_URL
 
@@ -99,20 +99,20 @@ class Bot(commands.AutoShardedBot):
         self.teams: list[fs.Team] = []
         self.competitions: set[fs.Competition] = set()
         self.score_channels: list[ScoreChannel] = []
-        self.scores: typing.Optional[asyncio.Task] = None
+        self.scores: typing.Optional[asyncio.Task[None]] = None
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
 
         # Polls
-        self.active_polls: set[asyncio.Task] = set()
+        self.active_polls: set[asyncio.Task[None]] = set()
 
         # QuoteDB
         self.quote_blacklist: list[int] = []
         self.quotes: list[asyncpg.Record] = []
 
         # Reminders
-        self.reminders: set[asyncio.Task] = set()
+        self.reminders: set[asyncio.Task[None]] = set()
 
         # Session // Scraping
         self.browser: BrowserContext
@@ -120,7 +120,7 @@ class Bot(commands.AutoShardedBot):
 
         # Sidebar
         self.reddit_teams: list[asyncpg.Record] = []
-        self.sidebar: asyncio.Task
+        self.sidebar: asyncio.Task[None]
 
         rdt = asyncpraw.Reddit(**_credentials["Reddit"])
         self.reddit: asyncpraw.Reddit = rdt
@@ -221,7 +221,7 @@ async def run() -> None:
     if database is None:
         raise ConnectionError("Failed to initialise database.")
 
-    bot: Bot = Bot(database=database)
+    bot: Bot = Bot(datab=database)
 
     try:
         await bot.start(_credentials["bot"]["token"])

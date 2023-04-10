@@ -198,7 +198,7 @@ class MatchThread:
 
         # Then edit the pre-match thread with both links too.
         markdown = pre.selftext
-        try:
+        if self.mtb_history is not None:
             markdown = markdown.replace(
                 "*Pre*", f"[Pre]({self.mtb_history['pre_match_url']})"
             )
@@ -208,8 +208,6 @@ class MatchThread:
             markdown = markdown.replace(
                 "*Post*", f"[Post]({self.mtb_history['post_match_url']})"
             )
-        except AttributeError:
-            pass
         await pre.edit(markdown)
 
         if channel:
@@ -487,7 +485,15 @@ class MatchThreadCommands(commands.Cog):
             if (team := self.bot.get_team(i["team_flashscore_id"])) is None:
                 continue
 
-            for fixture in await fs.parse_games(self.bot, team, "/fixtures/"):
+            cache = self.bot.competitions
+            page = await self.bot.browser.new_page()
+
+            try:
+                fixtures = await team.fixtures(page, cache)
+            finally:
+                await page.close()
+
+            for fixture in fixtures:
                 await self.spool_thread(fixture, i)
 
     async def spool_thread(

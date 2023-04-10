@@ -25,23 +25,26 @@ class Leaderboard(view_utils.DropdownPaginator):
 
     def __init__(
         self,
-        invoker: discord.User | discord.Member,
+        invoker: User,
         clans: list[api.ClanLeaderboardStats],
         season: typing.Optional[api.ClanBattleSeason],
         region: typing.Optional[api.Region],
     ) -> None:
         embed = discord.Embed(colour=discord.Colour.purple())
 
-        rgn = "" if region is None else f" ({region.name})"
-        if season is None:
-            ssn = ""
-        else:
-            ssn = f" Season {season.season_id}: {season.name}"
-
+        ttl = ["Clan Battle"]
+        if season is not None:
+            ttl.append(f" Season {season.season_id}: {season.name}")
             if (tier := season.ship_tier_max) != season.ship_tier_min:
                 tier = f"{season.ship_tier_min} - {season.ship_tier_max}"
             embed.set_footer(text=f"Tier {tier}")
-        embed.title = f"Clan Battle{ssn} Leaderboard{rgn}"
+
+        ttl.append("Leaderboard")
+
+        if region is not None:
+            ttl.append(f" ({region.name})")
+
+        embed.title = "".join(ttl)
 
         rows = []
         options = []
@@ -75,7 +78,7 @@ class Leaderboard(view_utils.DropdownPaginator):
     @discord.ui.select(row=1, options=[], placeholder="View Clan")
     async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Push the latest version of the view to the user"""
-        clan = next(i for i in self.clans if i.id == int(sel.values[0]))
+        clan = next(i for i in self.clans if i.id in sel.values)
         region = next(i for i in api.Region if i.realm == clan.realm)
         clan_details = await api.get_clan_details(clan.id, region)
         view = ClanView(itr.user, clan_details, parent=self)
@@ -310,7 +313,7 @@ class Clans(commands.Cog):
 
         embeds = []
         for season, clans in self.bot.clan_battle_winners.items():
-            srt = sorted(clans, key=lambda c: c.public_rating, reverse=True)
+            clans.sort(key=lambda c: c.public_rating, reverse=True)
 
             season = next(
                 i
@@ -329,7 +332,7 @@ class Clans(commands.Cog):
             embed.description = (
                 f"{timed_events.Timestamp(season.start_time).date} - "
                 f"{timed_events.Timestamp(season.finish_time).date}\n\n"
-                f"{''.join([write_winner_row(i) for i in srt])}"
+                f"{''.join([write_winner_row(i) for i in clans])}"
             )
             embed.set_thumbnail(url=season.top_league.icon)
             embed.color = discord.Colour.from_str(season.top_league.color)

@@ -3,8 +3,9 @@
 from __future__ import annotations  # Cyclic Type hinting
 
 from importlib import reload
-import typing
+
 import logging
+import typing
 
 import discord
 from discord.ext import commands, tasks
@@ -40,14 +41,8 @@ class TFCompetitionTransformer(discord.app_commands.Transformer):
 
     async def transform(
         self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[tfm.Competition]:
-        await interaction.response.defer(thinking=True)
-
-        view = tfm.CompetitionSearch(value, fetch=True)
-        await view.update(interaction)
-        await view.wait()
-
-        return view.value
+    ) -> typing.Optional[tfm.CompetitionSearch]:
+        return await tfm.CompetitionSearch.search(value, interaction)
 
 
 class TransferChannel:
@@ -386,7 +381,7 @@ class Transfers(commands.Cog):
             # Box 3 - Country
             player.country = i.xpath(".//td[3]/img/@title")
 
-            transfer = tfm.Transfer(player=player)
+            transfer = tfm.FSTransfer(player=player)
 
             # Box 4 - Old Team
             xpath = './/td[4]//img[@class="tiny_wappen"]//@title'

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import collections
 import importlib
 import itertools
 import logging
@@ -22,7 +21,6 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
-
     User: typing.TypeAlias = discord.User | discord.Member
 
 logger = logging.getLogger("scores")
@@ -48,7 +46,7 @@ class ScoreChannel:
 
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
-        self.messages: list[discord.Message | None] = []
+        self.messages: list[discord.Message] = []
         self.leagues: set[fs.Competition] = set()
 
     @property
@@ -79,11 +77,13 @@ class ScoreChannel:
             self.leagues.add(comp)
         return self.leagues
 
-    async def dispatch(self) -> list[discord.Message | None]:
+    async def mapping(self) -> None:
         """Edit a live-score channel to have the latest scores"""
+
+        # Validatiion / Rate Limit Avoidance Logic.
         if self.channel.is_news():
             self.bot.score_channels.remove(self)
-            return []
+            return
 
         if not self.leagues:
             await self.get_leagues()
@@ -102,54 +102,50 @@ class ScoreChannel:
 
         # Zip the lists into tuples to simultaneously iterate
         # Limit to 5 max
+        tuples = list(itertools.zip_longest(self.messages, stacked))
 
-        tuples = list(itertools.zip_longest(self.messages, stacked))[:5]
+        old = sorted(self.messages, key=lambda x: x.edited_at or x.created_at)
+        tuples = [tuples[self.messages.index(i)] for i in old[:5]]
+        message: discord.Message
 
-        message: discord.Message | None
-
-        # Zip longest will give (, None) in slot [0] // self.messages
-        # if we do not have enough messages for the embeds.
-
-        if not tuples:
-            logger.error("Something went wrong in score loop, no tuples.")
-
-        count = 0
         for message, embeds in tuples:
-            try:
-                # Suppress Message's embeds until they're needed again.
-                if message is None and embeds is None:
-                    continue
+            index = self.messages.index(message)
+            await self.send_or_edit(index, message, embeds)
 
-                if message is None:
-                    # No message exists in cache,
-                    # or we need an additional message.
-                    new_msg = await self.channel.send(embeds=embeds)
-                    self.messages.append(new_msg)
-                    continue
+        return
 
-                if embeds is None:
-                    if not message.flags.suppress_embeds:
-                        new_msg = await message.edit(suppress=True)
-                        self.messages[count] = new_msg
-                    continue
+    async def send_or_edit(
+        self,
+        index: int,
+        message: discord.Message,
+        embeds: list[discord.Embed],
+    ) -> None:
+        """Try to send this messagee to a our channel"""
+        try:
+            # Suppress Message's embeds until they're needed again.
+            if message is None:
+                # No message exists in cache,
+                # or we need an additional message.
+                new_msg = await self.channel.send(embeds=embeds)
+                self.messages.append(new_msg)
 
-                cnt = collections.Counter
-                new = cnt([i.description for i in embeds])
-                old = cnt([i.description for i in message.embeds])
-                if old != new:
-                    new_msg = await message.edit(embeds=embeds, suppress=False)
-                    self.messages[count] = new_msg
-            except (discord.Forbidden, discord.NotFound):
-                # If we don't have permissions to send Messages in the channel,
-                # remove it and stop iterating
-                self.bot.score_channels.remove(self)
-                return []
-            except discord.HTTPException as err:
-                logger.error("Scores err: Error %s (%s)", err.status, err.text)
-                return []
-            finally:
-                count += 1
-        return self.messages
+            elif embeds is None:
+                if not message.flags.suppress_embeds:
+                    new_msg = await message.edit(suppress=True, embeds=[])
+                    self.messages[index] = new_msg
+
+            elif embeds != message.embeds:
+                new_msg = await message.edit(embeds=embeds, suppress=False)
+                self.messages[index] = new_msg
+
+        except (discord.Forbidden, discord.NotFound):
+            # If we don't have permissions to send Messages in the channel,
+            # remove it and stop iterating
+            self.bot.score_channels.remove(self)
+            return
+        except discord.HTTPException as err:
+            logger.error("Scores err: Error %s (%s)", err.status, err.text)
+            return
 
     async def reset_leagues(self, interaction: Interaction) -> None:
         """Reset the channel's list of leagues to the defaults"""
@@ -421,8 +417,8 @@ class Scores(commands.Cog):
             rte = embed_utils.rows_to_embeds
             comp.score_embeds = rte(embed, ls_txt, 50, table)
 
-        for channel in self.bot.score_channels.copy():
-            await channel.dispatch()
+        for channel in self.bot.score_channels:
+            await channel.mapping()
 
     @score_loop.before_loop
     async def clear_old_scores(self):
@@ -601,17 +597,17 @@ class Scores(commands.Cog):
         for game in chunks:
             try:
                 tree = html.fromstring(game)
-                # Document is empty because of trailing </div>
             except etree.ParserError:
-                continue
+                continue  # Document is empty because of trailing </div>
 
             link = "".join(tree.xpath(".//a/@href"))
             try:
                 match_id = link.split("/")[-2]
-                url = fs.FLASHSCORE + link
             except IndexError:
                 # Awaiting.
                 continue
+
+            url = fs.FLASHSCORE + link
 
             # Set & forget: Competition, Teams
             if (fix := self.bot.get_fixture(match_id)) is None:
