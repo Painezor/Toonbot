@@ -72,9 +72,9 @@ class SquadView(view_utils.DropdownPaginator):
         rows = []
         options = []
         for i in players:
-            rows.append(i.markdown)
+            rows.append(i.output)
             opt = discord.SelectOption(label=i.player.name)
-            emoji = fs.PLAYER_EMOJI
+            opt.emoji = fs.PLAYER_EMOJI
 
         sqd_opts = []
         for i in sqd_filter_opts:
@@ -87,7 +87,9 @@ class SquadView(view_utils.DropdownPaginator):
     @discord.ui.select(row=1, placeholder="View Player", disabled=True)
     async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Go to specified player"""
-        player = next(i for i in self.players if i.
+        player = next(i for i in self.players if i.player.name in sel.values)
+        view = PlayerView(itr.user, player.player)
+        await itr.response.edit_message(view=view)
 
     @discord.ui.select(row=2, placeholder="Sort Players")
     async def srt(self, itr: Interaction, sel: discord.ui.Select) -> None:
@@ -121,6 +123,7 @@ class SquadView(view_utils.DropdownPaginator):
 
         buttons = await view.get_buttons(interaction)
         view.add_function_row(buttons, row=3)
+        return view
 
     async def get_buttons(
         self, interaction: Interaction
@@ -142,6 +145,8 @@ class SquadView(view_utils.DropdownPaginator):
                 btn.disabled = dis
                 btn.args = [interaction, self.page, self.team, inner_txt]
                 btns.append(btn)
+        return btns
+
 
 class FixturesPaginator(view_utils.DropdownPaginator):
     """Paginate Fixtures, with a dropdown that goes to a specific game."""
@@ -218,19 +223,19 @@ class TopScorersView(view_utils.DropdownPaginator):
         invoker: User,
         page: Page,
         embed: discord.Embed,
-        players: list[fs.Player],
+        scorers: list[fs.TopScorer],
         parent: typing.Optional[view_utils.BaseView],
         nt_flt: typing.Optional[set] = None,
         tm_flt: typing.Optional[set] = None,
     ):
         self.nationality_filter = nt_flt if nt_flt is not None else set()
         self.team_filter = tm_flt if tm_flt is not None else set()
-        self.players: list[fs.Player] = players
+        self.scorers: list[fs.TopScorer] = scorers
 
-        flt = self.players.copy()
+        flt = self.scorers.copy()
 
-        if self.nationality_filter:
-            flt = [i for i in flt if i.country[0] in self.nationality_filter]
+        if _ := self.nationality_filter:
+            flt = [i for i in flt if i.player.country[0] in _]
 
         if self.team_filter:
             flt = [i for i in flt if i.team in self.team_filter]
@@ -238,16 +243,15 @@ class TopScorersView(view_utils.DropdownPaginator):
         rows = []
         options = []
         for i in flt:
-            if i.url is None:
+            if i.player.url is None:
                 continue
 
-            num = f"`{str(i.rank).rjust(3)}.` ⚽ {i.goals} (+{i.assists})"
-            tmd = f" ({i.team.markdown})" if i.team else ""
-            rows.append(f"{num} {i.flag} {i.markdown}{tmd}\n")
+            rows.append(i.output)
+            opt = discord.SelectOption(label=i.player.name)
+            opt.value = i.player.url
+            opt.emoji = i.player.flag
 
-            opt = discord.SelectOption(label=i.name, emoji=i.flag, value=i.url)
-
-            team = i.team.name if i.team else ""
+            team = f" ({i.team.name})" if i.team else ""
             opt.description = f"⚽ {i.goals} {team}"
             options.append(opt)
 
@@ -265,7 +269,7 @@ class TopScorersView(view_utils.DropdownPaginator):
     @discord.ui.button(label="Filter: Nationality", emoji="🌍", row=4)
     async def natfilt(self, interaction: Interaction, _) -> None:
         """Generate a nationality filter dropdown"""
-        nations = [i.country[0] for i in self.players]
+        nations = [i.player.country[0] for i in self.scorers]
         nations.sort()
 
         options = []
@@ -290,7 +294,7 @@ class TopScorersView(view_utils.DropdownPaginator):
         invoker = interaction.user
         par = self.parent
         new = TopScorersView(
-            invoker, self.page, embed, self.players, par, nt_flt, tm_flt
+            invoker, self.page, embed, self.scorers, par, nt_flt, tm_flt
         )
         if nt_flt:
             self.natfilt.style = discord.ButtonStyle.blurple
@@ -302,7 +306,7 @@ class TopScorersView(view_utils.DropdownPaginator):
     @discord.ui.button(label="Filter: Team", emoji=fs.TEAM_EMOJI, row=4)
     async def teamfilt(self, interaction: Interaction, _) -> None:
         """Generate a team filter dropdown"""
-        teams = set(i.team.name for i in self.players if i.team)
+        teams = set(i.team.name for i in self.scorers if i.team)
 
         opts = []
         for i in sorted(teams):
@@ -323,7 +327,7 @@ class TopScorersView(view_utils.DropdownPaginator):
 
         par = self.parent
         new = TopScorersView(
-            invoker, self.page, embed, self.players, par, nt_flt, tm_flt
+            invoker, self.page, embed, self.scorers, par, nt_flt, tm_flt
         )
 
         if nt_flt:
@@ -343,83 +347,10 @@ class TopScorersView(view_utils.DropdownPaginator):
     ) -> TopScorersView:
         """Inttialise the Top Scorers view by fetching data"""
         embed = await obj.base_embed()
-        link = f"{obj.url}/standings/"
-
-        # Example link "#/nunhS7Vn/top_scorers"
-        # This requires a competition ID, annoyingly.
-        if link not in page.url:
-            logger.info("Forcing page change %s -> %s", page.url, link)
-            await page.goto(link)
-
-        top_scorer_button = page.locator("a", has_text="Top Scorers")
-        await top_scorer_button.wait_for(timeout=5000)
-
-        if await top_scorer_button.get_attribute("aria-current") != "page":
-            await top_scorer_button.click()
-
-        tab_class = page.locator("#tournament-table-tabs-and-content")
-        await tab_class.wait_for()
+        players = await obj.get_scorers(page, interaction)
 
         embed.url = page.url
         embed.title = "Top Scorers"
-
-        btn = page.locator(".topScorers__showMore")
-        while await btn.count():
-            await btn.last.click()
-
-        raw = await tab_class.inner_html()
-        tree = html.fromstring(raw)
-
-        players: list[fs.Player] = []
-
-        rows = tree.xpath('.//div[@class="ui-table__body"]/div')
-
-        for i in rows:
-            xpath = "./div[1]//text()"
-            name = "".join(i.xpath(xpath))
-
-            xpath = "./div[1]//@href"
-            url = fs.FLASHSCORE + "".join(i.xpath(xpath))
-
-            player = fs.Player(None, name, url)
-
-            xpath = "./span[1]//text()"
-            player.rank = int("".join(i.xpath(xpath)).strip("."))
-
-            xpath = './/span[contains(@class,"flag")]/@title'
-            player.country = i.xpath(xpath)
-
-            xpath = './/span[contains(@class, "--goals")]/text()'
-            try:
-                player.goals = int("".join(i.xpath(xpath)))
-            except ValueError:
-                pass
-
-            xpath = './/span[contains(@class, "--gray")]/text()'
-            try:
-                player.assists = int("".join(i.xpath(xpath)))
-            except ValueError:
-                pass
-
-            team_url = fs.FLASHSCORE + "".join(i.xpath("./a/@href"))
-            team_id = team_url.split("/")[-2]
-
-            tmn = "".join(i.xpath("./a/text()"))
-
-            if (team := interaction.client.get_team(team_id)) is None:
-                team_link = "".join(i.xpath(".//a/@href"))
-                team = fs.Team(team_id, tmn, team_link)
-
-                comp_id = url.split("/")[-2]
-                team.competition = interaction.client.get_competition(comp_id)
-            else:
-                if team.name != tmn:
-                    logger.info("Overrode team name %s -> %s", team.name, tmn)
-                    team.name = tmn
-                    await fs.save_team(interaction.client, team)
-
-            player.team = team
-            players.append(player)
 
         view = TopScorersView(interaction.user, page, embed, players, parent)
         return view
@@ -965,18 +896,10 @@ class ItemView(view_utils.BaseView):
         await interaction.response.edit_message(view=view, embed=view.pages[0])
 
     # Team Only
-    async def squad(
-        self,
-        interaction: Interaction,
-        tab_number: int = 0,
-        sort: typing.Optional[str] = None,
-        clear_index: bool = False,
-    ) -> None:
+    async def squad(self, interaction: Interaction) -> None:
         """Get the squad of the team, filter or sort, push to view"""
-        if not isinstance(self, TeamView):
-            raise TypeError
-
-        view = await SquadView.create(interaction, self.page, self.team)
+        assert isinstance(self.object, fs.Team)
+        view = await SquadView.create(interaction, self.page, self.object)
         await interaction.response.edit_message(view=view, embed=view.pages[0])
 
     # Team only
@@ -1303,14 +1226,13 @@ class TeamView(ItemView):
 class PlayerView(view_utils.BaseView):
     """A View reresenting a FlashSCore Player"""
 
-    bot: Bot
-
     def __init__(
         self,
+        invoker: User,
         player: fs.Player,
         **kwargs,
     ):
-        super().__init__(**kwargs)
+        super().__init__(invoker, **kwargs)
         self.player: fs.Player = player
 
     async def update(self, interaction: Interaction) -> None:

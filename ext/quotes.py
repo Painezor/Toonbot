@@ -125,14 +125,12 @@ async def cache_quotes(bot: Bot) -> None:
             bot.quotes = await connection.fetch(sql)
 
 
-# TODO: AsyncPaginator
-class QuotesView(view_utils.AsyncPaginator):
+class QuotesView(view_utils.Paginator):
     """Generic Paginator that returns nothing."""
 
     def __init__(
         self, interaction: Interaction, all_guilds: bool = False
     ) -> None:
-        super().__init__(interaction.user)
         self.all_guilds: bool = all_guilds
         self.all_quotes: list[asyncpg.Record] = interaction.client.quotes
 
@@ -143,11 +141,17 @@ class QuotesView(view_utils.AsyncPaginator):
         else:
             self.guild_quotes = []
 
+        recs = self.all_quotes if self.all_guilds else self.guild_quotes
+        _ = [discord.Embed()] * len(recs)
+        super().__init__(interaction.user, _)
+
+        self.pages: list[asyncpg.Record] = recs
+        self.index: int = super().index
+
     @discord.ui.button(row=0, emoji="🎲")
     async def random(self, interaction: Interaction, _) -> None:
         """Randomly select a number"""
         self.index = random.randrange(1, len(self.pages)) - 1
-
         quote = self.pages[self.index]
         embed = QuoteEmbed(interaction, quote)
         return await interaction.response.edit_message(embed=embed, view=self)
@@ -240,7 +244,7 @@ class QuotesView(view_utils.AsyncPaginator):
         embed = QuoteEmbed(interaction, quote)
         await view.interaction.response.edit_message(embed=embed, view=self)
 
-    async def update(self, interaction: Interaction) -> None:
+    async def handle_page(self, interaction: Interaction) -> None:
         """Generic, Entry point."""
         embed = QuoteEmbed(interaction, self.pages[self.index])
         return await interaction.response.edit_message(embed=embed)
@@ -312,7 +316,7 @@ async def quote_add(
 
         view = QuotesView(interaction)
         view.index = len(interaction.client.quotes) - 1
-        embed = QuoteEmbed(interaction, view)
+        embed = QuoteEmbed(interaction, view.pages[view.index])
         return await interaction.response.send_message(embed=embed, view=view)
 
 
@@ -380,7 +384,7 @@ class QuoteDB(commands.Cog):
     async def search(
         self,
         interaction: Interaction,
-        text: discord.app_commands.Transform[QuoteTransformer, asyncpg.Record],
+        text: discord.app_commands.Transform[asyncpg.Record, QuoteTransformer],
         user: typing.Optional[discord.Member] = None,
     ) -> None:
         """Search for a quote by quote text"""
@@ -419,17 +423,17 @@ class QuoteDB(commands.Cog):
         sql = """SELECT * FROM quotes WHERE author_user_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                record = await connection.fetch(sql, member.id)
+                records = await connection.fetch(sql, member.id)
 
-        if record is None:
+        if not records:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"🚫 {member.mention} has no quotes."
             return await interaction.response.send_message(embed=embed)
 
         view = QuotesView(interaction, False)
-        view.all_quotes = record
-        view.index = random.randrange(len(view.all_quotes) - 1)
-        embed = QuoteEmbed(interaction, record)
+        view.all_quotes = records
+        view.index = random.randrange(len(records) - 1)
+        embed = QuoteEmbed(interaction, records[view.index])
         return await interaction.response.send_message(embed=embed, view=view)
 
     @quotes.command()

@@ -7,6 +7,7 @@ import typing
 
 import discord
 from lxml import html
+from ext.flashscore.abc import FlashScoreItem
 
 from ext.utils import timed_events
 
@@ -23,7 +24,7 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("flashscore.fixture")
 
 
-class Fixture:
+class Fixture(FlashScoreItem):
     """An object representing a Fixture from the Flashscore Website"""
 
     emoji = GOAL_EMOJI
@@ -41,8 +42,7 @@ class Fixture:
         if url and FLASHSCORE not in url:
             logger.info("Invalid url %s", url)
 
-        self.url: typing.Optional[str] = url
-        self.id: typing.Optional[str] = fs_id  # pylint: disable=C0103
+        super().__init__(fs_id, f"{home.name}:{away.name}", url)
 
         self.away: Team = away
         self.away_cards: typing.Optional[int] = None

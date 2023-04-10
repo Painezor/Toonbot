@@ -17,8 +17,8 @@ from .competitions import Competition
 from .fixture import Fixture
 from .gamestate import GameState, dispatch_events
 from .matchevents import MatchEvent, EventType, Penalty, Substitution
-from .players import Player
-from .team import FSTransfer, Team, SquadMember
+from .players import Player, TopScorer, FSTransfer
+from .team import Team, SquadMember
 from .search import search, save_comp, save_team
 from .transformers import comp_trnsf, fix_trnsf, team_trnsf
 
@@ -50,10 +50,11 @@ __all__ = [
     "Substitution",
     # players
     "Player",
-    # team
-    "Team",
+    "TopScorer",
     "FSTransfer",
     "SquadMember",
+    # team
+    "Team",
     # search
     "search",
     "save_comp",

@@ -1,21 +1,29 @@
 """Abstract Base Class for Flashscore Items"""
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import logging
 import typing
 
 import discord
-from playwright.async_api import Page, TimeoutError as PWTimeoutError
 from lxml import html
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PWTimeoutError
 
 from ext.utils import embed_utils
 
-from .constants import FLASHSCORE, LOGO_URL
 from .competitions import Competition
+from .constants import FLASHSCORE, LOGO_URL
 from .fixture import Fixture
-from .team import Team
 from .gamestate import GameState
+from .players import Player, TopScorer
+from .team import Team, save_team
+
+if typing.TYPE_CHECKING:
+    from core import Bot
+
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
 
 
 logger = logging.getLogger("ext.flashscore.abc")
@@ -46,8 +54,16 @@ def find(value: str, cache: set[Competition]) -> typing.Optional[Competition]:
     return None
 
 
+@dataclasses.dataclass(slots=True)
 class FlashScoreItem:
     """A generic object representing the result of a Flashscore search"""
+
+    name: str
+    id: typing.Optional[str]  # pylint: disable=C0103
+    url: typing.Optional[str]
+
+    logo_url: typing.Optional[str] = None
+    embed_colour: typing.Optional[discord.Colour | int] = None
 
     def __init__(
         self,
@@ -55,11 +71,9 @@ class FlashScoreItem:
         name: str,
         url: typing.Optional[str],
     ) -> None:
-        self.id: typing.Optional[str] = fsid  # pylint: disable=C0103
-        self.name: str = name
-        self.url: typing.Optional[str] = url
-        self.embed_colour: typing.Optional[discord.Colour | int] = None
-        self.logo_url: typing.Optional[str] = None
+        self.id = fsid
+        self.name = name
+        self.url = url
 
     def __hash__(self) -> int:
         return hash(repr(self))
@@ -237,3 +251,82 @@ class FlashScoreItem:
                     logger.error('state "%s" (%s) not handled.', state, time)
             fixtures.append(fixture)
         return fixtures
+
+    async def get_scorers(
+        self, page: Page, interaction: Interaction
+    ) -> list[TopScorer]:
+        """Get a list of TopScorer objects for the Flashscore Item"""
+        link = f"{self.url}/standings/"
+
+        # Example link "#/nunhS7Vn/top_scorers"
+        # This requires a competition ID, annoyingly.
+        if link not in page.url:
+            logger.info("Forcing page change %s -> %s", page.url, link)
+            await page.goto(link)
+
+        top_scorer_button = page.locator("a", has_text="Top Scorers")
+        await top_scorer_button.wait_for(timeout=5000)
+
+        if await top_scorer_button.get_attribute("aria-current") != "page":
+            await top_scorer_button.click()
+
+        tab_class = page.locator("#tournament-table-tabs-and-content")
+        await tab_class.wait_for()
+
+        btn = page.locator(".topScorers__showMore")
+        while await btn.count():
+            await btn.last.click()
+
+        raw = await tab_class.inner_html()
+        tree = html.fromstring(raw)
+
+        scorers: list[TopScorer] = []
+
+        rows = tree.xpath('.//div[@class="ui-table__body"]/div')
+
+        for i in rows:
+            xpath = "./div[1]//text()"
+            name = "".join(i.xpath(xpath))
+
+            xpath = "./div[1]//@href"
+            url = FLASHSCORE + "".join(i.xpath(xpath))
+
+            scorer = TopScorer(player=Player(None, name, url))
+            xpath = "./span[1]//text()"
+            scorer.rank = int("".join(i.xpath(xpath)).strip("."))
+
+            xpath = './/span[contains(@class,"flag")]/@title'
+            scorer.player.country = i.xpath(xpath)
+
+            xpath = './/span[contains(@class, "--goals")]/text()'
+            try:
+                scorer.goals = int("".join(i.xpath(xpath)))
+            except ValueError:
+                pass
+
+            xpath = './/span[contains(@class, "--gray")]/text()'
+            try:
+                scorer.assists = int("".join(i.xpath(xpath)))
+            except ValueError:
+                pass
+
+            team_url = FLASHSCORE + "".join(i.xpath("./a/@href"))
+            team_id = team_url.split("/")[-2]
+
+            tmn = "".join(i.xpath("./a/text()"))
+
+            if (team := interaction.client.get_team(team_id)) is None:
+                team_link = "".join(i.xpath(".//a/@href"))
+                team = Team(team_id, tmn, team_link)
+
+                comp_id = url.split("/")[-2]
+                team.competition = interaction.client.get_competition(comp_id)
+            else:
+                if team.name != tmn:
+                    logger.info("Overrode team name %s -> %s", team.name, tmn)
+                    team.name = tmn
+                    await save_team(interaction.client, team)
+
+            scorer.team = team
+            scorers.append(scorer)
+        return scorers

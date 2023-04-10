@@ -1,7 +1,7 @@
 """Working with teams retrieved from flashscore"""
 from __future__ import annotations
-
 import dataclasses
+
 import datetime
 import typing
 
@@ -9,12 +9,10 @@ import asyncpg
 from lxml import html
 from playwright.async_api import Page
 
-from ext.utils import timed_events
-
 from .abc import FlashScoreItem
 from .competitions import Competition
-from .constants import FLASHSCORE, INBOUND_EMOJI, OUTBOUND_EMOJI, TEAM_EMOJI
-from .players import Player
+from .constants import FLASHSCORE, TEAM_EMOJI
+from .players import FSTransfer, Player, SquadMember
 from .search import save_team
 
 if typing.TYPE_CHECKING:
@@ -23,16 +21,14 @@ if typing.TYPE_CHECKING:
 TFOpts = typing.Literal["All", "Arrivals", "Departures"]
 
 
+@dataclasses.dataclass(slots=True)
 class Team(FlashScoreItem):
     """An object representing a Team from Flashscore"""
 
-    __slots__ = {
-        "competition": "The competition the team belongs to",
-        "logo_url": "A link to a logo representing the competition",
-        "gender": "The Gender that this team is comprised of",
-    }
+    competition: typing.Optional[Competition] = None
+    gender: typing.Optional[str] = None
+    logo_url: typing.Optional[str] = None
 
-    # Constant
     emoji = TEAM_EMOJI
 
     def __init__(
@@ -50,9 +46,6 @@ class Team(FlashScoreItem):
             url = f"https://www.flashscore.com/?r=3:{id}"
 
         super().__init__(fs_id, name, url)
-
-        self.gender: typing.Optional[str] = None
-        self.competition: typing.Optional[Competition] = None
 
     def __str__(self) -> str:
         output = self.name or "Unknown Team"
@@ -250,53 +243,3 @@ class Team(FlashScoreItem):
                 trans.team = team
             output.append(trans)
         return output
-
-
-@dataclasses.dataclass(slots=True)
-class SquadMember:
-    """A Player that is a member of a team"""
-
-    player: Player
-    position: str
-
-    squad_number: int
-    position: str
-    appearances: int
-    goals: int
-    assists: int
-    yellows: int
-    reds: int
-    injury: str
-    rank: typing.Optional[int] = None
-
-    def __init__(self, **kwargs) -> None:
-        for k, val in kwargs.items():
-            setattr(self, k, val)
-
-
-@dataclasses.dataclass(slots=True)
-class FSTransfer:
-    """A Transfer Retrieved from Flashscore"""
-
-    date: datetime.datetime
-    direction: str
-    player: Player
-    type: str
-
-    team: typing.Optional[Team] = None  #
-
-    def __init__(self) -> None:
-        pass
-
-    @property
-    def emoji(self) -> str:
-        """Return emoji depending on whether transfer is inbound or outbound"""
-        return INBOUND_EMOJI if self.direction == "in" else OUTBOUND_EMOJI
-
-    @property
-    def output(self) -> str:
-        """Player Markdown, Emoji, Team Markdown, Date, Type of transfer"""
-        pmd = self.player.markdown
-        tmd = self.team.markdown if self.team else "Free Agent"
-        date = timed_events.Timestamp(self.date).date
-        return f"{pmd} {self.emoji} {tmd}\n{date} {self.type}\n"

@@ -37,7 +37,6 @@ class BaseView(discord.ui.View):
         super().__init__(timeout=timeout)
 
         self.invoker: int = invoker.id
-        self.index: int = 0
 
         self.parent = parent
         if parent is None:
@@ -46,12 +45,7 @@ class BaseView(discord.ui.View):
     @discord.ui.button(label="Back", emoji="🔼")
     async def parent_button(self, interaction: Interaction, _) -> None:
         """Send Parent View"""
-        assert self.parent is not None
-        return await self.parent.entry_point(interaction)
-
-    async def entry_point(self, interaction: Interaction):
-        """Handle instantiation of a view from interaction alone"""
-        await interaction.response.edit_message(view=self, embed=None)
+        return await interaction.response.edit_message(view=self.parent)
 
     async def interaction_check(self, interaction: Interaction, /) -> bool:
         """Make sure only the person running the command can select options"""
@@ -149,10 +143,9 @@ class Stop(discord.ui.Button):
         self.view.stop()
 
 
-# TODO: AsyncPaginator
-# TODO: AsyncDropdownPaginator
 # TODO: Deperecate rows_to_embeds
 # TODO: Stop() to decorator of baseview
+
 class Paginator(BaseView):
     """A Paginator takes a list of Embeds and an Optional list of
     lists of SelectOptions. When a button is clicked, the page is changed
@@ -164,6 +157,7 @@ class Paginator(BaseView):
         invoker: User,
         embeds: list[discord.Embed],
         *,
+        index: int = 0, 
         parent: typing.Optional[BaseView] = None,
         timeout: typing.Optional[float] = None,
     ) -> None:
@@ -171,6 +165,7 @@ class Paginator(BaseView):
 
         self.pages = embeds
 
+        self.index = index
         if self.index + 1 > len(self.pages):
             self.next.disabled = True
         if self.index == 0:
@@ -179,14 +174,10 @@ class Paginator(BaseView):
         self.jump.label = f"{self.index + 1}/{len(self.pages)}"
         self.jump.disabled = len(self.pages) < 3
 
-    async def entry_point(self, interaction: Interaction):
-        embed = self.pages[self.index]
-        await interaction.response.edit_message(view=self, embed=embed)
-        self.message = await interaction.original_response()
-
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
         embed = self.pages[self.index]
+        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="◀️", row=0)
@@ -207,6 +198,18 @@ class Paginator(BaseView):
         self.index = min(self.index + 1, len(self.pages))
         self.jump.label = f"{self.index + 1}/{len(self.pages)}"
         await self.handle_page(interaction)
+
+
+class AsyncPaginator(Paginator):
+    
+    def __init__(self, invoker: User, max_pages: int) -> None:
+        dummy = [discord.Embed()] * max_pages
+        super().__init__(invoker, dummy)
+        self.pages: int = max_pages
+
+    async def handle_page(self, interaction: Interaction) -> None:
+        """Change the jump label, but this should also be subclassed"""
+        self.jump.label = f"{self.index + 1}/{self.pages}"
 
 
 class DropdownPaginator(Paginator):
