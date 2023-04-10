@@ -28,10 +28,13 @@ TF = "https://www.transfermarkt.co.uk"
 logger = logging.getLogger("transfermarkt")
 
 
+# TODO: Convert all to dataclasses and move the parsing to their inits.
+
+
 class SearchResult:
     """A result from a transfermarkt search"""
 
-    def __init__(self, name: str, link: str, **kwargs) -> None:
+    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         self.name: str = name
         self.link: str = link
         self.emoji: str
@@ -53,17 +56,17 @@ class SearchResult:
         return f"[{self.name}]({self.link})"
 
     @property
-    def flag(self) -> str:
+    def flag(self) -> typing.Optional[str]:
         """Return a flag representing the country"""
-        # Return the 'earth' emoji if caller does not have a country.
-        if self.country is None:
+        # Return the 'earth' emoji if caller does not have a country
+        if not self.country:
             return "🌍"
 
-        if isinstance(self.country, list):
-            output = [flags.get_flag(i) for i in self.country]
-            return " ".join([x for x in output if x is not None])
-        else:
-            return flags.get_flag(self.country)
+        output = flags.get_flags(self.country)
+        output = " ".join([x for x in output if x is not None])
+        if output:
+            return output
+        return None
 
 
 class Competition(SearchResult):
@@ -71,17 +74,16 @@ class Competition(SearchResult):
 
     emoji: str = "🏆"
 
-    def __init__(self, name: str, link: str, **kwargs) -> None:
+    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
-        self.country: typing.Optional[str] = kwargs.pop("country", None)
+        self.country = kwargs.pop("country", [])
 
     def __str__(self) -> str:
         if self:
             return f"{self.flag} {self.markdown}"
-        else:
-            return ""
+        return ""
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return bool(self.name)
 
     async def get_attendance(self) -> list[discord.Embed]:
@@ -94,7 +96,7 @@ class Competition(SearchResult):
                     logger.error("%s %s: %s", resp.status, resp.reason, url)
                 tree = html.fromstring(await resp.text())
 
-        rows = []
+        rows: list[StadiumAttendance] = []
         xpath = (
             './/table[@class="items"]/tbody/tr[@class="odd" or @class="even"]'
         )
@@ -107,7 +109,7 @@ class Competition(SearchResult):
                 continue
 
             # Stadium info
-            std = StadiumAttendance
+            std = StadiumAttendance()
             std.name = "".join(stadium.xpath(".//a/text()"))
             std.link = TF + "".join(stadium.xpath(".//@href"))
 
@@ -124,8 +126,9 @@ class Competition(SearchResult):
 
             avg = "".join(i.xpath('.//td[@class="rechts"][3]/text()'))
             std.average = int(avg.replace(".", ""))
+            rows.append(std)
 
-        embeds = []
+        embeds: list[discord.Embed] = []
         # Average
         embed = self.base_embed.copy()
         embed.title = f"Average Attendance data for {self.name}"
@@ -159,11 +162,10 @@ class Team(SearchResult):
 
     emoji: str = "👕"
 
-    def __init__(self, name: str, link: str, **kwargs) -> None:
+    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name=name, link=link)
 
         self.league: Competition = kwargs.pop("league", None)
-        self.country: str = kwargs.pop("country", None)
         for k, value in kwargs.items():
             setattr(self, k, value)
 
@@ -212,7 +214,7 @@ class Team(SearchResult):
         embed.title = f"Expiring contracts for {self.name}"
         embed.set_author(name="Transfermarkt", url=url, icon_url=FAVICON)
 
-        rows = []
+        rows: list[str] = []
 
         xpath = './/div[@class="large-8 columns"]/div[@class="box"]'
         for i in tree.xpath(xpath)[0].xpath(".//tbody/tr"):
@@ -236,7 +238,7 @@ class Team(SearchResult):
             age = age.split("(", maxsplit=1)[-1].replace(")", "").strip()
 
             country = i.xpath(".//td[3]/img/@title")
-            flag = " ".join([flags.get_flag(f) for f in country])
+            flag = flags.get_flags(country)
             date = "".join(i.xpath(".//td[4]//text()")).strip()
 
             time = datetime.datetime.strptime(date, "%b %d, %Y")
@@ -246,6 +248,7 @@ class Team(SearchResult):
             option = f"\n∟ {option.title()}" if option != "-" else ""
 
             markdown = f"[{name}]({link})"
+            flag = "" if not flag else flag
             rows.append(f"{flag} {markdown} {age}, {pos} ({expiry}){option}")
 
         if not rows:
@@ -269,7 +272,7 @@ class Team(SearchResult):
         embed.title = f"Transfer rumours for {self.name}"
         embed.set_author(name="Transfermarkt", url=resp.url, icon_url=FAVICON)
 
-        rows = []
+        rows: list[str] = []
         xpath = './/div[@class="large-8 columns"]/div[@class="box"]'
         for i in tree.xpath(xpath)[0].xpath(".//tbody/tr"):
             xpath = './/tm-tooltip[@data-type="player"]/a/@title'
@@ -285,7 +288,7 @@ class Team(SearchResult):
 
             pos = "".join(i.xpath(".//td[2]//tr[2]/td/text()"))
             country = i.xpath(".//td[3]/img/@title")
-            flag = " ".join([flags.get_flag(i) for i in country])
+            flag = flags.get_flag(country)
             age = "".join(i.xpath("./td[4]/text()")).strip()
             team = "".join(i.xpath(".//td[5]//img/@alt"))
 
@@ -295,6 +298,7 @@ class Team(SearchResult):
 
             source = "".join(i.xpath(".//td[8]//a/@href"))
             src = f"[Info]({source})"
+            flag = "" if flag is None else flag
             rows.append(
                 f"{flag} **[{name}]({link})** ({src})\n{age},"
                 f" {pos} [{team}]({team_link})\n"
@@ -316,11 +320,11 @@ class Team(SearchResult):
                     logger.error("%s %s: %s", resp.status, resp.reason, url)
                 tree = html.fromstring(await resp.text())
 
-        def parse(rows: list, out: bool = False) -> list[FSTransfer]:
+        def parse(rows: list[typing.Any], out: bool = False) -> list[Transfer]:
             """Read through the transfers page and extract relevant data,
             returning a list of transfers"""
 
-            transfers = []
+            transfers: list[Transfer] = []
             for i in rows:
                 # Block 1 - Discard, Position Colour Marker.
 
@@ -352,7 +356,7 @@ class Team(SearchResult):
                     _.strip() for _ in i.xpath(xpath) if _.strip()
                 ]
 
-                transfer = FSTransfer(player=player)
+                transfer = Transfer(player=player)
 
                 # Block 5 - Other Team
                 xpath = './td[5]//td[@class="hauptlink"]/a/text()'
@@ -376,9 +380,7 @@ class Team(SearchResult):
                 team.league = league
 
                 xpath = "./td[5]//img[@class='flaggenrahmen']/@title"
-                team.country = "".join(
-                    [_.strip() for _ in i.xpath(xpath) if _.strip()]
-                )
+                team.country = [_.strip() for _ in i.xpath(xpath) if _.strip()]
 
                 transfer.new_team = team if out else self
                 transfer.old_team = self if out else team
@@ -396,7 +398,7 @@ class Team(SearchResult):
         base_embed.set_author(name="Transfermarkt", url=url, icon_url=FAVICON)
         base_embed.url = url
 
-        embeds = []
+        embeds: list[discord.Embed] = []
         xpath = (
             './/div[@class="box"][.//h2[contains(text(),"Arrivals")]]'
             '//tr[@class="even" or @class="odd"]'
@@ -439,7 +441,7 @@ class Team(SearchResult):
                     logger.error("%s %s: %s", resp.status, resp.reason, url)
             tree = html.fromstring(await resp.text())
 
-        trophies = []
+        trophies: list[str] = []
         for i in tree.xpath('.//div[@class="box"][./div[@class="header"]]'):
             title = "".join(i.xpath(".//h2/text()"))
 
@@ -459,10 +461,10 @@ class Team(SearchResult):
 class Player(SearchResult):
     """An Object representing a player from transfermarkt"""
 
-    def __init__(self, name: str, link: str, **kwargs) -> None:
+    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
 
-        self.team: Team = kwargs.pop("team", None)
+        self.team: typing.Optional[Team] = kwargs.pop("team", None)
         self.age: int = kwargs.pop("age", None)
         self.position: str = kwargs.pop("position", None)
         self.country: list[str] = kwargs.pop("country", [])
@@ -489,16 +491,14 @@ class Referee(SearchResult):
         self.country: list[str] = kwargs.pop("country", [])
 
     def __str__(self) -> str:
-        output = f"{self.flag} {self.markdown}"
-        if self.age is not None:
-            output += f" {self.age}"
+        output = f"{self.flag} {self.markdown} {self.age}"
         return output
 
 
 class Staff(SearchResult):
     """An object representing a Trainer or Manager from Transfermarkt"""
 
-    def __init__(self, name: str, link: str, **kwargs) -> None:
+    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
 
         self.team: Team = kwargs.pop("team", None)
@@ -518,7 +518,7 @@ class Agent(SearchResult):
 
 
 # TODO: Dataclass & Unpack from xpath
-class FSTransfer:
+class Transfer:
     """An Object representing a transfer from transfermarkt"""
 
     def __init__(self, player: Player) -> None:
@@ -570,17 +570,14 @@ class FSTransfer:
         embed = discord.Embed(description="", colour=0x1A3151)
         embed.title = f"{self.player.flag} {self.player.name}"
         embed.url = self.player.link
-        desc = []
-        if self.player.age is not None:
-            desc.append(f"**Age**: {self.player.age}")
-        if self.player.position is not None:
-            desc.append(f"**Position**: {self.player.position}")
-
+        desc: list[str] = []
+        desc.append(f"**Age**: {self.player.age}")
+        desc.append(f"**Position**: {self.player.position}")
         desc.append(f"**From**: {self.old_team}")
         desc.append(f"**To**: {self.new_team}")
         desc.append(f"**Fee**: {self.loan_fee}")
 
-        if self.player.picture is not None and "http" in self.player.picture:
+        if "http" in self.player.picture:
             embed.set_thumbnail(url=self.player.picture)
 
         desc.append(timed_events.Timestamp().relative)
@@ -706,8 +703,15 @@ class SearchView(view_utils.DropdownPaginator):
     match_string: str
     category: str
 
-    def __init__(self, invoker: User, embed, options, query: str) -> None:
-        super().__init__(invoker, embed, options, options)
+    def __init__(
+        self,
+        invoker: User,
+        embed: discord.Embed,
+        rows: list[str],
+        options: list[discord.SelectOption],
+        query: str,
+    ) -> None:
+        super().__init__(invoker, embed, rows, options)
 
         self.query: str = query
 
@@ -762,9 +766,9 @@ class SearchView(view_utils.DropdownPaginator):
             return None
 
         embed = embed_utils.rows_to_embeds(embed, [str(i) for i in results])[0]
-        embeds = [embed] * max(matches // 10, 1)
 
-        options = []
+        options: list[discord.SelectOption] = []
+        rows: list[str] = []
         for i in results:
             desc = i.country[0] if i.country else ""
 
@@ -775,8 +779,9 @@ class SearchView(view_utils.DropdownPaginator):
             option.description = desc[:100]
             option.emoji = i.emoji
             options.append(option)
+            rows.append(desc)
 
-        view = cls(interaction.user, embeds, options, query)
+        view = cls(interaction.user, embed, rows, options, query)
         view.items = results
         await interaction.response.send_message(view=view, embed=embed)
         return view
@@ -826,7 +831,8 @@ class SearchView(view_utils.DropdownPaginator):
         _ = [str(i) for i in self.items]
         embed = embed_utils.rows_to_embeds(embed, _)[0]
         self.pages = [embed] * max(matches // 10, 1)
-        options = []
+        options: list[discord.SelectOption] = []
+        rows: list[str] = []
         for i in self.items:
             desc = i.country[0] if i.country else ""
 
@@ -837,18 +843,22 @@ class SearchView(view_utils.DropdownPaginator):
             opt.description = desc[:100]
             opt.emoji = i.emoji
             options.append(opt)
+            rows.append(desc)
 
+        self.rows = rows
         self.dropdown.options = options
         await interaction.response.edit_message(view=self, embed=embed)
 
     @discord.ui.select(row=4, placeholder="Select correct item")
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[SearchView]
+    ) -> None:
         """Set self.value to target object"""
         self.value = next(i for i in self.items if i.link in sel.values)
         self.interaction = itr
 
     @staticmethod
-    def parse(rows: list) -> list[SearchResult]:
+    def parse(rows: list[typing.Any]) -> list[typing.Any]:
         """This should always be polymorphed"""
         return rows
 
@@ -863,9 +873,9 @@ class AgentSearch(SearchView):
     value: Agent
 
     @staticmethod
-    def parse(rows: list) -> list[Agent]:
+    def parse(rows: list[typing.Any]) -> list[Agent]:
         """Parse a transfermarkt page into a list of Agent Objects"""
-        results = []
+        results: list[Agent] = []
         for i in rows:
             name = "".join(i.xpath(".//td[2]/a/text()"))
             if TF not in (link := "".join(i.xpath(".//td[2]/a/@href"))):
@@ -884,15 +894,14 @@ class CompetitionSearch(SearchView):
     value: Competition
 
     @staticmethod
-    def parse(rows: list) -> list[Competition]:
+    def parse(rows: list[typing.Any]) -> list[Competition]:
         """Parse a transfermarkt page into a list of Competition Objects"""
-        results = []
+        results: list[Competition] = []
         for i in rows:
             name = "".join(i.xpath(".//td[2]/a/text()")).strip()
             link = TF + "".join(i.xpath(".//td[2]/a/@href")).strip()
 
             country = [_.strip() for _ in i.xpath(".//td[3]/img/@title")]
-            country = "".join(country)
             comp = Competition(name=name, link=link, country=country)
 
             results.append(comp)
@@ -909,9 +918,9 @@ class PlayerSearch(SearchView):
     value: Player
 
     @staticmethod
-    def parse(rows) -> list[Player]:
+    def parse(rows: list[typing.Any]) -> list[Player]:
         """Parse a transfer page to get a list of players"""
-        results = []
+        results: list[Player] = []
         for i in rows:
             xpath = (
                 './/tm-tooltip[@data-type="player"]/a/@title |'
@@ -971,9 +980,9 @@ class RefereeSearch(SearchView):
     value: Referee
 
     @staticmethod
-    def parse(rows: list) -> list[Referee]:
+    def parse(rows: list[typing.Any]) -> list[Referee]:
         """Parse a transfer page to get a list of referees"""
-        results = []
+        results: list[Referee] = []
         for i in rows:
             xpath = './/td[@class="hauptlink"]/a/@href'
             link = "".join(i.xpath(xpath)).strip()
@@ -998,9 +1007,9 @@ class StaffSearch(SearchView):
     match_string = "Managers"
 
     @staticmethod
-    def parse(rows: list) -> list[Staff]:
+    def parse(rows: list[typing.Any]) -> list[Staff]:
         """Parse a list of staff"""
-        results = []
+        results: list[Staff] = []
         for i in rows:
             xpath = './/td[@class="hauptlink"]/a/@href'
             if TF not in (link := "".join(i.xpath(xpath))):
@@ -1045,9 +1054,9 @@ class TeamSearch(SearchView):
     value: Team
 
     @staticmethod
-    def parse(rows: list) -> list[Team]:
+    def parse(rows: list[typing.Any]) -> list[Team]:
         """Fetch a list of teams from a transfermarkt page"""
-        results = []
+        results: list[Team] = []
 
         for i in rows:
             xpath = './/tm-tooltip[@data-type="club"]/a/@title'

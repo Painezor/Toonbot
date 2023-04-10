@@ -7,12 +7,9 @@ import typing
 
 import discord
 
-from .matchevents import EventType
-from .fixture import Fixture
-
-
 if typing.TYPE_CHECKING:
     from core import Bot
+    from .fixture import Fixture
 
 
 logger = logging.getLogger("flashscore.gamestate")
@@ -21,7 +18,7 @@ logger = logging.getLogger("flashscore.gamestate")
 class GameState(enum.Enum):
     """An Enum representing the various possibilities of game state"""
 
-    def __new__(cls, *args) -> GameState:
+    def __new__(cls, *args: str | discord.Colour) -> GameState:
         value = len(cls.__members__) + 1
         obj = object.__new__(cls)
         obj._value_ = value
@@ -72,8 +69,13 @@ class GameState(enum.Enum):
     AWARDED = ("Awrd", "⚪", 0xFFFFFF)
 
 
-def dispatch_events(bot: Bot, fix: Fixture, old: GameState) -> None:
+def dispatch_events(
+    bot: Bot, fix: Fixture, old: typing.Optional[GameState]
+) -> None:
     """Dispatch events to the ticker"""
+
+    from .matchevents import EventType
+
     evt = "fixture_event"
     send_event = bot.dispatch
 

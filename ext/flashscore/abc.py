@@ -13,15 +13,14 @@ from playwright.async_api import TimeoutError as PWTimeoutError
 
 from ext.utils import embed_utils
 
-from .competitions import Competition
 from .constants import FLASHSCORE, LOGO_URL
-from .fixture import Fixture
-from .gamestate import GameState
-from .players import Player, TopScorer
-from .team import Team, save_team
 
 if typing.TYPE_CHECKING:
     from core import Bot
+
+    from .competitions import Competition
+    from .fixture import Fixture
+    from .players import TopScorer
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
 
@@ -31,9 +30,6 @@ logger = logging.getLogger("ext.flashscore.abc")
 
 def find(value: str, cache: set[Competition]) -> typing.Optional[Competition]:
     """Retrieve a competition from the ones stored in the bot."""
-    if value is None:
-        return None
-
     for i in cache:
         if i.id == value:
             return i
@@ -81,7 +77,9 @@ class FlashScoreItem:
     def __repr__(self) -> str:
         return f"FlashScoreItem({self.__dict__})"
 
-    def __eq__(self, other: FlashScoreItem) -> bool:
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, FlashScoreItem):
+            return False
         if self.id is None:
             return self.title == other.title
         return self.id == other.id
@@ -130,10 +128,98 @@ class FlashScoreItem:
         """Get a list of upcoming Fixtures for the FS Item"""
         return await self.parse_games(page, cache, upcoming=False)
 
+    async def get_scorers(
+        self, page: Page, interaction: Interaction
+    ) -> list[TopScorer]:
+        """Get a list of TopScorer objects for the Flashscore Item"""
+        link = f"{self.url}/standings/"
+
+        from .players import Player, TopScorer  # pylance: disable=C0415
+        from .team import Team  # pylance: disable=C0415
+
+        # Example link "#/nunhS7Vn/top_scorers"
+        # This requires a competition ID, annoyingly.
+        if link not in page.url:
+            logger.info("Forcing page change %s -> %s", page.url, link)
+            await page.goto(link)
+
+        top_scorer_button = page.locator("a", has_text="Top Scorers")
+        await top_scorer_button.wait_for(timeout=5000)
+
+        if await top_scorer_button.get_attribute("aria-current") != "page":
+            await top_scorer_button.click()
+
+        tab_class = page.locator("#tournament-table-tabs-and-content")
+        await tab_class.wait_for()
+
+        btn = page.locator(".topScorers__showMore")
+        while await btn.count():
+            await btn.last.click()
+
+        raw = await tab_class.inner_html()
+        tree = html.fromstring(raw)
+
+        scorers: list[TopScorer] = []
+
+        rows = tree.xpath('.//div[@class="ui-table__body"]/div')
+
+        for i in rows:
+            xpath = "./div[1]//text()"
+            name = "".join(i.xpath(xpath))
+
+            xpath = "./div[1]//@href"
+            url = FLASHSCORE + "".join(i.xpath(xpath))
+
+            scorer = TopScorer(player=Player(None, name, url))
+            xpath = "./span[1]//text()"
+            scorer.rank = int("".join(i.xpath(xpath)).strip("."))
+
+            xpath = './/span[contains(@class,"flag")]/@title'
+            scorer.player.country = i.xpath(xpath)
+
+            xpath = './/span[contains(@class, "--goals")]/text()'
+            try:
+                scorer.goals = int("".join(i.xpath(xpath)))
+            except ValueError:
+                pass
+
+            xpath = './/span[contains(@class, "--gray")]/text()'
+            try:
+                scorer.assists = int("".join(i.xpath(xpath)))
+            except ValueError:
+                pass
+
+            team_url = FLASHSCORE + "".join(i.xpath("./a/@href"))
+            team_id = team_url.split("/")[-2]
+
+            tmn = "".join(i.xpath("./a/text()"))
+
+            if (team := interaction.client.get_team(team_id)) is None:
+                team_link = "".join(i.xpath(".//a/@href"))
+                team = Team(team_id, tmn, team_link)
+
+                comp_id = url.split("/")[-2]
+                team.competition = interaction.client.get_competition(comp_id)
+            else:
+                if team.name != tmn:
+                    logger.info("Overrode team name %s -> %s", team.name, tmn)
+                    team.name = tmn
+                    await team.save(interaction.client)
+
+            scorer.team = team
+            scorers.append(scorer)
+        return scorers
+
     async def parse_games(
         self, page: Page, cache: set[Competition], upcoming: bool
     ) -> list[Fixture]:
         """Parse games from raw HTML from fixtures or results function"""
+        # Avoid Circular importing
+        from .gamestate import GameState  # pylance: disable=C0415
+        from .competitions import Competition  # pylance: disable=C0415
+        from .fixture import Fixture  # pylance: disable=C0415
+        from .team import Team  # pylance: disable=C0415
+
         sub_page = "/fixtures/" if upcoming else "/results/"
 
         if self.url is None:
@@ -141,7 +227,7 @@ class FlashScoreItem:
             return []
 
         try:
-            await page.goto(self.url + sub_page, timeout=5000)
+            await page.goto(self.url + sub_page, timeout=300)
             loc = page.locator("#live-table")
             await loc.wait_for()
             tree = html.fromstring(await page.content())
@@ -151,6 +237,7 @@ class FlashScoreItem:
 
         fixtures: list[Fixture] = []
 
+        # Locally import to avoid circular reference.
         if isinstance(self, Competition):
             comp = self
         else:
@@ -251,82 +338,3 @@ class FlashScoreItem:
                     logger.error('state "%s" (%s) not handled.', state, time)
             fixtures.append(fixture)
         return fixtures
-
-    async def get_scorers(
-        self, page: Page, interaction: Interaction
-    ) -> list[TopScorer]:
-        """Get a list of TopScorer objects for the Flashscore Item"""
-        link = f"{self.url}/standings/"
-
-        # Example link "#/nunhS7Vn/top_scorers"
-        # This requires a competition ID, annoyingly.
-        if link not in page.url:
-            logger.info("Forcing page change %s -> %s", page.url, link)
-            await page.goto(link)
-
-        top_scorer_button = page.locator("a", has_text="Top Scorers")
-        await top_scorer_button.wait_for(timeout=5000)
-
-        if await top_scorer_button.get_attribute("aria-current") != "page":
-            await top_scorer_button.click()
-
-        tab_class = page.locator("#tournament-table-tabs-and-content")
-        await tab_class.wait_for()
-
-        btn = page.locator(".topScorers__showMore")
-        while await btn.count():
-            await btn.last.click()
-
-        raw = await tab_class.inner_html()
-        tree = html.fromstring(raw)
-
-        scorers: list[TopScorer] = []
-
-        rows = tree.xpath('.//div[@class="ui-table__body"]/div')
-
-        for i in rows:
-            xpath = "./div[1]//text()"
-            name = "".join(i.xpath(xpath))
-
-            xpath = "./div[1]//@href"
-            url = FLASHSCORE + "".join(i.xpath(xpath))
-
-            scorer = TopScorer(player=Player(None, name, url))
-            xpath = "./span[1]//text()"
-            scorer.rank = int("".join(i.xpath(xpath)).strip("."))
-
-            xpath = './/span[contains(@class,"flag")]/@title'
-            scorer.player.country = i.xpath(xpath)
-
-            xpath = './/span[contains(@class, "--goals")]/text()'
-            try:
-                scorer.goals = int("".join(i.xpath(xpath)))
-            except ValueError:
-                pass
-
-            xpath = './/span[contains(@class, "--gray")]/text()'
-            try:
-                scorer.assists = int("".join(i.xpath(xpath)))
-            except ValueError:
-                pass
-
-            team_url = FLASHSCORE + "".join(i.xpath("./a/@href"))
-            team_id = team_url.split("/")[-2]
-
-            tmn = "".join(i.xpath("./a/text()"))
-
-            if (team := interaction.client.get_team(team_id)) is None:
-                team_link = "".join(i.xpath(".//a/@href"))
-                team = Team(team_id, tmn, team_link)
-
-                comp_id = url.split("/")[-2]
-                team.competition = interaction.client.get_competition(comp_id)
-            else:
-                if team.name != tmn:
-                    logger.info("Overrode team name %s -> %s", team.name, tmn)
-                    team.name = tmn
-                    await save_team(interaction.client, team)
-
-            scorer.team = team
-            scorers.append(scorer)
-        return scorers

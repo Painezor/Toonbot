@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-import json
 import typing
 import datetime
 
@@ -17,7 +16,7 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+User: typing.TypeAlias = discord.User | discord.Member
 
 # aiohttp useragent.
 LST = "http://www.livesoccertv.com/"
@@ -110,8 +109,6 @@ class Tv(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        with open("tv.json", encoding="utf-8") as data:
-            self.bot.tv_dict = json.load(data)
 
     @discord.app_commands.command(name="tv")
     @discord.app_commands.describe(team="Search for a team")

@@ -29,9 +29,9 @@ def error_to_codeblock(error: Exception) -> str:
 
 async def cg_ac(
     interaction: Interaction, current: str
-) -> list[discord.app_commands.Choice]:
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from list of cogs"""
-    results = []
+    results: list[discord.app_commands.Choice[str]] = []
 
     cur = current.casefold()
     for i in interaction.client.available_cogs:
@@ -50,18 +50,20 @@ class Admin(commands.Cog):
     @commands.is_owner()
     @commands.command(name="sync")
     async def sync(
-        self, ctx, guild_id: typing.Optional[int] = None
+        self, ctx: commands.Context[Bot], guild_id: typing.Optional[int] = None
     ) -> discord.Message:
         """Sync the command tree with discord"""
-
-        if not guild_id:
-            await self.bot.tree.sync()
-            txt = "Asked discord to sync, please wait up to 1 hour."
-            return await ctx.send(txt)
-        else:
+        try:
+            if not guild_id:
+                await self.bot.tree.sync()
+                txt = "Asked discord to sync, please wait up to 1 hour."
+                return await ctx.send(txt)
             await self.bot.tree.sync(guild=discord.Object(id=guild_id))
             guild = self.bot.get_guild(guild_id)
             return await ctx.send(f"Guild {guild} Synced")
+        except Exception as err:
+            logger.error(err, exc_info=True)
+            return await ctx.send("Something fucked up")
 
     cogs = discord.app_commands.Group(
         name="cogs",

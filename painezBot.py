@@ -61,7 +61,7 @@ discord.utils.setup_logging()
 class PBot(commands.AutoShardedBot):
     """The core functionality of the bot."""
 
-    def __init__(self, database: asyncpg.Pool) -> None:
+    def __init__(self, datab: asyncpg.Pool[asyncpg.Record]) -> None:
         super().__init__(
             description="World of Warships bot by Painezor#8489",
             command_prefix=commands.when_mentioned,
@@ -75,22 +75,22 @@ class PBot(commands.AutoShardedBot):
         self.available_cogs = COGS
 
         # Database & API Credentials
-        self.db: asyncpg.Pool = database  # pylint: disable=C0103
+        self.db: asyncpg.Pool[asyncpg.Record] = datab  # pylint: disable=C0103
         self.initialised_at: datetime.datetime = datetime.datetime.utcnow()
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
 
         # Reminders
-        self.reminders: set[asyncio.Task] = set()
+        self.reminders: set[asyncio.Task[None]] = set()
 
         # Dev BLog
-        self.dev_blog: asyncio.Task
+        self.dev_blog: asyncio.Task[None]
         self.dev_blog_cache: list[Blog] = []
         self.dev_blog_channels: list[int] = []
 
         # RSS: Cache & Channels
-        self.news: asyncio.Task
+        self.news: asyncio.Task[None]
         self.news_cache: list[Article] = []
         self.news_channels: list[NewsChannel] = []
 
@@ -143,7 +143,7 @@ async def run() -> None:
     if database is None:
         raise ConnectionError("Failed to initialise database.")
 
-    bot = PBot(database=database)
+    bot = PBot(datab=database)
 
     try:
         await bot.start(_credentials["painezbot"]["token"])

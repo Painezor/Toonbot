@@ -22,7 +22,7 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("reminders")
 
 
-async def spool_reminder(bot: Bot | PBot, record: asyncpg.Record):
+async def spool_reminder(bot: Bot | PBot, record: asyncpg.Record) -> None:
     """Bulk dispatch reminder messages"""
     # Get data from records
     await discord.utils.sleep_until(record["target_time"])
@@ -98,6 +98,9 @@ class RemindModal(discord.ui.Modal):
         async with bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 record = await connection.fetchrow(*args)
+
+        if record is None:
+            return
 
         reminder_task = bot.loop.create_task(spool_reminder(bot, record))
         bot.reminders.add(reminder_task)

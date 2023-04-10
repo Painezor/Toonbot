@@ -137,7 +137,7 @@ class Blog:
                 embed.set_image(url="http:" + node.attrib["src"])
                 return ""
 
-            out = []
+            out: list[str] = []
 
             if node.text is not None:
                 txt = node.text.strip()
@@ -171,12 +171,10 @@ class Blog:
                 if node.text_content():
                     if node.getprevious() is not None and node.text:
                         out.append("\n")
-                    out.append(txt)
-                    if (
-                        node.getnext() is not None
-                        and node.getnext().tag == "p"
-                    ):
-                        out.append("\n")
+                        out.append(node.text)
+                    if (nxt := node.getnext()) is not None:
+                        if nxt.tag == "p":
+                            out.append("\n")
             elif node.tag == "div":
                 if node.attrib.get("class", None) == "article-cut":
                     out.append("\n")
@@ -205,7 +203,7 @@ class Blog:
             elif node.tag == "span":
                 # Handle Ships
                 if node.attrib.get("class", None) == "ship":
-                    sub_out = []
+                    sub_out: list[str] = []
 
                     try:
                         if (
@@ -282,25 +280,27 @@ class Blog:
         return embed
 
 
-class DevBlogView(view_utils.Paginator):
+class DevBlogView(view_utils.AsyncPaginator):
     """Browse Dev Blogs"""
 
-    def __init__(self, invoker: User, pages: list[asyncpg.Record]) -> None:
-        super().__init__(invoker, pages)
-        self.pages: list[Blog] = pages
+    def __init__(self, invoker: User, pages: list[Blog]) -> None:
+        super().__init__(invoker, len(pages))
+        self.blogs: list[Blog] = pages
 
     async def handle_page(self, interaction: Interaction) -> None:
-        embed = await self.pages[self.index].make_embed()
+        """Convert to Embed"""
+        embed = await self.blogs[self.index].make_embed()
+        await super().handle_page()
         return await interaction.response.edit_message(embed=embed, view=self)
 
 
 async def db_ac(
     interaction: Interaction, current: str
-) -> list[discord.app_commands.Choice]:
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete dev blog by text"""
     cur = current.casefold()
 
-    blogs = []
+    blogs: list[discord.app_commands.Choice[str]] = []
     for i in interaction.client.dev_blog_cache:
         if cur not in i.ac_row:
             continue

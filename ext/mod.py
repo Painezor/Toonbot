@@ -51,7 +51,7 @@ class DiscordColours(enum.Enum):
 
 async def colour_ac(
     _: discord.Interaction[Bot], current: str
-) -> list[discord.app_commands.Choice]:
+) -> list[discord.app_commands.Choice[str]]:
     """Return from list of colours"""
     return [
         discord.app_commands.Choice(name=i.value, value=i.value)
@@ -79,7 +79,6 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
         destination: discord.TextChannel,
         colour: discord.Colour,
     ) -> None:
-
         super().__init__()
         self.destination: discord.TextChannel = destination
         self.colour: discord.Colour = colour
@@ -197,10 +196,9 @@ class Mod(commands.Cog):
     @discord.app_commands.default_permissions(manage_messages=True)
     @discord.app_commands.checks.bot_has_permissions(manage_messages=True)
     @discord.app_commands.describe(number="Number of messages to delete")
-    async def clean(
-        self, interaction: Interaction, number: int = 10
-    ) -> None:
+    async def clean(self, interaction: Interaction, number: int = 10) -> None:
         """Deletes my messages from the last x messages in channel"""
+
         def is_me(message):
             """Return only messages sent by the bot."""
             return message.author.id == self.bot.application_id

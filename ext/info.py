@@ -15,7 +15,7 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[PBot | Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+User: typing.TypeAlias = discord.User | discord.Member
 
 # TODO: Donate Button Command.
 # TODO: Subclass Embeds for Info (Too many branches linter warning)
@@ -573,7 +573,7 @@ class Info(commands.Cog):
         generic.description = "\n".join(desc)
 
         # User Flags
-        flags = []
+        flags: list[str] = []
         pub_flags = member.public_flags
         if pub_flags.verified_bot:
             flags.append("🤖 Verified Bot")

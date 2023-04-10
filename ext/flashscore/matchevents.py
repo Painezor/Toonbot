@@ -16,15 +16,19 @@ from .constants import (
     RED_CARD_EMOJI,
     YELLOW_CARD_EMOJI,
 )
-from .fixture import Fixture
-from .players import Player
-from .team import Team
+
+if typing.TYPE_CHECKING:
+    from .fixture import Fixture
+    from .players import Player
+    from .team import Team
+
 
 logger = logging.getLogger("matchevents")
 
 
 def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
     """Get a list of match events"""
+    from .players import Player
 
     events = []
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):

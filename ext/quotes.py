@@ -146,7 +146,6 @@ class QuotesView(view_utils.Paginator):
         super().__init__(interaction.user, _)
 
         self.pages: list[asyncpg.Record] = recs
-        self.index: int = super().index
 
     @discord.ui.button(row=0, emoji="🎲")
     async def random(self, interaction: Interaction, _) -> None:

@@ -24,7 +24,9 @@ class Lookup(commands.Cog):
         self.bot: Bot = bot
         reload(tfm)
 
-    lookup = discord.app_commands.Group(description="Search on transfermarkt")
+    lookup = discord.app_commands.Group(
+        name="lookup", description="Search on transfermarkt"
+    )
 
     @lookup.command(name="player")
     @discord.app_commands.describe(name="Enter a player name")
@@ -124,7 +126,7 @@ class Lookup(commands.Cog):
         view.message = await interaction.original_response()
 
     @discord.app_commands.command()
-    @discord.app_commands.describe(team="enter a team name to search for")
+    @discord.app_commands.describe(name="enter a team name to search for")
     async def trophies(self, interaction: Interaction, name: str) -> None:
         """Get a team's trophy case"""
         view = await tfm.TeamSearch.search(name, interaction)

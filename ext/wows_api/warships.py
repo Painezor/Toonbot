@@ -32,7 +32,7 @@ async def get_ships() -> list[Ship]:
     async with aiohttp.ClientSession() as session:
         async with session.get(INFO, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, INFO)
+                logger.error("%s %s: %s", resp.status, str(resp.reason), INFO)
             data = await resp.json()
 
         ship_types: list[ShipType] = []
@@ -63,16 +63,20 @@ async def get_ships() -> list[Ship]:
             return meta["page_total"]
 
         max_iter = await get_page(1, session)
-
+        logger.info("pagetotal = %s", max_iter)
         # Fetch all remaiing pages simultaneously
         await asyncio.gather(
-            *[get_page(i, session) for i in range(2, max_iter)]
+            *[get_page(i, session) for i in range(2, max_iter + 1)]
         )
 
     for i in ships:
         i.next_ship_objects = {}
         for k, val in i.next_ships.items():
-            ship = next(i for i in ships if str(i.ship_id) == k)
+            try:
+                ship = next(i for i in ships if str(i.ship_id) == k)
+            except StopIteration:
+                logger.error("failed to find ship_id %s", k)
+                continue
             i.next_ship_objects.update({ship: val})
 
         prevs = [j for j in ships if str(i.ship_id) in i.next_ships.keys()]

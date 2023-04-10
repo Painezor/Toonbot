@@ -76,7 +76,7 @@ class SquadView(view_utils.DropdownPaginator):
             opt = discord.SelectOption(label=i.player.name)
             opt.emoji = fs.PLAYER_EMOJI
 
-        sqd_opts = []
+        sqd_opts: list[discord.SelectOption] = []
         for i in sqd_filter_opts:
             opt = discord.SelectOption(label=i[0], value=i[1], emoji=i[2])
             sqd_opts.append(opt)
@@ -85,14 +85,18 @@ class SquadView(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options, 40, **kwargs)
 
     @discord.ui.select(row=1, placeholder="View Player", disabled=True)
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[SquadView]
+    ) -> None:
         """Go to specified player"""
         player = next(i for i in self.players if i.player.name in sel.values)
         view = PlayerView(itr.user, player.player)
         await itr.response.edit_message(view=view)
 
     @discord.ui.select(row=2, placeholder="Sort Players")
-    async def srt(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def srt(
+        self, itr: Interaction, sel: discord.ui.Select[SquadView]
+    ) -> None:
         """Change the sort mode of the view"""
         attr = sel.values[0]
         reverse = attr in ["goals", "yellows", "reds"]
@@ -203,7 +207,9 @@ class FixturesPaginator(view_utils.DropdownPaginator):
         return view
 
     @discord.ui.select()
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[FixturesPaginator]
+    ) -> None:
         """Go to Fixture"""
         fix = next(i for i in self.fixtures if i.url in sel.values)
         view = FixtureView(itr.user, self.page, fix, parent=self)
@@ -218,6 +224,9 @@ class FixturesPaginator(view_utils.DropdownPaginator):
 class TopScorersView(view_utils.DropdownPaginator):
     """View for handling top scorers."""
 
+    nationality_filter: typing.Optional[set[str]]
+    team_filter: typing.Optional[set[fs.Team]]
+
     def __init__(
         self,
         invoker: User,
@@ -225,8 +234,8 @@ class TopScorersView(view_utils.DropdownPaginator):
         embed: discord.Embed,
         scorers: list[fs.TopScorer],
         parent: typing.Optional[view_utils.BaseView],
-        nt_flt: typing.Optional[set] = None,
-        tm_flt: typing.Optional[set] = None,
+        nt_flt: typing.Optional[set[str]] = None,
+        tm_flt: typing.Optional[set[fs.Team]] = None,
     ):
         self.nationality_filter = nt_flt if nt_flt is not None else set()
         self.team_filter = tm_flt if tm_flt is not None else set()
@@ -240,8 +249,8 @@ class TopScorersView(view_utils.DropdownPaginator):
         if self.team_filter:
             flt = [i for i in flt if i.team in self.team_filter]
 
-        rows = []
-        options = []
+        rows: list[str] = []
+        options: list[discord.SelectOption] = []
         for i in flt:
             if i.player.url is None:
                 continue
@@ -308,7 +317,7 @@ class TopScorersView(view_utils.DropdownPaginator):
         """Generate a team filter dropdown"""
         teams = set(i.team.name for i in self.scorers if i.team)
 
-        opts = []
+        opts: list[discord.SelectOption] = []
         for i in sorted(teams):
             emoji = fs.TEAM_EMOJI
             opts.append(discord.SelectOption(label=i, emoji=emoji, value=i))
@@ -373,8 +382,8 @@ class TransfersView(view_utils.DropdownPaginator):
         transfers: list[fs.FSTransfer],
         **kwargs,
     ) -> None:
-        rows = []
-        options = []
+        rows: list[str] = []
+        options: list[discord.SelectOption] = []
         for i in transfers:
             opt = discord.SelectOption(label=i.player.name, emoji=i.emoji)
             if i.team is not None:
@@ -399,7 +408,9 @@ class TransfersView(view_utils.DropdownPaginator):
         self.transfers: list[fs.FSTransfer] = transfers
 
     @discord.ui.select(placeholder="Go to Player", disabled=True)
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[TransfersView]
+    ) -> None:
         """First Dropdown: Player"""
         await itr.response.defer()
         player = next(i for i in self.transfers if i.player.name in sel.values)
@@ -408,7 +419,7 @@ class TransfersView(view_utils.DropdownPaginator):
 
     @discord.ui.select(placeholder="Go to Team")
     async def tm_dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select
+        self, interaction: Interaction, sel: discord.ui.Select[TransferView]
     ) -> None:
         """Second Dropdown: Team"""
         team = next(i for i in self.teams if i.url in sel.values)
@@ -436,7 +447,7 @@ class TransfersView(view_utils.DropdownPaginator):
         cls, interaction: Interaction, page: Page, team: fs.Team
     ) -> TransfersView:
         """Generate a TransfersView"""
-        embed = await team.base_embed()
+        embed: discord.Embed = await team.base_embed()
         cache = interaction.client.teams
         transfers = await team.get_transfers(page, "All", cache)
         view = TransfersView(interaction.user, page, team, embed, transfers)
@@ -515,7 +526,9 @@ class ArchiveSelect(view_utils.DropdownPaginator):
 class ItemView(view_utils.BaseView):
     """A Generic for Fixture/Team/Competition Views"""
 
-    def __init__(self, invoker: User, page: Page, **kwargs) -> None:
+    def __init__(
+        self, invoker: User, page: Page, **kwargs: typing.Any
+    ) -> None:
         super().__init__(invoker, **kwargs)
 
         self.page: Page = page
@@ -705,10 +718,10 @@ class ItemView(view_utils.BaseView):
         await self.page.goto(embed.url, timeout=5000)
         await self.page.wait_for_selector(".h2h", timeout=5000)
         row = await self.handle_tabs()
-        rows = {}
 
         locator = self.page.locator(".subTabs")
 
+        rows: dict[int, list[view_utils.Funcable]] = {}
         for i in range(await locator.count()):
             rows[row] = []
 
@@ -793,7 +806,7 @@ class ItemView(view_utils.BaseView):
         embed.url = f"{self.object.url}#/match-summary/lineups"
         await self.page.goto(embed.url, timeout=5000)
         await self.page.eval_on_selector_all(fs.ADS, JS)
-        screenshots = []
+        screenshots: list[io.BytesIO] = []
 
         if await (formation := self.page.locator(".lf__fieldWrap")).count():
             screenshots.append(io.BytesIO(await formation.screenshot()))
@@ -832,7 +845,7 @@ class ItemView(view_utils.BaseView):
 
         images = tree.xpath('.//div[@class="photoreportInner"]')
 
-        pages = []
+        pages: list[discord.Embed] = []
         for i in images:
             embed = embed.copy()
             image = "".join(i.xpath(".//img/@src"))
@@ -944,7 +957,7 @@ class ItemView(view_utils.BaseView):
             await edit(embed=embed, view=self)
 
         row = await self.handle_tabs()
-        rows = {}
+        rows: dict[int, list[view_utils.Funcable]] = {}
 
         loc = self.page.locator(".subTabs")
         for i in range(await loc.count()):
@@ -1003,7 +1016,7 @@ class ItemView(view_utils.BaseView):
         src = await self.page.inner_html(".section")
 
         i = await self.handle_tabs()
-        rows = {}
+        rows: dict[int, list[view_utils.Funcable]] = {}
 
         loc = self.page.locator(".subTabs")
         for i in range(await loc.count()):
@@ -1109,8 +1122,6 @@ class ItemView(view_utils.BaseView):
 class CompetitionView(ItemView):
     """The view sent to a user about a Competition"""
 
-    bot: Bot
-
     def __init__(
         self,
         invoker: User,
@@ -1119,6 +1130,7 @@ class CompetitionView(ItemView):
         **kwargs,
     ) -> None:
         self.object: fs.Competition = competition
+
         super().__init__(invoker, page, **kwargs)
 
     async def news(self, interaction: Interaction) -> None:
@@ -1129,7 +1141,11 @@ class FixtureView(ItemView):
     """The View sent to users about a fixture."""
 
     def __init__(
-        self, invoker: User, page: Page, fixture: fs.Fixture, **kwargs
+        self,
+        invoker: User,
+        page: Page,
+        fixture: fs.Fixture,
+        **kwargs: typing.Any,
     ) -> None:
         self.fixture: fs.Fixture = fixture
         super().__init__(invoker, page, **kwargs)
@@ -1179,7 +1195,7 @@ class TeamView(ItemView):
         invoker: User,
         page: Page,
         team: fs.Team,
-        **kwargs,
+        **kwargs: typing.Any,
     ) -> None:
         super().__init__(invoker, page, **kwargs)
         self.team: fs.Team = team
@@ -1230,7 +1246,7 @@ class PlayerView(view_utils.BaseView):
         self,
         invoker: User,
         player: fs.Player,
-        **kwargs,
+        **kwargs: typing.Any,
     ):
         super().__init__(invoker, **kwargs)
         self.player: fs.Player = player
@@ -1482,7 +1498,7 @@ class Fixtures(commands.Cog):
         base_embed.description = header
         embed = base_embed.copy()
         embed.description = ""
-        embeds = []
+        embeds: list[discord.Embed] = []
 
         for i, j in [(i.competition, i.live_score_text) for i in games]:
             if i and i != comp:  # We need a new header if it's a new comp.

@@ -1,4 +1,6 @@
 """Working with Webscraping the flashscore website"""
+# pyright: reportImportCycles=false
+from .competitions import Competition
 from .constants import (
     ADS,
     COMPETITION_EMOJI,
@@ -13,13 +15,11 @@ from .constants import (
     TEAM_EMOJI,
     YELLOW_CARD_EMOJI,
 )
-from .competitions import Competition
 from .fixture import Fixture
 from .gamestate import GameState, dispatch_events
-from .matchevents import MatchEvent, EventType, Penalty, Substitution
-from .players import Player, TopScorer, FSTransfer
-from .team import Team, SquadMember
-from .search import search, save_comp, save_team
+from .matchevents import EventType, MatchEvent, Penalty, Substitution
+from .players import FSTransfer, Player, TopScorer
+from .team import SquadMember, Team
 from .transformers import comp_trnsf, fix_trnsf, team_trnsf
 
 __all__ = [
@@ -55,10 +55,6 @@ __all__ = [
     "SquadMember",
     # team
     "Team",
-    # search
-    "search",
-    "save_comp",
-    "save_team",
     # transformers
     "comp_trnsf",
     "fix_trnsf",

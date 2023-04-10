@@ -9,6 +9,8 @@ from discord.ext import commands
 if typing.TYPE_CHECKING:
     from painezbot import PBot
 
+    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+
 INV = (
     "https://discord.com/api/oauth2/authorize?client_id=964870918738419752&"
     "scope=bot%20applications.commands"
@@ -22,7 +24,7 @@ class MetaPainezbot(commands.Cog):
         self.bot: PBot = bot
 
     @discord.app_commands.command()
-    async def invite(self, interaction: discord.Interaction[PBot]) -> None:
+    async def invite(self, interaction: Interaction) -> None:
         """Get the bots invite link"""
         view = discord.ui.View()
 
@@ -31,7 +33,7 @@ class MetaPainezbot(commands.Cog):
         return await interaction.response.send_message(view=view)
 
     @discord.app_commands.command()
-    async def about(self, interaction: discord.Interaction[PBot]) -> None:
+    async def about(self, interaction: Interaction) -> None:
         """Tells you information about the bot itself."""
 
         embed = discord.Embed(colour=0x2ECC71)

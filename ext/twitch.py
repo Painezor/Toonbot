@@ -9,11 +9,12 @@ import discord
 import twitchio
 from discord.ext import commands
 from iso639 import Lang
-from twitchio.ext.commands import Bot as TBot
+
 
 from ext.logs import stringify_seconds
 from ext.utils import embed_utils, flags, timed_events, view_utils
 from ext import wows_api as api
+from twitchio.ext.commands import Bot as TBot
 
 if typing.TYPE_CHECKING:
     from painezbot import PBot
@@ -65,7 +66,7 @@ class Contributor:
     @property
     def markdown(self) -> str:
         """Return comma separated list of [name](link) social markdowns"""
-        output = []
+        output: list[str] = []
         for i in self.links:
             if "youtube" in i:
                 output.append(f"• [YouTube]({i})")
@@ -293,14 +294,41 @@ async def language_ac(
 
 
 # TODO: Select as decorator, Make Paginator
-class TrackerConfig(view_utils.BaseView):
+class TrackerConfig(view_utils.DropdownPaginator):
     """Config View for a Twitch Tracker channel"""
 
     def __init__(self, invoker: User, chan: TrackerChannel):
-        super().__init__(invoker)
         self.channel: TrackerChannel = chan
         self.index: int = 0
         self.pages: list[discord.Embed] = []
+
+        opts: list[discord.SelectOption] = []
+        for i in self.channel.tracked:
+            opt = discord.SelectOption()
+
+        super().__init__(invoker)
+        self.dropdown.max_values = len(opts)
+
+    @discord.ui.select(placeholder="Remove tracked roles", row=0)
+    async def dropdown(
+        self, interaction: Interaction, sel: discord.ui.Select[TrackerConfig]
+    ):
+        roles = self.channel.tracked
+        roles = sorted(set(roles), key=lambda role: role.name)
+
+        # No idea how we're getting duplicates here but fuck it I don't care.
+        for i in roles:
+            self.add_option(
+                label=i.name,
+                emoji=i.unicode_emoji,
+                description=str(i.id),
+                value=str(i.id),
+            )
+
+    async def callback(self, interaction: Interaction) -> None:
+        """When a league is selected, delete channel / league row from DB"""
+        await interaction.response.defer()
+        return await self.view.remove_tracked(interaction, self.values)
 
     async def remove_tracked(
         self, interaction: Interaction, roles: list[str]
@@ -341,7 +369,7 @@ class TrackerConfig(view_utils.BaseView):
         embed = discord.Embed(colour=0x9146FF, title="Twitch Go Live Tracker")
         embed.set_thumbnail(url=TWITCH_LOGO)
 
-        missing = []
+        missing: list[str] = []
         chan = self.channel.channel
         perms = chan.permissions_for(chan.guild.me)
         if not perms.send_messages:
@@ -379,35 +407,6 @@ class TrackerConfig(view_utils.BaseView):
             self.add_item(Untrack(roles))
         edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
-
-
-# TODO: Move To Decorator
-class Untrack(discord.ui.Select):
-    """Dropdown to roles from a Twitch Tracker Channel."""
-
-    view: TrackerConfig
-
-    def __init__(self, roles: list[discord.Role], row: int = 0) -> None:
-        roles = sorted(set(roles), key=lambda role: role.name)
-        super().__init__(
-            placeholder="Remove tracked role(s)",
-            row=row,
-            max_values=len(roles),
-        )
-        # No idea how we're getting duplicates here but fuck it I don't care.
-        for i in roles:
-            self.add_option(
-                label=i.name,
-                emoji=i.unicode_emoji,
-                description=str(i.id),
-                value=str(i.id),
-            )
-
-    async def callback(self, interaction: Interaction) -> None:
-        """When a league is selected, delete channel / league row from DB"""
-
-        await interaction.response.defer()
-        return await self.view.remove_tracked(interaction, self.values)
 
 
 class TwitchTracker(commands.Cog):
@@ -490,7 +489,7 @@ class TwitchTracker(commands.Cog):
                 raise ConnectionError(f"Failed to connect to {CCS}")
             ccs = await resp.json()
 
-        contributors = []
+        contributors: list[Contributor] = []
 
         for i in ccs:
             realm = {
@@ -514,7 +513,7 @@ class TwitchTracker(commands.Cog):
         embed = discord.Embed(title=member.activity.name)
         embed.url = member.activity.url
 
-        desc = []
+        desc: list[str] = []
 
         if twitch_name := member.activity.twitch_name:
             embed.colour = 0x9146FF
@@ -532,7 +531,7 @@ class TwitchTracker(commands.Cog):
             user = await info.user.fetch(force=True)
             settings = await user.fetch_chat_settings()
 
-            modes = []
+            modes: list[str] = []
             if settings.emote_mode:
                 modes.append("This channel is in emote only mode")
             if settings.follower_mode:
@@ -634,7 +633,7 @@ class TwitchTracker(commands.Cog):
 
         ftch = await self.bot.twitch.fetch_streams(game_ids=[WOWS_GAME_ID])
 
-        streams = []
+        streams: list[Stream] = []
         for i in ftch:
             views = i.viewer_count
             timestamp = timed_events.Timestamp(i.started_at)

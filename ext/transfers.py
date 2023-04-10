@@ -108,7 +108,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
         embed.title = "Transfers Ticker config"
         embed.description = f"Tracked leagues for {channel.mention}```yaml\n"
 
-        missing = []
+        missing: list[str] = []
 
         chan = self.channel.channel
         perms = chan.permissions_for(chan.guild.me)
@@ -121,12 +121,12 @@ class TransfersConfig(view_utils.DropdownPaginator):
             txt = f"{NOPERMS} {missing}```"
             embed.add_field(name="Missing Permissions", value=txt)
 
-        options = []
-        rows = []
+        options: list[discord.SelectOption] = []
+        rows: list[str] = []
 
         leagues = self.channel.leagues
         for league in sorted(leagues, key=lambda x: f"{x.country} {x.name}"):
-            if league.link is None:
+            if not league.link:
                 continue
 
             lbl = league.name[:100]
@@ -143,7 +143,9 @@ class TransfersConfig(view_utils.DropdownPaginator):
             self.remove_item(self.dropdown)
 
     @discord.ui.select(placeholder="Removed Tracked leagues", row=2)
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[TransfersConfig]
+    ) -> None:
         """When a league is selected"""
 
         view = view_utils.Confirmation(itr.user, "Remove", "Cancel")
@@ -185,7 +187,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
         await view_itr.response.send_message(view=view, embed=view.pages[0])
         return
 
-    @discord.ui.button(row=2, style=discord.ButtonStyle.primary, label="Reset")
+    @discord.ui.button(row=3, style=discord.ButtonStyle.primary, label="Reset")
     async def reset(self, interaction: Interaction, _) -> None:
         """Button to reset a transfer ticker back to its default leagues"""
         view = view_utils.Confirmation(interaction.user, "Remove", "Cancel")
@@ -195,6 +197,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
         ment = self.channel.mention
         embed.description = f"Reset {ment} leagues to default?\n"
         await interaction.response.edit_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
         await view.wait()
 
         view_itr = view.interaction
@@ -213,7 +216,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
         view = TransfersConfig(interaction.user, self.channel)
         await view_itr.response.send_message(view=view, embed=view.pages[0])
 
-    @discord.ui.button(label="Delete", row=2, style=discord.ButtonStyle.red)
+    @discord.ui.button(label="Delete", row=3, style=discord.ButtonStyle.red)
     async def delete(self, interaction: Interaction, _) -> None:
         """Button to delete a ticker entirely"""
         view = view_utils.Confirmation(interaction.user, "Confirm", "Cancel")
@@ -228,6 +231,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
         await interaction.response.edit_message(view=view, embed=embed)
         view.message = await interaction.original_response()
+        await view.wait()
 
         view_itr = view.interaction
         if not view.value:
@@ -255,6 +259,7 @@ class Transfers(commands.Cog):
         self.bot: Bot = bot
         TransferChannel.bot = bot
         reload(tfm)
+        reload(view_utils)
 
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
@@ -284,7 +289,8 @@ class Transfers(commands.Cog):
         if not view.value:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"❌ Cancelled transfer ticker for {chan}"
-            await interaction.response.edit_message(embed=embed, view=None)
+            edit = view.interaction.response.edit_message
+            await edit(embed=embed, view=None)
             return None
 
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -335,8 +341,6 @@ class Transfers(commands.Cog):
     async def transfers_loop(self) -> None:
         """Core transfer ticker loop - refresh every minute and
         get all new transfers from transfermarkt"""
-        if None in [self.bot.db, self.bot.session]:
-            return
         if not self.bot.guilds:
             return
 
@@ -381,7 +385,7 @@ class Transfers(commands.Cog):
             # Box 3 - Country
             player.country = i.xpath(".//td[3]/img/@title")
 
-            transfer = tfm.FSTransfer(player=player)
+            transfer = tfm.Transfer(player=player)
 
             # Box 4 - Old Team
             xpath = './/td[4]//img[@class="tiny_wappen"]//@title'
@@ -531,10 +535,7 @@ class Transfers(commands.Cog):
             if chan is None:
                 return
 
-        if isinstance(competition.country, list):
-            ctr = competition.country[0]
-        else:
-            ctr = competition.country
+        ctr = competition.country[0]
         chan.leagues.add(competition)
 
         async with self.bot.db.acquire(timeout=60) as connection:

@@ -9,6 +9,8 @@ from discord.ext import commands
 if typing.TYPE_CHECKING:
     from core import Bot
 
+    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+
 INV = (
     "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&"
     "permissions=1514244730006&scope=bot%20applications.commands"
@@ -22,7 +24,7 @@ class MetaToonbot(commands.Cog):
         self.bot: Bot = bot
 
     @discord.app_commands.command()
-    async def invite(self, interaction: discord.Interaction[Bot]) -> None:
+    async def invite(self, interaction: Interaction) -> None:
         """Get the bots invite link"""
         view = discord.ui.View()
         btn = discord.ui.Button(url=INV)
@@ -33,7 +35,7 @@ class MetaToonbot(commands.Cog):
         return await interaction.response.send_message(embed=embed, view=view)
 
     @discord.app_commands.command()
-    async def about(self, interaction: discord.Interaction[Bot]) -> None:
+    async def about(self, interaction: Interaction) -> None:
         """Tells you information about the bot itself."""
         user = typing.cast(discord.Member, self.bot.user)
         embed = discord.Embed(colour=0x2ECC71, timestamp=user.created_at)

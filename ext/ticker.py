@@ -16,11 +16,12 @@ from ext.utils import embed_utils, view_utils
 
 if typing.TYPE_CHECKING:
     from core import Bot
+    from playwright.async_api import Page
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
     User: typing.TypeAlias = discord.User | discord.Member
 
-_ticker_tasks = set()
+_ticker_tasks: set[asyncio.Task[None]] = set()
 
 logger = logging.getLogger("ticker.py")
 
@@ -113,7 +114,7 @@ class TickerEvent:
             p_h = self.fixture.penalties_home
             p_a = self.fixture.penalties_away
 
-            pens = []
+            pens: list[fs.MatchEvent] = []
             for i in self.fixture.events:
                 if not isinstance(i, fs.Penalty):
                     continue
@@ -145,7 +146,7 @@ class TickerEvent:
         if self.event is not None and len(self.fixture.events) > 1:
             embed.description += "\n```yaml\n--- Previous Events ---```"
 
-        desc = []
+        desc: list[str] = []
         for i in self.fixture.events:
             if i == self.event:
                 continue
@@ -191,7 +192,7 @@ class TickerEvent:
                     team = self.fixture.away
 
                 events = self.fixture.events
-                teamed = []
+                teamed: list[fs.MatchEvent] = []
                 if team is not None:
                     for i in events:
                         if not i.team:
@@ -324,7 +325,7 @@ class TickerChannel:
             try:
                 message = self.dispatched[event]
                 # Save on ratelimiting by checking.
-                if message.embeds[0] is not None:
+                if message.embeds:
                     if message.embeds[0].description == embed.description:
                         return None
                 message = await message.edit(embed=embed)
@@ -365,14 +366,14 @@ class TickerConfig(view_utils.DropdownPaginator):
     def __init__(self, invoker: User, tc: TickerChannel):
         self.channel: TickerChannel = tc
 
-        options = []
+        options: list[discord.SelectOption] = []
         _ = filter(lambda i: i.url is not None, tc.leagues)
         leagues = list(sorted(_, key=lambda x: x.title))
         for i in leagues:
             assert i.url is not None  # Already Filtered.
             opt = discord.SelectOption(label=i.title, value=i.url)
             opt.description = i.url
-            opt.emoji = i.flag
+            opt.emoji = i.flag[0]
             options.append(opt)
 
         embed = discord.Embed(colour=discord.Colour.dark_teal())
@@ -380,7 +381,7 @@ class TickerConfig(view_utils.DropdownPaginator):
         embed.description = f"Tracked leagues for {tc.mention}\n\n```"
 
         # Permission Checks
-        missing = []
+        missing: list[str] = []
         perms = tc.channel.permissions_for(tc.channel.guild.me)
         if not perms.send_messages:
             missing.append("send_messages")
@@ -400,7 +401,7 @@ class TickerConfig(view_utils.DropdownPaginator):
     def generate_settings(self) -> list[discord.SelectOption]:
         """Generate Dropdown for settings configuration"""
 
-        options = []
+        options: list[discord.SelectOption] = []
         for k in [
             "goals",
             "kick_offs",
@@ -429,7 +430,9 @@ class TickerConfig(view_utils.DropdownPaginator):
         return options
 
     @discord.ui.select(placeholder="Change Settings", row=2)
-    async def settings(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def settings(
+        self, itr: Interaction, sel: discord.ui.Select[TickerConfig]
+    ) -> None:
         """Regenerate view and push to message"""
 
         embed = discord.Embed(title="Settings updated")
@@ -437,7 +440,7 @@ class TickerConfig(view_utils.DropdownPaginator):
         embed.colour = discord.Colour.dark_teal()
         embed_utils.user_to_footer(embed, itr.user)
 
-        tuples = []
+        tuples: list[tuple[str, bool | None, int]] = []
         for i in sel.values:  # List of DB Fields.
             old = getattr(self.channel, i)
             new = {True: None, False: True, None: False}[old]
@@ -455,7 +458,9 @@ class TickerConfig(view_utils.DropdownPaginator):
         return await itr.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(placeholder="Remove Leagues", row=1)
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[TickerConfig]
+    ) -> None:
         """When a league is selected, delete channel / league row from DB"""
 
         # Ask User to confirm their selection of data destruction
@@ -594,7 +599,7 @@ class Ticker(commands.Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         TickerChannel.bot = bot
-        self.workers = asyncio.Queue(5)
+        self.workers: asyncio.Queue[Page] = asyncio.Queue(5)
 
     async def get_table(self, link: str):
         """Fetch the table for a competition from"""
@@ -652,8 +657,8 @@ class Ticker(commands.Cog):
             err = "🚫 You cannot create a ticker in a livescores channel."
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = err
-            reply = interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            reply = interaction.response.edit_message
+            return await reply(embed=embed)
 
         ment = channel.mention
         view = view_utils.Confirmation(interaction.user, "Create", "Cancel")
@@ -661,13 +666,13 @@ class Ticker(commands.Cog):
 
         embed = discord.Embed(title="Create a ticker")
         embed.description = f"{ment} has no ticker, create one?"
-        await interaction.response.send_message(embed=embed, view=view)
+        await interaction.response.edit_message(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"❌ Cancelled ticker creation for {ment}"
-            reply = view.interaction.response.send_message
+            reply = view.interaction.response.edit_message
             await reply(embed=embed, ephemeral=True)
             return None
 
@@ -706,7 +711,7 @@ class Ticker(commands.Cog):
             async with connection.transaction():
                 records = await connection.fetch(sql)
 
-        bad = set()
+        bad: set[int] = set()
         for i in records:
             chan = self.bot.get_channel(i["channel_id"])
             if chan is None:

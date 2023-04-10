@@ -63,8 +63,8 @@ class ClanTransformer(discord.app_commands.Transformer):
     """Convert User Input to a Clan Object"""
 
     async def autocomplete(
-        self, interaction: Interaction, value: str, /
-    ) -> list[discord.app_commands.Choice[str]]:
+        self, interaction: Interaction, value, /
+    ) -> list[discord.app_commands.Choice[str | int | float]]:
         """Autocomplete for a list of clan names"""
         if len(value) < 2:
             txt = "🚫 Search too short"
@@ -158,7 +158,7 @@ class ModeTransformer(discord.app_commands.Transformer):
     ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete from list of stored teams"""
         curr = current.casefold()
-        choices = []
+        choices: list[discord.app_commands.Choice[str]] = []
         for i in sorted(interaction.client.modes, key=lambda x: x.name):
             if curr not in i.name.casefold():
                 continue

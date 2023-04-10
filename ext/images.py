@@ -19,7 +19,8 @@ if typing.TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+
+User: typing.TypeAlias = discord.User | discord.Member
 
 # Project Oxford
 API = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
@@ -45,7 +46,7 @@ class Coordinates:
 class ImageCache:
     """Cached Images for an ImageView"""
 
-    coordinates: dict = {}
+    coordinates: dict = dataclasses.field(default_factory=dict)
     image: typing.Optional[bytes] = None
 
     bob: typing.Optional[io.BytesIO] = None

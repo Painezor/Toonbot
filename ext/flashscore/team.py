@@ -1,7 +1,7 @@
 """Working with teams retrieved from flashscore"""
 from __future__ import annotations
-import dataclasses
 
+import dataclasses
 import datetime
 import typing
 
@@ -9,14 +9,26 @@ import asyncpg
 from lxml import html
 from playwright.async_api import Page
 
+from ext.utils import timed_events
+
 from .abc import FlashScoreItem
-from .competitions import Competition
-from .constants import FLASHSCORE, TEAM_EMOJI
-from .players import FSTransfer, Player, SquadMember
-from .search import save_team
+
+from .constants import (
+    FLASHSCORE,
+    GOAL_EMOJI,
+    INBOUND_EMOJI,
+    INJURY_EMOJI,
+    OUTBOUND_EMOJI,
+    RED_CARD_EMOJI,
+    TEAM_EMOJI,
+    YELLOW_CARD_EMOJI,
+)
 
 if typing.TYPE_CHECKING:
     from core import Bot
+    from .competitions import Competition
+    from .players import Player
+
 
 TFOpts = typing.Literal["All", "Arrivals", "Departures"]
 
@@ -99,7 +111,7 @@ class Team(FlashScoreItem):
                 team.logo_url = FLASHSCORE + logo
 
         if team not in bot.teams:
-            await save_team(bot, team)
+            await team.save(bot)
 
         return team
 
@@ -186,6 +198,8 @@ class Team(FlashScoreItem):
         self, page: Page, type_: TFOpts, cache: list[Team]
     ) -> list[FSTransfer]:
         """Get a list of transfers for the team retrieved from flashscore"""
+        from .players import FSTransfer
+
         if page.url != (url := f"{self.url}/transfers/"):
             await page.goto(url, timeout=500)
             await page.wait_for_selector("section#transfers", timeout=500)
@@ -243,3 +257,84 @@ class Team(FlashScoreItem):
                 trans.team = team
             output.append(trans)
         return output
+
+    async def save(self, bot: Bot) -> None:
+        """Save the Team to the Bot Database"""
+        sql = """INSERT INTO fs_teams (id, name, logo_url, url)
+                VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET
+                (name, logo_url, url)
+                = (EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
+                """
+        async with bot.db.acquire(timeout=60) as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    sql, self.id, self.name, self.logo_url, self.url
+                )
+        bot.teams.append(self)
+
+
+@dataclasses.dataclass(slots=True)
+class SquadMember:
+    """A Player that is a member of a team"""
+
+    player: Player
+    position: str
+
+    squad_number: int
+    position: str
+    appearances: int
+    goals: int
+    assists: int
+    yellows: int
+    reds: int
+    injury: str
+
+    def output(self) -> str:
+        """Return a row representing the Squad Member"""
+        plr = self.player
+        pos = self.position
+        text = f"`#{self.squad_number}` {plr.flag} {plr.markdown} ({pos}): "
+
+        if self.goals:
+            text += f" {GOAL_EMOJI} {self.goals}"
+        if self.appearances:
+            text += f" {TEAM_EMOJI} {self.appearances}"
+        if self.reds:
+            text += f" {RED_CARD_EMOJI} {self.reds}"
+        if self.yellows:
+            text += f" {YELLOW_CARD_EMOJI} {self.yellows}"
+        if self.injury:
+            text += f" {INJURY_EMOJI} {self.injury}"
+        return text
+
+    def __init__(self, **kwargs: typing.Any) -> None:
+        for k, val in kwargs.items():
+            setattr(self, k, val)
+
+
+@dataclasses.dataclass(slots=True)
+class FSTransfer:
+    """A Transfer Retrieved from Flashscore"""
+
+    date: datetime.datetime
+    direction: str
+    player: Player
+    type: str
+
+    team: typing.Optional[Team] = None  #
+
+    def __init__(self) -> None:
+        pass
+
+    @property
+    def emoji(self) -> str:
+        """Return emoji depending on whether transfer is inbound or outbound"""
+        return INBOUND_EMOJI if self.direction == "in" else OUTBOUND_EMOJI
+
+    @property
+    def output(self) -> str:
+        """Player Markdown, Emoji, Team Markdown, Date, Type of transfer"""
+        pmd = self.player.markdown
+        tmd = self.team.markdown if self.team else "Free Agent"
+        date = timed_events.Timestamp(self.date).date
+        return f"{pmd} {self.emoji} {tmd}\n{date} {self.type}\n"

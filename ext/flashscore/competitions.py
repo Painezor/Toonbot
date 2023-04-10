@@ -4,8 +4,6 @@ from __future__ import annotations
 import logging
 import typing
 
-import asyncpg
-import discord
 from lxml import html
 
 from ext.utils import flags
@@ -13,8 +11,10 @@ from ext.utils import flags
 from .abc import FlashScoreItem
 from .constants import COMPETITION_EMOJI, FLASHSCORE, LOGO_URL
 
-
 if typing.TYPE_CHECKING:
+    import asyncpg
+    import discord
+
     from core import Bot
 
 
@@ -120,16 +120,32 @@ class Competition(FlashScoreItem):
         return comp
 
     @property
-    def flag(self) -> str:
+    def flag(self) -> list[str]:
         """Get the flag using transfer_tools util"""
         if not self.country:
             return ""
-        return flags.get_flag(self.country)
+        return flags.get_flags(self.country)
 
     @property
     def title(self) -> str:
         """Return COUNTRY: league"""
         if self.country is not None:
             return f"{self.country.upper()}: {self.name}"
-        else:
-            return self.name
+        return self.name
+
+    async def save(self, bot: Bot) -> None:
+        """Save the competition to the bot database"""
+        sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
+                VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
+                (country, name, logo_url, url) =
+                (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
+                """
+
+        cpm = self  # Line Too Long.
+        async with bot.db.acquire(timeout=60) as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    sql, cpm.id, cpm.country, cpm.name, cpm.logo_url, cpm.url
+                )
+        bot.competitions.add(cpm)
+        logger.info("saved competition. %s %s %s", cpm.name, cpm.id, cpm.url)

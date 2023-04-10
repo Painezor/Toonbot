@@ -9,7 +9,7 @@ import discord
 from discord.ext import commands
 
 from ext import wows_api as api
-from ext.utils import embed_utils, timed_events, view_utils
+from ext.utils import timed_events, view_utils
 
 if typing.TYPE_CHECKING:
     from painezbot import PBot
@@ -46,8 +46,8 @@ class Leaderboard(view_utils.DropdownPaginator):
 
         embed.title = "".join(ttl)
 
-        rows = []
-        options = []
+        rows: list[str] = []
+        options: list[discord.SelectOption] = []
         for clan in clans:
             ban = "⛔" if clan.disbanded else str(clan.public_rating)
             rank = f"`{str(clan.rank).rjust(2)}.`"
@@ -68,17 +68,16 @@ class Leaderboard(view_utils.DropdownPaginator):
             option.description = clan.name
             options.append(option)
 
-        dropdowns = embed_utils.paginate(options, 10)
         super().__init__(invoker, embed, rows, options)
-        self.dropdown.options = dropdowns[0]
-
         # Store so it can be accessed by dropdown
         self.clans: list[api.ClanLeaderboardStats] = clans
 
     @discord.ui.select(row=1, options=[], placeholder="View Clan")
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[Leaderboard]
+    ) -> None:
         """Push the latest version of the view to the user"""
-        clan = next(i for i in self.clans if i.id in sel.values)
+        clan = next(i for i in self.clans if str(i.id) in sel.values)
         region = next(i for i in api.Region if i.realm == clan.realm)
         clan_details = await api.get_clan_details(clan.id, region)
         view = ClanView(itr.user, clan_details, parent=self)
@@ -131,10 +130,8 @@ class ClanView(view_utils.BaseView):
         embed = await self.base_embed()
         vortex = await self.clan_vortex()
 
-        desc = []
-        if self.clan.updated_at is not None:
-            time = timed_events.Timestamp(self.clan.updated_at).relative
-            desc.append(f"**Information updated**: {time}\n")
+        time = timed_events.Timestamp(self.clan.updated_at).relative
+        desc = [f"**Information updated**: {time}\n"]
 
         if self.clan.leader_name:
             desc.append(f"**Leader**: {self.clan.leader_name}")
@@ -311,7 +308,7 @@ class Clans(commands.Cog):
             rate = str(clan.public_rating).rjust(4)
             return f"{emote} `{rate}` **[{clan.tag}]** {clan.name}\n"
 
-        embeds = []
+        embeds: list[discord.Embed] = []
         for season, clans in self.bot.clan_battle_winners.items():
             clans.sort(key=lambda c: c.public_rating, reverse=True)
 

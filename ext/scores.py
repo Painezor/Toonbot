@@ -88,7 +88,7 @@ class ScoreChannel:
         if not self.leagues:
             await self.get_leagues()
 
-        embeds = []
+        embeds: list[discord.Embed] = []
         for i in self.leagues:
             embeds += i.score_embeds
 
@@ -180,7 +180,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
 
         chan = self.channel.channel
         perms = chan.permissions_for(chan.guild.me)
-        missing = []
+        missing: list[str] = []
         if not perms.send_messages:
             missing.append("send_messages")
         if not perms.embed_links:
@@ -192,15 +192,15 @@ class ScoresConfig(view_utils.DropdownPaginator):
             txt = f"{NOPERMS} {missing}```"
             embed.add_field(name="Missing Permissions", value=txt)
 
-        options = []
-        rows = []
+        options: list[discord.ui.Select] = []
+        rows: list[str] = []
         for i in leagues:
             if i.url is None:
                 continue
 
             opt = discord.SelectOption(label=i.title, value=i.url)
             opt.description = i.url
-            opt.emoji = i.flag
+            opt.emoji = i.flag[0]
             rows.append(f"{i.flag} {i.markdown}")
             options.append(opt)
 
@@ -208,7 +208,9 @@ class ScoresConfig(view_utils.DropdownPaginator):
         self.dropdown.max_values = len(self.options)
 
     @discord.ui.select(placeholder="Removed Tracked leagues", row=1)
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[ScoresConfig]
+    ) -> None:
         view = view_utils.Confirmation(itr.user, "Remove", "Cancel")
         view.true.style = discord.ButtonStyle.red
 
@@ -292,7 +294,7 @@ class Scores(commands.Cog):
         ScoreChannel.bot = bot
 
         # Weak refs.
-        self.tasks: set[asyncio.Task] = set()
+        self.tasks: set[asyncio.Task[None]] = set()
 
         # Day Change tracking
         self.last_ordinal: int = 0
@@ -337,7 +339,7 @@ class Scores(commands.Cog):
 
         # Generate {channel_id: [league1, league2, league3, …]}
         chans = self.bot.score_channels
-        bad = set()
+        bad: set[int] = set()
 
         for i in records:
             channel = self.bot.get_channel(i["channel_id"])
@@ -444,7 +446,7 @@ class Scores(commands.Cog):
         if not self.bot.score_channels:
             await self.update_cache()
 
-        def is_me(message):
+        def is_me(message: discord.Message) -> bool:
             return message.author.id == self.bot.application_id
 
         rsn = "Clearing Score Channel"
@@ -574,7 +576,7 @@ class Scores(commands.Cog):
             comp.logo_url = fs.FLASHSCORE + src
 
         if fs_id is not None and fs_id not in ["football", "overall"]:
-            await fs.save_comp(self.bot, comp)
+            await comp.save(self.bot)
         else:
             self.bot.competitions.add(comp)
         fixture.competition = comp

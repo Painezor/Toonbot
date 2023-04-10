@@ -38,7 +38,7 @@ class Codes(commands.Cog):
         asia: bool = True,
     ) -> None:
         """Send a message with region specific redeem buttons"""
-        regions = []
+        regions: list[str] = []
         if eu:
             regions.append("eu")
         if na:

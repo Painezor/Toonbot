@@ -1,5 +1,6 @@
 """Flag emoji convertor"""
 import logging
+import typing
 import unicodedata
 
 from pycountry import countries
@@ -99,42 +100,40 @@ def to_indicators(inp: str) -> str:
     return "".join(unicodedata.lookup(f"REGIONAL INDICATOR {i}") for i in inp)
 
 
-def get_flag(country: str | list[str]) -> str:
+def get_flags(strings: list[str]) -> list[str | None]:
+    """Get Multiple Flags"""
+    return [get_flag(i) for i in strings]
+
+
+def get_flag(string: str) -> typing.Optional[str]:
     """Get a flag emoji from a string representing a country"""
 
-    if isinstance(country, str):
-        country = [country]  # Make into list.
+    if not string:
+        return None
 
-    output = []
-    for country in [i.strip() for i in country]:
+    # Try pycountry
+    try:
+        retrieved = countries.get(name=string)
+        return to_indicators(retrieved.alpha_2)
+    except (KeyError, AttributeError):
+        pass
 
-        if not country:
-            continue
+    try:
+        retrieved = countries.lookup(string).alpha_2
+        return to_indicators(retrieved)
+    except (AttributeError, LookupError):
+        pass
 
-        # Try pycountry
-        try:
-            retrieved = countries.get(name=country).alpha_2
-            output.append(to_indicators(retrieved))
-            continue
-        except (KeyError, AttributeError):
-            try:
-                retrieved = countries.lookup(country).alpha_2
-                output.append(to_indicators(retrieved))
-                continue
-            except (AttributeError, LookupError):
-                pass
+    # Use manual fallbacks
+    try:
+        return to_indicators(country_dict[string])
+    except KeyError:
+        pass
 
-        # Use manual fallbacks
-        try:
-            output.append(to_indicators(country_dict[country]))
-            continue
-        except KeyError:
-            pass
+    # Other.
+    try:
+        return backup_dict[string.casefold()]
+    except KeyError:
+        logger.error("No country found for '%s'", string)
 
-        # Other.
-        try:
-            output.append(backup_dict[country.casefold()])
-            continue
-        except KeyError:
-            logger.error("No country found for '%s'", country)
-    return " ".join(output)
+    return "❌"

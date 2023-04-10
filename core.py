@@ -133,11 +133,8 @@ class Bot(commands.AutoShardedBot):
 
         # Transfers
         self.transfer_channels: list[TransferChannel] = []
-        self.transfers: asyncio.Task
+        self.transfers: asyncio.Task[None]
         self.parsed_transfers: list[str] = []
-
-        # TV
-        self.tv_dict: dict = {}
 
         # Announce aliveness
         started = self.initialised_at.strftime("%d-%m-%Y %H:%M:%S")
@@ -163,7 +160,9 @@ class Bot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s\n%s", i, err)
         return
 
-    def get_competition(self, value: str) -> typing.Optional[fs.Competition]:
+    def get_competition(
+        self, value: typing.Optional[str]
+    ) -> typing.Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
         if value is None:
             return None
@@ -183,12 +182,8 @@ class Bot(commands.AutoShardedBot):
         for i in self.competitions:
             if i.url is not None and "http" in value:
                 if value in i.url:
-                    logger.info(
-                        "Partial url: %s to %s (%s)",
-                        value,
-                        i.id,
-                        i.title,
-                    )
+                    ttl = i.title
+                    logger.info("Partial url: %s to %s (%s)", value, i.id, ttl)
                     return i
         return None
 
@@ -229,8 +224,7 @@ async def run() -> None:
         for i in bot.cogs:
             await bot.unload_extension(i)
 
-        if bot.db is not None:
-            await bot.db.close()
+        await bot.db.close()
 
         await bot.close()
 

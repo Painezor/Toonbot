@@ -40,7 +40,7 @@ def user_to_footer(
     return embed
 
 
-async def get_colour(url: str) -> discord.Colour | int:
+async def get_colour(url: typing.Optional[str]) -> discord.Colour | int:
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None:
         return discord.Colour.og_blurple()
@@ -48,7 +48,7 @@ async def get_colour(url: str) -> discord.Colour | int:
         async with session.get(url) as resp:
             raw = await resp.read()
 
-    def get_dominant_color(container: io.BytesIO) -> tuple:
+    def get_dominant_color(container: io.BytesIO) -> tuple[int, int, int]:
         img = Image.open(container)
         img = img.convert("RGB")
         img = img.resize((1, 1), resample=0)

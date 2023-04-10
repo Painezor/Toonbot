@@ -3,22 +3,24 @@ from __future__ import annotations
 
 import datetime
 import logging
+from time import timezone
 import typing
 
 import discord
 from lxml import html
-from ext.flashscore.abc import FlashScoreItem
 
 from ext.utils import timed_events
 
-from .competitions import Competition
+from .abc import FlashScoreItem
+
 from .constants import FLASHSCORE, GOAL_EMOJI, RED_CARD_EMOJI
-from .gamestate import GameState
-from .matchevents import MatchEvent, parse_events
-from .team import Team
 
 if typing.TYPE_CHECKING:
     from core import Bot
+    from .matchevents import MatchEvent
+    from .team import Team
+    from .gamestate import GameState
+    from .competitions import Competition
 
 
 logger = logging.getLogger("flashscore.fixture")
@@ -73,6 +75,8 @@ class Fixture(FlashScoreItem):
         self.win: typing.Optional[str] = None
 
     def __str__(self) -> str:
+        from .gamestate import GameState
+
         gs = GameState
         if self.time in [gs.LIVE, gs.STOPPAGE_TIME, gs.EXTRA_TIME]:
             time = self.state.name if self.state else None
@@ -89,10 +93,8 @@ class Fixture(FlashScoreItem):
         if isinstance(self.time, str):
             if "+" in self.time:
                 return GameState.STOPPAGE_TIME
-            else:
-                return GameState.LIVE
-        else:
-            return self.time
+            return GameState.LIVE
+        return self.time
 
     @property
     def upcoming(self) -> str:
@@ -131,8 +133,7 @@ class Fixture(FlashScoreItem):
         """Return "X - Y", or 'vs' if scores are None"""
         if self.home_score is None:
             return "vs"
-        else:
-            return f"{self.home_score} - {self.away_score}"
+        return f"{self.home_score} - {self.away_score}"
 
     @property
     def score_line(self) -> str:
@@ -188,7 +189,7 @@ class Fixture(FlashScoreItem):
     def live_score_text(self) -> str:
         """Text for livescores output:
         home [cards] [score - score or vs] [cards] away"""
-        output = []
+        output: list[str] = []
         if self.state is not None:
             output.append(f"`{self.state.emote}")
 
@@ -261,6 +262,7 @@ class Fixture(FlashScoreItem):
     # High Cost lookups.
     async def refresh(self, bot: Bot) -> None:
         """Perform an intensive full lookup for a fixture"""
+        from .matchevents import parse_events
 
         if self.url is None:
             raise AttributeError(f"Can't refres - no url\n {self.__dict__}")

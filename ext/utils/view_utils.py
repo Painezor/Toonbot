@@ -86,7 +86,11 @@ class BaseView(discord.ui.View):
             self.add_item(FuncSelect(items, row, placeholder))
 
     async def on_error(
-        self, interaction: Interaction, error: Exception, item, /
+        self,
+        interaction: discord.Interaction,  # TODO: Find out why can't use [Bot]
+        error: Exception,
+        item: discord.ui.Item[BaseView],
+        /,
     ) -> None:
         """Log errors"""
         logger.error("Error on view item %s", item, exc_info=True)
@@ -101,6 +105,7 @@ class BaseView(discord.ui.View):
 class JumpModal(discord.ui.Modal):
     """Type page number in box, set index to that page."""
 
+    page: discord.ui.TextInput[JumpModal]
     page = discord.ui.TextInput(label="Enter a page number")
 
     def __init__(self, view: Paginator, title: str = "Jump to page") -> None:
@@ -121,12 +126,11 @@ class JumpModal(discord.ui.Modal):
         return await self.view.handle_page(interaction)
 
 
-class Stop(discord.ui.Button):
+# TODO: To Deco.
+class Stop(discord.ui.Button["BaseView"]):
     """A generic button to stop a View"""
 
-    view: BaseView
-
-    def __init__(self, row=3) -> None:
+    def __init__(self, row: int = 3) -> None:
         super().__init__(emoji="🚫", row=row)
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -146,6 +150,7 @@ class Stop(discord.ui.Button):
 # TODO: Deperecate rows_to_embeds
 # TODO: Stop() to decorator of baseview
 
+
 class Paginator(BaseView):
     """A Paginator takes a list of Embeds and an Optional list of
     lists of SelectOptions. When a button is clicked, the page is changed
@@ -157,7 +162,7 @@ class Paginator(BaseView):
         invoker: User,
         embeds: list[discord.Embed],
         *,
-        index: int = 0, 
+        index: int = 0,
         parent: typing.Optional[BaseView] = None,
         timeout: typing.Optional[float] = None,
     ) -> None:
@@ -201,7 +206,6 @@ class Paginator(BaseView):
 
 
 class AsyncPaginator(Paginator):
-    
     def __init__(self, invoker: User, max_pages: int) -> None:
         dummy = [discord.Embed()] * max_pages
         super().__init__(invoker, dummy)
@@ -233,13 +237,14 @@ class DropdownPaginator(Paginator):
         embeds = embed_utils.rows_to_embeds(embed, rows, length, footer)
         self.dropdowns = embed_utils.paginate(options, length)
 
-        self.dropdown: discord.ui.Select
+        super().__init__(invoker, embeds, parent=parent, timeout=timeout)
         self.dropdown.options = self.dropdowns[0]
         self.options = options
-        super().__init__(invoker, embeds, parent=parent, timeout=timeout)
 
     @discord.ui.select()
-    async def dropdown(self, itr: Interaction, _: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, _: discord.ui.Select[DropdownPaginator]
+    ) -> None:
         """Raise because you didn't subclass, dickweed."""
         logger.info(itr.command.__dict__)
         raise NotImplementedError  # Always subclass this!
@@ -277,7 +282,9 @@ class PagedItemSelect(DropdownPaginator):
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(row=1, options=[])
-    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def dropdown(
+        self, itr: Interaction, sel: discord.ui.Select[PagedItemSelect]
+    ) -> None:
         """Response object for view"""
         await itr.response.defer()
 
@@ -305,9 +312,9 @@ class Funcable:
     def __init__(
         self,
         label: str,
-        function: typing.Callable,
-        args: typing.Optional[list] = None,
-        keywords: typing.Optional[dict] = None,
+        function: typing.Callable[..., typing.Any],
+        args: typing.Optional[list[typing.Any]] = None,
+        keywords: typing.Optional[dict[str, typing.Any]] = None,
         emoji: typing.Optional[str] = "🔘",
         description: typing.Optional[str] = None,
         style: discord.ButtonStyle = discord.ButtonStyle.gray,
@@ -319,12 +326,13 @@ class Funcable:
         self.style: discord.ButtonStyle = style
         self.disabled: bool = disabled
 
-        self.function: typing.Callable = function
-        self.args: list = [] if args is None else args
-        self.keywords: dict = {} if keywords is None else keywords
+        self.function: typing.Callable[..., typing.Any] = function
+        self.args: list[typing.Any] = [] if args is None else args
+        self.keywords: dict[str, typing.Any]
+        self.keywords = {} if keywords is None else keywords
 
 
-class FuncSelect(discord.ui.Select):
+class FuncSelect(discord.ui.Select[BaseView]):
     """A Select that ties to individually passed functions"""
 
     def __init__(
@@ -346,28 +354,29 @@ class FuncSelect(discord.ui.Select):
                 value=str(num),
             )
 
-    async def callback(self, interaction: Interaction) -> typing.Any:
+    # TODO: Why no [Bot]  ??
+    async def callback(self, interaction: discord.Interaction) -> typing.Any:
         """The handler for the FuncSelect Dropdown"""
         await interaction.response.defer()
         value: Funcable = self.items[self.values[0]]
         return await value.function(*value.args, **value.keywords)
 
 
-class FuncButton(discord.ui.Button):
+class FuncButton(discord.ui.Button[BaseView]):
     """A Generic Button with a passed through function."""
 
     def __init__(
         self,
-        function: typing.Callable,
-        args: typing.Optional[list] = None,
-        kw: typing.Optional[dict] = None,
+        function: typing.Callable[None],
+        args: typing.Optional[list[typing.Any]] = None,
+        kw: typing.Optional[dict[str, typing.Any]] = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
 
-        self.function: typing.Callable = function
-        self.args: list = [] if args is None else args
-        self.kwargs: dict = {} if kw is None else kw
+        self.function: typing.Callable[..., None] = function
+        self.args: list[typing.Any] = [] if args is None else args
+        self.kwargs: dict[str, typing.Any] = {} if kw is None else kw
 
     async def callback(self, interaction: Interaction) -> None:
         """The Callback performs the passed function with any passed
