@@ -3,9 +3,13 @@
 FLASHSCORE = "https://www.flashscore.com"
 LOGO_URL = FLASHSCORE + "/res/image/data/"
 COMPETITION_EMOJI = "🏆"
+GOAL_EMOJI = "⚽"
 INJURY_EMOJI = "<:injury:682714608972464187>"
 INBOUND_EMOJI = "<:inbound:1079808760194814014>"
 OUTBOUND_EMOJI = "<:outbound:1079808772559609928>"
+PLAYER_EMOJI = "🏃‍♂️"
+RED_CARD_EMOJI = "🟥"
+YELLOW_CARD_EMOJI = "🟨"
 TEAM_EMOJI = "👕"
 DEFAULT_LEAGUES = [
     "https://www.flashscore.com/football/europe/champions-league/",
