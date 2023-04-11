@@ -29,8 +29,8 @@ class BanView(view_utils.DropdownPaginator):
         embed = discord.Embed(title="Banned Users")
         embed.colour = discord.Colour.dark_red()
 
-        options = []
-        rows = []
+        options: list[discord.SelectOption] = []
+        rows: list[str] = []
 
         for i in self.bans:
             opt = discord.SelectOption(label=str(i.user))
@@ -41,7 +41,6 @@ class BanView(view_utils.DropdownPaginator):
             rows.append(f"`{i.user.id}` {i.user.mention} ({i.user})")
 
         super().__init__(invoker, embed, rows, options)
-        self.dropdown.max_values = len(self.dropdown.options)
 
     async def handle_page(self, interaction: Interaction) -> None:
         await super().handle_page(interaction)
@@ -131,7 +130,7 @@ class BanCog(commands.Cog):
     @discord.app_commands.describe(name="Search by name")
     @discord.app_commands.default_permissions(ban_members=True)
     @discord.app_commands.checks.bot_has_permissions(ban_members=True)
-    async def banlist(
+    async def bans(
         self,
         interaction: Interaction,
         name: typing.Optional[str],

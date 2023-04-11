@@ -52,16 +52,12 @@ async def get_colour(url: typing.Optional[str]) -> discord.Colour | int:
         img = Image.open(container)
         img = img.convert("RGB")
         img = img.resize((1, 1), resample=0)
-        dominant_color = img.getpixel((0, 0))
+        dominant_color: tuple[int, int, int] = img.getpixel((0, 0))
+        img.close()
         return dominant_color
 
     colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
-    try:
-        logger.info("Get_dominant_color returns %s", colour)
-        return discord.Colour.from_rgb(*colour)
-    except (TypeError, ValueError):
-        logger.info("get_dominant_color => %s", colour)
-        return discord.Colour.og_blurple()
+    return discord.Colour.from_rgb(*colour)
 
 
 def paginate(items: list[T], num: int = 25) -> list[list[T]]:
@@ -86,7 +82,7 @@ def rows_to_embeds(
     current = embed.copy()
     for row in items:
         # If we haven't hit embed size limit or max count (max_rows)
-        if len(f"{desc}{footer}{row}") <= max_length & count < rows:
+        if len(f"{desc}{footer}{row}") <= max_length and count < rows:
             desc += f"{row}\n"
             count += 1
             continue

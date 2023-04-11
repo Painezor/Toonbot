@@ -1,6 +1,5 @@
 """Flag emoji convertor"""
 import logging
-import typing
 import unicodedata
 
 from pycountry import countries
@@ -100,40 +99,44 @@ def to_indicators(inp: str) -> str:
     return "".join(unicodedata.lookup(f"REGIONAL INDICATOR {i}") for i in inp)
 
 
-def get_flags(strings: list[str]) -> list[str | None]:
+def get_flags(strings: list[str]) -> list[str]:
     """Get Multiple Flags"""
     return [get_flag(i) for i in strings]
 
 
-def get_flag(string: str) -> typing.Optional[str]:
+def get_flag(string: str) -> str:
     """Get a flag emoji from a string representing a country"""
-
-    if not string:
-        return None
-
     # Try pycountry
     try:
+        retrieved = to_indicators(country_dict[string])
+        logger.info("Got %s from country_dict", retrieved)
+        return retrieved
+    except KeyError:
+        pass
+
+    string = string.casefold()
+
+    try:
         retrieved = countries.get(name=string)
+        logger.info("Got %s from countries.get", retrieved)
         return to_indicators(retrieved.alpha_2)
     except (KeyError, AttributeError):
         pass
 
     try:
         retrieved = countries.lookup(string).alpha_2
+        logger.info("Got %s from countries.lookup", retrieved)
         return to_indicators(retrieved)
     except (AttributeError, LookupError):
         pass
 
     # Use manual fallbacks
     try:
-        return to_indicators(country_dict[string])
-    except KeyError:
-        pass
-
-    # Other.
-    try:
-        return backup_dict[string.casefold()]
+        retrieved = backup_dict[string.casefold()]
+        logger.info("Got %s from backup_dict", retrieved)
+        return retrieved
     except KeyError:
         logger.error("No country found for '%s'", string)
 
+    # Other.
     return "❌"

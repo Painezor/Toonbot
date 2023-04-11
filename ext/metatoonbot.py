@@ -27,6 +27,7 @@ class MetaToonbot(commands.Cog):
     async def invite(self, interaction: Interaction) -> None:
         """Get the bots invite link"""
         view = discord.ui.View()
+        btn: discord.ui.Button[discord.ui.View]
         btn = discord.ui.Button(url=INV)
         btn.label = "Invite me to your server"
         view.add_item(btn)
@@ -67,6 +68,7 @@ class MetaToonbot(commands.Cog):
         )
         invite = ("Invite me to your server", INV, None)
         dono = ("Donate", "https://paypal.me/Toonbot", None)
+        btn: discord.ui.Button[discord.ui.View]
         for label, link, emoji in [support, invite, dono]:
             btn = discord.ui.Button(url=link, label=label, emoji=emoji)
             view.add_item(btn)

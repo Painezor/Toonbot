@@ -2,23 +2,23 @@
 from __future__ import annotations
 
 import datetime
-import logging
+from logging import getLogger
 import importlib
 import re
-import typing
+from typing import Any, TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands
 
 from ext.utils import view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    Interaction: TypeAlias = discord.Interaction[Bot]
 
 
-logger = logging.getLogger("urbandictionary")
+logger = getLogger("urbandictionary")
 
 
 DEFINE = "https://www.urbandictionary.com/v0/define.php?term="
@@ -33,7 +33,7 @@ WORD_OF_THE_DAY = "https://api.urbandictionary.com/v0/words_of_the_day"
 # TODO: Transformer
 async def ud_ac(
     interaction: Interaction, cur: str
-) -> list[discord.app_commands.Choice]:
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from list of cogs"""
     url = f"https://api.urbandictionary.com/v0/autocomplete-extra?term={cur}"
     async with interaction.client.session.get(url) as resp:
@@ -43,7 +43,7 @@ async def ud_ac(
 
     res = results["results"]
 
-    choices = []
+    choices: list[discord.app_commands.Choice[str]] = []
     for i in res:
         nom = f"{i['term']}: {i['preview']}"[:100]
         choices.append(discord.app_commands.Choice(name=nom, value=i["term"]))
@@ -53,9 +53,9 @@ async def ud_ac(
     return choices
 
 
-def parse(results: dict) -> list[discord.Embed]:
+def parse(results: dict[str, Any]) -> list[discord.Embed]:
     """Convert UD JSON to embeds"""
-    embeds = []
+    embeds: list[discord.Embed] = []
     for i in results["list"]:
         embed = discord.Embed(color=0xFE3511)
         link = i["permalink"]
@@ -107,7 +107,8 @@ class UrbanDictionary(commands.Cog):
         url = DEFINE + term
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
 
             if not (embeds := parse(await resp.json())):
                 embed = discord.Embed(colour=discord.Colour.red())
@@ -123,7 +124,8 @@ class UrbanDictionary(commands.Cog):
         """Get some random definitions from Urban Dictionary"""
         async with self.bot.session.get(RANDOM) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             embeds = parse(await resp.json())
         view = view_utils.Paginator(interaction.user, embeds)
         await interaction.response.send_message(view=view, embed=view.pages[0])
@@ -134,7 +136,8 @@ class UrbanDictionary(commands.Cog):
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get(WORD_OF_THE_DAY) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             embeds = parse(await resp.json())
         view = view_utils.Paginator(interaction.user, embeds)
         await interaction.response.send_message(view=view, embed=view.pages[0])

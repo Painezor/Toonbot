@@ -6,7 +6,7 @@ import collections
 import datetime
 import json
 import logging
-import typing
+from typing import TYPE_CHECKING, Optional, cast
 
 import aiohttp
 import asyncpg
@@ -16,7 +16,7 @@ from discord.ext import commands
 
 from ext.utils.playwright_browser import make_browser
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from io import BytesIO
 
     from playwright.async_api import BrowserContext
@@ -99,7 +99,7 @@ class Bot(commands.AutoShardedBot):
         self.teams: list[fs.Team] = []
         self.competitions: set[fs.Competition] = set()
         self.score_channels: list[ScoreChannel] = []
-        self.scores: typing.Optional[asyncio.Task[None]] = None
+        self.scores: Optional[asyncio.Task[None]] = None
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
@@ -155,18 +155,12 @@ class Bot(commands.AutoShardedBot):
             try:
                 await self.load_extension(i)
                 logger.info("Loaded %s", i)
-            except commands.ExtensionError as error:
-                err = f"{type(error).__name__}: {error}"
-                logger.error("Failed to load cog %s\n%s", i, err)
+            except commands.ExtensionError:
+                logger.error("Failed to load cog %s", i, exc_info=True)
         return
 
-    def get_competition(
-        self, value: typing.Optional[str]
-    ) -> typing.Optional[fs.Competition]:
+    def get_competition(self, value: str) -> Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
-        if value is None:
-            return None
-
         for i in self.competitions:
             if i.id == value:
                 return i
@@ -187,15 +181,15 @@ class Bot(commands.AutoShardedBot):
                     return i
         return None
 
-    def get_team(self, team_id: str) -> typing.Optional[fs.Team]:
+    def get_team(self, team_id: str) -> Optional[fs.Team]:
         """Retrieve a Team from the ones stored in the bot."""
         return next((i for i in self.teams if i.id == team_id), None)
 
-    def get_fixture(self, fixture_id: str) -> typing.Optional[fs.Fixture]:
+    def get_fixture(self, fixture_id: str) -> Optional[fs.Fixture]:
         """Retrieve a Fixture from the ones stored in the bot."""
         return next((i for i in self.games if i.id == fixture_id), None)
 
-    async def dump_image(self, data: BytesIO) -> typing.Optional[str]:
+    async def dump_image(self, data: BytesIO) -> Optional[str]:
         """Save a stitched image"""
         file = discord.File(fp=data, filename="dumped_image.png")
         channel = self.get_channel(874655045633843240)
@@ -203,7 +197,7 @@ class Bot(commands.AutoShardedBot):
         if channel is None:
             return None
 
-        channel = typing.cast(discord.TextChannel, channel)
+        channel = cast(discord.TextChannel, channel)
 
         img_msg = await channel.send(file=file)
         return img_msg.attachments[0].url

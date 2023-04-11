@@ -64,6 +64,7 @@ class Codes(commands.Cog):
 
             dom = region.code_prefix
             url = f"https://{dom}.wargaming.net/shop/redeem/?bonus_mode={code}"
+            btn: discord.ui.Button[discord.ui.View]
             btn = discord.ui.Button(url=url, label=region.name)
             btn.emoji = region.emote
             view.add_item(btn)

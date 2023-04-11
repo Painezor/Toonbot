@@ -61,7 +61,7 @@ class Admin(commands.Cog):
             await self.bot.tree.sync(guild=discord.Object(id=guild_id))
             guild = self.bot.get_guild(guild_id)
             return await ctx.send(f"Guild {guild} Synced")
-        except Exception as err:
+        except discord.DiscordException as err:
             logger.error(err, exc_info=True)
             return await ctx.send("Something fucked up")
 

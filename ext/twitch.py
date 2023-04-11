@@ -55,13 +55,13 @@ class Contributor:
     ):
         self.name: str = name
         self.links: list[str] = links
-        self.language: list[str] = language
+        self.languages: list[str] = language
         self.region: api.Region = region
 
     @property
     def language_names(self) -> list[str]:
         """Get the name of each language"""
-        return [Lang(lang).name for lang in self.language]
+        return [Lang(lang).name for lang in self.languages]
 
     @property
     def markdown(self) -> str:
@@ -98,9 +98,9 @@ class Contributor:
         return "\n".join(output)
 
     @property
-    def flag(self) -> str:
+    def flag(self) -> list[str]:
         """Return a flag emoji for each of a CC's languages"""
-        return ", ".join([flags.get_flag(x) for x in self.language])
+        return flags.get_flags(self.languages)
 
     @property
     def row(self) -> str:
@@ -204,7 +204,7 @@ class TrackerChannel:
             async with connection.transaction():
                 records = await connection.fetch(sql, self.channel.id)
 
-        tracked = []
+        tracked: list[discord.Role] = []
         for i in records:
             role = self.channel.guild.get_role(i["role_id"])
             if role is not None:
@@ -240,7 +240,7 @@ class TrackerChannel:
 
 async def cc_ac(
     interaction: Interaction, current: str
-) -> list[discord.app_commands.Choice]:
+) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from the list of stored CCs"""
     bot: PBot = interaction.client
     ccs = bot.contributors
@@ -253,7 +253,7 @@ async def cc_ac(
     ccs.sort(key=lambda x: x.name)
     cur = current.casefold()
 
-    choices = []
+    choices: list[discord.app_commands.Choice[str]] = []
     for i in ccs:
         if cur not in i.auto_complete:
             continue
@@ -271,7 +271,7 @@ async def cc_ac(
 
 async def language_ac(
     interaction: Interaction, current: str
-) -> list[discord.app_commands.Choice]:
+) -> list[discord.app_commands.Choice[str]]:
     """Filter by Language"""
 
     ccs = interaction.client.contributors
@@ -280,7 +280,7 @@ async def language_ac(
 
     cur = current.casefold()
 
-    choices = []
+    choices: list[discord.app_commands.Choice[str]] = []
     for i in langs:
         if cur not in i.casefold():
             continue
@@ -299,36 +299,41 @@ class TrackerConfig(view_utils.DropdownPaginator):
 
     def __init__(self, invoker: User, chan: TrackerChannel):
         self.channel: TrackerChannel = chan
-        self.index: int = 0
-        self.pages: list[discord.Embed] = []
 
-        opts: list[discord.SelectOption] = []
-        for i in self.channel.tracked:
-            opt = discord.SelectOption()
+        embed = discord.Embed(colour=0x9146FF, title="Twitch Go Live Tracker")
+        embed.set_thumbnail(url=TWITCH_LOGO)
 
-        super().__init__(invoker)
-        self.dropdown.max_values = len(opts)
+        missing: list[str] = []
+        perms = chan.channel.permissions_for(chan.channel.guild.me)
+        if not perms.send_messages:
+            missing.append("send_messages")
+        if not perms.embed_links:
+            missing.append("embed_links")
 
-    @discord.ui.select(placeholder="Remove tracked roles", row=0)
+        if missing:
+            txt = (
+                "```yaml\nThis tracker channel will not work currently"
+                f"I am missing the following permissions.\n{missing}```\n"
+            )
+            embed.add_field(name="Missing Permissions", value=txt)
+
+        options: list[discord.SelectOption] = []
+        rows: list[str] = []
+        for i in sorted(self.channel.tracked, key=lambda role: role.name):
+            opt = discord.SelectOption(label=i.name, value=str(i.id))
+            opt.emoji = i.unicode_emoji
+            opt.description = str(i.id)
+            options.append(opt)
+            rows.append(i.mention)
+
+        super().__init__(invoker, embed, rows, options)
+        self.dropdown.max_values = len(options)
+
+    @discord.ui.select(placeholder="Remove tracked roles", row=1)
     async def dropdown(
         self, interaction: Interaction, sel: discord.ui.Select[TrackerConfig]
     ):
-        roles = self.channel.tracked
-        roles = sorted(set(roles), key=lambda role: role.name)
-
-        # No idea how we're getting duplicates here but fuck it I don't care.
-        for i in roles:
-            self.add_option(
-                label=i.name,
-                emoji=i.unicode_emoji,
-                description=str(i.id),
-                value=str(i.id),
-            )
-
-    async def callback(self, interaction: Interaction) -> None:
-        """When a league is selected, delete channel / league row from DB"""
-        await interaction.response.defer()
-        return await self.view.remove_tracked(interaction, self.values)
+        await self.remove_tracked(interaction, sel.values)
 
     async def remove_tracked(
         self, interaction: Interaction, roles: list[str]
@@ -356,57 +361,6 @@ class TrackerConfig(view_utils.DropdownPaginator):
             await interaction.followup.send(embed=embed)
 
         return await edit(view=self)
-
-    async def update(
-        self, interaction: Interaction, content: typing.Optional[str] = None
-    ) -> None:
-        """Regenerate view and push to message"""
-        self.clear_items()
-
-        if not self.channel.tracked:
-            await self.channel.get_tracks()
-
-        embed = discord.Embed(colour=0x9146FF, title="Twitch Go Live Tracker")
-        embed.set_thumbnail(url=TWITCH_LOGO)
-
-        missing: list[str] = []
-        chan = self.channel.channel
-        perms = chan.permissions_for(chan.guild.me)
-        if not perms.send_messages:
-            missing.append("send_messages")
-        if not perms.embed_links:
-            missing.append("embed_links")
-
-        if missing:
-            txt = (
-                "```yaml\nThis tracker channel will not work currently"
-                f"I am missing the following permissions.\n{missing}```\n"
-            )
-            embed.add_field(name="Missing Permissions", value=txt)
-
-        if not self.channel.tracked:
-            ment = self.channel.channel.mention
-            embed.description = f"{ment} has no tracked roles."
-
-        else:
-            embed.description = f"Tracked roles for {self.channel.mention}\n"
-
-            rows = [i.mention for i in self.channel.tracked]
-            embeds = embed_utils.rows_to_embeds(embed, rows, 25)
-            self.pages = embeds
-
-            self.add_item(view_utils.Stop(row=1))
-            embed = self.pages[self.index]
-
-            roles = sorted(self.channel.tracked, key=lambda i: i.name)
-
-            # Get everything after index * 25 (page len),
-            #  then up to 25 items from that page.
-            if len(roles) > 25:
-                roles = roles[self.index * 25 :][:25]
-            self.add_item(Untrack(roles))
-        edit = interaction.response.edit_message
-        return await edit(content=content, embed=embed, view=self)
 
 
 class TwitchTracker(commands.Cog):
@@ -442,7 +396,7 @@ class TwitchTracker(commands.Cog):
         ]
 
         # Fetch New
-        trackers = []
+        trackers: list[TrackerChannel] = []
         for c_id in channel_ids:
             channel = self.bot.get_channel(c_id)
 

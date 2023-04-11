@@ -37,9 +37,11 @@ REDDIT_THUMBNAIL = (
 logger = logging.getLogger("sidebar")
 
 
-def rows_to_md_table(header, strings, per=20, max_length=10240):
+def rows_to_md_table(
+    header: str, strings: list[str], per: int = 20, max_length: int = 10240
+):
     """Create sidebar pop out tables"""
-    rows = []
+    rows: list[str] = []
     for num, obj in enumerate(strings):
         # Every row we buffer the length of the new result.
         max_length -= len(obj)
@@ -49,8 +51,7 @@ def rows_to_md_table(header, strings, per=20, max_length=10240):
             max_length -= len(header)
         if max_length < 0:
             break
-        else:
-            rows.append(obj)
+        rows.append(obj)
 
     if not rows:
         return ""
@@ -82,7 +83,9 @@ class NUFCSidebar(commands.Cog):
         """Background task, repeat every 6 hours to update the sidebar"""
         if not self.bot.browser or not self.bot.teams:
             await asyncio.sleep(60)
-            return await self.sidebar_task()
+            self.sidebar_task.change_interval(seconds=60)
+            return
+        self.sidebar_task.change_interval(hours=6)
 
         markdown = await self.make_sidebar()
         subreddit = await self.bot.reddit.subreddit("NUFC")
@@ -150,13 +153,14 @@ class NUFCSidebar(commands.Cog):
             name = qry.casefold()
             tem = team.casefold()
 
-            table_rows = []
+            table_rows: list[str] = []
             for i in cols:
                 table_rows.append(f"**{i}**" if name in tem else i)
             table += " | ".join(table_rows) + "\n"
 
         # Get match threads
         last_opponent = qry.split(" ")[0]
+
         nufc_sub = await self.bot.reddit.subreddit("NUFC")
 
         pre = "Pre"
@@ -279,12 +283,12 @@ class NUFCSidebar(commands.Cog):
         if subreddit == "NUFC":
             footer += "\n\n[](https://discord.gg/" + NUFC_DISCORD_LINK + ")"
 
-        markdown = wiki_content + table + fx_markdown
+        markdown: str = wiki_content + table + fx_markdown
 
         if results:
             header = "* Previous Results\n"
             markdown += header
-            rows = []
+            rows: list[str] = []
             for i in results:
                 h_sh = i.home.name
 

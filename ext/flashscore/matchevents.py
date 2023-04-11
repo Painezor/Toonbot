@@ -17,20 +17,18 @@ from .constants import (
     YELLOW_CARD_EMOJI,
 )
 
+from .players import Player
+
 if typing.TYPE_CHECKING:
-    from .fixture import Fixture
-    from .players import Player
-    from .team import Team
+    from .abc import Fixture, Team
 
 
 logger = logging.getLogger("matchevents")
 
 
-def parse_events(fixture: Fixture, tree) -> list[MatchEvent]:
+def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
     """Get a list of match events"""
-    from .players import Player
-
-    events = []
+    events: list[MatchEvent] = []
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
         # Detection of Teams
         team_detection = i.attrib["class"]
@@ -200,6 +198,9 @@ class MatchEvent:
     note: typing.Optional[str] = None
     time: typing.Optional[str] = None
 
+    def __init__(self, fixture: Fixture) -> None:
+        self.fixture = fixture
+
     def is_done(self) -> bool:
         """Check to see if more information is required"""
         return self.player is not None
@@ -302,7 +303,7 @@ class Penalty(Goal):
     missed: bool
 
     def __init__(self, fixture: Fixture, missed: bool = False) -> None:
-        self.fixture = fixture
+        super().__init__(fixture)
         self.missed = missed
 
     @property

@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 import typing
 
-import asyncpg
 import discord
 from discord.ext import commands, tasks
 from lxml import html
@@ -49,6 +48,9 @@ SHIP_EMOTES = {
         "special": "<:submarine_special:991360980544143461>",
     },
 }
+
+
+# TODO: Markdownify library
 
 
 def get_emote(node: html.HtmlElement):
@@ -128,7 +130,7 @@ class Blog:
 
         txt = f"World of Warships Development Blog #{blog_number}"
         embed.set_author(name=txt, url="https://blog.worldofwarships.com/")
-        output = []
+        output: list[str] = []
 
         def parse(node: html.HtmlElement) -> str:
             """Parse a single node"""
@@ -145,16 +147,13 @@ class Blog:
                 txt = None
 
             if node.tag in ["table", "tr"]:
-                for sub_node in node.iterdescendants(None):
-                    sub_node.text = (
-                        None
-                        if sub_node.text is None
-                        else sub_node.text.strip()
-                    )
+                for sub_node in node.iterdescendants():
+                    if sub_node.text is not None:
+                        sub_node.text = sub_node.text.strip()
 
                 string = html.tostring(node, encoding="unicode")
                 out.append(yatg.html_2_ascii_table(string))
-                for sub_node in node.iterdescendants(None):
+                for sub_node in node.iterdescendants():
                     sub_node.text = None
             elif node.tag in ["tbody", "tr", "td"]:
                 pass
@@ -162,11 +161,8 @@ class Blog:
                 if node.attrib.get("class", None) == "superShipStar":
                     out.append(r"\⭐")
                 else:
-                    logger.error(
-                        "unhandled 'i' tag %s containing text %s",
-                        node.attrib["class"],
-                        txt,
-                    )
+                    _cls = node.attrib["class"]
+                    logger.error("'i' tag %s containing text %s", _cls, txt)
             elif node.tag == "p":
                 if node.text_content():
                     if node.getprevious() is not None and node.text:
@@ -178,18 +174,20 @@ class Blog:
             elif node.tag == "div":
                 if node.attrib.get("class", None) == "article-cut":
                     out.append("\n")
-                else:
+                elif txt is not None:
                     out.append(txt)
             elif node.tag in ["ul", "td", "sup"]:
-                out.append(txt)
+                if txt is not None:
+                    out.append(txt)
             elif node.tag == "em":
                 # Handle Italics
                 out.append(f"*{txt}*")
             elif node.tag in ["strong", "h3", "h4"]:
                 # Handle Bold.
                 # Force line break if this is a standalone bold.
-                if not node.getparent().text:
-                    out.append("\n")
+                if (par := node.getparent()) is not None:
+                    if par.text is None:
+                        out.append("\n")
 
                 if txt:
                     out.append(f"**{txt}** ")
@@ -205,61 +203,64 @@ class Blog:
                 if node.attrib.get("class", None) == "ship":
                     sub_out: list[str] = []
 
-                    try:
-                        if (
-                            country := node.attrib.get("data-nation", None)
-                        ) is not None:
-                            sub_out.append(" " + flags.get_flag(country))
-                    except AttributeError:
-                        pass
+                    country = node.attrib.get("data-nation", None)
+                    if country is not None:
+                        sub_out.append(" " + flags.get_flag(country))
 
-                    try:
-                        if node.attrib.get("data-type", False):
-                            sub_out.append(get_emote(node))
-                    except AttributeError:
-                        pass
+                    if node.attrib.get("data-type", False):
+                        sub_out.append(get_emote(node))
 
                     if txt is not None:
                         sub_out.append(f"**{txt}** ")
                     out.append(" ".join(sub_out))
 
-                else:
+                elif txt is not None:
                     out.append(txt)
+
             elif node.tag == "li":
                 out.append("\n")
                 if node.text:
-                    if node.getparent().getparent().tag in ["ul", "ol", "li"]:
-                        out.append(f"∟○ {txt}")
-                    else:
-                        out.append(f"• {txt}")
+                    par = node.getparent()
+
+                    if par is not None:
+                        if (par := par.getparent()) is not None:
+                            if par.tag in ["ul", "ol", "li"]:
+                                out.append(f"∟○ {txt}")
+                            else:
+                                out.append(f"• {txt}")
 
                 if node.getnext() is None:
                     if len(node) == 0:  # Number of children
                         out.append("\n")
+
             elif node.tag == "a":
                 out.append(f"[{txt}]({node.attrib['href']})")
+
             elif node.tag == "br":
                 out.append("\n")
+
             else:
                 if node.text:
                     tail = node.tail
                     tag = node.tag
                     logger.error("Unhandled node: %s|%s|%s", tag, txt, tail)
-                    out.append(txt)
+                    if txt is not None:
+                        out.append(txt)
 
-            for sub_node in node.iterchildren(None):
+            for sub_node in node.iterchildren():
                 if node.tag != "table":
                     out.append(parse(sub_node))
 
             if node.tail:
                 tail = node.tail.strip() + " "
 
-                tag = node.getparent().tag
+                assert (par := node.getparent()) is not None
+                tag = par.tag
                 if tag == "em":
                     out.append(f"*{tail}*")
                 elif tag == "span":
                     # Handle Ships
-                    _cls = node.getparent().attrib.get("class", None)
+                    _cls = par.attrib.get("class", None)
                     if _cls == "ship":
                         out.append(f"**{tail}**")
                     else:
@@ -272,11 +273,11 @@ class Blog:
         for elem in article_html.iterchildren():
             output.append(parse(elem))
 
-        if len(output := "".join(output)) > 4000:
+        if len(final := "".join(output)) > 4000:
             trunc = f"…\n[Read Full Article]({self.url})"
-            embed.description = output.ljust(4000)[: 4000 - len(trunc)] + trunc
+            embed.description = final.ljust(4000)[: 4000 - len(trunc)] + trunc
         else:
-            embed.description = output
+            embed.description = final
         return embed
 
 
@@ -287,10 +288,12 @@ class DevBlogView(view_utils.AsyncPaginator):
         super().__init__(invoker, len(pages))
         self.blogs: list[Blog] = pages
 
-    async def handle_page(self, interaction: Interaction) -> None:
+    async def handle_page(  # type: ignore
+        self, interaction: Interaction
+    ) -> None:
         """Convert to Embed"""
         embed = await self.blogs[self.index].make_embed()
-        await super().handle_page()
+        await super().handle_page(interaction)
         return await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -340,7 +343,7 @@ class DevBlog(commands.Cog):
     @tasks.loop(seconds=60)
     async def blog_loop(self) -> None:
         """Loop to get the latest dev blog articles"""
-        if self.bot.session is None or not self.bot.dev_blog_cache:
+        if not self.bot.dev_blog_cache:
             return
 
         async with self.bot.session.get(RSS) as resp:

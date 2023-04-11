@@ -3,19 +3,20 @@ from __future__ import annotations
 
 import datetime
 import logging
+from typing import TYPE_CHECKING, Optional, TypeAlias, Any
 import random
-import typing
 
 import discord
 from discord.ext import commands
 
 from ext.utils import view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
+    from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot | PBot]
+    User: TypeAlias = discord.User | discord.Member
 
 logger = logging.getLogger("xkcd")
 
@@ -24,7 +25,11 @@ class XKCDView(view_utils.AsyncPaginator):
     """A View to browse XKCD Comics"""
 
     def __init__(
-        self, invoker: User, index: int, max_page: int, embed: discord.Embed
+        self,
+        invoker: User,
+        index: Optional[int],
+        max_page: int,
+        embed: discord.Embed,
     ):
         super().__init__(invoker, max_page)
 
@@ -38,13 +43,14 @@ class XKCDView(view_utils.AsyncPaginator):
 
     @classmethod
     async def create(
-        cls, interaction: Interaction, *, start: typing.Optional[int] = -1
+        cls, interaction: Interaction, *, start: Optional[int] = -1
     ) -> XKCDView:
         """Spawn a view asynchronously"""
         url = "https://xkcd.com/info.0.json"
         async with interaction.client.session.get(url) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
             json = await resp.json()
 
         max_page = int(json["num"])
@@ -57,7 +63,8 @@ class XKCDView(view_utils.AsyncPaginator):
         url = f"https://xkcd.com/{start}/info.0.json"
         async with interaction.client.session.get(url) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
             json = await resp.json()
 
         embed = cls.make_embed(json)
@@ -66,7 +73,7 @@ class XKCDView(view_utils.AsyncPaginator):
         return view
 
     @staticmethod
-    def make_embed(json: dict) -> discord.Embed:
+    def make_embed(json: dict[str, Any]) -> discord.Embed:
         """Convert JSON To Embed"""
         embed = discord.Embed(title=f"{json['num']}: {json['safe_title']}")
 
@@ -83,7 +90,8 @@ class XKCDView(view_utils.AsyncPaginator):
         url = f"https://xkcd.com/{self.index}/info.0.json"
         async with interaction.client.session.get(url) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
             json = await resp.json()
 
         embed = self.make_embed(json)

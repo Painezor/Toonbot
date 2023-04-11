@@ -21,7 +21,8 @@ async def get_game_modes() -> set[GameMode]:
     async with aiohttp.ClientSession() as session:
         async with session.get(MODES, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, MODES)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
     data = data.pop("data").values()
@@ -37,7 +38,7 @@ class GameMode:
     name: str
     tag: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 

@@ -328,7 +328,7 @@ class Info(commands.Cog):
     @discord.app_commands.describe(emote="enter an emote")
     async def info_emote(self, interaction: Interaction, emote: str) -> None:
         """View a bigger version of an Emoji"""
-        embeds = []
+        embeds: list[discord.Embed] = []
         regex = r"<(?P<animated>a?):(?P<name>\w{2,32}):(?P<id>\d{18,22})>"
 
         for anim, name, e_id in re.findall(regex, emote):
@@ -340,12 +340,11 @@ class Info(commands.Cog):
                     name=name, animated=bool(anim), id=e_id
                 )
 
-                if emo is not None:
-                    embed.colour = await embed_utils.get_colour(emo.url)
-                    if emo.animated:
-                        embed.description = f"**Animated?**: {emo.animated}\n"
-                    embed.set_image(url=emo.url)
-                    embed.set_footer(text=emo.url)
+                embed.colour = await embed_utils.get_colour(emo.url)
+                if emo.animated:
+                    embed.description = f"**Animated?**: {emo.animated}\n"
+                embed.set_image(url=emo.url)
+                embed.set_footer(text=emo.url)
 
             if isinstance(emo, discord.Emoji):  # Not a partial emoji
                 if (gild := emo.guild) is not None:
@@ -447,7 +446,7 @@ class Info(commands.Cog):
         if (updates := guild.public_updates_channel) is not None:
             chs.description += f"**Updates Channel**: {updates.mention}\n"
 
-        flags = []
+        flags: list[str] = []
         if guild.system_channel:
             sys = guild.system_channel.mention
             chs.description += f"\n**System Channel**: {sys}\n"

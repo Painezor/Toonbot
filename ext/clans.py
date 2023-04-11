@@ -88,7 +88,9 @@ class Leaderboard(view_utils.DropdownPaginator):
 class ClanView(view_utils.BaseView):
     """A View representing a World of Warships Clan"""
 
-    def __init__(self, invoker: User, clan: api.Clan, **kwargs) -> None:
+    def __init__(
+        self, invoker: User, clan: api.Clan, **kwargs: typing.Any
+    ) -> None:
         super().__init__(invoker, **kwargs)
         self.clan: api.Clan = clan
 

@@ -24,10 +24,11 @@ class MetaPainezbot(commands.Cog):
         self.bot: PBot = bot
 
     @discord.app_commands.command()
-    async def invite(self, interaction: Interaction) -> None:
+    async def invite(self, interaction: discord.Interaction[PBot]) -> None:
         """Get the bots invite link"""
         view = discord.ui.View()
 
+        btn: discord.ui.Button[discord.ui.View]
         btn = discord.ui.Button(url=INV, label="Invite Me")
         view.add_item(btn)
         return await interaction.response.send_message(view=view)
@@ -55,6 +56,7 @@ class MetaPainezbot(commands.Cog):
 
         view = discord.ui.View()
         emote = "<:painezBot:928654001279471697>"
+        btn: discord.ui.Button[discord.ui.View]
         btn = discord.ui.Button(url=INV, emoji=emote)
         btn.label = "Invite me to your server"
         view.add_item(btn)

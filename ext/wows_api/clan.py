@@ -4,7 +4,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
-import typing
+from typing import Any, Optional, Union
 
 import aiohttp
 from .enums import Region
@@ -44,7 +44,8 @@ async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             if resp.status != 200:
-                logger.error("[%s] %s: %s", resp.status, resp.reason, url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
         data = await resp.json()
 
     return ClanVortexData(data.pop("clanview"))
@@ -58,17 +59,18 @@ async def get_member_vortex(
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
     return [ClanMemberVortexData(i) for i in data.pop("items")]
 
 
 async def get_cb_leaderboard(
-    season: typing.Optional[int] = None, region: typing.Optional[Region] = None
+    season: Optional[int] = None, region: Optional[Region] = None
 ) -> list[ClanLeaderboardStats]:
     """Get the leaderboard for a clan battle season"""
-    params = dict()
+    params: dict[str, Any] = dict()
 
     # league: int, 0 = Hurricane.
     # division: int, 1-3
@@ -80,7 +82,8 @@ async def get_cb_leaderboard(
     async with aiohttp.ClientSession() as session:
         async with session.get(LEADERBOARD, params=params) as resp:
             if resp.status != 200:
-                logger.info("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             return [ClanLeaderboardStats(i) for i in await resp.json()]
 
 
@@ -91,14 +94,15 @@ async def get_cb_seasons(language: str = "en") -> list[ClanBattleSeason]:
     async with aiohttp.ClientSession() as session:
         async with session.get(CB_SEASON_INFO, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
 
             data = await resp.json()
             count = data.pop("meta")["count"]
             logger.info("Fetched %s Clan Battle Seasons", count)
             data = data.pop("data")
 
-    output = []
+    output: list[ClanBattleSeason] = []
     for k, val in data.items():  # Key is useless
         if len(str(k)) == 3:
             continue  # Discard Fucked shit.
@@ -111,7 +115,8 @@ async def get_cb_winners() -> dict[int, list[ClanBattleWinner]]:
     async with aiohttp.ClientSession() as session:
         async with session.get(WINNERS) as resp:
             if resp.status != 200:
-                logger.error("%s %s %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
     winners = data.pop("winners")
@@ -136,7 +141,7 @@ class ClanBattleLeague:
     icon: str
     name: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -177,7 +182,7 @@ class ClanBattleSeason:
 
     leagues: list[ClanBattleLeague]
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "leagues":
                 val = [ClanBattleLeague(i) for i in val]
@@ -226,7 +231,7 @@ class ClanSeasonStats:
 
     last_win_at: datetime.datetime
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "last_win_at":
                 val = datetime.datetime.fromtimestamp(val)
@@ -246,7 +251,7 @@ class ClanBattleWinner:
     season_id: int
     tag: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Union[int, str]]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -275,7 +280,7 @@ class ClanLeaderboardStats:
     season_number: int
     tag: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k in ["last_battle_at"]:
                 val = datetime.datetime.strptime(val, "%Y-%m-%d %H:%M:%S%z")
@@ -291,7 +296,7 @@ class PlayerCBStats:
     damage_per_battle: float
     frags_per_battle: float
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Union[int, float]]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -311,7 +316,7 @@ class ClanMemberVortexData:
     nickname: str
     win_rate: float
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "joined_clan_at":
                 val = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S%z")
@@ -327,7 +332,7 @@ class ClanMember:
     joined_at: datetime.datetime
     role: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, value in data.items():
             setattr(self, k, value)
 
@@ -357,7 +362,7 @@ class Clan:
 
     region: Region
 
-    def __init__(self, data: dict, region: Region) -> None:
+    def __init__(self, data: dict[str, Any], region: Region) -> None:
         for k, val in data.items():
             if k == "members":
                 self.members = [ClanMember(i) for i in val.values()]
@@ -376,16 +381,16 @@ class ClanVortexData:
     """Data about a clan from the Vortex Endpoint"""
 
     # Clan Buildings.
-    academy: list
-    coal_yard: list
-    design_department: list
-    dry_dock: list
-    headquarters: list
-    paragon_yard: list
-    shipbuilding_factory: list
-    steel_yard: list
-    treasury: list
-    university: list
+    academy: list[int]
+    coal_yard: list[int]
+    design_department: list[int]
+    dry_dock: list[int]
+    headquarters: list[int]
+    paragon_yard: list[int]
+    shipbuilding_factory: list[int]
+    steel_yard: list[int]
+    treasury: list[int]
+    university: list[int]
 
     # Clan Battles Data
     battles_count: int
@@ -408,17 +413,14 @@ class ClanVortexData:
     # Misc
     is_banned: bool
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         ladder = data.pop("wows_ladder")  # This info we care about.
 
         for k, val in ladder:
             if k in ["last_battle_at", "last_win_at"]:
                 val = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S%z")
             elif k == "ratings":
-                _v = []
-                for i in val:
-                    _v.append(ClanSeasonStats(i))
-                val = _v
+                val = [(ClanSeasonStats(i) for i in val)]
             elif k == "buildings":
                 for _k, _v in val.items():
                     setattr(self, _k, _v["modifiers"])
@@ -571,7 +573,7 @@ class PartialClan:
     name: str
     tag: str
 
-    def __init__(self, data: dict):
+    def __init__(self, data: dict[str, Any]):
         for k, val in data.items():
             if k == "created_at":
                 val = datetime.datetime.fromtimestamp(val)

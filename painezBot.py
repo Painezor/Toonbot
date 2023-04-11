@@ -5,7 +5,7 @@ import asyncio
 import datetime
 import json
 import logging
-import typing
+from typing import TYPE_CHECKING
 
 import aiohttp
 import asyncpg
@@ -14,7 +14,7 @@ from discord.ext import commands
 
 from ext.utils.playwright_browser import make_browser
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from playwright.async_api import BrowserContext
 
     from ext.devblog import Blog
@@ -151,8 +151,7 @@ async def run() -> None:
         for i in bot.cogs:
             await bot.unload_extension(i)
 
-        if bot.db is not None:
-            await bot.db.close()
+        await bot.db.close()
         await bot.close()
 
 

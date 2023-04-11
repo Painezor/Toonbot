@@ -1,8 +1,13 @@
 """Various World of Warships related Enums"""
 from __future__ import annotations
 
-import enum
 
+import enum
+import logging
+from typing import Union
+
+
+logger = logging.getLogger("wows.enums")
 # TODO: Encyclopedia - Collections
 # TODO: Pull Achievement Data to specifically get Jolly Rogers
 #       and Hurricane Emblems for player stats.
@@ -11,17 +16,18 @@ import enum
 
 class Nation(enum.Enum):
     """An Enum representing different nations."""
+    alias: str
+    match: str
+    flag: str
 
-    def __new__(cls, *args) -> Nation:
+    def __new__(cls, alias: str, match: str, flag: str) -> Nation:
         value = len(cls.__members__) + 1
         obj = object.__new__(cls)
         obj._value_ = value
+        obj.alias = alias
+        obj.match = match
+        obj.flag = flag
         return obj
-
-    def __init__(self, alias: str, match: str, flag: str) -> None:
-        self.alias: str = alias
-        self.match: str = match
-        self.flag: str = flag
 
     COMMONWEALTH = ("Commonwealth", "commonwealth", "")
     EUROPE = ("Pan-European", "europe", "🇪🇺")
@@ -40,28 +46,34 @@ class Nation(enum.Enum):
 
 class Region(enum.Enum):
     """A Generic object representing a region"""
+    
+    db_key: str
+    domain: str
+    colour: int
+    code_prefix: str
+    domain: str
+    emote: str
+    realm: str
 
-    def __new__(cls, *args) -> Region:
-        value = len(cls.__members__) + 1
-        obj = object.__new__(cls)
-        obj._value_ = value
-        return obj
-
-    def __init__(
-        self,
+    def __new__(
+        cls,
         db_key: str,
         url: str,
         emote: str,
         colour: int,
         code_prefix: str,
         realm: str,
-    ) -> None:
-        self.db_key: str = db_key
-        self.domain: str = url
-        self.emote: str = emote
-        self.colour: int = colour
-        self.code_prefix: str = code_prefix
-        self.realm: str = realm
+    ) -> Region:
+        value = len(cls.__members__) + 1
+        obj = object.__new__(cls)
+        obj._value_ = value
+        obj.db_key = db_key
+        obj.domain = url
+        obj.emote = emote
+        obj.colour = colour
+        obj.code_prefix = code_prefix
+        obj.realm: = realm
+        return obj
 
     # database key, domain, emote, colour, code prefix, realm
     EU = ("eu", "eu", "<:EU:993495456988545124>", 0x0000FF, "eu", "eu")
@@ -77,7 +89,7 @@ class Map:
     icon: str
     name: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Union[int, str]]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 

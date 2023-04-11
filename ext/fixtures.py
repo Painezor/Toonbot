@@ -15,7 +15,13 @@ import asyncio
 import datetime
 import io
 import logging
-import typing
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    Optional,
+    TypeAlias,
+)
 
 import discord
 from discord.ext import commands
@@ -26,11 +32,11 @@ from playwright.async_api import TimeoutError as PWTimeout
 import ext.flashscore as fs
 from ext.utils import embed_utils, flags, image_utils, timed_events, view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot]
+    User: TypeAlias = discord.User | discord.Member
 
 
 logger = logging.getLogger("Fixtures")
@@ -39,7 +45,7 @@ JS = "ads => ads.forEach(x => x.remove());"
 TEAM_NAME = "Enter the name of a team to search for"
 FIXTURE = "Search for a fixture by team name"
 COMPETITION = "Enter the name of a competition to search for"
-H2H = typing.Literal["overall", "home", "away"]
+H2H = Literal["overall", "home", "away"]
 
 
 sqd_filter_opts = [
@@ -63,14 +69,14 @@ class SquadView(view_utils.DropdownPaginator):
         embed: discord.Embed,
         team: fs.Team,
         players: list[fs.SquadMember],
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         self.page: Page = page
         self.team: fs.Team = team
         self.players: list[fs.SquadMember]
 
-        rows = []
-        options = []
+        rows: list[str] = []
+        options: list[discord.SelectOption] = []
         for i in players:
             rows.append(i.output)
             opt = discord.SelectOption(label=i.player.name)
@@ -114,7 +120,7 @@ class SquadView(view_utils.DropdownPaginator):
         interaction: Interaction,
         page: Page,
         team: fs.Team,
-        btn_name: typing.Optional[str] = None,
+        btn_name: Optional[str] = None,
     ) -> SquadView:
         """Generate & Return a squad view"""
         embed = await team.base_embed()
@@ -132,9 +138,10 @@ class SquadView(view_utils.DropdownPaginator):
     async def get_buttons(
         self, interaction: Interaction
     ) -> list[view_utils.Funcable]:
+        """Create Buttons for filter modes"""
         tabs = self.page.locator("role=tablist")
 
-        btns = []
+        btns: list[view_utils.Funcable] = []
         for i in range(await tabs.count()):
             sub = tabs.nth(i).locator("button")
             for count in range(await sub.count()):
@@ -152,7 +159,7 @@ class SquadView(view_utils.DropdownPaginator):
         return btns
 
 
-class FixturesPaginator(view_utils.DropdownPaginator):
+class FXPaginator(view_utils.DropdownPaginator):
     """Paginate Fixtures, with a dropdown that goes to a specific game."""
 
     def __init__(
@@ -162,12 +169,12 @@ class FixturesPaginator(view_utils.DropdownPaginator):
         embed: discord.Embed,
         fixtures: list[fs.Fixture],
         is_fixtures: bool,
-        parent: typing.Optional[ItemView] = None,
+        parent: Optional[ItemView] = None,
     ) -> None:
         self.page: Page = page
 
-        options = []
-        rows = []
+        options: list[discord.SelectOption] = []
+        rows: list[str] = []
         self.fixtures = fixtures
         for i in fixtures:
             if i.id is None:
@@ -182,6 +189,7 @@ class FixturesPaginator(view_utils.DropdownPaginator):
             options.append(opt)
 
         embed.title = "Fixtures"
+        logger.info("%s fixtures, %s options", len(fixtures), len(options))
         super().__init__(invoker, embed, rows, options, 10, parent=parent)
 
     @classmethod
@@ -192,7 +200,7 @@ class FixturesPaginator(view_utils.DropdownPaginator):
         obj: fs.Competition | fs.Team,
         parent: ItemView,
         is_fixtures: bool,
-    ) -> FixturesPaginator:
+    ) -> FXPaginator:
         """Generate & return a FixtureBrowser asynchronously"""
         cache = interaction.client.competitions
         if is_fixtures:
@@ -203,15 +211,15 @@ class FixturesPaginator(view_utils.DropdownPaginator):
         embed = await obj.base_embed()
 
         user = interaction.user
-        view = FixturesPaginator(user, page, embed, games, is_fixtures, parent)
+        view = FXPaginator(user, page, embed, games, is_fixtures, parent)
         return view
 
     @discord.ui.select()
     async def dropdown(
-        self, itr: Interaction, sel: discord.ui.Select[FixturesPaginator]
+        self, itr: Interaction, sel: discord.ui.Select[FXPaginator]
     ) -> None:
         """Go to Fixture"""
-        fix = next(i for i in self.fixtures if i.url in sel.values)
+        fix = next(i for i in self.fixtures if i.id in sel.values)
         view = FixtureView(itr.user, self.page, fix, parent=self)
         await view.news(itr)
 
@@ -224,8 +232,8 @@ class FixturesPaginator(view_utils.DropdownPaginator):
 class TopScorersView(view_utils.DropdownPaginator):
     """View for handling top scorers."""
 
-    nationality_filter: typing.Optional[set[str]]
-    team_filter: typing.Optional[set[fs.Team]]
+    nationality_filter: set[str]
+    team_filter: set[fs.Team]
 
     def __init__(
         self,
@@ -233,9 +241,9 @@ class TopScorersView(view_utils.DropdownPaginator):
         page: Page,
         embed: discord.Embed,
         scorers: list[fs.TopScorer],
-        parent: typing.Optional[view_utils.BaseView],
-        nt_flt: typing.Optional[set[str]] = None,
-        tm_flt: typing.Optional[set[fs.Team]] = None,
+        parent: Optional[view_utils.BaseView],
+        nt_flt: Optional[set[str]] = None,
+        tm_flt: Optional[set[fs.Team]] = None,
     ):
         self.nationality_filter = nt_flt if nt_flt is not None else set()
         self.team_filter = tm_flt if tm_flt is not None else set()
@@ -258,7 +266,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             rows.append(i.output)
             opt = discord.SelectOption(label=i.player.name)
             opt.value = i.player.url
-            opt.emoji = i.player.flag
+            opt.emoji = i.player.flags[0]
 
             team = f" ({i.team.name})" if i.team else ""
             opt.description = f"⚽ {i.goals} {team}"
@@ -281,7 +289,7 @@ class TopScorersView(view_utils.DropdownPaginator):
         nations = [i.player.country[0] for i in self.scorers]
         nations.sort()
 
-        options = []
+        options: list[discord.SelectOption] = []
         for i in set(nations):
             flg = flags.get_flag(i)
             opt = discord.SelectOption(label=i, emoji=flg, value=i)
@@ -315,21 +323,24 @@ class TopScorersView(view_utils.DropdownPaginator):
     @discord.ui.button(label="Filter: Team", emoji=fs.TEAM_EMOJI, row=4)
     async def teamfilt(self, interaction: Interaction, _) -> None:
         """Generate a team filter dropdown"""
-        teams = set(i.team.name for i in self.scorers if i.team)
+        teams = set(i.team for i in self.scorers if i.team in self.team_filter)
 
         opts: list[discord.SelectOption] = []
-        for i in sorted(teams):
-            emoji = fs.TEAM_EMOJI
-            opts.append(discord.SelectOption(label=i, emoji=emoji, value=i))
+        for i in sorted(teams, key=lambda i: i.name):
+            if i.url is None:
+                continue
+
+            opt = discord.SelectOption(label=i.name, value=i.url)
+            opt.emoji = fs.TEAM_EMOJI
+            opts.append(opt)
 
         view = view_utils.PagedItemSelect(interaction.user, opts)
         await interaction.response.edit_message(view=view, embed=view.pages[0])
         await view.wait()
 
-        tm_flt = view.values
+        tm_flt = teams
 
-        assert interaction.message is not None
-        embed = interaction.message.embeds[0]
+        embed = self.message.embeds[0]
 
         nt_flt = self.nationality_filter
         invoker = interaction.user
@@ -340,9 +351,9 @@ class TopScorersView(view_utils.DropdownPaginator):
         )
 
         if nt_flt:
-            self.natfilt.style = discord.ButtonStyle.blurple
+            new.natfilt.style = discord.ButtonStyle.blurple
         if tm_flt:
-            self.teamfilt.style = discord.ButtonStyle.blurple
+            new.teamfilt.style = discord.ButtonStyle.blurple
         emb = new.pages[0]
         await view.interaction.response.edit_message(view=new, embed=emb)
 
@@ -380,7 +391,7 @@ class TransfersView(view_utils.DropdownPaginator):
         team: fs.Team,
         embed: discord.Embed,
         transfers: list[fs.FSTransfer],
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         rows: list[str] = []
         options: list[discord.SelectOption] = []
@@ -392,7 +403,7 @@ class TransfersView(view_utils.DropdownPaginator):
             rows.append(i.output)
 
         teams = set(i.team for i in transfers if i.team is not None)
-        team_sel = []
+        team_sel: list[discord.SelectOption] = []
         for j in teams:
             assert j.url is not None
             emo = fs.TEAM_EMOJI
@@ -419,7 +430,7 @@ class TransfersView(view_utils.DropdownPaginator):
 
     @discord.ui.select(placeholder="Go to Team")
     async def tm_dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select[TransferView]
+        self, interaction: Interaction, sel: discord.ui.Select[TransfersView]
     ) -> None:
         """Second Dropdown: Team"""
         team = next(i for i in self.teams if i.url in sel.values)
@@ -465,7 +476,7 @@ class ArchiveSelect(view_utils.DropdownPaginator):
         rows: list[str],
         options: list[discord.SelectOption],
         archives: list[fs.Competition],
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         self.page: Page = page
         super().__init__(invoker, embed, rows, options, **kwargs)
@@ -526,9 +537,7 @@ class ArchiveSelect(view_utils.DropdownPaginator):
 class ItemView(view_utils.BaseView):
     """A Generic for Fixture/Team/Competition Views"""
 
-    def __init__(
-        self, invoker: User, page: Page, **kwargs: typing.Any
-    ) -> None:
+    def __init__(self, invoker: User, page: Page, **kwargs: Any) -> None:
         super().__init__(invoker, **kwargs)
 
         self.page: Page = page
@@ -541,7 +550,7 @@ class ItemView(view_utils.BaseView):
         elif isinstance(self, FixtureView):
             return self.fixture
         elif isinstance(self, CompetitionView):
-            return self.object
+            return self.competition
         raise TypeError
 
     async def on_timeout(self) -> None:
@@ -673,7 +682,7 @@ class ItemView(view_utils.BaseView):
                     logger.info("%s found extra tab %s", type(self), text)
                     continue
 
-                if row == 1 and btn.style is None:
+                if row == 1 and btn.style == discord.ButtonStyle.gray:
                     btn.style = discord.ButtonStyle.blurple
 
                 aria = "aria-current"
@@ -690,8 +699,7 @@ class ItemView(view_utils.BaseView):
 
     async def archive(self, interaction: Interaction) -> None:
         """Get a list of Archives for a competition"""
-        if not isinstance(self, CompetitionView):
-            raise NotImplementedError
+        assert isinstance(self.object, fs.Competition)
         view = await ArchiveSelect.start(interaction, self.page, self.object)
         await interaction.response.edit_message(view=view, embed=view.pages[0])
 
@@ -700,13 +708,10 @@ class ItemView(view_utils.BaseView):
         self, interaction: Interaction, team: H2H = "overall"
     ) -> None:
         """Get results of recent games for each team in the fixture"""
-        if not isinstance(self, FixtureView):
-            raise TypeError
+        assert isinstance(self.object, fs.Fixture)
 
         embed = await self.object.base_embed()
         embed.description = embed.description or ""
-
-        assert isinstance(self.object, fs.Fixture)
 
         embed.title = {
             "overall": "Head to Head: Overall",
@@ -789,17 +794,16 @@ class ItemView(view_utils.BaseView):
     # Competition, Team
     async def fixtures(self, interaction: Interaction) -> None:
         """Push upcoming competition fixtures to View"""
-        assert isinstance(self.object, (fs.Team, fs.Competition))
-        await FixturesPaginator.start(
+        assert isinstance(self.object, (fs.Competition, fs.Team))
+        view = await FXPaginator.start(
             interaction, self.page, self.object, self, True
         )
+        await interaction.response.edit_message(view=view, embed=view.pages[0])
 
     # Fixture Only
     async def lineups(self, interaction: Interaction) -> None:
         """Push Lineups & Formations Image to view"""
-        if not isinstance(self, FixtureView):
-            raise NotImplementedError
-
+        assert isinstance(self.object, (fs.Fixture))
         embed = await self.object.base_embed()
         embed.title = "Lineups and Formations"
 
@@ -897,7 +901,7 @@ class ItemView(view_utils.BaseView):
     async def results(self, interaction: Interaction) -> None:
         """Push Previous Results Team View"""
         assert isinstance(self.object, (fs.Team, fs.Competition))
-        await FixturesPaginator.start(
+        await FXPaginator.start(
             interaction, self.page, self.object, self, False
         )
 
@@ -927,7 +931,7 @@ class ItemView(view_utils.BaseView):
     async def standings(
         self,
         interaction: Interaction,
-        link: typing.Optional[str] = None,
+        link: Optional[str] = None,
     ) -> None:
         """Send Specified Table to view"""
         embed = await self.object.base_embed()
@@ -1127,11 +1131,10 @@ class CompetitionView(ItemView):
         invoker: User,
         page: Page,
         competition: fs.Competition,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
-        self.object: fs.Competition = competition
-
         super().__init__(invoker, page, **kwargs)
+        self.competition: fs.Competition = competition
 
     async def news(self, interaction: Interaction) -> None:
         raise NotImplementedError
@@ -1145,7 +1148,7 @@ class FixtureView(ItemView):
         invoker: User,
         page: Page,
         fixture: fs.Fixture,
-        **kwargs: typing.Any,
+        **kwargs: Any,
     ) -> None:
         self.fixture: fs.Fixture = fixture
         super().__init__(invoker, page, **kwargs)
@@ -1195,7 +1198,7 @@ class TeamView(ItemView):
         invoker: User,
         page: Page,
         team: fs.Team,
-        **kwargs: typing.Any,
+        **kwargs: Any,
     ) -> None:
         super().__init__(invoker, page, **kwargs)
         self.team: fs.Team = team
@@ -1209,7 +1212,7 @@ class TeamView(ItemView):
         await self.handle_tabs()
         tree = html.fromstring(await locator.inner_html())
 
-        embeds = []
+        embeds: list[discord.Embed] = []
 
         base_embed = await self.team.base_embed()
 
@@ -1246,7 +1249,7 @@ class PlayerView(view_utils.BaseView):
         self,
         invoker: User,
         player: fs.Player,
-        **kwargs: typing.Any,
+        **kwargs: Any,
     ):
         super().__init__(invoker, **kwargs)
         self.player: fs.Player = player
@@ -1378,9 +1381,7 @@ class Fixtures(commands.Cog):
 
     @match.command(name="h2h")
     @discord.app_commands.describe(match=FIXTURE)
-    async def h2h(
-        self, interaction: Interaction, match: fs.team_trnsf
-    ) -> None:
+    async def h2h(self, interaction: Interaction, match: fs.fix_trnsf) -> None:
         """Lookup the head-to-head details for a Fixture"""
         page = await self.bot.browser.new_page()
         await FixtureView(interaction.user, page, match).h2h(interaction)
@@ -1396,7 +1397,16 @@ class Fixtures(commands.Cog):
     ) -> None:
         """Fetch upcoming fixtures for a team."""
         page = await self.bot.browser.new_page()
-        await TeamView(interaction.user, page, team).fixtures(interaction)
+        tmv = TeamView(interaction.user, page, team)
+        embed = await team.base_embed()
+        fixtures = await team.fixtures(page, interaction.client.competitions)
+        await tmv.handle_tabs()
+        view = FXPaginator(interaction.user, page, embed, fixtures, True, tmv)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+
+        # Apply message object to both views
+        view.message = await interaction.edit_original_response()
+        tmv.message = await interaction.edit_original_response()
 
     @team.command(name="results")
     @discord.app_commands.describe(team=TEAM_NAME)
@@ -1405,7 +1415,16 @@ class Fixtures(commands.Cog):
     ) -> None:
         """Get recent results for a Team"""
         page = await self.bot.browser.new_page()
-        await TeamView(interaction.user, page, team).results(interaction)
+        tmv = TeamView(interaction.user, page, team)
+        embed = await team.base_embed()
+        fixtures = await team.results(page, interaction.client.competitions)
+        await tmv.handle_tabs()
+        view = FXPaginator(interaction.user, page, embed, fixtures, True, tmv)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+
+        # Apply message object to both views
+        view.message = await interaction.edit_original_response()
+        tmv.message = await interaction.edit_original_response()
 
     @team.command(name="table")
     @discord.app_commands.describe(team=TEAM_NAME)
@@ -1446,8 +1465,17 @@ class Fixtures(commands.Cog):
     ) -> None:
         """Fetch upcoming fixtures for a competition."""
         page = await self.bot.browser.new_page()
-        view = CompetitionView(interaction.user, page, competition)
-        await view.fixtures(interaction)
+        cmp = competition
+        cpmv = CompetitionView(interaction.user, page, cmp)
+        embed = await cmp.base_embed()
+        fixtures = await cmp.fixtures(page, interaction.client.competitions)
+        await cpmv.handle_tabs()
+        view = FXPaginator(interaction.user, page, embed, fixtures, True, cpmv)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+
+        # Apply message object to both views
+        view.message = await interaction.edit_original_response()
+        cpmv.message = await interaction.edit_original_response()
 
     @league.command(name="results")
     @discord.app_commands.describe(competition=COMPETITION)
@@ -1456,8 +1484,17 @@ class Fixtures(commands.Cog):
     ) -> None:
         """Get recent results for a competition"""
         page = await self.bot.browser.new_page()
-        view = CompetitionView(interaction.user, page, competition)
-        await view.results(interaction)
+        cmp = competition
+        cpmv = CompetitionView(interaction.user, page, cmp)
+        embed = await cmp.base_embed()
+        fixtures = await cmp.results(page, interaction.client.competitions)
+        await cpmv.handle_tabs()
+        view = FXPaginator(interaction.user, page, embed, fixtures, True, cpmv)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
+
+        # Apply message object to both views
+        view.message = await interaction.edit_original_response()
+        cpmv.message = await interaction.edit_original_response()
 
     @league.command(name="top_scorers")
     @discord.app_commands.describe(competition=COMPETITION)

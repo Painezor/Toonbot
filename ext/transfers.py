@@ -32,14 +32,14 @@ NOPERMS = "```yaml\nI need the following permissions.\n"
 class TFCompetitionTransformer(discord.app_commands.Transformer):
     """Get a Competition from user Input"""
 
-    async def autocomplete(
+    async def autocomplete(  # type: ignore
         self, _: Interaction, current: str, /
     ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete from list of stored competitions"""
         search = f"🔎 Search for '{current}'"
         return [discord.app_commands.Choice(name=search, value=current)]
 
-    async def transform(
+    async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> typing.Optional[tfm.CompetitionSearch]:
         return await tfm.CompetitionSearch.search(value, interaction)
@@ -131,8 +131,8 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
             lbl = league.name[:100]
             opt = discord.SelectOption(label=lbl, value=league.link)
-            opt.emoji = league.flag
-            rows.append(f"{league.flag} {league.country}: {league.markdown}")
+            opt.emoji = league.flags[0]
+            rows.append(f"{league.flags} {league.country}: {league.markdown}")
             options.append(opt)
 
         super().__init__(invoker, embed, rows, options, footer="```")
@@ -351,111 +351,26 @@ class Transfers(commands.Cog):
 
         async with self.bot.session.get(LOOP_URL) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
             tree = html.fromstring(await resp.text())
 
         skip_output = True if not self.bot.parsed_transfers else False
 
         xpath = './/div[@class="responsive-table"]/div/table/tbody/tr'
-        transfers = tree.xpath(xpath)
+        transfers = [tfm.Transfer.from_loop(i) for i in tree.xpath(xpath)]
         for i in transfers:
-            name = "".join(i.xpath(".//td[1]//tr[1]/td[2]/a/text()")).strip()
-            if not name:
-                continue
-            if name in self.bot.parsed_transfers:
+            if i.player.name in self.bot.parsed_transfers:
                 continue  # skip when duplicate / void.
-            else:
-                self.bot.parsed_transfers.append(name)
+
+            self.bot.parsed_transfers.append(i.player.name)
 
             # We don't need to output when populating after a restart.
             if skip_output:
                 continue
 
-            link = TF + "".join(i.xpath(".//td[1]//tr[1]/td[2]/a/@href"))
-
-            player = tfm.Player(name, link)
-
-            # Box 1 - Player Info
-            player.picture = "".join(i.xpath(".//img/@data-src"))
-            player.position = "".join(i.xpath("./td[1]//tr[2]/td/text()"))
-
-            # Box 2 - Age
-            player.age = int("".join(i.xpath("./td[2]//text()")).strip())
-
-            # Box 3 - Country
-            player.country = i.xpath(".//td[3]/img/@title")
-
-            transfer = tfm.Transfer(player=player)
-
-            # Box 4 - Old Team
-            xpath = './/td[4]//img[@class="tiny_wappen"]//@title'
-            team = "".join(i.xpath(xpath))
-
-            xpath = './/td[4]//img[@class="tiny_wappen"]/parent::a/@href'
-            team_link = TF + "".join(i.xpath(xpath))
-
-            xpath = (
-                './/td[4]//img[@class="flaggenrahmen"]/following-sibling::a/'
-            )
-            league = "".join(i.xpath(xpath + "@title"))
-            if league:
-                league_link = TF + "".join(i.xpath(xpath + "@href"))
-            else:
-                xpath = (
-                    './/td[4]//img[@class="flaggenrahmen"]/parent::div/text()'
-                )
-                league = "".join(i.xpath(xpath))
-                league_link = ""
-
-            xpath = './/td[4]//img[@class="flaggenrahmen"]/@alt'
-            ctry = "".join(i.xpath(xpath))
-
-            old_lg = tfm.Competition(league, league_link, country=ctry)
-            old_team = tfm.Team(team, team_link, league=old_lg, country=ctry)
-
-            transfer.old_team = old_team
-
-            # Box 5 - New Team
-            xpath = './/td[5]//img[@class="tiny_wappen"]//@title'
-            team = "".join(i.xpath(xpath))
-
-            xpath = './/td[5]//img[@class="tiny_wappen"]/parent::a/@href'
-            team_link = TF + "".join(i.xpath(xpath))
-
-            xpath = (
-                './/td[5]//img[@class="flaggenrahmen"]/following-sibling::a/'
-            )
-            league = "".join(i.xpath(xpath + "@title"))
-            if league:
-                league_link = TF + "".join(i.xpath(xpath + "@href"))
-            else:
-                xpath = (
-                    './/td[5]//img[@class="flaggenrahmen"]/parent::div/text()'
-                )
-                league = "".join(i.xpath(xpath))
-                league_link = ""
-
-            xpath = './/td[5]//img[@class="flaggenrahmen"]/@alt'
-            ctry = "".join(i.xpath(xpath))
-
-            nw_lg = tfm.Competition(league, league_link, country=ctry)
-            new_team = tfm.Team(team, team_link, league=nw_lg, country=ctry)
-
-            transfer.new_team = new_team
-            player.team = new_team
-
-            # Box 6 - Leagues & Fee
-            transfer.fee = "".join(i.xpath(".//td[6]//a/text()"))
-            transfer.fee_link = TF + "".join(i.xpath(".//td[6]//a/@href"))
-
-            old_link = old_lg.link.replace("transfers", "startseite")
-            if old_link:
-                old_link = old_link.split("/saison_id", 1)[0]
-
-            new_link = nw_lg.link.replace("transfers", "startseite")
-            if new_link:
-                new_link = new_link.split("/saison_id", 1)[0]
-
+            old = i.old_team.link
+            new = i.new_team.link
             # Fetch the list of channels to output the transfer to.
             sql = """SELECT DISTINCT transfers_channels.channel_id
                      FROM transfers_channels LEFT OUTER JOIN transfers_leagues
@@ -463,12 +378,12 @@ class Transfers(commands.Cog):
                      = transfers_leagues.channel_id WHERE link in ($1, $2)"""
             async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
-                    records = await connection.fetch(sql, old_link, new_link)
+                    records = await connection.fetch(sql, old, new)
 
             if not records:
                 continue
 
-            embed = transfer.generate_embed()
+            embed = i.embed()
 
             for record in records:
                 channel = self.bot.get_channel(record["channel_id"])
@@ -535,7 +450,7 @@ class Transfers(commands.Cog):
             if chan is None:
                 return
 
-        ctr = competition.country[0]
+        ctr = competition.country[0] if competition.country else None
         chan.leagues.add(competition)
 
         async with self.bot.db.acquire(timeout=60) as connection:

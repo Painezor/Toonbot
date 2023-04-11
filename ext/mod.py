@@ -63,14 +63,18 @@ async def colour_ac(
 class EmbedModal(discord.ui.Modal, title="Send an Embed"):
     """A Modal to allow the author to send an embedded message"""
 
+    ttl: discord.ui.TextInput[EmbedModal]
     ttl = discord.ui.TextInput(label="Embed Title", placeholder="Announcement")
 
+    text: discord.ui.TextInput[EmbedModal]
     text = discord.ui.TextInput(label="Embed Text", max_length=4000)
     text.style = discord.TextStyle.paragraph
 
+    thumbnail: discord.ui.TextInput[EmbedModal]
     thumbnail = discord.ui.TextInput(label="Thumbnail", required=False)
     thumbnail.placeholder = "Enter url for thumbnail image"
 
+    image: discord.ui.TextInput[EmbedModal]
     image = discord.ui.TextInput(label="Image", required=False)
     image.placeholder = "Enter url for large image"
 
@@ -83,26 +87,20 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
         self.destination: discord.TextChannel = destination
         self.colour: discord.Colour = colour
 
-    async def on_submit(self, interaction: Interaction, /) -> None:
+    async def on_submit(self, interaction: discord.Interaction, /) -> None:
         """Send the embed"""
 
         embed = discord.Embed(title=self.ttl, colour=self.colour)
-
         guild = typing.cast(discord.Guild, interaction.guild)
-
-        if guild is None:
-            raise commands.NoPrivateMessage
 
         icon_url = guild.icon.url if guild.icon else None
         embed.set_author(name=guild.name, icon_url=icon_url)
 
-        if self.image.value is not None:
-            if "http:" in self.image.value:
-                embed.set_image(url=self.image.value)
+        if "http:" in self.image.value:
+            embed.set_image(url=self.image.value)
 
-        if self.thumbnail.value is not None:
-            if "http:" in self.thumbnail.value:
-                embed.set_thumbnail(url=self.thumbnail.value)
+        if "http:" in self.thumbnail.value:
+            embed.set_thumbnail(url=self.thumbnail.value)
 
         embed.description = self.text.value
 
@@ -199,7 +197,7 @@ class Mod(commands.Cog):
     async def clean(self, interaction: Interaction, number: int = 10) -> None:
         """Deletes my messages from the last x messages in channel"""
 
-        def is_me(message):
+        def is_me(message: discord.Message):
             """Return only messages sent by the bot."""
             return message.author.id == self.bot.application_id
 

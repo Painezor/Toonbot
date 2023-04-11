@@ -17,6 +17,8 @@ from .emojis import (
 from .shipparameters import BomberAccuracy
 from .wg_id import WG_ID
 
+from typing import Any
+
 
 MODULES = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
 
@@ -33,7 +35,7 @@ class ArtilleryProfile:
     rotation_time: float
     emoji = ARTILLERY_EMOJI
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int | float]) -> None:
         for k, val in data.items():
             setattr(self, k.lower(), val)
 
@@ -50,7 +52,7 @@ class DiveBomberProfile:
 
     emoji = DIVE_BOMBER_EMOJI
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         self.accuracy = BomberAccuracy(data.pop("accuracy"))
         for k, val in data.items():
             setattr(self, k.lower(), val)
@@ -64,7 +66,7 @@ class EngineProfile:
 
     emoji = ENGINE_EMOJI
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, float]) -> None:
         for k, val in data.items():
             setattr(self, k.lower(), val)
 
@@ -80,7 +82,7 @@ class FighterProfile:
 
     emoji = ROCKET_PLANE_EMOJII
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int]) -> None:
         for k, val in data.items():
             setattr(self, k.lower(), val)
 
@@ -94,7 +96,7 @@ class FireControlProfile:
 
     emoji = FIRE_CONTROL_EMOJI
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, float | int]) -> None:
         for k, val in data.items():
             setattr(self, k.lower(), val)
 
@@ -109,7 +111,7 @@ class FlightControlProfile:
 
     emoji = ROCKET_PLANE_EMOJII
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int]) -> None:
         for k, val in data.items():
             setattr(self, k.lower(), val)
 
@@ -121,7 +123,7 @@ class HullArmour:
     min: int
     max: int
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -140,7 +142,7 @@ class HullProfile:
 
     emoji = HULL_EMOJI
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         self.range = HullArmour(data.pop("range"))
         for k, val in data.items():
             setattr(self, k, val)
@@ -160,7 +162,7 @@ class TorpedoBomberProfile:
 
     emoji = TORPEDO_PLANE_EMOJI
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -176,7 +178,7 @@ class TorpedoProfile:
 
     emoji = TORPEDOES_EMOJI
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -195,7 +197,7 @@ class ModuleProfile:
     torpedo_bomber: TorpedoBomberProfile
     torpedoes: TorpedoProfile
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             val = {
                 "artillery": ArtilleryProfile,
@@ -229,7 +231,7 @@ class Module:
 
     profile: ModuleProfile
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "profile":
                 val = ModuleProfile(val)
@@ -248,10 +250,10 @@ async def get_modules(modules: list[int]) -> dict[int, Module]:
     session = aiohttp.ClientSession()
     async with session.get(MODULES, params=params) as resp:
         if resp.status != 200:
-            logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+            text = await resp.text()
+            logger.error("%s %s: %s", resp.status, text, resp.url)
         data = await resp.json()
 
-    output = dict()
-    for id_, data in data["data"].items():
-        output.update({id_: Module(data)})
+    output = {id_: Module(data) for id_, data in data["data"].items()}
+
     return output

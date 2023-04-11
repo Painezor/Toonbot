@@ -92,7 +92,8 @@ async def tv_ac(
     data = {"search": cur}
     async with interaction.client.session.post(AC_URL, data=data) as resp:
         if resp.status != 200:
-            logger.error("%s %s %s", resp.status, resp.reason, resp.url)
+            rsn = await resp.text()
+            logger.error("%s %s: %s", resp.status, rsn, resp.url)
         tree = html.fromstring(await resp.text())
 
     for i in tree.xpath("./div"):
@@ -149,12 +150,13 @@ class Tv(commands.Cog):
 
         async with self.bot.session.get(embed.url, headers=HEADERS) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
             tree = html.fromstring(await resp.text())
 
         # match_column = 3 if not team else 5
         match_column = 3
-        rows = []
+        rows: list[str] = []
         for i in tree.xpath(".//table[@class='schedules'][1]//tr"):
             # Discard finished games.
             xpath = './/td[@class="livecell"]//span/@class'

@@ -9,7 +9,7 @@ from ext.utils import flags
 from .constants import GOAL_EMOJI
 
 if typing.TYPE_CHECKING:
-    from .team import Team
+    from .abc import Team
 
 
 class Player:
@@ -35,19 +35,17 @@ class Player:
         """FirstName Surname or just Surname if no Forename is found"""
         if self.forename is None:
             return self.surname
-        else:
-            return f"{self.forename} {self.surname}"
+        return f"{self.forename} {self.surname}"
 
     @property
     def markdown(self) -> str:
         """Return [name](url)"""
         if self.url is None:
             return self.name
-        else:
-            return f"[{self.name}]({self.url})"
+        return f"[{self.name}]({self.url})"
 
     @property
-    def flag(self) -> typing.Optional[str]:
+    def flags(self) -> list[str]:
         """Get the flag using transfer_tools util"""
         return flags.get_flags(self.country)
 
@@ -66,10 +64,11 @@ class TopScorer:
     def __init__(self, player: Player) -> None:
         self.player = player
 
+    @property
     def output(self) -> str:
         """Return a formatted string output for this TopScorer"""
         text = f"`{str(self.rank).rjust(3)}.` {GOAL_EMOJI} {self.goals}"
-        text += f" {self.player.flag} {self.player.markdown}"
+        text += f" {self.player.flags} {self.player.markdown}"
         if self.assists:
             text += f" (+{self.assists})"
         if self.team:

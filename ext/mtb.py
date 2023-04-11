@@ -27,7 +27,11 @@ class MatchThread:
     information about a match."""
 
     def __init__(
-        self, bot: Bot, fixture: fs.Fixture, settings, record
+        self,
+        bot: Bot,
+        fixture: fs.Fixture,
+        settings: asyncpg.Record,
+        record: asyncpg.Record,
     ) -> None:
         self.bot: Bot = bot
         self.fixture: fs.Fixture = fixture
@@ -258,7 +262,8 @@ class MatchThread:
 
         async with self.bot.session.get(LSTV) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             tree = html.fromstring(await resp.text())
 
         tv = {}
@@ -274,7 +279,8 @@ class MatchThread:
             if resp.status != 200:
                 tree = html.fromstring(await resp.text())
             else:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
                 return tv
 
         tv_table = tree.xpath('.//table[@id="wc_channels"]//tr')
@@ -463,7 +469,7 @@ class MatchThreadCommands(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        self.active_threads = []
+        self.active_threads: list[MatchThread] = []
         self.scheduler_task = self.schedule_threads.start()
 
     async def cog_unload(self) -> None:

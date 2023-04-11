@@ -536,7 +536,7 @@ def iter_embed(
         elif key == "exempt_channels":
             # The list of channels or threads that are
             # exempt from the automod rule.
-            e_chans: list = value
+            e_chans: list[discord.TextChannel] = value
             ment = ", ".join([f"<#{i.id}>" for i in e_chans])
             embed.add_field(name="Exempt Channels", value=ment)
 
@@ -990,8 +990,6 @@ class LogsConfig(view_utils.BaseView):
                 row += 1
 
             self.add_item(ToggleButton(db_key=k, value=value, row=row))
-        self.add_item(view_utils.Stop(row=4))
-
         edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
 
@@ -1206,7 +1204,7 @@ class AuditLogs(commands.Cog):
             f"**Onboarding Status**?: {onboard()}"
         )
 
-        flags = []
+        flags: list[str] = []
         pub_flags = member.public_flags
         if pub_flags.verified_bot:
             flags.append("🤖 Verified Bot")
@@ -1295,10 +1293,11 @@ class AuditLogs(commands.Cog):
     ) -> None:
         """Event listener for outputting information about updated emojis"""
         cache = self.bot.notifications_cache
-        channels = []
+        channels: list[discord.TextChannel] = []
         for i in cache:
             if i["emote_and_sticker"] and i["guild_id"] == guild.id:
                 i = self.bot.get_channel(i["channel_id"])
+                assert isinstance(i, discord.TextChannel)
                 if i is not None:
                     channels.append(i)
 
@@ -1500,7 +1499,7 @@ class AuditLogs(commands.Cog):
 
         view = discord.ui.View()
         uri = before.jump_url
-        btn = discord.ui.Button(url=uri)
+        btn: discord.ui.Button[discord.ui.View] = discord.ui.Button(url=uri)
         btn.label = "Jump to message"
         view.add_item(btn)
 

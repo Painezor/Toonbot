@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-import typing
+from typing import Any
 
 import aiohttp
 import unidecode
@@ -27,12 +27,13 @@ SHIPS = "https://api.worldofwarships.eu/wows/encyclopedia/ships/"
 async def get_ships() -> list[Ship]:
     """Cache the ships from the API."""
     _ = {"application_id": WG_ID, "language": "en"}
-    params: dict[str, typing.Any] = _
+    params: dict[str, Any] = _
 
     async with aiohttp.ClientSession() as session:
         async with session.get(INFO, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, str(resp.reason), INFO)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, INFO)
             data = await resp.json()
 
         ship_types: list[ShipType] = []
@@ -47,7 +48,8 @@ async def get_ships() -> list[Ship]:
             params.update({"page_no": count})
             async with session.get(SHIPS, params=params) as resp:
                 if resp.status != 200:
-                    logger.error("%s %s: %s", resp.status, resp.reason, SHIPS)
+                    rsn = await resp.text()
+                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
                 items = await resp.json()
 
             logger.info("Scanning page %s", count)
@@ -94,7 +96,7 @@ class ShipTypeImages:
     image_elite: str
     image_premium: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -106,7 +108,7 @@ class ShipType:
     name: str
     images: ShipTypeImages
 
-    def __init__(self, name: str, images: dict) -> None:
+    def __init__(self, name: str, images: dict[str, Any]) -> None:
         self.name = name
         self.images = ShipTypeImages(images)
 
@@ -125,7 +127,7 @@ class ShipImages:
     medium: str
     small: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -145,7 +147,7 @@ class CompatibleModules:
 
     all_modules: list[int]
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         self.all_modules = []
         for k, val in data.items():
             self.all_modules += val
@@ -160,13 +162,14 @@ class TreeModule:
     module_id: int
     module_id_str: str
     name: str
-    next_modules: typing.Optional[list[int]]
-    next_ships: typing.Optional[list[int]]
     price_credit: int
     price_xp: int
     type: str
 
-    def __init__(self, data: dict) -> None:
+    next_modules: list[int] = dataclasses.field(default_factory=list)
+    next_ships: list[int] = dataclasses.field(default_factory=list)
+
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -201,7 +204,7 @@ class Ship:
     def __hash__(self) -> int:
         return hash(self.ship_id)
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "modules_tree":
                 val = [TreeModule(i) for i in val.values()]
@@ -221,10 +224,9 @@ class Ship:
     @property
     def ac_row(self) -> str:
         """Autocomplete text"""
-        nation = "Unknown nation" if self.nation is None else self.nation.alias
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
-        return f"{decoded} ({self.tier} {nation} {self.type.name})"
+        return f"{decoded} ({self.tier} {self.nation.alias} {self.type.name})"
 
 
 class ShipFit:
@@ -262,7 +264,7 @@ class ShipFit:
     @property
     def all_modules(self) -> list[int]:
         """Get a list of all stored values"""
-        output = []
+        output: list[int] = []
         for i in dir(self):
             if i.startswith("__"):
                 continue
@@ -289,7 +291,8 @@ class ShipFit:
         session = aiohttp.ClientSession()
         async with session.get(SHIP_PROFILE, params=params) as resp:
             if resp.status != 200:
-                logger.error("[%s] %s %s", resp.status, resp.url, resp.reason)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
             data = await resp.json()
 
         self.profile = ShipProfile(data)

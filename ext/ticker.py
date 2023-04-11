@@ -373,7 +373,7 @@ class TickerConfig(view_utils.DropdownPaginator):
             assert i.url is not None  # Already Filtered.
             opt = discord.SelectOption(label=i.title, value=i.url)
             opt.description = i.url
-            opt.emoji = i.flag[0]
+            opt.emoji = i.flag
             options.append(opt)
 
         embed = discord.Embed(colour=discord.Colour.dark_teal())
@@ -666,14 +666,14 @@ class Ticker(commands.Cog):
 
         embed = discord.Embed(title="Create a ticker")
         embed.description = f"{ment} has no ticker, create one?"
-        await interaction.response.edit_message(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"❌ Cancelled ticker creation for {ment}"
             reply = view.interaction.response.edit_message
-            await reply(embed=embed, ephemeral=True)
+            await reply(embed=embed)
             return None
 
         guild = channel.guild.id

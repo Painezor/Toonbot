@@ -37,43 +37,47 @@ AS sub_g
 class QuoteTransformer(discord.app_commands.Transformer):
     """Get a quote Object from user input"""
 
-    async def autocomplete(
+    def __init__(self) -> None:
+        pass
+
+    async def autocomplete(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> list[discord.app_commands.Choice[str]]:
         """Autocomplete from guild quotes"""
+        quotes = interaction.client.quotes
         cur = value.casefold()
 
-        results = []
+        results: list[discord.app_commands.Choice[str]] = []
 
-        quotes = interaction.client.quotes
-        for quote in sorted(quotes, key=lambda i: i["quote_id"]):
-            if interaction.guild and quote["guild_id"] != interaction.guild.id:
+        quotes.sort(key=lambda i: i["quote_id"])
+        for i in quotes:
+            if interaction.guild and i["guild_id"] != interaction.guild.id:
                 continue
 
             if interaction.namespace.user is not None:
-                if quote["author_user_id"] != interaction.namespace.user.id:
+                if i["author_user_id"] != interaction.namespace.user.id:
                     continue
 
-            qid = quote["quote_id"]
-            auth = interaction.client.get_user(quote["author_user_id"])
-            fmt = f"#{qid}: {auth} {quote['message_content']}"
-            if cur not in f"#{qid}" + quote["message_content"].casefold():
+            qid = i["quote_id"]
+            auth = interaction.client.get_user(i["author_user_id"])
+            fmt = f"#{qid}: {auth} {i['message_content']}"
+            if cur not in f"#{qid}" + i["message_content"].casefold():
                 continue
 
             fmt = fmt[:100]
 
-            results.append(
-                discord.app_commands.Choice(name=fmt, value=str(qid))
-            )
+            opt = discord.app_commands.Choice(name=fmt, value=str(qid))
+            results.append(opt)
 
             if len(results) == 25:
                 break
 
         return results
 
-    async def transform(
+    async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> asyncpg.Record:
+        """Get Quote from selection"""
         quotes = interaction.client.quotes
         return next(i for i in quotes if i["quote_id"] == value)
 
@@ -125,7 +129,7 @@ async def cache_quotes(bot: Bot) -> None:
             bot.quotes = await connection.fetch(sql)
 
 
-class QuotesView(view_utils.Paginator):
+class QuotesView(view_utils.AsyncPaginator):
     """Generic Paginator that returns nothing."""
 
     def __init__(
@@ -142,39 +146,40 @@ class QuotesView(view_utils.Paginator):
             self.guild_quotes = []
 
         recs = self.all_quotes if self.all_guilds else self.guild_quotes
-        _ = [discord.Embed()] * len(recs)
-        super().__init__(interaction.user, _)
+        super().__init__(interaction.user, len(recs))
 
-        self.pages: list[asyncpg.Record] = recs
+        self.quotes: list[asyncpg.Record] = recs
 
     @discord.ui.button(row=0, emoji="🎲")
     async def random(self, interaction: Interaction, _) -> None:
         """Randomly select a number"""
-        self.index = random.randrange(1, len(self.pages)) - 1
-        quote = self.pages[self.index]
+        self.index = random.randrange(1, self.pages) - 1
+        quote = self.quotes[self.index]
         embed = QuoteEmbed(interaction, quote)
         return await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(row=3, emoji="🌍")
-    async def global_btn(self, interaction: Interaction, btn) -> None:
+    async def global_btn(
+        self, interaction: Interaction, btn: discord.ui.Button[QuotesView]
+    ) -> None:
         """Flip the bool."""
         self.all_guilds = not self.all_guilds
         if self.all_guilds:
-            self.pages = self.all_quotes
+            self.quotes = self.all_quotes
             btn.style = discord.ButtonStyle.green
             self.delete.disabled = True
         else:
-            self.pages = self.guild_quotes
+            self.quotes = self.guild_quotes
             btn.style = discord.ButtonStyle.red
             self.delete.disabled = False
 
         self.index = 0
-        embed = QuoteEmbed(interaction, self.pages[self.index])
+        embed = QuoteEmbed(interaction, self.quotes[self.index])
         return await interaction.response.edit_message(embed=embed, view=self)
 
     def edit_buttons(self) -> None:
         """Refresh the jump button's text"""
-        quote = self.pages[self.index]
+        quote = self.quotes[self.index]
         gid = quote["guild_id"]
         cid = quote["channel_id"]
         mid = quote["message_id"]
@@ -190,7 +195,7 @@ class QuotesView(view_utils.Paginator):
     )
     async def delete(self, interaction: Interaction, _) -> None:
         """Delete quote by quote ID"""
-        quote = self.pages[self.index]
+        quote = self.quotes[self.index]
 
         owner = interaction.client.owner_id
         override = [quote["author_user_id"], quote["submitter_user_id"], owner]
@@ -243,9 +248,11 @@ class QuotesView(view_utils.Paginator):
         embed = QuoteEmbed(interaction, quote)
         await view.interaction.response.edit_message(embed=embed, view=self)
 
-    async def handle_page(self, interaction: Interaction) -> None:
+    async def handle_page(  # type: ignore
+        self, interaction: Interaction
+    ) -> None:
         """Generic, Entry point."""
-        embed = QuoteEmbed(interaction, self.pages[self.index])
+        embed = QuoteEmbed(interaction, self.quotes[self.index])
         return await interaction.response.edit_message(embed=embed)
 
 
@@ -315,7 +322,7 @@ async def quote_add(
 
         view = QuotesView(interaction)
         view.index = len(interaction.client.quotes) - 1
-        embed = QuoteEmbed(interaction, view.pages[view.index])
+        embed = QuoteEmbed(interaction, view.quotes[view.index])
         return await interaction.response.send_message(embed=embed, view=view)
 
 
@@ -357,8 +364,13 @@ class QuoteDB(commands.Cog):
             return await interaction.response.send_message(embed=embed)
 
         view = QuotesView(interaction, False)
-        view.index = random.randrange(0, len(view.guild_quotes) - 1)
-        embed = QuoteEmbed(interaction, view.pages[0])
+        try:
+            view.index = random.randrange(0, len(view.guild_quotes) - 1)
+            embed = QuoteEmbed(interaction, view.quotes[0])
+        except ValueError:
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = "🚫 Your server has no quotes!"
+
         return await interaction.response.send_message(embed=embed, view=view)
 
     @quotes.command()
@@ -375,7 +387,7 @@ class QuoteDB(commands.Cog):
 
         view = QuotesView(interaction, all_guilds)
         view.index = -1
-        embed = QuoteEmbed(interaction, view.pages[view.index])
+        embed = QuoteEmbed(interaction, view.quotes[view.index])
         return await interaction.response.send_message(embed=embed, view=view)
 
     @quotes.command()

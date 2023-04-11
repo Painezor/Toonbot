@@ -1,7 +1,6 @@
 """Utilities for working with transfers from transfermarkt"""
 from __future__ import annotations  # Cyclic Type hinting
 
-import dataclasses
 import datetime
 import logging
 import typing
@@ -28,20 +27,23 @@ TF = "https://www.transfermarkt.co.uk"
 logger = logging.getLogger("transfermarkt")
 
 
-# TODO: Convert all to dataclasses and move the parsing to their inits.
-
-
 class SearchResult:
     """A result from a transfermarkt search"""
 
-    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
-        self.name: str = name
-        self.link: str = link
-        self.emoji: str
-        self.country: list[str] = kwargs.pop("country", [])
+    name: str
+    link: str
+    country: list[str] = []
+    emoji: str = "🔎"
+
+    def __init__(self, name: str, link: str) -> None:
+        self.name = name
+        self.link = link
 
     def __repr__(self) -> str:
         return f"SearchResult({self.__dict__})"
+
+    def __hash__(self) -> int:
+        return hash(self.link)
 
     @property
     def base_embed(self) -> discord.Embed:
@@ -56,17 +58,13 @@ class SearchResult:
         return f"[{self.name}]({self.link})"
 
     @property
-    def flag(self) -> typing.Optional[str]:
-        """Return a flag representing the country"""
+    def flags(self) -> typing.List[str]:
+        """Return a flag for each of the object's countries"""
         # Return the 'earth' emoji if caller does not have a country
         if not self.country:
-            return "🌍"
+            return ["🌍"]
 
-        output = flags.get_flags(self.country)
-        output = " ".join([x for x in output if x is not None])
-        if output:
-            return output
-        return None
+        return flags.get_flags(self.country)
 
 
 class Competition(SearchResult):
@@ -76,11 +74,12 @@ class Competition(SearchResult):
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
-        self.country = kwargs.pop("country", [])
+        for k, val in kwargs.items():
+            setattr(self, k, val)
 
     def __str__(self) -> str:
         if self:
-            return f"{self.flag} {self.markdown}"
+            return f"{self.flags} {self.markdown}"
         return ""
 
     def __bool__(self) -> bool:
@@ -93,40 +92,14 @@ class Competition(SearchResult):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    logger.error("%s %s: %s", resp.status, resp.reason, url)
+                    rsn = await resp.text()
+                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
                 tree = html.fromstring(await resp.text())
 
-        rows: list[StadiumAttendance] = []
         xpath = (
             './/table[@class="items"]/tbody/tr[@class="odd" or @class="even"]'
         )
-        for i in tree.xpath(xpath):
-            # Two sub rows.
-            try:
-                stadium = i.xpath(".//td/table//tr[1]")[0]
-                team = i.xpath(".//td/table//tr[2]")[0]
-            except IndexError:
-                continue
-
-            # Stadium info
-            std = StadiumAttendance()
-            std.name = "".join(stadium.xpath(".//a/text()"))
-            std.link = TF + "".join(stadium.xpath(".//@href"))
-
-            # Team info
-            name = "".join(team.xpath(".//a/text()"))
-            link = TF + "".join(i.xpath(".//a/@href"))
-            team = Team(name, link)
-
-            cap = "".join(i.xpath('.//td[@class="rechts"][1]/text()'))
-            std.capacity = int(cap.replace(".", ""))
-
-            tot = "".join(i.xpath('.//td[@class="rechts"][2]/text()'))
-            std.total = int(tot.replace(".", ""))
-
-            avg = "".join(i.xpath('.//td[@class="rechts"][3]/text()'))
-            std.average = int(avg.replace(".", ""))
-            rows.append(std)
+        rows = [StadiumAttendance(i) for i in tree.xpath(xpath)]
 
         embeds: list[discord.Embed] = []
         # Average
@@ -161,26 +134,18 @@ class Team(SearchResult):
     """An object representing a Team from Transfermarkt"""
 
     emoji: str = "👕"
+    league: typing.Optional[Competition] = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
-        super().__init__(name=name, link=link)
+        super().__init__(name, link)
 
-        self.league: Competition = kwargs.pop("league", None)
         for k, value in kwargs.items():
             setattr(self, k, value)
 
     def __str__(self) -> str:
-        if self.league.markdown:
-            return f"{self.flag} {self.markdown} ({self.league.markdown})"
-        return f"{self.flag} {self.markdown}"
-
-    @property
-    def select_option(self) -> discord.SelectOption:
-        """A Select Option representation of this Team"""
-        flag = self.flag
-        name = self.name
-        desc = self.league.name
-        return discord.SelectOption(emoji=flag, label=name, description=desc)
+        if self.league is not None:
+            return f"{self.flags} {self.markdown} ({self.league.markdown})"
+        return f"{self.flags} {self.markdown}"
 
     @property
     def badge(self) -> str:
@@ -207,7 +172,8 @@ class Team(SearchResult):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    logger.error("%s %s: %s", resp.status, resp.reason, url)
+                    rsn = await resp.text()
+                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
                 tree = html.fromstring(await resp.text())
 
         embed.url = url
@@ -265,7 +231,8 @@ class Team(SearchResult):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    logger.error("%s %s: %s", resp.status, resp.reason, url)
+                    rsn = await resp.text()
+                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
             tree = html.fromstring(await resp.text())
 
         embed.url = str(resp.url)
@@ -298,7 +265,6 @@ class Team(SearchResult):
 
             source = "".join(i.xpath(".//td[8]//a/@href"))
             src = f"[Info]({source})"
-            flag = "" if flag is None else flag
             rows.append(
                 f"{flag} **[{name}]({link})** ({src})\n{age},"
                 f" {pos} [{team}]({team_link})\n"
@@ -309,7 +275,6 @@ class Team(SearchResult):
 
         return embed_utils.rows_to_embeds(embed, rows)
 
-    # TODO: Return Transfer Objects?
     async def get_transfers(self) -> list[discord.Embed]:
         """Helper method for transfers button"""
         url = self.link.replace("startseite", "transfers")
@@ -317,82 +282,8 @@ class Team(SearchResult):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    logger.error("%s %s: %s", resp.status, resp.reason, url)
+                    logger.error("Status %s: %s", resp.status, url)
                 tree = html.fromstring(await resp.text())
-
-        def parse(rows: list[typing.Any], out: bool = False) -> list[Transfer]:
-            """Read through the transfers page and extract relevant data,
-            returning a list of transfers"""
-
-            transfers: list[Transfer] = []
-            for i in rows:
-                # Block 1 - Discard, Position Colour Marker.
-
-                # Block 2 - Name, Link, Picture, Position
-                xpath = './/tm-tooltip[@data-type="player"]/a/@title'
-                if not (name := "".join(i.xpath(xpath)).strip()):
-                    name = "".join(i.xpath("./td[2]//a/text()")).strip()
-
-                xpath = './tm-tooltip[@data-type="player"]/a/@href'
-                if not (link := "".join(i.xpath(xpath))):
-                    link = "".join(i.xpath("./td[2]//a/@href"))
-
-                if link and TF not in link:
-                    link = TF + link
-
-                player = Player(name=name, link=link)
-                xpath = './img[@class="bilderrahmen-fixed"]/@data-src'
-                player.picture = "".join(i.xpath(xpath))
-
-                xpath = "./td[2]//tr[2]/td/text()"
-                player.position = "".join(i.xpath(xpath)).strip()
-
-                # Block 3 - Age
-                player.age = int("".join(i.xpath("./td[3]/text()")).strip())
-
-                # Block 4 - Nationality
-                xpath = "./td[4]//img/@title"
-                player.country = [
-                    _.strip() for _ in i.xpath(xpath) if _.strip()
-                ]
-
-                transfer = Transfer(player=player)
-
-                # Block 5 - Other Team
-                xpath = './td[5]//td[@class="hauptlink"]/a/text()'
-                team_name = "".join(i.xpath(xpath)).strip()
-
-                xpath = './td[5]//td[@class="hauptlink"]/a/@href'
-                if (
-                    team_link := "".join(i.xpath(xpath))
-                ) and TF not in team_link:
-                    team_link = TF + team_link
-
-                xpath = "./td[5]//tr[2]//a/text()"
-                comp_name = "".join(i.xpath(xpath)).strip()
-
-                xpath = "./td[5]//tr[2]//a/@href"
-                comp_link = "".join(i.xpath(xpath)).strip()
-
-                league = Competition(name=comp_name, link=comp_link)
-
-                team = Team(name=team_name, link=team_link)
-                team.league = league
-
-                xpath = "./td[5]//img[@class='flaggenrahmen']/@title"
-                team.country = [_.strip() for _ in i.xpath(xpath) if _.strip()]
-
-                transfer.new_team = team if out else self
-                transfer.old_team = self if out else team
-
-                # Block 6 - Fee or Loan
-                transfer.fee = "".join(i.xpath(".//td[6]//text()"))
-
-                xpath = ".//td[6]//@href"
-                transfer.fee_link = TF + "".join(i.xpath(xpath)).strip()
-                transfer.date = "".join(i.xpath(".//i/text()"))
-                transfers.append(transfer)
-            return transfers
 
         base_embed = self.base_embed
         base_embed.set_author(name="Transfermarkt", url=url, icon_url=FAVICON)
@@ -404,23 +295,25 @@ class Team(SearchResult):
             '//tr[@class="even" or @class="odd"]'
         )
 
-        if players_in := parse(tree.xpath(xpath)):
+        inb = [Transfer.from_team(i, False, self) for i in tree.xpath(xpath)]
+        if inb:
             embed = base_embed.copy()
             embed.title = f"Inbound Transfers for {embed.title}"
             embed.colour = discord.Colour.green()
 
-            rows = [i.inbound for i in players_in]
+            rows = [i.inbound for i in inb]
             embeds += embed_utils.rows_to_embeds(embed, rows)
 
         xpath = (
             './/div[@class="box"][.//h2[contains(text(),"Departures")]]'
             '//tr[@class="even" or @class="odd"]'
         )
-        if players_out := parse(tree.xpath(xpath), out=True):
+        out = [Transfer.from_team(i, True, self) for i in tree.xpath(xpath)]
+        if out:
             embed = base_embed.copy()
             embed.title = f"Outbound Transfers for {embed.title}"
             embed.colour = discord.Colour.red()
-            rows = [i.outbound for i in players_out]
+            rows = [i.outbound for i in out]
             embeds += embed_utils.rows_to_embeds(embed, rows)
 
         if not embeds:
@@ -438,7 +331,8 @@ class Team(SearchResult):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    logger.error("%s %s: %s", resp.status, resp.reason, url)
+                    rsn = await resp.text()
+                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
             tree = html.fromstring(await resp.text())
 
         trophies: list[str] = []
@@ -461,88 +355,236 @@ class Team(SearchResult):
 class Player(SearchResult):
     """An Object representing a player from transfermarkt"""
 
+    age: typing.Optional[int] = None
+    team: typing.Optional[Team] = None
+    position: typing.Optional[str] = None
+    picture: typing.Optional[str] = None
+
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
 
-        self.team: typing.Optional[Team] = kwargs.pop("team", None)
-        self.age: int = kwargs.pop("age", None)
-        self.position: str = kwargs.pop("position", None)
-        self.country: list[str] = kwargs.pop("country", [])
-        self.picture: str = kwargs.pop("picture", None)
+        for k, val in kwargs.items():
+            setattr(self, k, val)
 
     def __repr__(self) -> str:
         return f"Player({self.__dict__})"
 
     def __str__(self) -> str:
-        desc = [self.flag, self.markdown, self.age, self.position]
+        desc = [self.flags, self.markdown, self.age, self.position]
 
         if self.team is not None:
             desc.append(self.team.markdown)
-        return " ".join([str(i) for i in desc if i is not None])
+        return " ".join([str(i) for i in desc if i])
 
 
 class Referee(SearchResult):
     """An object representing a referee from transfermarkt"""
 
-    def __init__(self, name: str, link: str, **kwargs) -> None:
+    age: typing.Optional[int] = None
+
+    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
 
-        self.age: int = kwargs.pop("age", None)
-        self.country: list[str] = kwargs.pop("country", [])
+        for k, val in kwargs.items():
+            setattr(self, k, val)
 
     def __str__(self) -> str:
-        output = f"{self.flag} {self.markdown} {self.age}"
+        output = f"{self.flags} {self.markdown} {self.age}"
         return output
 
 
 class Staff(SearchResult):
     """An object representing a Trainer or Manager from Transfermarkt"""
 
+    team: typing.Optional[Team] = None
+    age: typing.Optional[int] = None
+    job: typing.Optional[str] = None
+    picture: typing.Optional[str] = None
+
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
 
-        self.team: Team = kwargs.pop("team", None)
-        self.age: int = kwargs.pop("age", None)
-        self.job: str = kwargs.pop("job", None)
-        self.country: list[str] = kwargs.pop("country", None)
-        self.picture: str = kwargs.pop("picture", None)
+        for k, val in kwargs.items():
+            setattr(self, k, val)
 
     def __str__(self) -> str:
         team = self.team.markdown if self.team is not None else ""
         markdown = self.markdown
-        return f"{self.flag} {markdown} {self.age}, {self.job} {team}".strip()
+        return f"{self.flags} {markdown} {self.age}, {self.job} {team}".strip()
 
 
 class Agent(SearchResult):
     """An object representing an Agent from transfermarkt"""
 
 
-# TODO: Dataclass & Unpack from xpath
 class Transfer:
     """An Object representing a transfer from transfermarkt"""
 
-    def __init__(self, player: Player) -> None:
-        self.player: Player = player
+    player: Player
 
-        self.link: typing.Optional[str] = None
-        self.fee: typing.Optional[str] = None
-        self.fee_link: typing.Optional[str] = None
-        self.old_team: typing.Optional[Team] = None
-        self.new_team: typing.Optional[Team] = None
-        self.date: typing.Optional[str] = None
+    new_team: Team
+    old_team: Team
 
-        # Generated
-        self.embed: typing.Optional[discord.Embed] = None
+    fee: str
+    fee_link: str
+    date: str
+
+    def __init__(self) -> None:
+        pass
+
+    @classmethod
+    def from_loop(cls, data: typing.Any) -> Transfer:
+        """Generated from the Transfer Ticker Loop"""
+        tran = Transfer()
+        name = "".join(data.xpath(".//td[1]//tr[1]/td[2]/a/text()")).strip()
+
+        link = TF + "".join(data.xpath(".//td[1]//tr[1]/td[2]/a/@href"))
+
+        player = Player(name, link)
+
+        # Box 1 - Player Info
+        player.picture = "".join(data.xpath(".//img/@data-src"))
+        player.position = "".join(data.xpath("./td[1]//tr[2]/td/text()"))
+
+        # Box 2 - Age
+        player.age = int("".join(data.xpath("./td[2]//text()")).strip())
+
+        # Box 3 - Country
+        player.country = data.xpath(".//td[3]/img/@title")
+
+        tran.player = player
+
+        # Box 4 - Old Team
+        xpath = './/td[4]//img[@class="tiny_wappen"]//@title'
+        o_t_name = "".join(data.xpath(xpath))
+
+        xpath = './/td[4]//img[@class="tiny_wappen"]/parent::a/@href'
+        o_t_link = TF + "".join(data.xpath(xpath))
+
+        xpath = './/td[4]//img[@class="flaggenrahmen"]/following-sibling::a/'
+        o_l_name = "".join(data.xpath(xpath + "@title"))
+        if o_l_name:
+            o_l_link = TF + "".join(data.xpath(xpath + "@href"))
+        else:
+            xpath = './/td[4]//img[@class="flaggenrahmen"]/parent::div/text()'
+            o_l_name = "".join(data.xpath(xpath))
+            o_l_link = ""
+
+        o_l_link = o_l_link.replace("transfers", "startseite")
+        if o_l_link:
+            o_l_link = o_l_link.split("/saison_id", maxsplit=1)[0]
+
+        xpath = './/td[4]//img[@class="flaggenrahmen"]/@alt'
+        ctry = "".join(data.xpath(xpath))
+
+        old_lg = Competition(o_l_name, o_l_link, country=ctry)
+        tran.old_team = Team(o_t_name, o_t_link, league=old_lg, country=ctry)
+
+        # Box 5 - New Team
+        xpath = './/td[5]//img[@class="tiny_wappen"]//@title'
+        n_t_name = "".join(data.xpath(xpath))
+
+        xpath = './/td[5]//img[@class="tiny_wappen"]/parent::a/@href'
+        n_t_link = TF + "".join(data.xpath(xpath))
+
+        xpath = './/td[5]//img[@class="flaggenrahmen"]/following-sibling::a/'
+        n_l_name = "".join(data.xpath(xpath + "@title"))
+        if n_l_name:
+            n_l_link = TF + "".join(data.xpath(xpath + "@href"))
+        else:
+            xpath = './/td[5]//img[@class="flaggenrahmen"]/parent::div/text()'
+            n_l_name = "".join(data.xpath(xpath))
+            n_l_link = ""
+
+        n_l_link = n_l_link.replace("transfers", "startseite")
+        if n_l_link:
+            n_l_link = n_l_link.split("/saison_id", maxsplit=1)[0]
+
+        xpath = './/td[5]//img[@class="flaggenrahmen"]/@alt'
+        ctry = data.xpath(xpath)
+        nw_lg = Competition(n_l_name, n_l_link, country=ctry)
+
+        new_team = Team(n_t_name, n_t_link, league=nw_lg, country=ctry)
+
+        tran.new_team = new_team
+        player.team = new_team
+
+        # Box 6 - Leagues & Fee
+        tran.fee = "".join(data.xpath(".//td[6]//a/text()"))
+        tran.fee_link = TF + "".join(data.xpath(".//td[6]//a/@href"))
+        return tran
+
+    @classmethod
+    def from_team(cls, data: typing.Any, out: bool, team: Team) -> Transfer:
+        """Generated from a Team Object"""
+        tran = Transfer()
+
+        # Block 1 - Discard, Position Colour Marker.
+        # Block 2 - Name, Link, Picture, Position
+        xpath = './/tm-tooltip[@data-type="player"]/a/@title'
+        if not (name := "".join(data.xpath(xpath)).strip()):
+            name = "".join(data.xpath("./td[2]//a/text()")).strip()
+
+        xpath = './tm-tooltip[@data-type="player"]/a/@href'
+        if not (link := "".join(data.xpath(xpath))):
+            link = "".join(data.xpath("./td[2]//a/@href"))
+
+        if link and TF not in link:
+            link = TF + link
+
+        player = Player(name=name, link=link)
+        xpath = './img[@class="bilderrahmen-fixed"]/@data-src'
+        player.picture = "".join(data.xpath(xpath))
+
+        xpath = "./td[2]//tr[2]/td/text()"
+        player.position = "".join(data.xpath(xpath)).strip()
+
+        # Block 3 - Age
+        player.age = int("".join(data.xpath("./td[3]/text()")).strip())
+
+        # Block 4 - Nationality
+        xpath = "./td[4]//img/@title"
+        player.country = [i.strip() for i in data.xpath(xpath) if i.strip()]
+
+        tran.player = player
+
+        # Block 5 - Other Team
+        xpath = './td[5]//td[@class="hauptlink"]/a/text()'
+        team_name = "".join(data.xpath(xpath)).strip()
+
+        xpath = './td[5]//td[@class="hauptlink"]/a/@href'
+        if (team_link := "".join(data.xpath(xpath))) and TF not in team_link:
+            team_link = TF + team_link
+
+        xpath = "./td[5]//tr[2]//a/text()"
+        comp_name = "".join(data.xpath(xpath)).strip()
+
+        xpath = "./td[5]//tr[2]//a/@href"
+        comp_link = "".join(data.xpath(xpath)).strip()
+
+        league = Competition(name=comp_name, link=comp_link)
+        b_team = Team(name=team_name, link=team_link)
+        b_team.league = league
+
+        xpath = "./td[5]//img[@class='flaggenrahmen']/@title"
+        team.country = [i.strip() for i in data.xpath(xpath) if i.strip()]
+
+        tran.new_team = b_team if out else team
+        tran.old_team = team if out else team
+
+        # Block 6 - Fee or Loan
+        tran.fee = "".join(data.xpath(".//td[6]//text()"))
+
+        xpath = ".//td[6]//@href"
+        tran.fee_link = TF + "".join(data.xpath(xpath)).strip()
+        tran.date = "".join(data.xpath(".//i/text()"))
+        return tran
 
     @property
     def loan_fee(self) -> str:
         """Returns either Loan Information or the total fee of a player's
         transfer"""
-        output = f"[{self.fee}]({self.fee_link})"
-
-        if self.date is not None:
-            output += f": {self.date}"
-
+        output = f"[{self.fee}]({self.fee_link}): {self.date}"
         return output
 
     def __str__(self) -> str:
@@ -565,10 +607,10 @@ class Transfer:
         """Get outbound text."""
         return f"{self.player} {self.loan_fee}\nTo: {self.new_team}\n"
 
-    def generate_embed(self) -> discord.Embed:
+    def embed(self) -> discord.Embed:
         """An embed representing a transfermarkt player transfer."""
-        embed = discord.Embed(description="", colour=0x1A3151)
-        embed.title = f"{self.player.flag} {self.player.name}"
+        embed = discord.Embed(colour=0x1A3151)
+        embed.title = f"{self.player.flags} {self.player.name}"
         embed.url = self.player.link
         desc: list[str] = []
         desc.append(f"**Age**: {self.player.age}")
@@ -577,13 +619,12 @@ class Transfer:
         desc.append(f"**To**: {self.new_team}")
         desc.append(f"**Fee**: {self.loan_fee}")
 
-        if "http" in self.player.picture:
+        if self.player.picture and "http" in self.player.picture:
             embed.set_thumbnail(url=self.player.picture)
 
         desc.append(timed_events.Timestamp().relative)
         embed.description = "\n".join(desc)
-        self.embed = embed
-        return self.embed
+        return embed
 
 
 class TeamView(view_utils.Paginator):
@@ -632,7 +673,6 @@ class TeamView(view_utils.Paginator):
         view.message = await interaction.original_response()
 
 
-@dataclasses.dataclass(slots=True)
 class StadiumAttendance:
     """A Generic container representing the attendance data of a stadium"""
 
@@ -643,9 +683,28 @@ class StadiumAttendance:
     average: int
     team: Team
 
-    def __init__(self, **kwargs) -> None:
-        for k, val in kwargs.items():
-            setattr(self, k, val)
+    def __init__(self, data: typing.Any) -> None:
+        # Two Subnodes
+        node = data.xpath(".//td/table//tr[1]")[0]
+        team_node = data.xpath(".//td/table//tr[2]")[0]
+
+        # Stadium info
+        self.name = "".join(node.xpath(".//a/text()"))
+        self.link = TF + "".join(node.xpath(".//@href"))
+
+        # Team info
+        name = "".join(team_node.xpath(".//a/text()"))
+        link = TF + "".join(data.xpath(".//a/@href"))
+        self.team = Team(name, link)
+
+        cap = "".join(data.xpath('.//td[@class="rechts"][1]/text()'))
+        self.capacity = int(cap.replace(".", ""))
+
+        tot = "".join(data.xpath('.//td[@class="rechts"][2]/text()'))
+        self.total = int(tot.replace(".", ""))
+
+        avg = "".join(data.xpath('.//td[@class="rechts"][3]/text()'))
+        self.average = int(avg.replace(".", ""))
 
     def __str__(self) -> str:
         """Formatted markdown for Stadium Attendance"""
@@ -732,7 +791,8 @@ class SearchView(view_utils.DropdownPaginator):
 
         async with interaction.client.session.post(url, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
             tree = html.fromstring(await resp.text())
 
         # Get trs of table after matching header / {ms} name.
@@ -777,7 +837,7 @@ class SearchView(view_utils.DropdownPaginator):
 
             option = discord.SelectOption(label=i.name, value=i.link)
             option.description = desc[:100]
-            option.emoji = i.emoji
+            option.emoji = i.flags[0]
             options.append(option)
             rows.append(desc)
 
@@ -786,7 +846,9 @@ class SearchView(view_utils.DropdownPaginator):
         await interaction.response.send_message(view=view, embed=embed)
         return view
 
-    async def handle_page(self, interaction: Interaction) -> None:
+    async def handle_page(  # type: ignore
+        self, interaction: Interaction
+    ) -> None:
         """Perform a search"""
         url = TF + "/schnellsuche/ergebnis/schnellsuche"
         # Header names, scrape then compare (don't follow a pattern.)
@@ -795,7 +857,8 @@ class SearchView(view_utils.DropdownPaginator):
 
         async with interaction.client.session.post(url, params=params) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.reason, resp.url)
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
             tree = html.fromstring(await resp.text())
 
         # Get trs of table after matching header / {ms} name.
@@ -841,7 +904,7 @@ class SearchView(view_utils.DropdownPaginator):
 
             opt = discord.SelectOption(label=i.name, value=i.link)
             opt.description = desc[:100]
-            opt.emoji = i.emoji
+            opt.emoji = i.flags[0]
             options.append(opt)
             rows.append(desc)
 

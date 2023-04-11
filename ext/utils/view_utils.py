@@ -1,7 +1,6 @@
 """Generic Objects for discord Views"""
 from __future__ import annotations
 
-import dataclasses
 import logging
 import typing
 
@@ -14,7 +13,6 @@ if typing.TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
-
     User: typing.TypeAlias = discord.User | discord.Member
 
 
@@ -47,7 +45,22 @@ class BaseView(discord.ui.View):
         """Send Parent View"""
         return await interaction.response.edit_message(view=self.parent)
 
-    async def interaction_check(self, interaction: Interaction, /) -> bool:
+    @discord.ui.button(emoji="🚯", row=0, style=discord.ButtonStyle.red)
+    async def _stop(self, interaction: discord.Interaction, _) -> None:
+        """Delete this message."""
+        await interaction.response.defer()
+        try:
+            await interaction.delete_original_response()
+        except discord.NotFound:
+            pass
+
+        # Handle any cleanup.
+        await self.on_timeout()
+        self.stop()
+
+    async def interaction_check(
+        self, interaction: discord.Interaction, /
+    ) -> bool:
         """Make sure only the person running the command can select options"""
         return interaction.user.id == self.invoker
 
@@ -56,9 +69,10 @@ class BaseView(discord.ui.View):
         for i in self.children:
             i.disabled = True
 
-        if self.message is None:
+        try:
+            assert self.message is not None
+        except AssertionError:
             logger.error("Message not set on view %s", self.__class__.__name__)
-            return
         await self.message.edit(view=self)
 
     def add_function_row(
@@ -85,9 +99,9 @@ class BaseView(discord.ui.View):
         else:
             self.add_item(FuncSelect(items, row, placeholder))
 
-    async def on_error(
+    async def on_error(  # type: ignore
         self,
-        interaction: discord.Interaction,  # TODO: Find out why can't use [Bot]
+        interaction: Interaction,
         error: Exception,
         item: discord.ui.Item[BaseView],
         /,
@@ -113,11 +127,10 @@ class JumpModal(discord.ui.Modal):
         self.view = view
         self.page.placeholder = f"1 - {len(view.pages)}"
 
-    async def on_submit(self, interaction: Interaction, /) -> None:
+    async def on_submit(  # type: ignore
+        self, interaction: Interaction, /
+    ) -> None:
         """Validate entered data & set parent index."""
-
-        await interaction.response.defer()
-
         try:
             _ = self.view.pages[int(self.page.value)]
             self.view.index = int(self.page.value) - 1  # Humans index from 1
@@ -126,29 +139,7 @@ class JumpModal(discord.ui.Modal):
         return await self.view.handle_page(interaction)
 
 
-# TODO: To Deco.
-class Stop(discord.ui.Button["BaseView"]):
-    """A generic button to stop a View"""
-
-    def __init__(self, row: int = 3) -> None:
-        super().__init__(emoji="🚫", row=row)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        """Do this when button is pressed"""
-        await interaction.response.defer()
-        try:
-            await interaction.delete_original_response()
-        except discord.NotFound:
-            pass
-
-        # Handle any cleanup.
-        await self.view.on_timeout()
-
-        self.view.stop()
-
-
 # TODO: Deperecate rows_to_embeds
-# TODO: Stop() to decorator of baseview
 
 
 class Paginator(BaseView):
@@ -171,7 +162,7 @@ class Paginator(BaseView):
         self.pages = embeds
 
         self.index = index
-        if self.index + 1 > len(self.pages):
+        if self.index + 1 >= len(self.pages):
             self.next.disabled = True
         if self.index == 0:
             self.previous.disabled = True
@@ -183,6 +174,10 @@ class Paginator(BaseView):
         """Refresh the view and send to user"""
         embed = self.pages[self.index]
         self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+        if self.index + 1 >= len(self.pages):
+            self.next.disabled = True
+        if self.index == 0:
+            self.previous.disabled = True
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="◀️", row=0)
@@ -199,17 +194,21 @@ class Paginator(BaseView):
     @discord.ui.button(emoji="▶️", row=0)
     async def next(self, interaction: Interaction, _) -> None:
         """Go To next Page"""
-        logger.info("You pressed the next button.")
         self.index = min(self.index + 1, len(self.pages))
         self.jump.label = f"{self.index + 1}/{len(self.pages)}"
         await self.handle_page(interaction)
 
 
 class AsyncPaginator(Paginator):
+    """Used when we need to manually fetch each page, store an int rather
+    than a list of actual pages"""
+
     def __init__(self, invoker: User, max_pages: int) -> None:
         dummy = [discord.Embed()] * max_pages
         super().__init__(invoker, dummy)
         self.pages: int = max_pages
+        self.jump.disabled = self.pages < 3
+        self.jump.label = f"{self.index + 1}/{self.pages}"
 
     async def handle_page(self, interaction: Interaction) -> None:
         """Change the jump label, but this should also be subclassed"""
@@ -231,6 +230,7 @@ class DropdownPaginator(Paginator):
         length: int = 25,
         footer: str = "",
         *,
+        multi: bool = False,
         parent: typing.Optional[BaseView] = None,
         timeout: typing.Optional[float] = None,
     ) -> None:
@@ -238,7 +238,13 @@ class DropdownPaginator(Paginator):
         self.dropdowns = embed_utils.paginate(options, length)
 
         super().__init__(invoker, embeds, parent=parent, timeout=timeout)
-        self.dropdown.options = self.dropdowns[0]
+
+        if multi:
+            self.dropdown.max_values = len(self.dropdowns[0])
+        try:
+            self.dropdown.options = self.dropdowns[0]
+        except IndexError:
+            self.remove_item(self.dropdown)
         self.options = options
 
     @discord.ui.select()
@@ -264,12 +270,13 @@ class PagedItemSelect(DropdownPaginator):
         self,
         invoker: User,
         options: list[discord.SelectOption],
-        **kwargs,
+        **kwargs: typing.Any,
     ):
         embed = discord.Embed(title="Select from multiple pages")
         rows = [i.label for i in options]
         super().__init__(invoker, embed, rows, options, **kwargs)
-        self.dropdown.max_values = len(self.dropdown.options)
+
+        self.dropdown.max_values = len(self.dropdowns[self.index])
 
         self.values: set[str] = set()
         self.interaction: Interaction  # passback
@@ -278,7 +285,7 @@ class PagedItemSelect(DropdownPaginator):
         """Set the items to checked"""
         embed = self.pages[self.index]
         self.dropdown.options = self.dropdowns[self.index]
-        self.dropdown.max_values = len(self.dropdown.options)
+        self.dropdown.max_values = len(self.dropdowns[self.index])
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(row=1, options=[])
@@ -304,7 +311,6 @@ class PagedItemSelect(DropdownPaginator):
         self.interaction = interaction
 
 
-@dataclasses.dataclass(slots=True)
 class Funcable:
     """A 'Selectable Function' to be used with generate_function_row to
     create either a FuncSelect or row of FuncButtons"""
@@ -354,8 +360,9 @@ class FuncSelect(discord.ui.Select[BaseView]):
                 value=str(num),
             )
 
-    # TODO: Why no [Bot]  ??
-    async def callback(self, interaction: discord.Interaction) -> typing.Any:
+    async def callback(  # type: ignore
+        self, interaction: Interaction
+    ) -> typing.Any:
         """The handler for the FuncSelect Dropdown"""
         await interaction.response.defer()
         value: Funcable = self.items[self.values[0]]
@@ -367,18 +374,20 @@ class FuncButton(discord.ui.Button[BaseView]):
 
     def __init__(
         self,
-        function: typing.Callable[None],
+        function: typing.Callable[..., typing.Awaitable[typing.Any]],
         args: typing.Optional[list[typing.Any]] = None,
         kw: typing.Optional[dict[str, typing.Any]] = None,
-        **kwargs,
+        **kwargs: typing.Any,
     ) -> None:
         super().__init__(**kwargs)
 
-        self.function: typing.Callable[..., None] = function
+        self.function: typing.Callable[
+            ..., typing.Awaitable[typing.Any]
+        ] = function
         self.args: list[typing.Any] = [] if args is None else args
         self.kwargs: dict[str, typing.Any] = {} if kw is None else kw
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(self, interaction: Interaction) -> None:  # type: ignore
         """The Callback performs the passed function with any passed
         args/kwargs"""
         await interaction.response.defer()

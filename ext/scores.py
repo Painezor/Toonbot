@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib
 import itertools
 import logging
 import typing
@@ -117,13 +116,14 @@ class ScoreChannel:
     async def send_or_edit(
         self,
         index: int,
-        message: discord.Message,
-        embeds: list[discord.Embed],
+        message: typing.Optional[discord.Message],
+        embeds: typing.Optional[list[discord.Embed]],
     ) -> None:
         """Try to send this messagee to a our channel"""
         try:
             # Suppress Message's embeds until they're needed again.
             if message is None:
+                assert embeds is not None
                 # No message exists in cache,
                 # or we need an additional message.
                 new_msg = await self.channel.send(embeds=embeds)
@@ -192,7 +192,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
             txt = f"{NOPERMS} {missing}```"
             embed.add_field(name="Missing Permissions", value=txt)
 
-        options: list[discord.ui.Select] = []
+        options: list[discord.SelectOption] = []
         rows: list[str] = []
         for i in leagues:
             if i.url is None:
@@ -200,7 +200,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
 
             opt = discord.SelectOption(label=i.title, value=i.url)
             opt.description = i.url
-            opt.emoji = i.flag[0]
+            opt.emoji = i.flag
             rows.append(f"{i.flag} {i.markdown}")
             options.append(opt)
 
@@ -230,6 +230,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
         sql = """DELETE from scores_leagues
                  WHERE (channel_id, url) = ($1, $2)"""
 
+        rows: list[tuple[int, str]]
         rows = [(self.channel.id, x) for x in sel.values]
 
         async with itr.client.db.acquire(timeout=60) as connection:
@@ -253,7 +254,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
 
     @discord.ui.button(label="Reset", style=discord.ButtonStyle.red)
     async def reset(
-        self, interaction: Interaction, _: discord.ui.Button
+        self, interaction: Interaction, _: discord.ui.Button[ScoresConfig]
     ) -> None:
         """Button to reset a live score channel back to the default leagues"""
         view = view_utils.Confirmation(interaction.user, "Remove", "Cancel")
@@ -289,8 +290,6 @@ class Scores(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-
-        importlib.reload(fs)
         ScoreChannel.bot = bot
 
         # Weak refs.
@@ -416,8 +415,8 @@ class Scores(commands.Cog):
             ls_txt = [i.live_score_text for i in fix]
 
             table = f"\n[View Table]({comp.table})" if comp.table else ""
-            rte = embed_utils.rows_to_embeds
-            comp.score_embeds = rte(embed, ls_txt, 50, table)
+            embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, table)
+            comp.score_embeds = embeds
 
         for channel in self.bot.score_channels:
             await channel.mapping()
@@ -586,9 +585,8 @@ class Scores(commands.Cog):
         """Grab current scores from flashscore using aiohttp"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             if resp.status != 200:
-                reason = resp.reason
-                status = resp.status
-                logger.error("%s %s during score loop", status, reason)
+                rsn = await resp.text()
+                logger.error("%s %s: %s", resp.status, rsn, resp.url)
                 return []
             bt_a = bytearray(await resp.text(), encoding="utf-8")
             tree = html.fromstring(bytes(bt_a))
