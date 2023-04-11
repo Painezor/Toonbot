@@ -239,9 +239,9 @@ class DropdownPaginator(Paginator):
 
         super().__init__(invoker, embeds, parent=parent, timeout=timeout)
 
-        if multi:
-            self.dropdown.max_values = len(self.dropdowns[0])
         try:
+            if multi:
+                self.dropdown.max_values = len(self.dropdowns[0])
             self.dropdown.options = self.dropdowns[0]
         except IndexError:
             self.remove_item(self.dropdown)

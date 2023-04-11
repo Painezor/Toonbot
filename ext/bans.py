@@ -19,7 +19,6 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger("bans")
 
 
-# TODO: DropdownPaginatorMultiple
 class BanView(view_utils.DropdownPaginator):
     """View to hold the BanList"""
 
@@ -40,11 +39,10 @@ class BanView(view_utils.DropdownPaginator):
             options.append(opt)
             rows.append(f"`{i.user.id}` {i.user.mention} ({i.user})")
 
-        super().__init__(invoker, embed, rows, options)
+        super().__init__(invoker, embed, rows, options, multi=True)
 
     async def handle_page(self, interaction: Interaction) -> None:
         await super().handle_page(interaction)
-        self.dropdown.max_values = len(self.dropdown.options)
 
     @discord.ui.select(placeholder="Unban members")
     async def dropdown(
@@ -68,11 +66,11 @@ class BanView(view_utils.DropdownPaginator):
 
             embed.description += f"{user} {user.mention} ({user.id})\n"
             self.bans.remove(entry)
-        await itr.followup.send(embed=embed)
 
         new_view = BanView(itr.user, self.bans)
-        edit = itr.response.edit_message
-        return await edit(embed=embed, view=new_view)
+        n_embed = new_view.pages[0]
+        await itr.response.edit_message(embed=n_embed, view=new_view)
+        await itr.followup.send(embed=embed)
 
 
 class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
@@ -89,7 +87,9 @@ class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
         default="No reason provided",
     )
 
-    async def on_submit(self, interaction: Interaction, /) -> None:
+    async def on_submit(  # type: ignore
+        self, interaction: Interaction, /
+    ) -> None:
         """Ban users on submit."""
         embed = discord.Embed(title="Users Banned")
         embed.description = ""
@@ -146,13 +146,16 @@ class BanCog(commands.Cog):
             return
 
         if name is not None:
-            if not (bans := [i for i in bans if name in i.user.name]):
+            name = name.casefold()
+            bans = [i for i in bans if name in i.user.name.casefold()]
+            if not bans:
                 embed.description = f"No bans found matching {name}"
                 await interaction.response.send_message(embed=embed)
                 return
 
         view = BanView(interaction.user, bans)
         await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
 
 
 async def setup(bot: Bot | PBot) -> None:
