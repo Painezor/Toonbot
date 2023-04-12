@@ -132,7 +132,7 @@ async def search(
 
                 if comp is None:
                     comp = Competition(id_, name, ctry, url)
-                    await comp.save(interaction.client)
+                    await interaction.client.save_competition(comp)
 
                 if i["images"]:
                     logo_url = i["images"][0]["path"]
@@ -172,8 +172,7 @@ async def search(
                         pass
 
                     if lang_id == 1:
-                        await comp.save(interaction.client)
-                        comps.append(comp)
+                        await interaction.client.save_competition(comp)
                 else:
                     continue  # This is a player, we don't want those.
 
@@ -246,7 +245,7 @@ class TeamSelect(view_utils.DropdownPaginator):
 
     @select(placeholder="Choose a team")
     async def dropdown(
-        self, itr: Interaction, sel: Select[TeamSelect]
+        self, itr: Interaction, select: Select[TeamSelect]
     ) -> None:
         self.team = next(i for i in self.teams if i.id == sel.values[0])
         self.interaction = itr
@@ -496,7 +495,12 @@ class TFCompetitionTransformer(Transformer):
             return fsr
 
         if "http" in value:
-            return await Competition.by_link(interaction.client, value)
+            await interaction.response.defer(thinking=True)
+            page = await interaction.client.browser.new_page()
+            try:
+                return await Competition.by_link(page, value)
+            finally:
+                await page.close()
 
         comps = await search(value, "comp", interaction)
 

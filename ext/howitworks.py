@@ -47,18 +47,20 @@ opts = [
 class HowItWorksTransformer(discord.app_commands.Transformer):
     """Convert user input to video url"""
 
-    async def autocomplete(
+    async def autocomplete(  # type: ignore
         self, _: Interaction, current: str, /
-    ) -> list[discord.app_commands.Choice]:
+    ) -> list[discord.app_commands.Choice[str]]:
         """Send matching choices"""
-        options = []
+        options: list[discord.app_commands.Choice[str]] = []
         for k, val in sorted(HIW.items()):
             if current.lower() not in k:
                 continue
             options.append(discord.app_commands.Choice(name=k, value=val))
         return options
 
-    async def transform(self, interaction: Interaction, value: str, /):
+    async def transform(  # type: ignore
+        self, interaction: Interaction, value: str, /
+    ) -> str:
         """Get Value"""
         return value
 
@@ -70,7 +72,9 @@ class HowItWorks(view_utils.BaseView):
         super().__init__(invoker, timeout=None)
 
     @discord.ui.select(placeholder="Change Video", options=opts)
-    async def dropdown(self, interaction: Interaction, sel: discord.ui.Select):
+    async def dropdown(
+        self, interaction: Interaction, sel: discord.ui.Select[HowItWorks]
+    ):
         """When the dropdown is clicked edit with new content"""
         value = sel.values[0]
         return await interaction.response.edit_message(content=value)

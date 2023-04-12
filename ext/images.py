@@ -36,10 +36,71 @@ with open("credentials.json", mode="r", encoding="utf-8") as fun:
 logger = logging.getLogger("images")
 
 
+@dataclasses.dataclass(slots=True)
+class FaceRectangle:
+    top: int
+    left: int
+    width: int
+    right: int
+
+
+@dataclasses.dataclass
+class Pupil:
+    x: int
+    y: int
+
+
+@dataclasses.dataclass(slots=True)
+class FaceLandmarks:
+    pupilLeft: Pupil
+    pupilRight: Pupil
+
+
 # TODO: Coordinates dataclass
 @dataclasses.dataclass(slots=True)
 class Coordinates:
     """Coordinates returned from project oxford"""
+
+    faceRectangle: FaceRectangle
+    faceeLandmarks: FaceLandmarks
+
+
+# [
+#     {
+#         "faceLandmarks": {
+#             "pupilLeft": {"x": 1054.8, "y": 284.1},
+#             "pupilRight": {"x": 1159.3, "y": 277.6},
+#             "noseTip": {"x": 1109.1, "y": 347.8},
+#             "mouthLeft": {"x": 1054.6, "y": 381.8},
+#             "mouthRight": {"x": 1164.7, "y": 372.0},
+#             "eyebrowLeftOuter": {"x": 1016.8, "y": 269.2},
+#             "eyebrowLeftInner": {"x": 1085.5, "y": 271.2},
+#             "eyeLeftOuter": {"x": 1038.9, "y": 287.3},
+#             "eyeLeftTop": {"x": 1055.9, "y": 278.5},
+#             "eyeLeftBottom": {"x": 1055.2, "y": 292.9},
+#             "eyeLeftInner": {"x": 1072.5, "y": 288.5},
+#             "eyebrowRightInner": {"x": 1127.9, "y": 268.6},
+#             "eyebrowRightOuter": {"x": 1201.0, "y": 259.0},
+#             "eyeRightInner": {"x": 1142.1, "y": 284.1},
+#             "eyeRightTop": {"x": 1159.7, "y": 272.6},
+#             "eyeRightBottom": {"x": 1161.7, "y": 285.9},
+#             "eyeRightOuter": {"x": 1178.5, "y": 278.6},
+#             "noseRootLeft": {"x": 1093.5, "y": 291.8},
+#             "noseRootRight": {"x": 1125.1, "y": 289.8},
+#             "noseLeftAlarTop": {"x": 1083.3, "y": 327.4},
+#             "noseRightAlarTop": {"x": 1133.1, "y": 323.7},
+#             "noseLeftAlarOutTip": {"x": 1071.3, "y": 345.0},
+#             "noseRightAlarOutTip": {"x": 1148.8, "y": 342.6},
+#             "upperLipTop": {"x": 1111.0, "y": 374.8},
+#             "upperLipBottom": {"x": 1113.3, "y": 384.9},
+#             "underLipTop": {"x": 1113.8, "y": 396.7},
+#             "underLipBottom": {"x": 1115.0, "y": 408.5},
+#         },
+#         "faceAttributes": {
+#             "headPose": {"pitch": -13.0, "roll": -4.3, "yaw": -3.7}
+#         },
+#     }
+# ]
 
 
 @dataclasses.dataclass(slots=True)

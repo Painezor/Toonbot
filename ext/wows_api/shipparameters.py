@@ -3,6 +3,8 @@ import dataclasses
 import logging
 import typing
 
+from typing import Optional, Any
+
 logger = logging.getLogger("api.shipparams")
 
 
@@ -16,7 +18,7 @@ class AAGun:
     guns: int
     name: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -28,7 +30,7 @@ class ShipAAProfile:
     defense: int
     slots: list[AAGun]
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "slots":
                 val = [AAGun(i) for i in val]
@@ -43,7 +45,7 @@ class ArmourSegment:
     max: int
     min: int
 
-    def __init__(self, name: str, data: dict) -> None:
+    def __init__(self, name: str, data: dict[str, int | str]) -> None:
         self.name = name
         for k, val in data.items():
             setattr(self, k, val)
@@ -64,7 +66,7 @@ class ShipArmourProfile:
     extremities: ArmourSegment
     range: ArmourSegment
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k in ["casemate", "citadel", "deck", "extremities", "range"]:
                 val = ArmourSegment(k, val)
@@ -79,7 +81,7 @@ class MainGun:
     guns: int  # Turret count
     name: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -95,7 +97,7 @@ class Shell:
     name: str
     type: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int | float | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -115,7 +117,7 @@ class ShipArtilleryProfile:
     shells: list[Shell]
     slots: list[MainGun]
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if val == "shells":
                 val = [Shell(i) for i in val]
@@ -145,7 +147,7 @@ class SecondaryGun:
     shot_delay: float
     type: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int | float | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -157,7 +159,7 @@ class ShipSecondaryProfile:
     distance: float  # range
     slots: list[SecondaryGun]
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "slots":
                 val = [SecondaryGun(i) for i in val.values()]
@@ -172,7 +174,7 @@ class ShipConcealmentProfile:
     detect_distance_by_ship: float
     total: float  # This is a percentage...? Possibly rating.
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, float]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -184,7 +186,7 @@ class BomberAccuracy:
     min: float
     max: float
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, float]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -196,7 +198,7 @@ class SquadronSize:
     max: int
     min: int
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -223,7 +225,7 @@ class ShipDiveBomberProfile:
     accuracy: BomberAccuracy
     count_in_squadron: SquadronSize
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "accuracy":
                 val = BomberAccuracy(val)
@@ -248,7 +250,7 @@ class ShipEngineProfile:
     engine_id_str: str
     max_speed: float  # knots
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int | str | float]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -279,7 +281,7 @@ class ShipFighterProfile:
 
     count_in_squadron: SquadronSize
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "count_in_squadron":
                 val = SquadronSize(val)
@@ -303,7 +305,7 @@ class ShipFireControlProfile:
     fire_control_id: int
     fire_control_id_str: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, float | int | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -326,7 +328,7 @@ class ShipFlightControlProfile:
     flight_control_id_str: str
     torpedo_squadrons: int
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -346,7 +348,7 @@ class HullArmourRange:
     max: int
     min: int
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -366,7 +368,7 @@ class ShipHullProfile:
 
     range: HullArmourRange  # Ship Armour
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "range":
                 val = HullArmourRange(val)
@@ -390,7 +392,7 @@ class ShipMobilityProfile:
     total: int  # Manouverability Rating
     turning_radius: int  # meters
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, float | int]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -416,7 +418,7 @@ class ShipTorpedoBomberProfile:
 
     count_in_squadron: SquadronSize
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "count_in_squadron":
                 val = SquadronSize(val)
@@ -440,7 +442,7 @@ class Torpedo:
     guns: int
     name: str
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -461,7 +463,7 @@ class ShipTorpedoProfile:
 
     slots: list[Torpedo]
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "slots":
                 val = [Torpedo(i) for i in val.values()]
@@ -485,7 +487,7 @@ class ShipWeaponryProfile:
     artillery: float
     torpedoes: float
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, float]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -497,7 +499,7 @@ class ShipProfile:
     battle_level_range_max: int
     battle_level_range_min: int
 
-    anti_aircraft: ShipAAProfile
+    anti_aircraft: Optional[ShipAAProfile]
     armour: ShipArmourProfile
     artillery: ShipArtilleryProfile
     atbas: ShipSecondaryProfile
@@ -513,7 +515,7 @@ class ShipProfile:
     torpedoes: ShipTorpedoProfile
     weaponry: ShipWeaponryProfile
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if val is not None:
                 try:
