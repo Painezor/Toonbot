@@ -106,40 +106,38 @@ class ScoreChannel:
 
         # Zip the lists into tuples to simultaneously iterate Limit to 5 max
         tuples = list(itertools.zip_longest(self.messages, stacked))
+        tuples.sort(key=lambda x: x[0].edited_at or x[0].created_at)
 
-        for tup in tuples.copy():
-            if None in tup:
-                continue
-
-            for embed in tup[1]:
-                if embed is None:
-                    continue
-
-                try:
-                    if (
-                        self._current_embeds[embed.title].description
-                        != embed.description
-                    ):
-                        break
-                except KeyError:
-                    continue
-            else:
-                tuples.remove(tup)
-
-        # If we have more than 5 messages, get the 5 oldest, and their index
-        # Then map these indexes to the appropriate embeds
-        if len(tuples) > 5:
-            _ = self.messages
-            old = sorted(_, key=lambda x: x.edited_at or x.created_at)
-            tuples = [tuples[self.messages.index(i)] for i in old[:5]]
-
-        message: discord.Message or None
+        # We have a limit of 5 messages due to ratelimiting
+        count = 0
         for message, embeds in tuples:
+            if embeds is None:
+                # This message does not need editing.
+                if message.flags.suppress_embeds:
+                    continue
+            elif message is not None:
+                for embed in embeds:
+                    try:
+                        old = self._current_embeds[embed.title].description
+                        new = embed.description
+                        if old != new:
+                            break  # We're good to go.
+                    except KeyError:
+                        break  # Old Embed does not exist, we need a new one.
+                else:
+                    # No break means we found only existing embeds, this
+                    # message can be skipped.
+                    continue
+
             index = self.messages.index(message) if message else None
             await self.send_or_edit(bot, index, message, embeds)
 
-        return
+            count += 1
+            if count > 4:
+                return
 
+    # If we have more than 5 messages, get the 5 oldest, and their index
+    # Then map these indexes to the appropriate embeds
     async def send_or_edit(
         self,
         bot: Bot,
@@ -151,6 +149,10 @@ class ScoreChannel:
         if message is None and embeds is None:
             return  # this should never happen.
 
+        if embeds is not None:
+            for i in embeds:
+                self._current_embeds[i.title] = i
+
         try:
             # Suppress Message's embeds until they're needed again.
             if message is None:
@@ -159,9 +161,6 @@ class ScoreChannel:
                 # or we need an additional message.
                 new_msg = await self.channel.send(embeds=embeds)
                 self.messages.append(new_msg)
-
-                for i in embeds:
-                    self._current_embeds[i.title] = i
                 return
 
             if embeds is None:
@@ -169,20 +168,12 @@ class ScoreChannel:
                     return
                 new_msg = await message.edit(suppress=True)
 
-            elif [i.description for i in embeds] != [
-                i.description for i in message.embeds
-            ]:
-                new_msg = await message.edit(embeds=embeds, suppress=False)
-
             else:
-                return  # No update needed.
+                new_msg = await message.edit(embeds=embeds, suppress=False)
 
             if index is not None:
                 self.messages[index] = new_msg
                 return
-            if embeds is not None:
-                for i in embeds:
-                    self._current_embeds[i.title] = i
             self.messages.append(new_msg)
 
         except (discord.Forbidden, discord.NotFound):

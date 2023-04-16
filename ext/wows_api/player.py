@@ -4,7 +4,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
-from typing import Any, Union, Optional
+from typing import Any, Optional
 
 import aiohttp
 from .wg_id import WG_ID
@@ -77,7 +77,7 @@ class PartialPlayer:
 
     clan: Optional[PlayerClanData] = None
 
-    def __init__(self, data: dict[str, Union[int, str]]) -> None:
+    def __init__(self, data: dict[str, int | str]) -> None:
         # Player Search Endpoint
         for k, val in data.items():
             setattr(self, k, val)

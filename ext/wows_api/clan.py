@@ -4,7 +4,7 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 import aiohttp
 from .enums import Region
@@ -247,7 +247,7 @@ class ClanBattleWinner:
     season_id: int
     tag: str
 
-    def __init__(self, data: dict[str, Union[int, str]]) -> None:
+    def __init__(self, data: dict[str, int | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -292,7 +292,20 @@ class PlayerCBStats:
     damage_per_battle: float
     frags_per_battle: float
 
-    def __init__(self, data: dict[str, Union[int, float]]) -> None:
+    def __init__(self, data: dict[str, int | float]) -> None:
+        for k, val in data.items():
+            setattr(self, k, val)
+
+
+@dataclasses.dataclass(slots=True)
+class ClanRole:
+    """A Clan Role"""
+
+    rank: int
+    name: str
+    order: int
+
+    def __init__(self, data: dict[str, int | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 
@@ -302,39 +315,41 @@ class ClanMemberVortexData:
     """A member's data, from Vortex API"""
 
     abnormal_results: bool
-    accumulative_clan_resource: None
-    battles_count: int
+    # accumulative_clan_resource: None
+    battles_count: Optional[int]
     days_in_clan: int
-    exp_per_battle: float
-    frags_per_battle: float
+    exp_per_battle: Optional[float]
+    frags_per_battle: Optional[float]
     is_banned: bool
-    is_bonus_activated: None
+    # is_bonus_activated: None
     is_hidden_statistics: bool
     is_press: bool
-    leveling: None
+    # leveling: None
     name: str
     online_status: bool
     profile_link: str
     last_battle_time: int
-    damage_per_battle: float
+    damage_per_battle: Optional[float]
     id: int  # pylint: disable= C0103
     rank: int
     role: str
-    season_rank: None
+    # season_rank: None
     season_id: int
-    wins_percentage: float
+    wins_percentage: Optional[float]
+
+    # Data is not always present for this value
+    battles_per_day: Optional[float] = None
 
     def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "role":
-                logger.info("role = %s", val)
-                val = val["rank"]  # dict
-            elif k == "online status":
-                logger.info(val)
+                val = ClanRole(val)
             try:
                 setattr(self, k, val)
             except AttributeError:
-                logger.info("ClanMemberVortexData missing %s %s", k, type(val))
+                if val is None:
+                    continue
+                logger.info("ClanMemberVortexData %s %s %s", k, type(val), val)
 
 
 @dataclasses.dataclass(slots=True)

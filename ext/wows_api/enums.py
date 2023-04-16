@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import Union
 
 
 logger = logging.getLogger("wows.enums")
@@ -80,7 +79,7 @@ class Map:
     icon: str
     name: str
 
-    def __init__(self, data: dict[str, Union[int, str]]) -> None:
+    def __init__(self, data: dict[str, int | str]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
 

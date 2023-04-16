@@ -33,7 +33,7 @@ class ScoreLoop(commands.Cog):
         self.bot: Bot = bot
         self.tasks: set[asyncio.Task[None]] = set()
         self.score_workers: asyncio.Queue[Page] = asyncio.Queue()
-        self.last_ordinal: int = 0
+        self._last_ordinal: int = 0
 
     async def cog_load(self) -> None:
         """Start the scores loop"""
@@ -69,15 +69,15 @@ class ScoreLoop(commands.Cog):
         # Discard yesterday's games.
         games: list[fs.Fixture] = self.bot.games
 
-        if self.last_ordinal != ordinal:
-            logger.info("Day changed %s -> %s", self.last_ordinal, ordinal)
+        if self._last_ordinal != ordinal:
+            logger.info("Day changed %s -> %s", self._last_ordinal, ordinal)
             for i in games:
                 if i.kickoff is None:
                     continue
 
                 if ordinal > i.kickoff.toordinal():
                     self.bot.games.remove(i)
-            self.last_ordinal = ordinal
+            self._last_ordinal = ordinal
 
         comps = set(i.competition for i in self.bot.games if i.competition)
 
