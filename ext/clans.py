@@ -88,6 +88,10 @@ class Leaderboard(view_utils.DropdownPaginator):
         view.message = await itr.original_response()
 
 
+# TODO: URL Button - Wows Numbers
+# https://wows-numbers.com/clan/500140589,-PTA-penta-gg/
+# TODO: URL Button - CLans Page
+# https://clans.worldofwarships.eu/clan-profile/500140589
 class ClanView(view_utils.BaseView):
     """A View representing a World of Warships Clan"""
 
@@ -202,63 +206,84 @@ class ClanView(view_utils.BaseView):
         embed = await self.generate_overview(interaction)
         return await interaction.response.edit_message(embed=embed)
 
+    # TODO: Dropdown Paginator, Sort by Clan Role for Embed, name for pages.
     @discord.ui.button(label="Members")
     async def members(self, interaction: Interaction, _) -> None:
         """Display an embed of the clan members"""
         embed = await self.base_embed(interaction)
         embed.title = f"Clan Members ({self.clan.members_count} Total)"
-        mems = sorted(await self.member_vortex(), key=lambda x: x.name)
+        mems = await self.member_vortex()
+        mems.sort(key=lambda i: (i.online_status, i.name.lower()))
 
-        names: list[str] = []
-        for i in mems:
-            names.append(i.name if not i.online_status else f"🟢 {i.name}")
-        embed.description = escape_markdown("\n ".join(names))
+        if not mems:
+            embed.description = "No members found"
+            return await interaction.response.edit_message(embed=embed)
+
+        # fr means format {} but use raw for backslash
+        names = [rf"\🟢 {i.name}" if i.online_status else i.name for i in mems]
+        embed.description = escape_markdown(", ".join(names))
 
         if banned := [i.name for i in mems if i.is_banned]:
             embed.add_field(name="Banned Members", value=", ".join(banned))
 
+        return await interaction.response.edit_message(embed=embed)
+
+    @discord.ui.button(label="Averages")
+    async def clan_averages(self, interaction: Interaction, _) -> None:
+        """Get Clan Aveerages"""
         # Clan Records:
-        c_wr = round(sum(i.wins_percentage for i in mems) / len(mems), 2)
+        embed = await self.base_embed(interaction)
+        embed.title = "Clan Averages"
 
-        avg_dmg = round(sum(i.damage_per_battle for i in mems) / len(mems))
-        c_dmg = format(avg_dmg, ",")
+        mems = await self.member_vortex()
+        avg: list[str] = []
+        rec: list[str] = []
 
-        avg_xp = round(sum(c.exp_per_battle for c in mems) / len(mems), 2)
-        c_xp = format(avg_xp, ",")
+        high = max(mems, key=lambda i: i.wins_percentage or 0)
+        if high.wins_percentage:
+            _ = "**Win Rate**: "
+            valid = [i.wins_percentage for i in mems if i.wins_percentage]
+            avg.append(f"{_}{round(sum(valid) / len(valid), 2)}%")
+            rec.append(f"{_}{round(high.wins_percentage, 2)}% ({high.name})")
 
-        c_kills = round(sum(c.frags_per_battle for c in mems) / len(mems), 2)
+        high = max(mems, key=lambda i: i.damage_per_battle or 0)
+        if high.damage_per_battle:
+            _ = "**Damage Per Battle**: "
+            valid = [i.damage_per_battle for i in mems if i.damage_per_battle]
+            avg.append(f"{_}{format(round(sum(valid) / len(valid)), ',')}")
+            fmt = format(round(high.damage_per_battle), ",")
+            rec.append(f"{_}{fmt} ({high.name})")
 
-        avg_games = round(sum(c.battles_count for c in mems) / len(mems))
-        c_games = format(avg_games, ",")
+        high = max(mems, key=lambda i: i.exp_per_battle or 0)
+        if high.exp_per_battle:
+            _ = "**Exp Per Battle**: "
+            valid = [i.exp_per_battle for i in mems if i.exp_per_battle]
+            avg.append(f"{_}{format(round(sum(valid) / len(valid)), ',')}")
+            fmt = format(round(high.exp_per_battle), ",")
+            rec.append(f"{_}{fmt} ({high.name})")
 
-        # c_gpd = round(sum(c. for c in mems) / len(mems), 2)
-        embed.add_field(
-            name="Clan Averages",
-            value=f"**Win Rate**: {c_wr}%\n"
-            f"**Average Damage**: {c_dmg}\n"
-            f"**Average Kills**: {c_kills}\n"
-            f"**Average XP**: {c_xp}\n"
-            f"**Total Battles**: {c_games}\n"
-            # f"**Battles Per Day**: {c_gpd}",
-        )
+        high = max(mems, key=lambda i: i.frags_per_battle or 0)
+        if high.frags_per_battle:
+            _ = "**Kills Per Battle**: "
+            valid = [i.frags_per_battle for i in mems if i.frags_per_battle]
+            avg.append(f"{_}{round(sum(valid) / len(valid), 2)}")
+            rec.append(f"{_}{round(high.frags_per_battle, 2)} ({high.name})")
 
-        m_d = max(mems, key=lambda p: p.damage_per_battle)
-        max_xp = max(mems, key=lambda p: p.exp_per_battle)
-        max_wr = max(mems, key=lambda p: p.wins_percentage)
-        max_games = max(mems, key=lambda p: p.battles_count)
-        # m_p = max(mems, key=lambda p: p.battles_per_day)
-        m_a_k = max(mems, key=lambda p: p.frags_per_battle)
+        _ = "**Battles Played**: "
+        high = max(mems, key=lambda i: i.battles_count or 0)
+        valid = [i.battles_count for i in mems if i.battles_count]
+        avg.append(f"{_}{format(round(sum(valid) / len(valid)), ',')}")
+        rec.append(f"{_}{format(high.battles_count, ',')} ({high.name})")
 
-        embed.add_field(
-            name="Top Players",
-            value=f"{round(max_wr.wins_percentage, 2)}% ({max_wr.name})\n"
-            f'{format(round(m_d.damage_per_battle), ",")} ({m_d.name})\n'
-            f"{round(m_a_k.frags_per_battle, 2)} ({m_a_k.name})\n"
-            f'{format(round(max_xp.exp_per_battle), ",")} ({max_xp.name})\n'
-            f'{format(max_games.battles_count, ",")} ({max_games.name})\n'
-            # f"{round(m_p.battles_per_day, 2)} ({m_p.nickname})",
-        )
+        # _ = "**Battles Per Day**: "
+        # high = max(mems, key=lambda i: i.battles_per_day or 0)
+        # valid = [i.battles_per_day for i in mems if i.battles_per_day]
+        # avg.append(f"{_}{round(sum(valid) / len(valid))}\n")
+        # rec.append(f"{_}{high.battles_per_day} ({high.name})\n")
 
+        embed.add_field(name="Averages", value="\n".join(avg), inline=False)
+        _ = "Best Averages"
+        embed.add_field(name=_, value="\n".join(rec), inline=False)
         return await interaction.response.edit_message(embed=embed)
 
     @discord.ui.button(label="New Members")
@@ -269,7 +294,7 @@ class ClanView(view_utils.BaseView):
 
         vtx = await self.member_vortex()
 
-        members = sorted(vtx, key=lambda x: x.days_in_clan, reverse=True)
+        members = sorted(vtx, key=lambda x: x.days_in_clan)
 
         embed.description = ""
         for i in members[:10]:
