@@ -92,6 +92,7 @@ class Leaderboard(view_utils.DropdownPaginator):
 # https://wows-numbers.com/clan/500140589,-PTA-penta-gg/
 # TODO: URL Button - CLans Page
 # https://clans.worldofwarships.eu/clan-profile/500140589
+# TODO: Player Dropdown (DropdownPaginator on Members page)
 class ClanView(view_utils.BaseView):
     """A View representing a World of Warships Clan"""
 
@@ -326,9 +327,8 @@ class WinnerView(view_utils.DropdownPaginator):
             else:
                 tier = f"{k.ship_tier_min} - {k.ship_tier_max}"
 
-            embed = Embed()
+            embed = Embed(color=Colour.from_str(k.top_league.color))
             embed.set_thumbnail(url=k.top_league.icon)
-            embed.color = Colour.from_str(k.top_league.color)
             embed.title = f"Season {k.season_id}: {k.name} (Tier {tier})"
             embed.description = f"{Timestamp(k.start_time).date} - "
             embed.description += f"{Timestamp(k.finish_time).date}\n\n"
