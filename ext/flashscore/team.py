@@ -20,7 +20,7 @@ from .constants import (
 
 if typing.TYPE_CHECKING:
     from .abc import Team
-    from .players import Player
+    from .players import PartialPlayer
 
 
 TFOpts = typing.Literal["All", "Arrivals", "Departures"]
@@ -30,7 +30,7 @@ TFOpts = typing.Literal["All", "Arrivals", "Departures"]
 class SquadMember:
     """A Player that is a member of a team"""
 
-    player: Player
+    player: PartialPlayer
     position: str
 
     squad_number: int
@@ -72,7 +72,7 @@ class FSTransfer:
 
     date: datetime.datetime
     direction: str
-    player: Player
+    player: PartialPlayer
     type: str
 
     team: typing.Optional[Team] = None  #

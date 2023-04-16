@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = getLogger("urbandictionary")
 
 
-DEFINE = "https://www.urbandictionary.com/v0/define.php?term="
+DEFINE = "https://api.urbandictionary.com/v0/define?term="
 THUMBNAIL = (
     "http://d2gatte9o95jao.cloudfront.net/assets/"
     "apple-touch-icon-2f29e978facd8324960a335075aa9aa3.png"
@@ -107,10 +107,11 @@ class UrbanDictionary(commands.Cog):
         url = DEFINE + term
         async with self.bot.session.get(url) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                logger.error("%s %s: %s", resp.status, text, resp.url)
+                logger.error("%s: %s", resp.status, resp.url)
 
-            if not (embeds := parse(await resp.json())):
+            data = await resp.json()
+
+            if not (embeds := parse(data)):
                 embed = discord.Embed(colour=discord.Colour.red())
                 embed.description = f"🚫 No results for {term}"
                 reply = interaction.response.send_message
@@ -124,9 +125,9 @@ class UrbanDictionary(commands.Cog):
         """Get some random definitions from Urban Dictionary"""
         async with self.bot.session.get(RANDOM) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                logger.error("%s %s: %s", resp.status, text, resp.url)
-            embeds = parse(await resp.json())
+                logger.error("%s: %s", resp.status, resp.url)
+            json = await resp.json()
+            embeds = parse(json)
         view = view_utils.Paginator(interaction.user, embeds)
         await interaction.response.send_message(view=view, embed=view.pages[0])
 
@@ -136,9 +137,9 @@ class UrbanDictionary(commands.Cog):
         await interaction.response.defer(thinking=True)
         async with self.bot.session.get(WORD_OF_THE_DAY) as resp:
             if resp.status != 200:
-                text = await resp.text()
-                logger.error("%s %s: %s", resp.status, text, resp.url)
-            embeds = parse(await resp.json())
+                logger.error("%s: %s", resp.status, resp.url)
+            json = await resp.json()
+            embeds = parse(json)
         view = view_utils.Paginator(interaction.user, embeds)
         await interaction.response.send_message(view=view, embed=view.pages[0])
 

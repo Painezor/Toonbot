@@ -1,8 +1,6 @@
 """Parameters about a ship in a specifiic fitting state"""
 import dataclasses
 import logging
-import typing
-
 from typing import Optional, Any
 
 logger = logging.getLogger("api.shipparams")
@@ -127,10 +125,12 @@ class ShipArtilleryProfile:
 
     @property
     def module_id(self) -> int:
+        """Retrieve the module's id int"""
         return self.artillery_id
 
     @property
     def module_id_str(self) -> str:
+        """Retrieve the module's id str"""
         return self.artillery_id_str
 
 
@@ -235,10 +235,12 @@ class ShipDiveBomberProfile:
 
     @property
     def module_id(self) -> int:
+        """Retrieve the module's id int"""
         return self.dive_bomber_id
 
     @property
     def module_id_str(self) -> str:
+        """Retrieve the module's id str"""
         return self.dive_bomber_id_str
 
 
@@ -256,10 +258,12 @@ class ShipEngineProfile:
 
     @property
     def module_id(self) -> int:
+        """Retrieve the module's id int"""
         return self.engine_id
 
     @property
     def module_id_str(self) -> str:
+        """Retrieve the module's id str"""
         return self.engine_id_str
 
 
@@ -289,10 +293,12 @@ class ShipFighterProfile:
 
     @property
     def module_id(self) -> int:
+        """Retrieve the module's id int"""
         return self.fighters_id
 
     @property
     def module_id_str(self) -> str:
+        """Retrieve the module's id str"""
         return self.fighters_id_str
 
 
@@ -502,17 +508,17 @@ class ShipProfile:
     anti_aircraft: Optional[ShipAAProfile]
     armour: ShipArmourProfile
     artillery: ShipArtilleryProfile
-    atbas: ShipSecondaryProfile
+    atbas: Optional[ShipSecondaryProfile]
     concealment: ShipConcealmentProfile
-    dive_bomber: typing.Optional[ShipDiveBomberProfile]
+    dive_bomber: Optional[ShipDiveBomberProfile]
     engine: ShipEngineProfile
-    fighters: typing.Optional[ShipFighterProfile]
-    fire_control: ShipFireControlProfile
-    flight_control: typing.Optional[ShipFlightControlProfile]
+    fighters: Optional[ShipFighterProfile]
+    fire_control: Optional[ShipFireControlProfile]
+    flight_control: Optional[ShipFlightControlProfile]
     hull: ShipHullProfile
     mobility: ShipMobilityProfile
-    torpedo_bomber: typing.Optional[ShipTorpedoBomberProfile]
-    torpedoes: ShipTorpedoProfile
+    torpedo_bomber: Optional[ShipTorpedoBomberProfile]
+    torpedoes: Optional[ShipTorpedoProfile]
     weaponry: ShipWeaponryProfile
 
     def __init__(self, data: dict[str, Any]) -> None:

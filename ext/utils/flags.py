@@ -2,7 +2,7 @@
 import logging
 import unicodedata
 
-from pycountry import countries
+from pycountry import countries  # type: ignore
 
 logger = logging.getLogger("flags")
 
@@ -96,7 +96,10 @@ backup_dict = {
 
 def to_indicators(inp: str) -> str:
     """Convert letters to regional indicators"""
-    return "".join(unicodedata.lookup(f"REGIONAL INDICATOR {i}") for i in inp)
+    out: list[str] = []
+    for i in inp:
+        out.append(unicodedata.lookup(f"REGIONAL INDICATOR SYMBOL LETTER {i}"))
+    return "".join(out)
 
 
 def get_flags(strings: list[str]) -> list[str]:
@@ -117,16 +120,18 @@ def get_flag(string: str) -> str:
     string = string.casefold()
 
     try:
-        retrieved = countries.get(name=string)
-        logger.info("Got %s from countries.get", retrieved)
-        return to_indicators(retrieved.alpha_2)
+        retrieved = countries.get(name=string)  # type: ignore
+        if retrieved is not None:
+            logger.info("Got %s from countries.get", retrieved)  # type: ignore
+            return to_indicators(retrieved.alpha_2)  # type: ignore
     except (KeyError, AttributeError):
         pass
 
     try:
-        retrieved = countries.lookup(string).alpha_2
-        logger.info("Got %s from countries.lookup", retrieved)
-        return to_indicators(retrieved)
+        retrieved = countries.lookup(string)  # type: ignore
+        if retrieved is not None:
+            logger.info("Got %s from lookup", retrieved)  # type: ignore
+        return to_indicators(str(retrieved.alpha_2))  # type: ignore
     except (AttributeError, LookupError):
         pass
 

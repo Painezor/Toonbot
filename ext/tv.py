@@ -96,11 +96,11 @@ async def tv_ac(
             logger.error("%s %s: %s", resp.status, rsn, resp.url)
         tree = html.fromstring(await resp.text())
 
-    for i in tree.xpath("./div"):
+    for _ in tree.xpath("./div"):
         pass
 
     logger.info("FINISH TV_AC!")
-    choices = []
+    choices: list[discord.app_commands.Choice[str]] = []
 
     return choices[:25]
 

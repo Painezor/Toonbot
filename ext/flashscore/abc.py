@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-import typing
+from typing import Optional, Any, TYPE_CHECKING, TypeAlias
 
 import asyncpg
 import discord
@@ -21,21 +21,23 @@ from .constants import (
     RED_CARD_EMOJI,
     TEAM_EMOJI,
 )
-from .team import SquadMember, FSTransfer, TFOpts
 from .gamestate import GameState
-from .matchevents import MatchEvent
+from .news import NewsArticle
+from .team import SquadMember, FSTransfer, TFOpts
+from .matchevents import MatchEvent, parse_events
 
-if typing.TYPE_CHECKING:
+# TODO: Heavy Refactoring to remove Bot from import chain.
+if TYPE_CHECKING:
     from core import Bot
     from .players import TopScorer
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    Interaction: TypeAlias = discord.Interaction[Bot]
 
 
 logger = logging.getLogger("ext.flashscore.abc")
 
 
-def find(value: str, cache: set[Competition]) -> typing.Optional[Competition]:
+def find(value: str, cache: set[Competition]) -> Optional[Competition]:
     """Retrieve a competition from the ones stored in the bot."""
     for i in cache:
         if i.id == value:
@@ -60,7 +62,7 @@ def find(value: str, cache: set[Competition]) -> typing.Optional[Competition]:
 class HasFixtures:
     """A Flashscore Item that has Fixtures that can be fetched"""
 
-    url: typing.Optional[str]
+    url: Optional[str]
 
     async def fixtures(
         self, page: Page, cache: set[Competition]
@@ -206,19 +208,16 @@ class FlashScoreItem:
     """A generic object representing the result of a Flashscore search"""
 
     name: str
-    id: typing.Optional[str]  # pylint: disable=C0103
-    url: typing.Optional[str]
+    id: Optional[str]  # pylint: disable=C0103
+    url: Optional[str]
 
-    logo_url: typing.Optional[str] = None
-    embed_colour: typing.Optional[discord.Colour | int] = None
+    logo_url: Optional[str] = None
+    embed_colour: Optional[discord.Colour | int] = None
 
     def __init__(
-        self,
-        fsid: typing.Optional[str],
-        name: str,
-        url: typing.Optional[str],
+        self, fsid: Optional[str], name: str, url: Optional[str]
     ) -> None:
-        self.id = fsid
+        self.id = fsid  # pylint: disable=C0103
         self.name = name
         self.url = url
 
@@ -267,13 +266,27 @@ class FlashScoreItem:
             embed.set_author(name=self.title, url=self.url)
         return embed
 
+    async def news(self, page: Page) -> list[NewsArticle]:
+        """Fetch a list of NewsArticles for Pagination"""
+        if not isinstance(self, (Fixture, Team)):
+            raise NotImplementedError
+
+        await page.goto(f"{self.url}/news", timeout=5000)
+        locator = page.locator(".rssNews")
+        await locator.wait_for()
+
+        articles: list[NewsArticle] = []
+        for i in await locator.all():
+            articles.append(NewsArticle(html.fromstring(await i.inner_html())))
+        return articles
+
     async def get_scorers(
         self, page: Page, interaction: Interaction
     ) -> list[TopScorer]:
         """Get a list of TopScorer objects for the Flashscore Item"""
         link = f"{self.url}/standings/"
 
-        from .players import Player, TopScorer  # pylint: disable=C0415
+        from .players import PartialPlayer, TopScorer  # pylint: disable=C0415
 
         # Example link "#/nunhS7Vn/top_scorers"
         # This requires a competition ID, annoyingly.
@@ -308,7 +321,7 @@ class FlashScoreItem:
             xpath = "./div[1]//@href"
             url = FLASHSCORE + "".join(i.xpath(xpath))
 
-            scorer = TopScorer(player=Player(None, name, url))
+            scorer = TopScorer(player=PartialPlayer(None, name, url))
             xpath = "./span[1]//text()"
             scorer.rank = int("".join(i.xpath(xpath)).strip("."))
 
@@ -357,10 +370,10 @@ class Competition(FlashScoreItem, HasFixtures):
 
     def __init__(
         self,
-        fsid: typing.Optional[str],
+        fsid: Optional[str],
         name: str,
-        country: typing.Optional[str],
-        url: typing.Optional[str],
+        country: Optional[str],
+        url: Optional[str],
     ) -> None:
         # Sanitise inputs.
         if country is not None and ":" in country:
@@ -382,12 +395,12 @@ class Competition(FlashScoreItem, HasFixtures):
 
         super().__init__(fsid, name, url)
 
-        self.logo_url: typing.Optional[str] = None
-        self.country: typing.Optional[str] = country
+        self.logo_url: Optional[str] = None
+        self.country: Optional[str] = country
         self.score_embeds: list[discord.Embed] = []
 
         # Table Imagee
-        self.table: typing.Optional[str] = None
+        self.table: Optional[str] = None
 
     @classmethod
     def from_record(cls, record: asyncpg.Record) -> Competition:
@@ -403,7 +416,7 @@ class Competition(FlashScoreItem, HasFixtures):
     def __hash__(self) -> int:
         return hash((self.title, self.id, self.url))
 
-    def __eq__(self, other: typing.Any) -> bool:
+    def __eq__(self, other: Any) -> bool:
         if other is None:
             return False
 
@@ -414,15 +427,11 @@ class Competition(FlashScoreItem, HasFixtures):
         return self.url == other.url
 
     @classmethod
-    async def by_link(cls, bot: Bot, link: str) -> Competition:
+    async def by_link(cls, page: Page, link: str) -> Competition:
         """Create a Competition Object from a flashscore url"""
-        page = await bot.browser.new_page()
-        try:
-            await page.goto(link, timeout=5000)
-            await page.locator(".heading").wait_for()
-            tree = html.fromstring(await page.content())
-        finally:
-            await page.close()
+        await page.goto(link, timeout=5000)
+        await page.locator(".heading").wait_for()
+        tree = html.fromstring(await page.content())
 
         try:
             xpath = './/h2[@class="breadcrumb"]//a/text()'
@@ -448,7 +457,7 @@ class Competition(FlashScoreItem, HasFixtures):
         return comp
 
     @property
-    def flag(self) -> typing.Optional[str]:
+    def flag(self) -> Optional[str]:
         """Get the flag using transfer_tools util"""
         if self.country is None:
             return None
@@ -461,23 +470,6 @@ class Competition(FlashScoreItem, HasFixtures):
             return f"{self.country.upper()}: {self.name}"
         return self.name
 
-    async def save(self, bot: Bot) -> None:
-        """Save the competition to the bot database"""
-        sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
-            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
-            (country, name, logo_url, url) =
-            (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
-            """
-
-        cpm = self  # Line Too Long.
-        async with bot.db.acquire(timeout=60) as conn:
-            async with conn.transaction():
-                await conn.execute(
-                    sql, cpm.id, cpm.country, cpm.name, cpm.logo_url, cpm.url
-                )
-        bot.competitions.add(cpm)
-        logger.info("saved competition. %s %s %s", cpm.name, cpm.id, cpm.url)
-
 
 class Fixture(FlashScoreItem):
     """An object representing a Fixture from the Flashscore Website"""
@@ -488,8 +480,8 @@ class Fixture(FlashScoreItem):
         self,
         home: Team,
         away: Team,
-        fs_id: typing.Optional[str],
-        url: typing.Optional[str],
+        fs_id: Optional[str],
+        url: Optional[str],
     ) -> None:
         if fs_id and not url:
             url = f"https://www.flashscore.com/?r=5:{fs_id}"
@@ -500,32 +492,30 @@ class Fixture(FlashScoreItem):
         super().__init__(fs_id, f"{home.name}:{away.name}", url)
 
         self.away: Team = away
-        self.away_cards: typing.Optional[int] = None
-        self.away_score: typing.Optional[int] = None
-        self.penalties_away: typing.Optional[int] = None
+        self.away_cards: Optional[int] = None
+        self.away_score: Optional[int] = None
+        self.penalties_away: Optional[int] = None
 
         self.home: Team = home
-        self.home_cards: typing.Optional[int] = None
-        self.home_score: typing.Optional[int] = None
-        self.penalties_home: typing.Optional[int] = None
+        self.home_cards: Optional[int] = None
+        self.home_score: Optional[int] = None
+        self.penalties_home: Optional[int] = None
 
-        self.time: typing.Optional[str | GameState] = None
-        self.kickoff: typing.Optional[datetime.datetime] = None
-        self.ordinal: typing.Optional[int] = None
+        self.time: Optional[str | GameState] = None
+        self.kickoff: Optional[datetime.datetime] = None
+        self.ordinal: Optional[int] = None
 
-        self.attendance: typing.Optional[int] = None
-        self.breaks: int = 0
-        self.competition: typing.Optional[Competition] = None
+        self.attendance: Optional[int] = None
+        self.competition: Optional[Competition] = None
         self.events: list[MatchEvent] = []
-        self.infobox: typing.Optional[str] = None
-        self.images: typing.Optional[list[str]] = None
+        self.infobox: Optional[str] = None
+        self.images: Optional[list[str]] = None
 
-        self.periods: typing.Optional[int] = None
-        self.referee: typing.Optional[str] = None
-        self.stadium: typing.Optional[str] = None
+        self.referee: Optional[str] = None
+        self.stadium: Optional[str] = None
 
         # Hacky but works for results
-        self.win: typing.Optional[str] = None
+        self.win: Optional[str] = None
 
     def __str__(self) -> str:
         gs = GameState
@@ -623,7 +613,7 @@ class Fixture(FlashScoreItem):
         if self.away_score > self.home_score:
             away = f"**{away}**"
 
-        def parse_cards(cards: typing.Optional[int]) -> str:
+        def parse_cards(cards: Optional[int]) -> str:
             """Get a number of icons matching number of cards"""
             if not cards:
                 return ""
@@ -713,8 +703,6 @@ class Fixture(FlashScoreItem):
     # High Cost lookups.
     async def refresh(self, bot: Bot) -> None:
         """Perform an intensive full lookup for a fixture"""
-        from .matchevents import parse_events  # pylint disable=C0415
-
         if self.url is None:
             raise AttributeError(f"Can't refres - no url\n {self.__dict__}")
 
@@ -784,9 +772,6 @@ class Fixture(FlashScoreItem):
         )
         if infobox := tree.xpath(xpath):
             self.infobox = "".join(infobox)
-            if self.infobox.startswith("Format:"):
-                info = self.infobox.rsplit(": ", maxsplit=1)[-1]
-                self.periods = int(info.split("x", maxsplit=1)[0])
 
         self.events = parse_events(self, tree)
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
@@ -795,14 +780,14 @@ class Fixture(FlashScoreItem):
 class Team(FlashScoreItem, HasFixtures):
     """An object representing a Team from Flashscore"""
 
-    competition: typing.Optional[Competition] = None
-    gender: typing.Optional[str] = None
-    logo_url: typing.Optional[str] = None
+    competition: Optional[Competition] = None
+    gender: Optional[str] = None
+    logo_url: Optional[str] = None
 
     emoji = TEAM_EMOJI
 
     def __init__(
-        self, fs_id: typing.Optional[str], name: str, url: typing.Optional[str]
+        self, fs_id: Optional[str], name: str, url: Optional[str]
     ) -> None:
         # Example URL:
         # https://www.flashscore.com/team/thailand-stars/jLsL0hAF/
@@ -832,7 +817,7 @@ class Team(FlashScoreItem, HasFixtures):
 
     @classmethod
     async def from_fixture_html(
-        cls, bot: Bot, tree: typing.Any, home: bool = True
+        cls, bot: Bot, tree: Any, home: bool = True
     ) -> Team:
         """Parse a team from the HTML of a flashscore FIxture"""
         attr = "home" if home else "away"
@@ -881,10 +866,10 @@ class Team(FlashScoreItem, HasFixtures):
         return "".join([i for i in self.name if i.isupper()])
 
     async def get_squad(
-        self, page: Page, btn_name: typing.Optional[str] = None
+        self, page: Page, btn_name: Optional[str] = None
     ) -> list[SquadMember]:
         """Get all squad members for a tournament"""
-        from .players import Player  # pylint: disable=C0415
+        from .players import PartialPlayer  # pylint: disable=C0415
 
         url = f"{self.url}/squad"
 
@@ -902,7 +887,7 @@ class Team(FlashScoreItem, HasFixtures):
         # to_click refers to a button press.
         tree = html.fromstring(await loc.inner_html())
 
-        def parse_row(row: typing.Any, position: str) -> SquadMember:
+        def parse_row(row: Any, position: str) -> SquadMember:
             xpath = './/div[contains(@class, "cell--name")]/a/@href'
             link = FLASHSCORE + "".join(row.xpath(xpath))
 
@@ -913,7 +898,7 @@ class Team(FlashScoreItem, HasFixtures):
             except ValueError:
                 forename, surname = None, name
 
-            player = Player(forename, surname, link)
+            player = PartialPlayer(forename, surname, link)
             xpath = './/div[contains(@class,"flag")]/@title'
             player.country = [str(x.strip()) for x in row.xpath(xpath) if x]
             xpath = './/div[contains(@class,"cell--age")]/text()'
@@ -958,7 +943,7 @@ class Team(FlashScoreItem, HasFixtures):
         self, page: Page, type_: TFOpts, cache: list[Team]
     ) -> list[FSTransfer]:
         """Get a list of transfers for the team retrieved from flashscore"""
-        from .players import Player  # pylint disable=C0415
+        from .players import PartialPlayer  # pylint disable=C0415
 
         if page.url != (url := f"{self.url}/transfers/"):
             await page.goto(url, timeout=500)
@@ -989,7 +974,7 @@ class Team(FlashScoreItem, HasFixtures):
                 forename, surname = None, name
 
             trans = FSTransfer()
-            player = Player(forename, surname, link)
+            player = PartialPlayer(forename, surname, link)
             player.country = i.xpath('.//span[@class="flag"]/@title')
             trans.player = player
 

@@ -293,7 +293,7 @@ class DevBlogView(view_utils.AsyncPaginator):
     ) -> None:
         """Convert to Embed"""
         embed = await self.blogs[self.index].make_embed()
-        await super().handle_page(interaction)
+        self.update_buttons()
         return await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -303,19 +303,20 @@ async def db_ac(
     """Autocomplete dev blog by text"""
     cur = current.casefold()
 
-    blogs: list[discord.app_commands.Choice[str]] = []
-    for i in interaction.client.dev_blog_cache:
+    choices: list[discord.app_commands.Choice[str]] = []
+    blogs = sorted(interaction.client.dev_blog_cache, key=lambda i: i.id)
+    for i in blogs:
         if cur not in i.ac_row:
             continue
 
         name = f"{i.id}: {i.title}"[:100]
-        blogs.append(discord.app_commands.Choice(name=name, value=str(i.id)))
+        choices.append(discord.app_commands.Choice(name=name, value=str(i.id)))
 
-        if len(blogs) == 25:
+        if len(choices) == 25:
             break
 
-    blogs.reverse()
-    return blogs
+    choices.reverse()
+    return choices
 
 
 class DevBlog(commands.Cog):
@@ -323,7 +324,7 @@ class DevBlog(commands.Cog):
 
     def __init__(self, bot: PBot):
         self.bot: PBot = bot
-        self.bot.dev_blog = self.blog_loop.start()
+        self.bot.dev_blog = self.blog_loop.start()  # pylint: disable=E1101
 
         # Dev Blog Cache
         self.bot.dev_blog_cache.clear()

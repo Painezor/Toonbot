@@ -1,15 +1,15 @@
 """Meta information related to Toonbot"""
 from __future__ import annotations
 
-import typing
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    Interaction: TypeAlias = discord.Interaction[Bot]
 
 INV = (
     "https://discord.com/api/oauth2/authorize?client_id=250051254783311873&"
@@ -38,9 +38,9 @@ class MetaToonbot(commands.Cog):
     @discord.app_commands.command()
     async def about(self, interaction: Interaction) -> None:
         """Tells you information about the bot itself."""
-        user = typing.cast(discord.Member, self.bot.user)
+        user = self.bot.user
+        assert user is not None
         embed = discord.Embed(colour=0x2ECC71, timestamp=user.created_at)
-        embed.set_footer(text=f"{user.name} is coded (badly) by Painezor")
 
         embed.set_thumbnail(url=user.display_avatar.url)
         embed.title = f"About {user.name}"

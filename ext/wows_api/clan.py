@@ -17,6 +17,7 @@ logger = logging.getLogger("api.clan")
 CLAN_DETAILS = "https://api.worldofwarships.%%/wows/clans/info/"
 CB_STATS = "https://clans.worldofwarships.%%/api/members/CLAN_ID/"
 CB_SEASON_INFO = "https://api.worldofwarships.eu/wows/clans/season/"
+DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 LEADERBOARD = "https://clans.worldofwarships.eu/api/ladder/structure/"
 VORTEX_INFO = "https://clans.worldofwarships.%%/api/clanbase/CLAN_ID/claninfo/"
 WINNERS = "https://clans.worldofwarships.eu/api/ladder/winners/"
@@ -46,7 +47,7 @@ async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:
             if resp.status != 200:
                 text = await resp.text()
                 logger.error("%s %s: %s", resp.status, text, resp.url)
-        data = await resp.json()
+            data = await resp.json()
 
     return ClanVortexData(data.pop("clanview"))
 
@@ -126,11 +127,6 @@ async def get_cb_winners() -> dict[int, list[ClanBattleWinner]]:
     for k, val in winners.items():
         winners[k] = [ClanBattleWinner(i) for i in val]
     return winners
-
-
-@dataclasses.dataclass(slots=True)
-class ClanBuilding:
-    """A World of Warships Clan Building"""
 
 
 @dataclasses.dataclass(slots=True)
@@ -305,22 +301,40 @@ class PlayerCBStats:
 class ClanMemberVortexData:
     """A member's data, from Vortex API"""
 
-    average_damage: int
-    average_kills: float
-    average_xp: int
-    battles: int
-    battles_per_day: int
+    abnormal_results: bool
+    accumulative_clan_resource: None
+    battles_count: int
+    days_in_clan: int
+    exp_per_battle: float
+    frags_per_battle: float
     is_banned: bool
-    is_online: bool
-    joined_clan_at: datetime.datetime
-    nickname: str
-    win_rate: float
+    is_bonus_activated: None
+    is_hidden_statistics: bool
+    is_press: bool
+    leveling: None
+    name: str
+    online_status: bool
+    profile_link: str
+    last_battle_time: int
+    damage_per_battle: float
+    id: int  # pylint: disable= C0103
+    rank: int
+    role: str
+    season_rank: None
+    season_id: int
+    wins_percentage: float
 
     def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
-            if k == "joined_clan_at":
-                val = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S%z")
-            setattr(self, k, val)
+            if k == "role":
+                logger.info("role = %s", val)
+                val = val["rank"]  # dict
+            elif k == "online status":
+                logger.info(val)
+            try:
+                setattr(self, k, val)
+            except AttributeError:
+                logger.info("ClanMemberVortexData missing %s %s", k, type(val))
 
 
 @dataclasses.dataclass(slots=True)
@@ -377,10 +391,9 @@ class Clan:
 
 
 @dataclasses.dataclass(slots=True)
-class ClanVortexData:
-    """Data about a clan from the Vortex Endpoint"""
+class ClanBuildings:
+    """Generic Container for the clan base's buildings."""
 
-    # Clan Buildings.
     academy: list[int]
     coal_yard: list[int]
     design_department: list[int]
@@ -392,39 +405,10 @@ class ClanVortexData:
     treasury: list[int]
     university: list[int]
 
-    # Clan Battles Data
-    battles_count: int
-    colour: int
-    current_winning_streak: int
-    division: int
-    last_battle_at: datetime.datetime
-    leading_team_number: int
-    league: str
-    max_division: int
-    max_league: str
-    max_position: int
-    max_public_rating: int
-    max_winning_streak: int
-    public_rating: int
-    season_number: int
-    total_battles_played: int
-    wins_count: int
-
-    # Misc
-    is_banned: bool
-
     def __init__(self, data: dict[str, Any]) -> None:
-        ladder = data.pop("wows_ladder")  # This info we care about.
+        logger.info("Data passed to ClanBuildings is %s")
 
-        for k, val in ladder:
-            if k in ["last_battle_at", "last_win_at"]:
-                val = datetime.datetime.strptime(val, "%Y-%m-%dT%H:%M:%S%z")
-            elif k == "ratings":
-                val = [(ClanSeasonStats(i) for i in val)]
-            elif k == "buildings":
-                for _k, _v in val.items():
-                    setattr(self, _k, _v["modifiers"])
-            setattr(self, k, val)
+        data.pop("")
 
     @property
     def coal_bonus(self) -> str:
@@ -512,7 +496,7 @@ class ClanVortexData:
 
     @property
     def xp_bonus(self) -> str:
-        """Get the Clan's Bonus to XP earned"""
+        """Get the Building's Bonus to XP earned"""
         return {
             1: "No Bonus",
             2: "+2% XP up to Tier VI",
@@ -522,33 +506,6 @@ class ClanVortexData:
             6: "+4% Up to Tier X",
             7: "+5% Up to Tier X",
         }[len(self.university)]
-
-    @property
-    def max_rating_name(self) -> str:
-        """Is Alpha or Bravo their best rating?"""
-        return {1: "Alpha", 2: "Bravo"}[self.leading_team_number]
-
-    @property
-    def cb_rating(self) -> str:
-        """Return a string in format League II (50 points)"""
-        if self.public_rating:
-            return "Rating Not Found"
-
-        if self.league == "Hurricane League":
-            return f"Hurricane ({self.public_rating - 2200} points)"
-        else:
-            div = self.division * "I" if self.division else ""
-            return f"{self.league} {div} ({self.public_rating // 100} points)"
-
-    @property
-    def max_cb_rating(self) -> str:
-        """Return a string in format League II (50 points)"""
-        if self.max_league == "Hurricane League":
-            return f"Hurricane ({self.max_public_rating - 2200} points)"
-
-        league = self.max_league
-        div = self.max_division * "I"
-        return f"{league} {div} ({self.max_public_rating // 100} points)"
 
     @property
     def treasury_rewards(self) -> str:
@@ -561,6 +518,107 @@ class ClanVortexData:
             "'additional' bundles",
         ]
         return ", ".join(rewards[: len(self.treasury)])
+
+
+@dataclasses.dataclass(slots=True)
+class ClanVortexData:
+    """Data about a clan from the Vortex Endpoint"""
+
+    clan_buildings: ClanBuildings
+
+    # # Clan Battles Data
+    battles_count: int
+    color: int
+    current_winning_streak: int
+    division: int
+    division_rating: int
+    division_rating_max: int
+    initial_public_rating: int
+    id: int  # pylint: disable=C0103
+    is_best_season_rating: bool
+    is_disbanded: bool
+    is_qualified: bool
+    last_battle_at: Optional[datetime.datetime]
+    last_win_at: Optional[datetime.datetime]
+    leading_team_number: int
+    league: int
+    longest_winning_streak: int
+    # max_division: int
+    # max_league: str
+    max_position: int
+    max_public_rating: int
+    # max_winning_streak: int
+    members_count: int
+    planned_prime_time: Optional[int]  # This value is weird, highest seen is 9
+    prime_time: Optional[int]
+    public_rating: int
+    ratings: list[ClanSeasonStats]
+    rating_realm: None
+    realm: str
+    season_number: int
+    status: str
+    team_number: int
+    total_battles_count: int
+    wins_count: int
+
+    # # Misc
+    is_banned: bool
+
+    def __init__(self, data: dict[str, Any]) -> None:
+        ladder = data.pop("wows_ladder")  # This info we care about.
+
+        for k, val in ladder.items():
+            if k in ["last_battle_at", "last_win_at"]:
+                try:
+                    val = datetime.datetime.strptime(val, DATE_FORMAT)
+                except TypeError:
+                    val = None
+            elif k == "ratings":
+                val = [(ClanSeasonStats(i) for i in val)]
+            elif k == "buildings":
+                val = ClanBuildings(val)
+
+            try:
+                setattr(self, k, val)
+            except AttributeError:
+                logger.info("ClanVortexData %s %s %s", k, type(val), val)
+
+    @property
+    def _league(self) -> str:
+        return {
+            0: "Hurricane League",
+            1: "Typhoon League",
+            2: "Storm League",
+            3: "Gale League",
+            4: "Squall League",
+        }[self.league]
+
+    @property
+    def max_rating_name(self) -> str:
+        """Is Alpha or Bravo their best rating?"""
+        return {1: "Alpha", 2: "Bravo"}[self.leading_team_number]
+
+    @property
+    def cb_rating(self) -> str:
+        """Return a string in format League II (50 points)"""
+        if self.public_rating:
+            return "Rating Not Found"
+
+        if self.league == 0:
+            return f"Hurricane ({self.public_rating - 2200} points)"
+        else:
+            div = self.division * "I" if self.division else ""
+            return f"{self.league} {div} ({self.public_rating // 100} points)"
+
+    # @property
+    # def max_cb_rating(self) -> str:
+    #     """Return a string in format League II (50 points)"""
+    #     if self.max_league == 0:
+    #         return f"Hurricane ({self.max_public_rating - 2200} points)"
+
+    #     league = self.max_league
+    #     div = self.max_division * "I"
+    #     return f"{league} {div} ({self.max_public_rating // 100} points)"
 
 
 @dataclasses.dataclass(slots=True)

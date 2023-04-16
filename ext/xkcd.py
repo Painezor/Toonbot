@@ -95,7 +95,7 @@ class XKCDView(view_utils.AsyncPaginator):
             json = await resp.json()
 
         embed = self.make_embed(json)
-        await super().handle_page(interaction)
+        self.update_buttons()
         return await interaction.response.edit_message(embed=embed)
 
 

@@ -244,12 +244,9 @@ class TeamSelect(view_utils.DropdownPaginator):
         self.team: Team
 
     @select(placeholder="Choose a team")
-    async def dropdown(
-        self, itr: Interaction, select: Select[TeamSelect]
-    ) -> None:
-        self.team = next(i for i in self.teams if i.id == sel.values[0])
-        self.interaction = itr
-        return
+    async def dropdown(self, _, select: Select[TeamSelect]) -> None:
+        """Spawn Team Clan View"""
+        self.team = next(i for i in self.teams if i.id in select.values)
 
 
 class FixtureSelect(view_utils.DropdownPaginator):
@@ -511,6 +508,32 @@ class TFCompetitionTransformer(Transformer):
         return view.competition
 
 
+class LiveCompTransformer(TFCompetitionTransformer):
+    async def autocomplete(  # type: ignore
+        self, interaction: Interaction, current: str, /
+    ) -> list[Choice[str]]:
+        """Autocomplete from list of stored competitions"""
+        leagues = set(i.competition for i in interaction.client.games)
+        leagues = [i for i in leagues if i is not None]
+        leagues.sort(key=lambda i: i.name)
+        curr = current.casefold()
+
+        choices: list[Choice[str]] = []
+
+        for i in leagues:
+            if curr not in i.title.casefold() or i.id is None:
+                continue
+
+            opt = Choice(name=i.title[:100], value=i.id)
+
+            choices.append(opt)
+
+            if len(choices) == 25:
+                break
+        return choices[:25]
+
+
 comp_trnsf: TypeAlias = Transform[Competition, TFCompetitionTransformer]
+live_comp_transf: TypeAlias = Transform[Competition, LiveCompTransformer]
 fix_trnsf: TypeAlias = Transform[Fixture, FixtureTransformer]
 team_trnsf: TypeAlias = Transform[Team, TeamTransformer]

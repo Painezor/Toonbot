@@ -175,6 +175,7 @@ class QuotesView(view_utils.AsyncPaginator):
 
         self.index = 0
         embed = QuoteEmbed(interaction, self.quotes[self.index])
+        self.edit_buttons()
         return await interaction.response.edit_message(embed=embed, view=self)
 
     def edit_buttons(self) -> None:
@@ -186,7 +187,7 @@ class QuotesView(view_utils.AsyncPaginator):
         self.jump.url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
 
     @discord.ui.button(emoji="🔗", row=3, style=discord.ButtonStyle.url)
-    async def jump(self, _: Interaction, __) -> None:
+    async def jump(self, *_) -> None:
         """Jump to Quote"""
         return
 
@@ -246,6 +247,7 @@ class QuotesView(view_utils.AsyncPaginator):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
         embed = QuoteEmbed(interaction, quote)
+        self.edit_buttons()
         await view.interaction.response.edit_message(embed=embed, view=self)
 
     async def handle_page(  # type: ignore
@@ -253,6 +255,7 @@ class QuotesView(view_utils.AsyncPaginator):
     ) -> None:
         """Generic, Entry point."""
         embed = QuoteEmbed(interaction, self.quotes[self.index])
+        self.edit_buttons()
         return await interaction.response.edit_message(embed=embed)
 
 
@@ -318,12 +321,12 @@ async def quote_add(
 
         embed = discord.Embed(colour=discord.Colour.green())
         embed.description = "Added to quote database"
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
         view = QuotesView(interaction)
         view.index = len(interaction.client.quotes) - 1
         embed = QuoteEmbed(interaction, view.quotes[view.index])
-        return await interaction.response.send_message(embed=embed, view=view)
+        return await interaction.followup.send(embed=embed, view=view)
 
 
 class QuoteDB(commands.Cog):

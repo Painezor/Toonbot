@@ -1,15 +1,15 @@
 """Memes related to world of warships"""
 from __future__ import annotations
 
-import typing
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    Interaction: TypeAlias = discord.Interaction[PBot]
 
 
 RAGNAR = (

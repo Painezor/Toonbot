@@ -78,9 +78,8 @@ class Competition(SearchResult):
             setattr(self, k, val)
 
     def __str__(self) -> str:
-        if self:
-            return f"{self.flags} {self.markdown}"
-        return ""
+        flg = " ".join(self.flags)
+        return f"{flg} {self.markdown}"
 
     def __bool__(self) -> bool:
         return bool(self.name)
@@ -143,9 +142,10 @@ class Team(SearchResult):
             setattr(self, k, value)
 
     def __str__(self) -> str:
+        flg = " ".join(self.flags)
         if self.league is not None:
-            return f"{self.flags} {self.markdown} ({self.league.markdown})"
-        return f"{self.flags} {self.markdown}"
+            return f"{flg} {self.markdown} ({self.league.markdown})"
+        return f"{flg} {self.markdown}"
 
     @property
     def badge(self) -> str:
@@ -352,7 +352,7 @@ class Team(SearchResult):
         return embed_utils.rows_to_embeds(embed, trophies)
 
 
-class Player(SearchResult):
+class PartialPlayer(SearchResult):
     """An Object representing a player from transfermarkt"""
 
     age: typing.Optional[int] = None
@@ -370,7 +370,7 @@ class Player(SearchResult):
         return f"Player({self.__dict__})"
 
     def __str__(self) -> str:
-        desc = [self.flags, self.markdown, self.age, self.position]
+        desc = [" ".join(self.flags), self.markdown, self.age, self.position]
 
         if self.team is not None:
             desc.append(self.team.markdown)
@@ -389,7 +389,8 @@ class Referee(SearchResult):
             setattr(self, k, val)
 
     def __str__(self) -> str:
-        output = f"{self.flags} {self.markdown} {self.age}"
+        flg = " ".join(self.flags)
+        output = f"{flg} {self.markdown} {self.age}"
         return output
 
 
@@ -410,7 +411,8 @@ class Staff(SearchResult):
     def __str__(self) -> str:
         team = self.team.markdown if self.team is not None else ""
         markdown = self.markdown
-        return f"{self.flags} {markdown} {self.age}, {self.job} {team}".strip()
+        flg = " ".join(self.flags)
+        return f"{flg} {markdown} {self.age}, {self.job} {team}".strip()
 
 
 class Agent(SearchResult):
@@ -420,7 +422,7 @@ class Agent(SearchResult):
 class Transfer:
     """An Object representing a transfer from transfermarkt"""
 
-    player: Player
+    player: PartialPlayer
 
     new_team: Team
     old_team: Team
@@ -440,7 +442,7 @@ class Transfer:
 
         link = TF + "".join(data.xpath(".//td[1]//tr[1]/td[2]/a/@href"))
 
-        player = Player(name, link)
+        player = PartialPlayer(name, link)
 
         # Box 1 - Player Info
         player.picture = "".join(data.xpath(".//img/@data-src"))
@@ -532,7 +534,7 @@ class Transfer:
         if link and TF not in link:
             link = TF + link
 
-        player = Player(name=name, link=link)
+        player = PartialPlayer(name=name, link=link)
         xpath = './img[@class="bilderrahmen-fixed"]/@data-src'
         player.picture = "".join(data.xpath(xpath))
 
@@ -610,7 +612,8 @@ class Transfer:
     def embed(self) -> discord.Embed:
         """An embed representing a transfermarkt player transfer."""
         embed = discord.Embed(colour=0x1A3151)
-        embed.title = f"{self.player.flags} {self.player.name}"
+        flg = " ".join(self.player.flags)
+        embed.title = f"{flg} {self.player.name}"
         embed.url = self.player.link
         desc: list[str] = []
         desc.append(f"**Age**: {self.player.age}")
@@ -755,6 +758,7 @@ class CompetitionView(view_utils.Paginator):
         await interaction.response.send_message(view=view, embed=view.pages[0])
 
 
+# TODO: AsyncDropdownPaginator
 class SearchView(view_utils.DropdownPaginator):
     """A TransferMarkt Search in View Form"""
 
@@ -895,7 +899,6 @@ class SearchView(view_utils.DropdownPaginator):
         embed = embed_utils.rows_to_embeds(embed, _)[0]
         self.pages = [embed] * max(matches // 10, 1)
         options: list[discord.SelectOption] = []
-        rows: list[str] = []
         for i in self.items:
             desc = i.country[0] if i.country else ""
 
@@ -906,9 +909,7 @@ class SearchView(view_utils.DropdownPaginator):
             opt.description = desc[:100]
             opt.emoji = i.flags[0]
             options.append(opt)
-            rows.append(desc)
 
-        self.rows = rows
         self.dropdown.options = options
         await interaction.response.edit_message(view=self, embed=embed)
 
@@ -978,12 +979,12 @@ class PlayerSearch(SearchView):
     query_string = "Spieler_page"
     match_string = "for players"
 
-    value: Player
+    value: PartialPlayer
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[Player]:
+    def parse(rows: list[typing.Any]) -> list[PartialPlayer]:
         """Parse a transfer page to get a list of players"""
-        results: list[Player] = []
+        results: list[PartialPlayer] = []
         for i in rows:
             xpath = (
                 './/tm-tooltip[@data-type="player"]/a/@title |'
@@ -1000,7 +1001,7 @@ class PlayerSearch(SearchView):
             if link and TF not in link:
                 link = TF + link
 
-            player = Player(name=name, link=link)
+            player = PartialPlayer(name=name, link=link)
 
             xpath = './/img[@class="bilderrahmen-fixed"]/@src'
             player.picture = "".join(i.xpath(xpath))

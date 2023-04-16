@@ -56,6 +56,7 @@ RECRUITING = "https://friends.worldofwarships.%%/en/players/"
 
 def do_buttons(view: discord.ui.View, val: str) -> None:
     """Make region buttons"""
+    btn: discord.ui.Button[discord.ui.View]
     for i in Region:
         btn = discord.ui.Button(url=val.replace("%%", i.domain), emoji=i.emote)
         btn.label = i.name
@@ -92,8 +93,7 @@ class HelpMe(commands.Cog):
             f" them [here]({BUILDS}) or by using the button below."
         )
         embed.set_thumbnail(url=HELP_ME_LOGO)
-
-        btn = discord.ui.Button(url=BUILDS)
+        btn: discord.ui.Button[discord.ui.View] = discord.ui.Button(url=BUILDS)
         btn.label = "Help Me Builds on Google Docs"
         view = discord.ui.View().add_item(btn)
         return await interaction.response.send_message(embed=embed, view=view)
@@ -125,7 +125,7 @@ class HelpMe(commands.Cog):
                 name=f"{yurra}", icon_url=yurra.display_avatar.url
             )
         embed.colour = discord.Colour.dark_orange()
-
+        btn: discord.ui.Button[discord.ui.View]
         btn = discord.ui.Button(url="https://bit.ly/yurraguides")
         btn.label = "Yurra's guides"
         view = discord.ui.View().add_item(btn)
@@ -137,6 +137,7 @@ class HelpMe(commands.Cog):
         embed = discord.Embed(title="Help Me Discord", colour=0xAE8A6D)
         embed.description = HELP_ME_BIO
         embed.set_thumbnail(url=HELP_ME_LOGO)
+        btn: discord.ui.Button[discord.ui.View]
         btn = discord.ui.Button(url=HELP_ME_DISC, label="Help Me Discord")
         view = discord.ui.View().add_item(btn)
         return await interaction.response.send_message(embed=embed, view=view)

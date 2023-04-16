@@ -1,18 +1,14 @@
 """Flashscore GameState Objects and ticker dispatching"""
 from __future__ import annotations
+from dataclasses import MISSING
 
 import enum
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 import discord
 
 from .matchevents import EventType
-
-if TYPE_CHECKING:
-    from core import Bot
-    from .abc import Fixture
-
 
 logger = logging.getLogger("flashscore.gamestate")
 
@@ -20,10 +16,9 @@ logger = logging.getLogger("flashscore.gamestate")
 class GameState(enum.Enum):
     """An Enum representing the various possibilities of game state"""
 
-    def __new__(cls, *args: str | discord.Colour) -> GameState:
-        value = len(cls.__members__) + 1
+    def __new__(cls, *args: str) -> GameState:
         obj = object.__new__(cls)
-        obj._value_ = value
+        obj._value_ = args[0]
         return obj
 
     def __init__(
@@ -71,71 +66,70 @@ class GameState(enum.Enum):
     AWARDED = ("Awrd", "⚪", 0xFFFFFF)
 
 
-def dispatch_events(bot: Bot, fix: Fixture, old: Optional[GameState]) -> None:
+def get_event_type(
+    new: Optional[GameState], old: Optional[GameState]
+) -> Optional[EventType]:
     """Dispatch events to the ticker"""
-
-    evt = "fixture_event"
-    send_event = bot.dispatch
-
-    new = fix.state
 
     if old == new or old is None:
         return
 
+    evt = MISSING
+
     if new == GameState.ABANDONED:
-        send_event(evt, EventType.ABANDONED, fix)
+        evt = EventType.ABANDONED
     elif new == GameState.AFTER_EXTRA_TIME:
-        send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fix)
+        evt = EventType.SCORE_AFTER_EXTRA_TIME
     elif new == GameState.AFTER_PENS:
-        send_event(evt, EventType.PENALTY_RESULTS, fix)
+        evt = EventType.PENALTY_RESULTS
     elif new == GameState.CANCELLED:
-        send_event(evt, EventType.CANCELLED, fix)
+        evt = EventType.CANCELLED
     elif new == GameState.DELAYED:
-        send_event(evt, EventType.DELAYED, fix)
+        evt = EventType.DELAYED
     elif new == GameState.INTERRUPTED:
-        send_event(evt, EventType.INTERRUPTED, fix)
+        evt = EventType.INTERRUPTED
     elif new == GameState.BREAK_TIME:
         if old == GameState.EXTRA_TIME:
             # Break Time = after regular time & before penalties
-            send_event(evt, EventType.EXTRA_TIME_END, fix)
+            evt = EventType.EXTRA_TIME_END
         else:
-            fix.breaks += 1
-            if fix.periods is not None:
-                send_event(evt, EventType.PERIOD_END, fix)
-            else:
-                send_event(evt, EventType.NORMAL_TIME_END, fix)
+            evt = EventType.NORMAL_TIME_END
     elif new == GameState.EXTRA_TIME:
         if old == GameState.HALF_TIME:
-            send_event(evt, EventType.HALF_TIME_ET_END, fix)
+            evt = EventType.HALF_TIME_ET_END
         else:
-            send_event(evt, EventType.EXTRA_TIME_BEGIN, fix)
+            evt = EventType.EXTRA_TIME_BEGIN
     elif new == GameState.FULL_TIME:
         if old == GameState.EXTRA_TIME:
-            send_event(evt, EventType.SCORE_AFTER_EXTRA_TIME, fix)
+            evt = EventType.SCORE_AFTER_EXTRA_TIME
         elif old in [GameState.SCHEDULED, GameState.HALF_TIME]:
-            send_event(evt, EventType.FINAL_RESULT_ONLY, fix)
+            evt = EventType.FINAL_RESULT_ONLY
         else:
-            send_event(evt, EventType.FULL_TIME, fix)
+            evt = EventType.FULL_TIME
     elif new == GameState.HALF_TIME:
         # Half Time is fired at regular Half time & ET Half time.
         if old == GameState.EXTRA_TIME:
-            send_event(evt, EventType.HALF_TIME_ET_BEGIN, fix)
+            evt = EventType.HALF_TIME_ET_BEGIN
         else:
-            send_event(evt, EventType.HALF_TIME, fix)
+            evt = EventType.HALF_TIME
     elif new == GameState.LIVE:
         if old in [GameState.SCHEDULED, GameState.DELAYED]:
-            send_event(evt, EventType.KICK_OFF, fix)
+            evt = EventType.KICK_OFF
         elif old == GameState.INTERRUPTED:
-            send_event(evt, EventType.RESUMED, fix)
+            evt = EventType.RESUMED
         elif old == GameState.HALF_TIME:
-            send_event(evt, EventType.SECOND_HALF_BEGIN, fix)
+            evt = EventType.SECOND_HALF_BEGIN
         elif old == GameState.BREAK_TIME:
-            send_event(evt, EventType.PERIOD_BEGIN, fix)
+            evt = EventType.PERIOD_BEGIN
     elif new == GameState.PENALTIES:
-        send_event(evt, EventType.PENALTIES_BEGIN, fix)
+        evt = EventType.PENALTIES_BEGIN
     elif new == GameState.POSTPONED:
-        send_event(evt, EventType.POSTPONED, fix)
+        evt = EventType.POSTPONED
     elif new == GameState.STOPPAGE_TIME:
-        pass
-    else:
-        logger.error("States: %s -> %s %s @ %s", old, new, fix.url, fix.time)
+        return None
+
+    if evt is MISSING:
+        logger.error("State Change Not Handled: %s -> %s", old, new)
+        evt = None
+
+    return evt

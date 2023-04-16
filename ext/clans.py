@@ -9,6 +9,7 @@ from typing import Optional, TYPE_CHECKING, TypeAlias, Any
 import discord
 from discord import SelectOption, Embed, Colour
 from discord.ext import commands
+from discord.utils import escape_markdown
 
 from ext import wows_api as api
 from ext.utils import view_utils
@@ -130,7 +131,7 @@ class ClanView(view_utils.BaseView):
     async def generate_overview(self, interaction: Interaction) -> Embed:
         """Entry point for a clan view"""
         embed = await self.base_embed(interaction)
-        vortex = await self.clan_vortex()
+        data = await self.clan_vortex()
 
         time = Timestamp(self.clan.updated_at).relative
         desc = [f"**Information updated**: {time}\n"]
@@ -149,30 +150,31 @@ class ClanView(view_utils.BaseView):
             fmt = f"[{self.clan.old_tag}] {self.clan.old_name} ({time})"
             desc.append(f"**Former name**: {fmt}")
 
-        if vortex.season_number:
-            title = f"Clan Battles Season {vortex.season_number}"
+        if data.season_number:
+            title = f"Clan Battles Season {data.season_number}"
 
-            flag = vortex.max_rating_name
-            cb_desc = [f"**Current Rating**: {vortex.cb_rating} ({flag})"]
+            flag = data.max_rating_name
+            cb_desc = [f"**Current Rating**: {data.cb_rating} ({flag})"]
 
-            if hasattr(vortex, "max_cb_rating"):
+            if hasattr(data, "max_cb_rating"):
                 logger.error("You also nuked max_cb_rating here.")
             # if vortex.cb_rating != vortex.max_cb_rating:
             #     cb_desc.append(f"**Highest Rating**: {vortex.max_cb_rating}")
 
-            time = Timestamp(vortex.last_battle_at).relative
+            time = Timestamp(data.last_battle_at).relative
             cb_desc.append(f"**Last Battle**: {time}")
 
             # Win Rate
-            win_r = round(vortex.wins_count / vortex.battles_count * 100, 2)
-            _ = f"{vortex.wins_count} / {vortex.battles_count}"
-            cb_desc.append(f"**Win Rate**: {win_r}% ({_})")
+            if data.battles_count:
+                win_r = round(data.wins_count / data.battles_count * 100, 2)
+                _ = f"{data.wins_count} / {data.battles_count}"
+                cb_desc.append(f"**Win Rate**: {win_r}% ({_})")
 
             # Win streaks
             # lws = vortex.max_winning_streak
-            cws = vortex.current_winning_streak
+            cws = data.current_winning_streak
 
-            if hasattr(vortex, "max_winning_streak"):
+            if hasattr(data, "max_winning_streak"):
                 logger.error("You removed longest winning streak, fuckface")
             if cws:
                 # if cws == lws:
@@ -187,7 +189,7 @@ class ClanView(view_utils.BaseView):
         )
         embed.description = "\n".join(desc)
 
-        if vortex.is_banned:
+        if data.is_banned:
             val = "This clan is marked as 'banned'"
             embed.add_field(name="Banned Clan", value=val)
 
@@ -207,32 +209,29 @@ class ClanView(view_utils.BaseView):
         embed.title = f"Clan Members ({self.clan.members_count} Total)"
         mems = sorted(await self.member_vortex(), key=lambda x: x.name)
 
-        text = [
-            f"`🟢` {i.name}" if i.is_online else i.name
-            for i in mems
-            if not i.is_banned
-        ]
-
-        embed.description = discord.utils.escape_markdown(", ".join(text))
+        names: list[str] = []
+        for i in mems:
+            names.append(i.name if not i.online_status else f"🟢 {i.name}")
+        embed.description = escape_markdown("\n ".join(names))
 
         if banned := [i.name for i in mems if i.is_banned]:
             embed.add_field(name="Banned Members", value=", ".join(banned))
 
         # Clan Records:
-        c_wr = round(sum(i.win_rate for i in mems) / len(mems), 2)
+        c_wr = round(sum(i.wins_percentage for i in mems) / len(mems), 2)
 
-        avg_dmg = round(sum(i.average_damage for i in mems) / len(mems))
+        avg_dmg = round(sum(i.damage_per_battle for i in mems) / len(mems))
         c_dmg = format(avg_dmg, ",")
 
-        avg_xp = round(sum(c.average_xp for c in mems) / len(mems), 2)
+        avg_xp = round(sum(c.exp_per_battle for c in mems) / len(mems), 2)
         c_xp = format(avg_xp, ",")
 
-        c_kills = round(sum(c.average_kills for c in mems) / len(mems), 2)
+        c_kills = round(sum(c.frags_per_battle for c in mems) / len(mems), 2)
 
-        avg_games = round(sum(c.battles for c in mems) / len(mems))
+        avg_games = round(sum(c.battles_count for c in mems) / len(mems))
         c_games = format(avg_games, ",")
 
-        c_gpd = round(sum(c.battles_per_day for c in mems) / len(mems), 2)
+        # c_gpd = round(sum(c. for c in mems) / len(mems), 2)
         embed.add_field(
             name="Clan Averages",
             value=f"**Win Rate**: {c_wr}%\n"
@@ -240,24 +239,24 @@ class ClanView(view_utils.BaseView):
             f"**Average Kills**: {c_kills}\n"
             f"**Average XP**: {c_xp}\n"
             f"**Total Battles**: {c_games}\n"
-            f"**Battles Per Day**: {c_gpd}",
+            # f"**Battles Per Day**: {c_gpd}",
         )
 
-        m_d = max(mems, key=lambda p: p.average_damage)
-        max_xp = max(mems, key=lambda p: p.average_xp)
-        max_wr = max(mems, key=lambda p: p.win_rate)
-        max_games = max(mems, key=lambda p: p.battles)
-        m_p = max(mems, key=lambda p: p.battles_per_day)
-        m_a_k = max(mems, key=lambda p: p.average_kills)
+        m_d = max(mems, key=lambda p: p.damage_per_battle)
+        max_xp = max(mems, key=lambda p: p.exp_per_battle)
+        max_wr = max(mems, key=lambda p: p.wins_percentage)
+        max_games = max(mems, key=lambda p: p.battles_count)
+        # m_p = max(mems, key=lambda p: p.battles_per_day)
+        m_a_k = max(mems, key=lambda p: p.frags_per_battle)
 
         embed.add_field(
             name="Top Players",
-            value=f"{round(max_wr.win_rate, 2)}% ({max_wr.nickname})\n"
-            f'{format(round(m_d.average_damage), ",")} ({m_d.nickname})\n'
-            f"{round(m_a_k.average_kills, 2)} ({m_a_k.nickname})\n"
-            f'{format(round(max_xp.average_xp), ",")} ({max_xp.nickname})\n'
-            f'{format(max_games.battles, ",")} ({max_games.nickname})\n'
-            f"{round(m_p.battles_per_day, 2)} ({m_p.nickname})",
+            value=f"{round(max_wr.wins_percentage, 2)}% ({max_wr.name})\n"
+            f'{format(round(m_d.damage_per_battle), ",")} ({m_d.name})\n'
+            f"{round(m_a_k.frags_per_battle, 2)} ({m_a_k.name})\n"
+            f'{format(round(max_xp.exp_per_battle), ",")} ({max_xp.name})\n'
+            f'{format(max_games.battles_count, ",")} ({max_games.name})\n'
+            # f"{round(m_p.battles_per_day, 2)} ({m_p.nickname})",
         )
 
         return await interaction.response.edit_message(embed=embed)
@@ -265,16 +264,18 @@ class ClanView(view_utils.BaseView):
     @discord.ui.button(label="New Members")
     async def new_members(self, interaction: Interaction, _) -> None:
         """Get a list of the clan's newest members"""
-        embed = await self.base_embed()
+        embed = await self.base_embed(interaction)
         embed.title = "Newest Clan Members"
 
         vtx = await self.member_vortex()
-        members = sorted(vtx, key=lambda x: x.joined_clan_at, reverse=True)
+
+        members = sorted(vtx, key=lambda x: x.days_in_clan, reverse=True)
 
         embed.description = ""
         for i in members[:10]:
-            time = Timestamp(i.joined_clan_at).relative
-            embed.description += f"{time}: {i.nickname}"
+            # delta = datetime.timedelta(days=i.days_in_clan)
+            # time = Timestamp(self.clan.created_at - delta).relative
+            embed.description += f"{i.days_in_clan} Days: {i.name}\n"
         return await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -289,7 +290,8 @@ class WinnerView(view_utils.DropdownPaginator):
     ) -> None:
         embeds: list[Embed] = []
         options: list[list[SelectOption]] = []
-        for k, val in winners.items():
+
+        for k, val in sorted(winners.items(), reverse=True):
             val.sort(key=lambda c: c.public_rating)
 
             k = next(i for i in seasons if i.season_id == val[0].season_id)
@@ -347,8 +349,9 @@ class WinnerView(view_utils.DropdownPaginator):
         clan = await api.get_clan_details(winner.clan_id, region)
 
         view = ClanView(itr.user, clan, parent=self)
-        await view.overview.callback(itr)  # pyling: disable=E1101
-        view.message = await itr.original_response()
+        embed = await view.generate_overview(itr)
+        await itr.response.edit_message(view=view, embed=embed)
+        view.message = self.message
 
 
 class Clans(commands.Cog):

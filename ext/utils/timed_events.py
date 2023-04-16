@@ -6,9 +6,13 @@ import typing
 class Timestamp:
     """A Utility class for quick timezone conversion"""
 
-    def __init__(self, time: typing.Optional[datetime.datetime] = None):
+    def __init__(self, time: typing.Optional[datetime.datetime | int] = None):
         if time is None:
             time = datetime.datetime.now(tz=datetime.timezone.utc)
+
+        if isinstance(time, int):
+            time = datetime.datetime.fromtimestamp(time)
+
         self.value = time
         self.time = str(time.timestamp()).split(".", maxsplit=1)[0]
 

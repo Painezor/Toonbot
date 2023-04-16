@@ -16,18 +16,16 @@ logger = logging.getLogger("wows.enums")
 
 class Nation(enum.Enum):
     """An Enum representing different nations."""
-    alias: str
-    match: str
-    flag: str
 
-    def __new__(cls, alias: str, match: str, flag: str) -> Nation:
-        value = len(cls.__members__) + 1
+    def __new__(cls, *args: str) -> Nation:
         obj = object.__new__(cls)
-        obj._value_ = value
-        obj.alias = alias
-        obj.match = match
-        obj.flag = flag
+        obj._value_ = args[0]
         return obj
+
+    def __init__(self, _, match: str, flag: str) -> None:
+        self.match: str = match
+        self.flag: str = flag
+        super().__init__()
 
     COMMONWEALTH = ("Commonwealth", "commonwealth", "")
     EUROPE = ("Pan-European", "europe", "🇪🇺")
@@ -46,34 +44,27 @@ class Nation(enum.Enum):
 
 class Region(enum.Enum):
     """A Generic object representing a region"""
-    
-    db_key: str
-    domain: str
-    colour: int
-    code_prefix: str
-    domain: str
-    emote: str
-    realm: str
 
-    def __new__(
-        cls,
-        db_key: str,
+    def __new__(cls, *args: str) -> Region:
+        obj = object.__new__(cls)
+        obj._value_ = args[0]
+        return obj
+
+    def __init__(
+        self,
+        _,  # ignore, already handled by init
         url: str,
         emote: str,
         colour: int,
         code_prefix: str,
         realm: str,
-    ) -> Region:
-        value = len(cls.__members__) + 1
-        obj = object.__new__(cls)
-        obj._value_ = value
-        obj.db_key = db_key
-        obj.domain = url
-        obj.emote = emote
-        obj.colour = colour
-        obj.code_prefix = code_prefix
-        obj.realm: = realm
-        return obj
+    ) -> None:
+        super().__init__()
+        self.domain: str = url
+        self.emote: str = emote
+        self.colour = colour
+        self.code_prefix = code_prefix
+        self.realm = realm
 
     # database key, domain, emote, colour, code prefix, realm
     EU = ("eu", "eu", "<:EU:993495456988545124>", 0x0000FF, "eu", "eu")

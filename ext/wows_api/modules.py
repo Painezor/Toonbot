@@ -1,11 +1,13 @@
 """Data retrieved from the Modules endpoint"""
 import dataclasses
 import logging
+from typing import Any
 
 import aiohttp
 
 from .emojis import (
     ARTILLERY_EMOJI,
+    AUXILIARY_EMOJI,
     DIVE_BOMBER_EMOJI,
     ENGINE_EMOJI,
     FIRE_CONTROL_EMOJI,
@@ -17,16 +19,20 @@ from .emojis import (
 from .shipparameters import BomberAccuracy
 from .wg_id import WG_ID
 
-from typing import Any
-
 
 MODULES = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
 
 logger = logging.getLogger("ext.modules")
 
 
+class ModuleProfile:  # Generic
+    """Data Not always present"""
+
+    emoji = AUXILIARY_EMOJI
+
+
 @dataclasses.dataclass(slots=True)
-class ArtilleryProfile:
+class ArtilleryProfile(ModuleProfile):
     """An 'Artillery' Module"""
 
     gun_rate: float
@@ -41,7 +47,7 @@ class ArtilleryProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class DiveBomberProfile:
+class DiveBomberProfile(ModuleProfile):
     """A 'Dive Bomber' Module"""
 
     accuracy: BomberAccuracy
@@ -59,7 +65,7 @@ class DiveBomberProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class EngineProfile:
+class EngineProfile(ModuleProfile):
     """An 'Engine' Module"""
 
     max_speed: float
@@ -72,7 +78,7 @@ class EngineProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class FighterProfile:
+class FighterProfile(ModuleProfile):
     """A 'Fighter' Module"""
 
     avg_damage: int
@@ -88,7 +94,7 @@ class FighterProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class FireControlProfile:
+class FireControlProfile(ModuleProfile):
     """A 'Fire Control' Module"""
 
     distance: float
@@ -102,7 +108,7 @@ class FireControlProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class FlightControlProfile:
+class FlightControlProfile(ModuleProfile):
     """Deprecated - CV FlightControl"""
 
     bomber_squadrons: int
@@ -117,7 +123,7 @@ class FlightControlProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class HullArmour:
+class HullArmour(ModuleProfile):
     """The Thickness of the Ship's armour in mm"""
 
     min: int
@@ -129,7 +135,7 @@ class HullArmour:
 
 
 @dataclasses.dataclass(slots=True)
-class HullProfile:
+class HullProfile(ModuleProfile):
     """A 'Hull' Module"""
 
     anti_aircraft_barrels: int
@@ -149,7 +155,7 @@ class HullProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class TorpedoBomberProfile:
+class TorpedoBomberProfile(ModuleProfile):
     """A 'Torpedo Bomber' Module"""
 
     cruise_speed: int
@@ -168,7 +174,7 @@ class TorpedoBomberProfile:
 
 
 @dataclasses.dataclass(slots=True)
-class TorpedoProfile:
+class TorpedoProfile(ModuleProfile):
     """A 'Torpedoes' Module"""
 
     distance: int
@@ -181,40 +187,6 @@ class TorpedoProfile:
     def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             setattr(self, k, val)
-
-
-@dataclasses.dataclass(slots=True)
-class ModuleProfile:
-    """Data Not always present"""
-
-    artillery: ArtilleryProfile
-    dive_bomber: DiveBomberProfile
-    engine: EngineProfile
-    fighter: FighterProfile
-    fire_control: FireControlProfile
-    flight_control: FlightControlProfile
-    hull: HullProfile
-    torpedo_bomber: TorpedoBomberProfile
-    torpedoes: TorpedoProfile
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            val = {
-                "artillery": ArtilleryProfile,
-                "dive_bomber": DiveBomberProfile,
-                "engine": EngineProfile,
-                "fighter": FighterProfile,
-                "flght_control": FlightControlProfile,
-                "hull": HullProfile,
-                "torpedo_bomber": TorpedoBomberProfile,
-                "torpedoes": TorpedoProfile,
-            }[k](val)
-            setattr(self, k, val)
-
-    @property
-    def emoji(self) -> str:
-        """Return the Generic Auxiliary Armament Image"""
-        return "<:auxiliary:991806987362902088>"
 
 
 @dataclasses.dataclass(slots=True)
@@ -234,13 +206,12 @@ class Module:
     def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "profile":
-                val = ModuleProfile(val)
+                try:
+                    val = {"artillery": ArtilleryProfile(val)}[k]
+                except KeyError:
+                    logger.info("Module profile is %s", val)
+                    return
             setattr(self, k.lower(), val)
-
-    @property
-    def emoji(self) -> str:
-        """Return an emoji representing the module"""
-        return self.profile.emoji
 
 
 async def get_modules(modules: list[int]) -> dict[int, Module]:

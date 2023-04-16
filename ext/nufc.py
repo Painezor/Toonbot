@@ -3,18 +3,21 @@ from __future__ import annotations
 
 import datetime
 import random
+
+from typing import TYPE_CHECKING, TypeAlias
 import typing
 
 import discord
+from discord.ui import Button, View
 from discord.ext import commands
 
 from ext.logs import stringify_seconds
 from ext.utils.view_utils import BaseView
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    Interaction: TypeAlias = discord.Interaction[Bot]
 
 CLR_PICKER = "http://htmlcolorcodes.com/color-picker/"
 M_EMOJI = "<:mbemba:332196308825931777>"
@@ -225,11 +228,10 @@ class NUFC(commands.Cog):
             code = hex_code.strip("#").replace("0x", "").upper()
             d_colo = discord.Colour(int(code, 16))
         except ValueError:
-            view = discord.ui.View()
-            btn = discord.ui.Button(url=CLR_PICKER)
-            btn.label = "Colour picker."
+            view = View()
+            btn: Button[View] = Button(url=CLR_PICKER, label="Colour picker.")
             view.add_item(btn)
-            embed = discord.Embed()
+            embed = discord.Embed(colour=discord.Colour.red())
             embed.description = "🚫 Invalid Colourr"
             reply = interaction.response.send_message
             return await reply(embed=embed, ephemeral=True, view=view)

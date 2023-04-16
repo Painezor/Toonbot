@@ -49,6 +49,7 @@ COGS = [
     "ext.reminders",
     "ext.rng",
     "ext.scores",
+    "ext.score_task",
     "ext.sidebar",
     "ext.stadiums",
     "ext.streams",
@@ -88,7 +89,7 @@ class Bot(commands.AutoShardedBot):
 
         # Database & Credentials
         self.db: asyncpg.Pool[asyncpg.Record] = datab  # pylint: disable=C0103
-        self.initialised_at: datetime.datetime = datetime.datetime.utcnow()
+        self.initialised_at: datetime.datetime = datetime.datetime.now()
         self.invite: str = INVITE_URL
 
         # Fixtures
@@ -98,7 +99,7 @@ class Bot(commands.AutoShardedBot):
         self.games: list[fs.Fixture] = []
         self.teams: list[fs.Team] = []
         self.competitions: set[fs.Competition] = set()
-        self.score_channels: list[ScoreChannel] = []
+        self.score_channels: set[ScoreChannel] = set()
         self.scores: Optional[asyncio.Task[None]] = None
 
         # Notifications
@@ -158,6 +159,22 @@ class Bot(commands.AutoShardedBot):
             except commands.ExtensionError:
                 logger.error("Failed to load cog %s", i, exc_info=True)
         return
+
+    async def save_competition(self, cmp: fs.Competition) -> None:
+        """Save the competition to the bot database"""
+        sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
+            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
+            (country, name, logo_url, url) =
+            (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
+            """
+
+        async with self.db.acquire(timeout=60) as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    sql, cmp.id, cmp.country, cmp.name, cmp.logo_url, cmp.url
+                )
+        self.competitions.add(cmp)
+        logger.info("saved competition. %s %s %s", cmp.name, cmp.id, cmp.url)
 
     def get_competition(self, value: str) -> Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""

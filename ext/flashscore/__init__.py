@@ -15,11 +15,11 @@ from .constants import (
     TEAM_EMOJI,
     YELLOW_CARD_EMOJI,
 )
-from .gamestate import GameState, dispatch_events
+from .gamestate import GameState, get_event_type
 from .matchevents import EventType, MatchEvent, Penalty, Substitution
-from .players import Player, TopScorer
+from .players import PartialPlayer, TopScorer
 from .team import FSTransfer, SquadMember
-from .transformers import comp_trnsf, fix_trnsf, team_trnsf
+from .transformers import comp_trnsf, fix_trnsf, team_trnsf, live_comp_transf
 
 __all__ = [
     # constants
@@ -41,14 +41,14 @@ __all__ = [
     "Fixture",
     # gamestate,
     "GameState",
-    "dispatch_events",
+    "get_event_type",
     # match events
     "EventType",
     "MatchEvent",
     "Penalty",
     "Substitution",
     # players
-    "Player",
+    "PartialPlayer",
     "TopScorer",
     "FSTransfer",
     "SquadMember",
@@ -57,5 +57,6 @@ __all__ = [
     # transformers
     "comp_trnsf",
     "fix_trnsf",
+    "live_comp_transf",
     "team_trnsf",
 ]

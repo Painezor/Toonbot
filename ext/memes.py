@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import random
+from typing import TYPE_CHECKING, TypeAlias
 
-import typing
 import discord
 from discord.ext import commands
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
+
+    Interaction: TypeAlias = discord.Interaction[Bot]
 
 
 class Memes(commands.Cog):
@@ -22,25 +24,25 @@ class Memes(commands.Cog):
     )
 
     @mem_grp.command()
-    async def dead(self, interaction: discord.Interaction[Bot]) -> None:
+    async def dead(self, interaction: Interaction) -> None:
         """STOP, STOP HE'S ALREADY DEAD"""
         vid = "https://www.youtube.com/watch?v=mAUY1J8KizU"
         return await interaction.response.send_message(vid)
 
     @mem_grp.command(name="f")
-    async def press_f(self, interaction: discord.Interaction[Bot]) -> None:
+    async def press_f(self, interaction: Interaction) -> None:
         """Press F to pay respects"""
         img = "https://i.imgur.com/zrNE05c.gif"
         return await interaction.response.send_message(img)
 
     @mem_grp.command()
-    async def helmet(self, interaction: discord.Interaction[Bot]) -> None:
+    async def helmet(self, interaction: Interaction) -> None:
         """Helmet"""
         helmet = discord.File(fp="Images/helmet.jpg")
         return await interaction.response.send_message(file=helmet)
 
     @mem_grp.command()
-    async def lenny(self, interaction: discord.Interaction[Bot]) -> None:
+    async def lenny(self, interaction: Interaction) -> None:
         """( ͡° ͜ʖ ͡°)"""
         lennys = [
             "( ͡° ͜ʖ ͡°)",
@@ -67,9 +69,7 @@ class Memes(commands.Cog):
         return await interaction.response.send_message(random.choice(lennys))
 
     @mem_grp.command()
-    async def thatsthejoke(
-        self, interaction: discord.Interaction[Bot]
-    ) -> None:
+    async def thatsthejoke(self, interaction: Interaction) -> None:
         """That's the joke"""
         vid = "https://www.youtube.com/watch?v=xECUrlnXCqk"
         return await interaction.response.send_message(vid)

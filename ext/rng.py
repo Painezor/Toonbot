@@ -60,18 +60,17 @@ class DiceBox(view_utils.BaseView):
 
 
 # TODO: Button to decorator
-class DiceButton(discord.ui.Button):
+class DiceButton(discord.ui.Button["DiceBox"]):
     """A Generic Button for a die"""
-
-    view: DiceBox
 
     def __init__(self, sides: int = 6, row: int = 0):
         style = discord.ButtonStyle.blurple
         super().__init__(label=f"Roll D{sides}", row=row, style=style)
         self.sides: int = sides
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(self, interaction: discord.Interaction) -> None:
         """When clicked roll"""
+        assert self.view is not None
         roll = random.randrange(1, self.sides + 1)
         if not self.view.rolls:
             self.view.rolls = [[roll]]
@@ -92,7 +91,7 @@ class CoinView(view_utils.BaseView):
         embed.colour = discord.Colour.og_blurple()
         embed.set_thumbnail(url=COIN)
         embed.set_author(name="Coin Flip")
-        self.embed = embed
+        self.embed: discord.Embed = embed
 
     async def update(self, interaction: Interaction) -> None:
         """Update embed and push to view"""
@@ -107,19 +106,17 @@ class CoinView(view_utils.BaseView):
 
 
 # TODO: Make Decorator
-class FlipButton(discord.ui.Button):
+class FlipButton(discord.ui.Button["CoinView"]):
     """Flip a coin and pass the result to the view"""
-
-    view: CoinView
 
     def __init__(self, label: str = "Flip a Coin", count: int = 1) -> None:
         style = discord.ButtonStyle.primary
         super().__init__(label=label, emoji="🪙", style=style)
         self.count: int = count
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(self, interaction: Interaction) -> None:  # type: ignore
         """When clicked roll"""
-
+        assert self.view is not None
         await interaction.response.defer()
         results = [random.choice(["H", "T"]) for _ in range(self.count)]
         self.view.flip_results = results
@@ -129,11 +126,11 @@ class FlipButton(discord.ui.Button):
 class ChoiceModal(discord.ui.Modal):
     """Send a Modal to the User to enter their options in."""
 
-    question = discord.ui.TextInput(
+    question: discord.ui.TextInput[ChoiceModal] = discord.ui.TextInput(
         label="Enter a question", placeholder="What should I do?"
     )
 
-    answers = discord.ui.TextInput(
+    answers: discord.ui.TextInput[ChoiceModal] = discord.ui.TextInput(
         label="Answers (one per line)",
         style=discord.TextStyle.paragraph,
         placeholder="Sleep\nPlay FIFA",
@@ -142,7 +139,7 @@ class ChoiceModal(discord.ui.Modal):
     def __init__(self) -> None:
         super().__init__(title="Make a Decision")
 
-    async def on_submit(self, interaction: Interaction, /) -> None:
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         """When the Modal is submitted, send a random choice back"""
 
         user = interaction.user
@@ -153,7 +150,8 @@ class ChoiceModal(discord.ui.Modal):
         choices = str(self.answers).split("\n")
         random.shuffle(choices)
 
-        output, medals = [], ["🥇", "🥈", "🥉"]
+        output: list[str] = []
+        medals = ["🥇", "🥈", "🥉"]
         for _ in range(min(len(choices), 3)):
             output.append(f"{medals.pop()} **{choices.pop()}**")
 
@@ -320,7 +318,7 @@ class Random(commands.Cog):
             embed.description += f"{i}: "
             total_roll = 0
             roll_info = ""
-            curr_rolls = []
+            curr_rolls: list[str] = []
             for i in range(die):
                 first_roll = random.randrange(1, 1 + sides)
                 roll_outcome = first_roll
@@ -341,7 +339,7 @@ class Random(commands.Cog):
 
                 total_roll += roll_outcome
 
-                if dice == 1 and sides >= 20:
+                if die == 1 and sides >= 20:
                     if roll_outcome == 1:
                         embed.colour = discord.Colour.red()
                         embed.set_footer(text="Critical Failure")

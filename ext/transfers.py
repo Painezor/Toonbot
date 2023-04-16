@@ -264,7 +264,9 @@ class Transfers(commands.Cog):
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
         self.bot.transfer_channels.clear()
-        self.bot.transfers = self.transfers_loop.start()
+        self.bot.transfers = (
+            self.transfers_loop.start()  # pylint: disable=E1101
+        )
 
     async def cog_unload(self) -> None:
         """Cancel transfers task on Cog Unload."""
@@ -344,11 +346,6 @@ class Transfers(commands.Cog):
         if not self.bot.guilds:
             return
 
-        if not self.bot.transfer_channels:
-            logger.error("Transfer Loop - No transfer_channels found.")
-            await self.update_cache()
-            return
-
         async with self.bot.session.get(LOOP_URL) as resp:
             if resp.status != 200:
                 rsn = await resp.text()
@@ -397,6 +394,11 @@ class Transfers(commands.Cog):
                     await channel.send(embed=embed)
                 except discord.HTTPException:
                     continue
+
+    @transfers_loop.before_loop
+    async def precache(self):
+        """Cache before loop starts."""
+        await self.update_cache()
 
     tf = discord.app_commands.Group(
         name="transfer_ticker",

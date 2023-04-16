@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-import typing
+from typing import Any, TYPE_CHECKING, TypeAlias, Optional, Literal
 import importlib
 
 import discord
@@ -12,11 +12,11 @@ from ext.clans import ClanView
 from ext import wows_api as api
 from ext.utils import view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[PBot]
+    User: TypeAlias = discord.User | discord.Member
 
 # TODO: Wows Numbers Ship Leaderboard Command.
 # TODO: Browse all Ships command. Filter Dropdowns.
@@ -29,7 +29,7 @@ if typing.TYPE_CHECKING:
 
 logger = logging.getLogger("warships")
 
-REGION = typing.Literal["eu", "na", "sea"]
+REGION = Literal["eu", "na", "sea"]
 
 # TODO: Calculation of player's PR
 # https://wows-numbers.com/personal/rating
@@ -57,18 +57,18 @@ class PlayerView(view_utils.BaseView):
     def __init__(
         self,
         invoker: User,
-        player: api.Player,
-        ship: typing.Optional[api.warships.Ship] = None,
-        **kwargs,
+        player: api.PartialPlayer,
+        ship: Optional[api.warships.Ship] = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(invoker, **kwargs)
 
         # Passed
-        self.player: api.Player = player
-        self.ship: typing.Optional[api.warships.Ship] = ship
+        self.player: api.PartialPlayer = player
+        self.ship: Optional[api.warships.Ship] = ship
 
         # Fetched
-        self.api_stats: typing.Optional[api.PlayerStats] = None
+        self.api_stats: Optional[api.PlayerStats] = None
 
         if player.clan is None:
             self.remove_item(self.clan)
@@ -84,16 +84,21 @@ class PlayerView(view_utils.BaseView):
         assert self.player.clan is not None
         clan = await self.player.clan.fetch_details()
         view = ClanView(interaction.user, clan, parent=self)
-        embed = await view.generate_overview()
+        embed = await view.generate_overview(interaction)
         await interaction.response.send_message(embed=embed, view=view)
+        view.message = await interaction.original_response()
 
     @discord.ui.button(label="WoWs Numbers", style=discord.ButtonStyle.url)
-    async def wows_numbers(self, _: Interaction, __) -> None:
+    async def wows_numbers(
+        self, _: Interaction, __: discord.ui.Button[PlayerView]
+    ) -> None:
         """A button with a link to the player's wowsnumbers page"""
         return
 
     @discord.ui.button(label="Profile", style=discord.ButtonStyle.url)
-    async def profile(self, _: Interaction, __) -> None:
+    async def profile(
+        self, _: Interaction, __: discord.ui.Button[PlayerView]
+    ) -> None:
         """A button with a link to the player's profile page"""
         return
 
@@ -106,30 +111,31 @@ class PlayerView(view_utils.BaseView):
         embed.set_author(name=self.player.nickname, icon_url=mode.image)
         if self.api_stats is None:
             if self.ship is None:
-                self.api_stats = await self.player.fetch_stats()
+                p_stats = await api.fetch_stats([self.player])
+                self.api_stats = p_stats[0]
             else:
                 self.api_stats = await self.player.fetch_ship_stats(self.ship)
 
-        stats: api.PlayerStatsMode
+        stats: api.ModeStats
         stats, embed.title = {
             "BRAWL": {},
             "COOPERATIVE": {
-                0: (self.api_stats.pve, "Co-op (Overall)"),
-                1: (self.api_stats.pve_solo, "Co-op (Solo)"),
-                2: (self.api_stats.pve_div2, "Co-op (Div 2)"),
-                3: (self.api_stats.pve_div3, "Co-op (Div 3)"),
+                0: (self.api_stats.statistics.pve, "Co-op (Overall)"),
+                1: (self.api_stats.statistics.pve_solo, "Co-op (Solo)"),
+                2: (self.api_stats.statistics.pve_div2, "Co-op (Div 2)"),
+                3: (self.api_stats.statistics.pve_div3, "Co-op (Div 3)"),
             },
             "PVP": {
-                0: (self.api_stats.pvp, "PVP (Overall)"),
-                1: (self.api_stats.pvp_solo, "PVP (Solo)"),
-                2: (self.api_stats.pvp_div2, "PVP (Div 2)"),
-                3: (self.api_stats.pvp_div3, "PVP (Div 3)"),
+                0: (self.api_stats.statistics.pvp, "PVP (Overall)"),
+                1: (self.api_stats.statistics.pvp_solo, "PVP (Solo)"),
+                2: (self.api_stats.statistics.pvp_div2, "PVP (Div 2)"),
+                3: (self.api_stats.statistics.pvp_div3, "PVP (Div 3)"),
             },
             "PVE": {
-                1: (self.api_stats.oper_solo, "Operations (Solo)"),
+                1: (self.api_stats.statistics.oper_solo, "Operations (Solo)"),
             },
             "PVE_PREMADE": {
-                1: (self.api_stats.oper_div, "Operations (Premade)")
+                1: (self.api_stats.statistics.oper_div, "Operations (Premade)")
             },
         }[mode.tag][div_size]
 
@@ -173,7 +179,7 @@ class PlayerView(view_utils.BaseView):
         loss = stats.losses
         draws = stats.draws
 
-        desc = []
+        desc: list[str] = []
         try:
             win_rate = round(wins / played * 100, 2)
             rest = f"({played} Battles - {wins} W / {draws} D / {loss} L )"
@@ -245,7 +251,7 @@ class PlayerView(view_utils.BaseView):
             s_planes = get(stats.max_planes_killed_ship_id)
 
             # Records, Totals
-            rec = []
+            rec: list[str] = []
             for record, ship in [
                 (r_kills, s_kills),
                 (r_dmg, s_dmg),
@@ -318,15 +324,18 @@ class WowsStats(commands.Cog):
     async def stats(
         self,
         interaction: Interaction,
-        region: REGION,
+        region: api.region_transform,
         player: api.player_transform,
-        mode: api.mode_transform,
-        division: discord.app_commands.Range[int, 0, 3] = 0,
-        ship: typing.Optional[api.ship_transform] = None,
+        mode: Optional[api.mode_transform],
+        division: Optional[discord.app_commands.Range[int, 0, 3]],
+        ship: Optional[api.ship_transform] = None,
     ) -> None:
         """Search for a player's Stats"""
         del region  # Shut up linter.
         view = PlayerView(interaction.user, player, ship)
+        if mode is None:
+            mode = next(i for i in self.bot.modes if i.tag == "PVP")
+        division = 0 if division is None else division
         await view.push_stats(interaction, mode, div_size=division)
 
 

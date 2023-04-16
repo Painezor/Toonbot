@@ -76,7 +76,7 @@ class PBot(commands.AutoShardedBot):
 
         # Database & API Credentials
         self.db: asyncpg.Pool[asyncpg.Record] = datab  # pylint: disable=C0103
-        self.initialised_at: datetime.datetime = datetime.datetime.utcnow()
+        self.initialised_at: datetime.datetime = datetime.datetime.now()
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
@@ -104,7 +104,6 @@ class PBot(commands.AutoShardedBot):
 
         # Wows
         self.contributors: list[Contributor] = []
-        self.clan_buildings: list[api.ClanBuilding] = []
         self.clan_battle_seasons: list[api.ClanBattleSeason]
         self.clan_battle_winners: dict[int, list[api.ClanBattleWinner]]
         self.maps: set[api.Map] = set()

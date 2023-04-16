@@ -1,4 +1,6 @@
 """Cog for fetching World of Warships Portal Articles from each region"""
+# TODO REFACTOR: Move NewsArticle to it's own file
+# Migrate the save method to inside the cog.
 from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
@@ -22,35 +24,6 @@ if typing.TYPE_CHECKING:
     User: typing.TypeAlias = discord.User | discord.Member
 
 RSS_NEWS = "https://worldofwarships.%%/en/rss/news/"
-
-
-async def save_article(bot: PBot, article: Article) -> None:
-    """Store the article in the database for quicker retrieval in future"""
-    sql = """INSERT INTO news_articles
-                (title, description, partial, link, image, category, date,
-                eu, na, sea)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                ON CONFLICT (partial)
-                DO UPDATE SET
-                (title, description, link, image, category, date, eu, na, sea)
-                = (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link,
-                EXCLUDED.image, EXCLUDED.category, EXCLUDED.date,
-                EXCLUDED.eu, EXCLUDED.na, EXCLUDED.sea) """
-    async with bot.db.acquire(timeout=60) as connection:
-        async with connection.transaction():
-            await connection.execute(
-                sql,
-                article.title,
-                article.description,
-                article.partial,
-                article.link,
-                article.image,
-                article.category,
-                article.date,
-                article.eu,
-                article.na,
-                article.sea,
-            )
 
 
 class Article:
@@ -78,6 +51,33 @@ class Article:
         self.sea: bool = False  # pylint: disable=C0103
 
         self.date: typing.Optional[datetime.datetime] = None
+
+    # TODO: Move this to a method of bot, move to end of file.
+    async def save(self, bot: PBot) -> None:
+        """Store the article in the database for quicker retrieval in future"""
+
+        sql = """INSERT INTO news_articles (title, description, partial, link,
+                image, category, date, eu, na, sea) VALUES ($1, $2, $3, $4,
+                $5, $6, $7, $8, $9, $10) ON CONFLICT (partial) DO UPDATE SET
+                (title, description, link, image, category, date, eu, na, sea)
+                = (EXCLUDED.title, EXCLUDED.description, EXCLUDED.link,
+                EXCLUDED.image, EXCLUDED.category, EXCLUDED.date, EXCLUDED.eu,
+                EXCLUDED.na, EXCLUDED.sea) """
+        async with bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    sql,
+                    self.title,
+                    self.description,
+                    self.partial,
+                    self.link,
+                    self.image,
+                    self.category,
+                    self.date,
+                    self.eu,
+                    self.na,
+                    self.sea,
+                )
 
     async def generate_embed(self) -> discord.Embed:
         """Handle dispatching of news article."""
@@ -125,16 +125,18 @@ class Article:
             pass
 
         for region in api.Region:
-            if getattr(self, region.db_key):
+            if getattr(self, region.value):
                 embed.colour = region.colour
                 break
 
         view = discord.ui.View()
+        btn: discord.ui.Button[discord.ui.View]
         for region in api.Region:
-            if getattr(self, region.db_key):
+            if getattr(self, region.value):
                 dom = region.domain
                 name = region.name
                 url = f"https://worldofwarships.{dom}/en/{self.partial}"
+
                 btn = discord.ui.Button(emoji=region.emote, url=url)
                 btn.label = f"{name} article"
                 view.add_item(btn)
@@ -177,10 +179,7 @@ class NewsChannel:
 
         """
         # Check if we want this news article for this channel.
-        if not getattr(self, region.db_key):
-            return
-
-        if self.channel is None:
+        if not getattr(self, region.value):
             return
 
         # Check if this article has already been posted for another region.
@@ -210,36 +209,42 @@ class NewsConfig(view_utils.BaseView):
         self.sea_news.style = style.green if channel.sea else style.red
 
     @discord.ui.button(label="EU", emoji=api.Region.EU.emote)
-    async def eu_news(self, interaction: Interaction, btn) -> None:
+    async def eu_news(
+        self, interaction: Interaction, btn: discord.ui.Button[NewsConfig]
+    ) -> None:
         """Button for EU News Articles"""
         self.channel.eu = not self.channel.eu
 
         style = discord.ButtonStyle
         btn.style = style.green if self.channel.eu else style.red
-
-        await interaction.response.edit_message(embed=self.embed(), view=self)
+        embed = self.base_embed
+        await interaction.response.edit_message(embed=embed, view=self)
         await self.update_database(interaction, "eu", self.channel.eu)
 
     @discord.ui.button(label="NA", emoji=api.Region.NA.emote)
-    async def na_news(self, interaction: Interaction, btn):
+    async def na_news(
+        self, interaction: Interaction, btn: discord.ui.Button[NewsConfig]
+    ):
         """Button for NA News Articles"""
         self.channel.na = not self.channel.na
 
         style = discord.ButtonStyle
         btn.style = style.green if self.channel.na else style.red
-
-        await interaction.response.edit_message(embed=self.embed(), view=self)
+        embed = self.base_embed
+        await interaction.response.edit_message(embed=embed, view=self)
         await self.update_database(interaction, "na", self.channel.na)
 
     @discord.ui.button(label="SEA", emoji=api.Region.SEA.emote)
-    async def sea_news(self, interaction: Interaction, btn):
+    async def sea_news(
+        self, interaction: Interaction, btn: discord.ui.Button[NewsConfig]
+    ):
         """Button for SEA news articles"""
         self.channel.sea = not self.channel.sea
 
         style = discord.ButtonStyle
         btn.style = style.green if self.channel.sea else style.red
-
-        await interaction.response.edit_message(embed=self.embed(), view=self)
+        embed = self.base_embed
+        await interaction.response.edit_message(embed=embed, view=self)
         await self.update_database(interaction, "sea", self.channel.sea)
 
     async def update_database(
@@ -253,7 +258,8 @@ class NewsConfig(view_utils.BaseView):
                           WHERE channel_id = $2"""
                 await connection.execute(sql, new, ch_id)
 
-    def embed(self) -> discord.Embed:
+    @property
+    def base_embed(self) -> discord.Embed:
         """Regenerate view and push to message"""
         embed = discord.Embed(colour=discord.Colour.dark_teal())
         embed.title = "World of Warships News Tracker config"
@@ -270,7 +276,7 @@ async def news_ac(
     interaction: Interaction, cur: str
 ) -> list[discord.app_commands.Choice[str]]:
     """An Autocomplete that fetches from recent news articles"""
-    choices = []
+    choices: list[discord.app_commands.Choice[str]] = []
     cache = interaction.client.news_cache
     now = datetime.datetime.now()
 
@@ -299,7 +305,7 @@ class NewsTracker(commands.Cog):
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
-        self.bot.news = self.news_loop.start()
+        self.bot.news = self.news_loop.start()  # pylint: disable=E1101
 
     async def cog_unload(self) -> None:
         """Stop previous runs of tickers upon Cog Reload"""
@@ -330,10 +336,10 @@ class NewsTracker(commands.Cog):
                     self.bot.news_cache.append(article)
 
                 # If we have already dispatched this article for this region
-                if getattr(article, region.db_key):
+                if getattr(article, region.value):
                     continue
                 else:
-                    setattr(article, region.db_key, True)
+                    setattr(article, region.value, True)
 
                 # At this point, we either have a new article, or a new region
                 # for an existing article. In which case, we check if we need
@@ -371,7 +377,7 @@ class NewsTracker(commands.Cog):
                 await article.generate_embed()
 
                 # If we are simply populating, we are not interested.
-                await save_article(self.bot, article)
+                await article.save(self.bot)
 
                 for channel in self.bot.news_channels:
                     try:
@@ -462,12 +468,13 @@ class NewsTracker(commands.Cog):
                              VALUES ($1) returning *"""
                     record = await connection.fetchrow(sql, channel.id)
 
-            # TODO: Confirmation Dialogue
+            assert record is not None
             target = NewsChannel(self.bot, record, channel)
             self.bot.news_channels.append(target)
 
         view = NewsConfig(interaction.user, target)
-        await interaction.response.send_message(view=view, embed=view.embed())
+        embed = view.base_embed
+        await interaction.response.send_message(view=view, embed=embed)
         view.message = await interaction.original_response()
 
     # Event Listeners for database cleanup.

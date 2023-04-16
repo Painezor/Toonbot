@@ -4,19 +4,13 @@ from __future__ import annotations
 import dataclasses
 import datetime
 import logging
-import typing
+from typing import Any, Union, Optional
 
 import aiohttp
-import discord
 from .wg_id import WG_ID
 from .enums import Region
 from .clan import Clan, PartialClan
 from .warships import Ship
-
-if typing.TYPE_CHECKING:
-    from painezbot import PBot
-
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
 
 logger = logging.getLogger("api.player")
 
@@ -50,66 +44,48 @@ MODE_STRINGS = [
     "rank_solo",
 ]
 
-#
-#         Player Personal Data Endpoint.
-#         self.created_at: datetime.datetime  # Player Account creation
-#         self.hidden_profile: bool  # Player Stats are hidden?
-#         self.karma: int  # Player Karma
-#         self.last_battle_time: datetime.datetime
-#         self.levelling_points: int  # Player level - Garbage
-#         self.levelling_tier: int  # Same.
-#         self.logout_at: datetime.datetime
-#         self.stats_updated_at: datetime.datetime
 
-#         # CB Season Stats
-#         self.clan: typing.Optional[clan.Clan] = None
+async def fetch_stats(players: list[PartialPlayer]) -> list[PlayerStats]:
+    """Fetch Player Stats from API"""
+    ids = ", ".join([str(i.account_id) for i in players][:100])
+    parmas = {"application_id": WG_ID, "account_id": ids}
 
-#         # Keyed By Season ID.
-#         self.clan_battle_stats: dict[int, PlayerCBStats] = {}
+    url = PLAYER_STATS.replace("%%", players[0].region.domain)
+
+    modes = MODE_STRINGS.copy()
+    modes.remove("pvp")
+    extra = ", ".join(f"statistics.{i}" for i in modes)
+    parmas.update({"extra": extra})
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=parmas) as resp:
+            if resp.status != 200:
+                err = await resp.text()
+                logger.error("%s on %s -> %s", resp.status, url, err)
+                raise ConnectionError()
+            data = await resp.json()
+
+    return [PlayerStats(i) for i in data.pop("data").values()]
 
 
 @dataclasses.dataclass(slots=True)
-class Player:
+class PartialPlayer:
     """A World of Warships player."""
 
     account_id: int
     nickname: str
 
-    clan: typing.Optional[PlayerClanData] = None
+    clan: Optional[PlayerClanData] = None
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Union[int, str]]) -> None:
         # Player Search Endpoint
         for k, val in data.items():
             setattr(self, k, val)
 
-    async def fetch_stats(self) -> PlayerStats:
-        """Fetch Player Stats from API"""
-        parmas = {"application_id": WG_ID, "account_id": self.account_id}
-
-        url = PLAYER_STATS.replace("%%", self.region.domain)
-
-        extra = ", ".join(f"statistics.{i}" for i in MODE_STRINGS)
-        parmas.update({"extra": extra})
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=parmas) as resp:
-                if resp.status != 200:
-                    err = await resp.text()
-                    logger.error("%s on %s -> %s", resp.status, url, err)
-                    raise ConnectionError()
-            data = await resp.json()
-
-        statistics = PlayerStats(data.pop("statistics"))
-        for k, value in data:
-            if k == "private":
-                continue
-            else:
-                setattr(self, k, value)
-        return statistics
-
     async def fetch_ship_stats(self, ship: Ship) -> PlayerStats:
         """Get stats for a player in a specific ship"""
         url = PLAYER_STATS_SHIP.replace("%%", self.region.domain)
+
         params = {
             "application_id": WG_ID,
             "account_id": self.account_id,
@@ -167,10 +143,9 @@ class PlayerClanData:
 
     clan: PartialClan
 
-    def __init__(self, data: typing.Optional[dict]) -> None:
+    def __init__(self, data: Optional[dict[str, Any]]) -> None:
         if data is None:
             return
-
         for k, val in data.items():
             if k == "clan":
                 val = PartialClan(val)
@@ -187,34 +162,64 @@ class PlayerClanData:
 
 
 @dataclasses.dataclass(slots=True)
+class PlayerBattleStatistics:
+    """Stats retrieved from the Player Statistics Endpoint"""
+
+    oper_div: ModeStats
+    oper_div_hard: ModeStats
+    oper_solo: ModeStats
+    pve: ModeStats
+    pve_div2: ModeStats
+    pve_div3: ModeStats
+    pve_solo: ModeStats
+    pvp: ModeStats
+    pvp_div2: ModeStats
+    pvp_div3: ModeStats
+    pvp_solo: ModeStats
+
+    def __init__(self, data: dict[str, dict[str, Any]]) -> None:
+        for k, val in data.items():
+            setattr(self, k, ModeStats(val))
+
+
+@dataclasses.dataclass(slots=True)
 class PlayerStats:
     """Generics for a Player"""
 
-    oper_div: PlayerStatsMode
-    oper_div_hard: PlayerStatsMode
-    oper_solo: PlayerStatsMode
-    pve: PlayerStatsMode
-    pve_div2: PlayerStatsMode
-    pve_div3: PlayerStatsMode
-    pve_solo: PlayerStatsMode
-    pvp: PlayerStatsMode
-    pvp_div2: PlayerStatsMode
-    pvp_div3: PlayerStatsMode
-    pvp_solo: PlayerStatsMode
+    account_id: int
+    created_at: datetime.datetime
+    hidden_profile: bool
+    last_battle_time: datetime.datetime
+    leveling_tier: int  # e.g. 17
+    leveling_points: int  # 28887
+    logout_at: datetime.datetime
+    nickname: str
+    karma: None  # requires Oauth
+    private: None  # requires Oauth
+    statistics: PlayerBattleStatistics
+    updated_at: datetime.datetime
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, val in data.items():
             if k == "club":
                 continue  # Dead data.
 
-            if k in MODE_STRINGS:
-                setattr(self, k, PlayerStatsMode(val))
-            else:
-                setattr(self, k, val)
+            elif k == "statistics":
+                val = PlayerBattleStatistics(val)
+
+            elif k in [
+                "created_at",
+                "last_battle_time",
+                "logout_at",
+                "updated_at",
+            ]:
+                val = datetime.datetime.fromtimestamp(val)
+
+            setattr(self, k, val)
 
 
 @dataclasses.dataclass(slots=True)
-class PlayerStatsMode:
+class ModeStats:
     """Generic Container for all API Data"""
 
     art_agro: int  # Potential Damage
@@ -265,9 +270,9 @@ class PlayerStatsMode:
     torpedoes: PlayerModeArmamentStats
 
     # Operations fucky.
-    wins_by_tasks: typing.Optional[dict] = None
+    wins_by_tasks: Optional[dict[str, int]] = None
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, Any]) -> None:
         for k, value in data.items():
             if k in ARMAMENT_TYPES:
                 setattr(self, k, PlayerModeArmamentStats(value))
@@ -290,6 +295,6 @@ class PlayerModeArmamentStats:
     max_frags_ship_id: int
     shots: int
 
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict[str, int]) -> None:
         for k, value in data.items():
             setattr(self, k, value)

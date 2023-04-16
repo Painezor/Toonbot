@@ -52,9 +52,11 @@ async def get_colour(url: typing.Optional[str]) -> discord.Colour | int:
         img = Image.open(container)
         img = img.convert("RGB")
         img = img.resize((1, 1), resample=0)
-        dominant_color: tuple[int, int, int] = img.getpixel((0, 0))
-        img.close()
-        return dominant_color
+
+        try:
+            return img.getpixel((0, 0))  # type: ignore
+        finally:
+            img.close()
 
     colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
     return discord.Colour.from_rgb(*colour)
@@ -74,7 +76,7 @@ def rows_to_embeds(
 ) -> list[discord.Embed]:
     """Create evenly distributed rows of text from a list of data"""
 
-    desc = embed.description if embed.description else ""
+    desc = embed.description + "\n" if embed.description else ""
 
     count: int = 0
     embeds: list[discord.Embed] = []
@@ -88,13 +90,15 @@ def rows_to_embeds(
             continue
 
         current.description = desc + footer
+        current.description.strip()
         embeds.append(current)
         current = embed.copy()
 
         # Reset loop
         count = 1
 
-    current.description = desc + footer
+    current.description = desc.strip() + footer
+    current.description.strip()
     embeds.append(current)
     return embeds
 

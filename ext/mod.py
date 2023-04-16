@@ -1,9 +1,12 @@
 """Moderation Commands"""
 from __future__ import annotations
 
-import enum
 import typing
+from discord import Colour
+from discord.app_commands import Choice
 import discord
+
+from discord.ui import TextInput
 from discord.ext import commands
 
 if typing.TYPE_CHECKING:
@@ -12,80 +15,41 @@ if typing.TYPE_CHECKING:
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
 
-
-class DiscordColours(enum.Enum):
-    """Valid Colours of discord.Colour"""
-
-    BLUE = "blue"
-    BLURPLE = "blurple"
-    BRAND_GREEN = "brand_green"
-    BRAND_RED = "brand_red"
-    DARK_BLUE = "dark_blue"
-    DARK_EMBED = "dark_embed"
-    DARK_GOLD = "dark_gold"
-    DARK_GRAY = "dark_gray"
-    DARK_GREEN = "dark_gray"
-    DARK_MAGENTA = "dark_magenta"
-    DARK_ORANGE = "dark_orange"
-    DARK_PURPLE = "dark_purple"
-    DARK_RED = "dark_red"
-    DARK_TEAL = "dark_teal"
-    DARKER_GRAY = "darker_gray"
-    DEFAULT = "default"
-    FUCHSIA = "fuchsia"
-    GOLD = "gold"
-    GREEN = "green"
-    GREYPLE = "greyple"
-    LIGHT_EMBED = "light_embed"
-    LIGHT_GRAY = "light_gray"
-    LIGHTER_GRAY = "lighter_gray"
-    MAGENTA = "magenta"
-    OG_BLURPLE = "og_blurple"
-    ORANGE = "orange"
-    PURPLE = "purple"
-    RANDOM = "random"
-    RED = "red"
-    TEAL = "teal"
-    YELLOW = "yellow"
+exclude = ("r", "g", "b", "hsv", "grey", "grey", "from_", "__")
+colours = [i for i in dir(Colour) if not i.startswith(exclude)]
 
 
-async def colour_ac(
-    _: discord.Interaction[Bot], current: str
-) -> list[discord.app_commands.Choice[str]]:
+async def colour_ac(_: Interaction, current: str) -> list[Choice[str]]:
     """Return from list of colours"""
-    return [
-        discord.app_commands.Choice(name=i.value, value=i.value)
-        for i in DiscordColours
-        if current.casefold() in i.value.casefold()
-    ][:25]
+    cur = current.casefold()
+    return [Choice(name=i, value=i) for i in colours if cur in i][:25]
 
 
 class EmbedModal(discord.ui.Modal, title="Send an Embed"):
     """A Modal to allow the author to send an embedded message"""
 
-    ttl: discord.ui.TextInput[EmbedModal]
-    ttl = discord.ui.TextInput(label="Embed Title", placeholder="Announcement")
+    ttl: TextInput[EmbedModal]
+    ttl = TextInput(label="Embed Title", placeholder="Announcement")
 
-    text: discord.ui.TextInput[EmbedModal]
-    text = discord.ui.TextInput(label="Embed Text", max_length=4000)
+    text: TextInput[EmbedModal]
+    text = TextInput(label="Embed Text", max_length=4000)
     text.style = discord.TextStyle.paragraph
 
-    thumbnail: discord.ui.TextInput[EmbedModal]
-    thumbnail = discord.ui.TextInput(label="Thumbnail", required=False)
+    thumbnail: TextInput[EmbedModal]
+    thumbnail = TextInput(label="Thumbnail", required=False)
     thumbnail.placeholder = "Enter url for thumbnail image"
 
-    image: discord.ui.TextInput[EmbedModal]
-    image = discord.ui.TextInput(label="Image", required=False)
+    image: TextInput[EmbedModal] = TextInput(label="Image", required=False)
     image.placeholder = "Enter url for large image"
 
     def __init__(
         self,
         destination: discord.TextChannel,
-        colour: discord.Colour,
+        colour: Colour,
     ) -> None:
         super().__init__()
         self.destination: discord.TextChannel = destination
-        self.colour: discord.Colour = colour
+        self.colour: Colour = colour
 
     async def on_submit(self, interaction: discord.Interaction, /) -> None:
         """Send the embed"""
@@ -110,7 +74,7 @@ class EmbedModal(discord.ui.Modal, title="Send an Embed"):
             return
         except discord.HTTPException:
             pass
-        embed = discord.Embed(colour=discord.Colour.red())
+        embed = discord.Embed(colour=Colour.red())
         embed.description = "🚫 I can't send messages to that channel."
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -137,14 +101,8 @@ class Mod(commands.Cog):
         if destination is None:
             destination = typing.cast(discord.TextChannel, interaction.channel)
 
-        # TODO: Make this into a transformer
-        clr = next(
-            (i.value for i in DiscordColours if i.value == colour), "random"
-        )
-        colo: discord.Colour = getattr(discord.Colour, clr)()
-
+        colo: Colour = getattr(Colour, colour)()
         modal = EmbedModal(destination, colo)
-
         await interaction.response.send_modal(modal)
 
     @discord.app_commands.command()
@@ -187,7 +145,7 @@ class Mod(commands.Cog):
             pass
 
         err = "🚫 I can't send messages to that channel."
-        embed = discord.Embed(colour=discord.Colour.red())
+        embed = discord.Embed(colour=Colour.red())
         return await interaction.response.send_message(embed=embed)
 
     @discord.app_commands.command()
@@ -223,7 +181,7 @@ class Mod(commands.Cog):
         reason: str = "Not provided",
     ) -> None:
         """End the timeout for a user."""
-        embed = discord.Embed(colour=discord.Colour.red())
+        embed = discord.Embed(colour=Colour.red())
         if not member.is_timed_out():
             embed.description = "That user is not timed out."
             return await interaction.response.send_message(embed=embed)
@@ -231,7 +189,7 @@ class Mod(commands.Cog):
         try:
             await member.timeout(None, reason=f"{interaction.user}: {reason}")
             embed.title = "User Un-Timed Out"
-            embed.color = discord.Colour.dark_magenta()
+            embed.color = Colour.dark_magenta()
             embed.description = f"{member.mention} is no longer timed out."
         except discord.HTTPException:
             embed.description = "I can't un-timeout that user."

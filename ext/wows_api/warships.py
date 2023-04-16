@@ -52,7 +52,6 @@ async def get_ships() -> list[Ship]:
                     logger.error("%s %s: %s", resp.status, rsn, resp.url)
                 items = await resp.json()
 
-            logger.info("Scanning page %s", count)
             meta = items.pop("meta")
 
             for data in items["data"].values():
@@ -65,7 +64,6 @@ async def get_ships() -> list[Ship]:
             return meta["page_total"]
 
         max_iter = await get_page(1, session)
-        logger.info("pagetotal = %s", max_iter)
         # Fetch all remaiing pages simultaneously
         await asyncio.gather(
             *[get_page(i, session) for i in range(2, max_iter + 1)]
@@ -84,7 +82,6 @@ async def get_ships() -> list[Ship]:
         prevs = [j for j in ships if str(i.ship_id) in i.next_ships.keys()]
         i.previous_ship_objects = prevs
 
-    logger.info("%s ships fetched", len(ships))
     return ships
 
 
@@ -226,7 +223,7 @@ class Ship:
         """Autocomplete text"""
         # Remove Accents.
         decoded = unidecode.unidecode(self.name)
-        return f"{decoded} ({self.tier} {self.nation.alias} {self.type.name})"
+        return f"{decoded} ({self.tier} {self.nation.value} {self.type.name})"
 
 
 class ShipFit:

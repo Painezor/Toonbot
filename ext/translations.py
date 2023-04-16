@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import typing
 
 import discord
@@ -12,17 +11,15 @@ if typing.TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
-translations: dict[discord.Locale, dict] = {}
+translations: dict[discord.Locale, dict[str, str]] = {}
 
 for record in discord.Locale:
+    path = f"./ext/utils/translations/{record.name}.json"
     try:
-        path = f"./ext/utils/translations/{record.name}.json"
         with open(path, mode="r", encoding="utf-8") as file:
             translations[record] = json.load(file)
     except FileNotFoundError:
-        logging.error(
-            "Failed load translation %s, %s.json", record, record.name
-        )
+        open(path, "x").close()
 
 
 class TL(discord.app_commands.Translator):

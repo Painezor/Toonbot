@@ -12,7 +12,7 @@ if typing.TYPE_CHECKING:
     from .abc import Team
 
 
-class Player:
+class PartialPlayer:
     """An object representing a player from flashscore."""
 
     def __init__(
@@ -54,23 +54,23 @@ class Player:
 class TopScorer:
     """A Top Scorer object fetched from a Flashscore Item"""
 
-    player: Player
+    player: PartialPlayer
     team: Team
 
     goals: int
     rank: int
     assists: int
 
-    def __init__(self, player: Player) -> None:
+    def __init__(self, player: PartialPlayer) -> None:
         self.player = player
 
     @property
     def output(self) -> str:
         """Return a formatted string output for this TopScorer"""
         text = f"`{str(self.rank).rjust(3)}.` {GOAL_EMOJI} {self.goals}"
-        text += f" {self.player.flags} {self.player.markdown}"
         if self.assists:
             text += f" (+{self.assists})"
+        text += f" {self.player.flags[0]} {self.player.markdown}"
         if self.team:
             text += f" ({self.team.markdown})"
         return text

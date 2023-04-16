@@ -2,18 +2,19 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, TYPE_CHECKING, TypeAlias, Optional
 import typing
 
 import discord
 
 from ext.utils import embed_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot | PBot]
+    User: TypeAlias = discord.User | discord.Member
 
 
 logger = logging.getLogger("view_utils")
@@ -22,7 +23,8 @@ logger = logging.getLogger("view_utils")
 class BaseView(discord.ui.View):
     """Error Handler."""
 
-    message: discord.Message
+    message: Optional[discord.Message] = None
+    embed: Optional[discord.Embed]
 
     def __init__(
         self,
@@ -40,10 +42,23 @@ class BaseView(discord.ui.View):
         if parent is None:
             self.remove_item(self.parent_button)
 
+    def __getattribute__(self, __name: str) -> Any:
+        """Store our last used embed if found"""
+        if __name not in ["message", "embed"]:  # Recursion
+            if self.message is not None:
+                try:
+                    self.embed = self.message.embeds[0]
+                except IndexError:
+                    pass
+        return super().__getattribute__(__name)
+
     @discord.ui.button(label="Back", emoji="🔼")
     async def parent_button(self, interaction: Interaction, _) -> None:
         """Send Parent View"""
-        return await interaction.response.edit_message(view=self.parent)
+        # This function is only accessible if self.parent is set.
+        assert self.parent is not None
+        view = self.parent
+        await interaction.response.edit_message(view=view, embed=view.embed)
 
     @discord.ui.button(emoji="🚯", row=0, style=discord.ButtonStyle.red)
     async def _stop(self, interaction: discord.Interaction, _) -> None:
@@ -67,13 +82,12 @@ class BaseView(discord.ui.View):
     async def on_timeout(self) -> None:
         """Cleanup"""
         for i in self.children:
-            i.disabled = True
+            i.disabled = True  # type: ignore
 
-        try:
-            assert self.message is not None
-        except AssertionError:
-            logger.error("Message not set on view %s", self.__class__.__name__)
-        await self.message.edit(view=self)
+        if self.message is not None:
+            await self.message.edit(view=self)
+            return
+        logger.error("Message not set on view %s", self.__class__.__name__)
 
     def add_function_row(
         self,
@@ -162,22 +176,18 @@ class Paginator(BaseView):
         self.pages = embeds
 
         self.index = index
-        if self.index + 1 >= len(self.pages):
-            self.next.disabled = True
-        if self.index == 0:
-            self.previous.disabled = True
 
-        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+    def update_buttons(self) -> None:
+        """Refresh labels & Availability of buttons"""
         self.jump.disabled = len(self.pages) < 3
+        self.next.disabled = self.index + 1 >= len(self.pages)
+        self.previous.disabled = self.index == 0
+        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
 
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
         embed = self.pages[self.index]
-        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
-        if self.index + 1 >= len(self.pages):
-            self.next.disabled = True
-        if self.index == 0:
-            self.previous.disabled = True
+        self.update_buttons()
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(label="◀️", row=0)
@@ -195,7 +205,6 @@ class Paginator(BaseView):
     async def next(self, interaction: Interaction, _) -> None:
         """Go To next Page"""
         self.index = min(self.index + 1, len(self.pages))
-        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
         await self.handle_page(interaction)
 
 
@@ -207,11 +216,13 @@ class AsyncPaginator(Paginator):
         dummy = [discord.Embed()] * max_pages
         super().__init__(invoker, dummy)
         self.pages: int = max_pages
-        self.jump.disabled = self.pages < 3
-        self.jump.label = f"{self.index + 1}/{self.pages}"
+        self.update_buttons()
 
-    async def handle_page(self, interaction: Interaction) -> None:
-        """Change the jump label, but this should also be subclassed"""
+    def update_buttons(self) -> None:
+        """Handle Bubttons when we don't have a len for pages"""
+        self.jump.disabled = self.pages < 3
+        self.next.disabled = self.index + 1 >= self.pages
+        self.previous.disabled = self.index == 0
         self.jump.label = f"{self.index + 1}/{self.pages}"
 
 
@@ -260,6 +271,8 @@ class DropdownPaginator(Paginator):
         embed = self.pages[self.index]
         self.dropdown.options = self.dropdowns[self.index]
         self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+        self.next.disabled = self.index + 1 >= len(self.pages)
+        self.previous.disabled = self.index == 0
         return await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -286,6 +299,8 @@ class PagedItemSelect(DropdownPaginator):
         embed = self.pages[self.index]
         self.dropdown.options = self.dropdowns[self.index]
         self.dropdown.max_values = len(self.dropdowns[self.index])
+        self.next.disabled = self.index + 1 >= len(self.pages)
+        self.previous.disabled = self.index == 0
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(row=1, options=[])

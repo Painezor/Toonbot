@@ -5,7 +5,7 @@ from importlib import reload
 
 import collections
 import logging
-import typing
+from typing import Any, TypeAlias, TYPE_CHECKING
 
 import discord
 from discord.ext import commands
@@ -16,10 +16,10 @@ import ext.wows_api as api
 reload(api)
 
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    Interaction: TypeAlias = discord.Interaction[PBot]
 
 
 # TODO: Random Ship Command.
@@ -36,7 +36,7 @@ async def fetch_modules(interaction: Interaction, ship: api.Ship) -> None:
     return
 
 
-class ShipButton(discord.ui.Button):
+class ShipButton(discord.ui.Button["ShipView"]):
     """A button that changes to a view of a new ship"""
 
     def __init__(self, parent: ShipView, ship: api.Ship, emoji: str):
@@ -46,7 +46,7 @@ class ShipButton(discord.ui.Button):
         self.parent = parent
         self.ship = ship
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(self, interaction: Interaction) -> None:  # type: ignore
         """Create the new view, and send it back with the interaction"""
         await fetch_modules(interaction, self.ship)
         view = ShipView(interaction, self.ship, parent=self.parent)
@@ -66,7 +66,7 @@ class ShipEmbed(discord.Embed):
             icon_url = ship.type.images.image
         cls_ = ship.type.name
 
-        nation = ship.nation.alias
+        nation = ship.nation.value
         tier = f"Tier {ship.tier}"
 
         name = [i for i in [tier, nation, cls_, ship.name] if i]
@@ -102,14 +102,11 @@ class AircraftEmbed(ShipEmbed):
         if (t_b := fitting.profile.torpedo_bomber) is not None:
             name = f"{t_b.name} (Tier {t_b.plane_level}, Torpedo Bombers"
 
-            if (t_name := t_b.torpedo_name) is None:
-                t_name = "Unnamed Torpedo"
-
             value = [
                 f"**Hit Points**: {format(t_b.max_health, ',')}",
                 f"**Cruising Speed**: {t_b.cruise_speed} kts",
                 "",
-                f"**Torpedo**: {t_name}",
+                f"**Torpedo**: {t_b.torpedo_name}",
                 f"**Max Damage**: {format(t_b.max_damage)}",
                 f"**Max Speed**: {t_b.torpedo_max_speed} kts",
             ]
@@ -118,21 +115,19 @@ class AircraftEmbed(ShipEmbed):
         if (d_b := fitting.profile.dive_bomber) is not None:
             name = f"{d_b.name} (Tier {d_b.plane_level}, Dive Bombers"
 
-            if (bomb_name := d_b.bomb_name) is None:
-                bomb_name = "Bomb Stats"
-
             value = [
                 f"**Hit Points**: {format(d_b.max_health, ',')}",
                 f"**Cruising Speed**: {d_b.cruise_speed} kts",
                 "",
-                f"**{bomb_name}**",
+                f"**{d_b.bomb_name}**",
                 f"**Damage**: {format(d_b.max_damage, ',')}",
                 f"**Mass**: {d_b.bomb_bullet_mass}kg",
                 f"**Accuracy**: {d_b.accuracy.min} - {d_b.accuracy.max}",
             ]
 
-            if (fire_chance := d_b.bomb_burn_probability) is not None:
-                value.append(f"**Fire Chance**: {round(fire_chance, 1)}%")
+            fire_chance = round(d_b.bomb_burn_probability, 1)
+            if fire_chance:
+                value.append(f"**Fire Chance**: {fire_chance}%")
             self.add_field(name=name, value="\n".join(value), inline=False)
 
         self.set_footer(text="Rocket planes & Skip Bombs are not in the API.")
@@ -144,7 +139,7 @@ class AuxiliaryEmbed(ShipEmbed):
     def __init__(self, fitting: api.ShipFit):
         super().__init__(fitting.ship)
 
-        desc = []
+        desc: list[str] = []
         if (sec := fitting.profile.atbas) is None:
             i = "```diff\n- This ship has no secondary armament.```"
             self.add_field(name="No Secondary Armament", value=i)
@@ -178,12 +173,12 @@ class AuxiliaryEmbed(ShipEmbed):
         if (a_a := fitting.profile.anti_aircraft) is None:
             aad = ["```diff\n- This ship has no AA Capability.```"]
         else:
-            aa_guns: dict[str, list] = collections.defaultdict(list)
+            aa_guns: dict[str, list[str]] = collections.defaultdict(list)
             for i in a_a.slots:
                 row = f"{i.guns}x{i.calibre}mm ({i.avg_damage} dps)\n"
                 aa_guns[i.name].append(row)
 
-            aad = []
+            aad: list[str] = []
             for k, val in aa_guns.items():
                 aad.append(f"**{k}**\n")
                 aad.append("\n".join(val))
@@ -202,7 +197,7 @@ class MainGunEmbed(ShipEmbed):
 
         # Guns
         mains = fitting.profile.artillery
-        guns = []
+        guns: list[str] = []
         caliber = ""
         for i in mains.slots:
             self.title = i.name
@@ -300,11 +295,8 @@ class OverviewEmbed(ShipEmbed):
         self.description = "\n".join(desc)
 
         if fitting.ship.next_ships:
-            vals: list[tuple] = []
+            vals: list[tuple[int, str]] = []
             for ship, xp_ in fitting.ship.next_ship_objects.items():
-                if ship is None:
-                    continue
-
                 creds = format(ship.price_credit, ",")
                 xp_ = format(xp_, ",")
                 text = (
@@ -323,8 +315,8 @@ class TorpedoesEmbed(ShipEmbed):
 
     def __init__(self, fitting: api.ShipFit):
         super().__init__(fitting.ship)
+        assert (torps := fitting.profile.torpedoes) is not None
 
-        torps = fitting.profile.torpedoes
         for i in torps.slots:
             value = f"{i.guns}x{i.barrels}x{i.caliber}mm"
             self.add_field(name=i.name, value=value)
@@ -350,7 +342,7 @@ class ShipView(view_utils.BaseView):
     """A view representing a ship"""
 
     def __init__(
-        self, interaction: Interaction, ship: api.Ship, **kwargs
+        self, interaction: Interaction, ship: api.Ship, **kwargs: Any
     ) -> None:
         super().__init__(interaction.user, **kwargs)
 
@@ -358,7 +350,10 @@ class ShipView(view_utils.BaseView):
 
         matches: list[api.Module] = []
         for i in [j for j in ship.modules_tree if j.is_default]:
-            matches.append(interaction.client.modules[i.module_id])
+            try:
+                matches.append(interaction.client.modules[i.module_id])
+            except KeyError:
+                logger.error("ShiPView Failed module id %s", i.module_id)
 
         self.fitting = api.ShipFit(ship, matches)
 
@@ -384,7 +379,7 @@ class ShipView(view_utils.BaseView):
             self.add_item(ShipButton(self, i, "◀️"))
 
         # Select Options
-        options = []
+        options: list[discord.SelectOption] = []
         for i in self.ship.modules.all_modules:
             if i in self.fitting.all_modules:
                 continue
@@ -393,7 +388,7 @@ class ShipView(view_utils.BaseView):
             orig = next(i for i in ship.modules_tree if i.module_id == i)
 
             name = f"{module.name} ({module.__class__.__name__})"
-            opt = discord.SelectOption(label=name, emoji=module.emoji)
+            opt = discord.SelectOption(label=name, emoji=module.profile.emoji)
             opt.value = str(module.module_id)
 
             if orig.is_default:
@@ -401,7 +396,7 @@ class ShipView(view_utils.BaseView):
                 options.append(opt)
                 continue
 
-            desc = []
+            desc: list[str] = []
             if orig.price_credit != 0:
                 desc.append(f"{format(orig.price_credit, ',')} credits")
 
@@ -413,7 +408,7 @@ class ShipView(view_utils.BaseView):
         self.modules.options = options
         self.modules.max_values = len(options)
 
-        self.last_button: discord.ui.Button
+        self.last_button: discord.ui.Button[ShipView]
 
     @discord.ui.button(emoji=api.AUXILIARY_EMOJI)
     async def overview(self, interaction: Interaction, _) -> None:
@@ -451,7 +446,9 @@ class ShipView(view_utils.BaseView):
         return await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(placeholder="Change modules", row=1)
-    async def modules(self, itr: Interaction, sel: discord.ui.Select) -> None:
+    async def modules(
+        self, itr: Interaction, sel: discord.ui.Select[ShipView]
+    ) -> None:
         """Dropdown to change modules."""
         for value in sel.values:
             module = itr.client.modules[int(value)]

@@ -1,15 +1,15 @@
 """Meta information related to painezBot"""
 from __future__ import annotations
 
-import typing
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    Interaction: TypeAlias = discord.Interaction[PBot]
 
 INV = (
     "https://discord.com/api/oauth2/authorize?client_id=964870918738419752&"
@@ -24,7 +24,7 @@ class MetaPainezbot(commands.Cog):
         self.bot: PBot = bot
 
     @discord.app_commands.command()
-    async def invite(self, interaction: discord.Interaction[PBot]) -> None:
+    async def invite(self, interaction: Interaction) -> None:
         """Get the bots invite link"""
         view = discord.ui.View()
 

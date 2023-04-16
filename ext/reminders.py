@@ -34,35 +34,35 @@ class RemindModal(discord.ui.Modal):
     """A Modal Dialogue asking the user to enter a time & message for
     their reminder."""
 
-    months = discord.ui.TextInput(
+    months: discord.ui.TextInput[RemindModal] = discord.ui.TextInput(
         label="Number of months",
         default="0",
         placeholder="1",
         max_length=2,
         required=False,
     )
-    days = discord.ui.TextInput(
+    days: discord.ui.TextInput[RemindModal] = discord.ui.TextInput(
         label="Number of days",
         default="0",
         placeholder="1",
         max_length=2,
         required=False,
     )
-    hours = discord.ui.TextInput(
+    hours: discord.ui.TextInput[RemindModal] = discord.ui.TextInput(
         label="Number of hours",
         default="0",
         placeholder="1",
         max_length=2,
         required=False,
     )
-    minutes = discord.ui.TextInput(
+    minutes: discord.ui.TextInput[RemindModal] = discord.ui.TextInput(
         label="Number of minutes",
         default="0",
         placeholder="1",
         max_length=2,
         required=False,
     )
-    description = discord.ui.TextInput(
+    description: discord.ui.TextInput[RemindModal] = discord.ui.TextInput(
         label="Reminder Description",
         placeholder="Remind me about…",
         style=discord.TextStyle.paragraph,
@@ -74,7 +74,9 @@ class RemindModal(discord.ui.Modal):
         super().__init__(title=title)
         self.message: typing.Optional[discord.Message] = message
 
-    async def on_submit(self, interaction: Interaction, /):
+    async def on_submit(  # type: ignore
+        self, interaction: Interaction, /
+    ) -> None:
         """Insert entry to the database when the form is submitted"""
         delta = relativedelta()
         delta.hours = int(self.hours.value) or 0
@@ -86,7 +88,10 @@ class RemindModal(discord.ui.Modal):
         rmd = time + delta
         mid = self.message.id if self.message else None
         gid = interaction.guild.id if interaction.guild else None
-        cid = interaction.channel.id if interaction.channel else None
+        if interaction.channel is not None:
+            cid = interaction.channel.id
+        else:
+            cid = None
         dsc = self.description.value
         uid = interaction.user.id
         bot = interaction.client
@@ -94,10 +99,10 @@ class RemindModal(discord.ui.Modal):
                  reminder_content, created_time, target_time, user_id)
                  VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *"""
 
-        args = [sql, mid, cid, gid, dsc, time, rmd, uid]
+        args = [mid, cid, gid, dsc, time, rmd, uid]
         async with bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                record = await connection.fetchrow(*args)
+                record = await connection.fetchrow(sql, *args)
 
         if record is None:
             return
@@ -115,13 +120,15 @@ class RemindModal(discord.ui.Modal):
         return await send(embed=embed, ephemeral=True)
 
 
-class ReminderView(discord.ui.View):
+class ReminderView(view_utils.BaseView):
     """View for user requested reminders"""
 
     def __init__(self, bot: Bot | PBot, record: asyncpg.Record):
-        super().__init__(timeout=None)
         self.bot: Bot | PBot = bot
         self.record: asyncpg.Record = record
+
+        user = discord.Object(id=record["user_id"])  # Pseudo-User.
+        super().__init__(typing.cast(discord.User, user), timeout=None)
 
     async def send_reminder(self):
         """Send message to appropriate destination"""
@@ -135,10 +142,8 @@ class ReminderView(discord.ui.View):
             guild = record["guild_id"]
             cid = record["channel_id"]
             jump = f"https://www.discord.com/channels/{guild}/{cid}/{msg}"
-
             lbl = "Original Message"
-            btn = discord.ui.Button(url=jump, label=lbl)
-            self.add_item(btn)
+            self.add_item(discord.ui.Button(url=jump, label=lbl))
 
         embed = discord.Embed(colour=0x00FF00)
         embed.set_author(name="⏰ Reminder")
@@ -148,8 +153,6 @@ class ReminderView(discord.ui.View):
 
         if record["reminder_content"]:
             embed.description += f"\n\n> {record['reminder_content']}"
-
-        self.add_item(view_utils.Stop(row=0))
 
         try:
             mention = f"<@{record['user_id']}>"
@@ -167,7 +170,9 @@ class ReminderView(discord.ui.View):
             async with connection.transaction():
                 await connection.execute(sql, record["created_time"])
 
-    async def interaction_check(self, interaction: Interaction, /) -> bool:
+    async def interaction_check(  # type: ignore
+        self, interaction: Interaction, /
+    ) -> bool:
         """Only reminder owner can interact to hide or snooze"""
         return interaction.user.id == self.record["user_id"]
 

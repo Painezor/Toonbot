@@ -5,21 +5,22 @@ from __future__ import annotations  # Cyclic Type hinting
 import asyncio
 import io
 import logging
-import typing
+from typing import Optional, TYPE_CHECKING, ClassVar, TypeAlias, cast
 
 import discord
+from discord.abc import GuildChannel
 from discord.ext import commands
 from playwright.async_api import TimeoutError as pw_TimeoutError
 
 import ext.flashscore as fs
 from ext.utils import embed_utils, view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
     from playwright.async_api import Page
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot]
+    User: TypeAlias = discord.User | discord.Member
 
 _ticker_tasks: set[asyncio.Task[None]] = set()
 
@@ -43,20 +44,20 @@ class TickerEvent:
         event_type: fs.EventType,
         channels: list[TickerChannel],
         long: bool = False,
-        home: typing.Optional[bool] = None,
+        home: Optional[bool] = None,
     ) -> None:
         self.fixture: fs.Fixture = fixture
         self.event_type: fs.EventType = event_type
         self.channels: list[TickerChannel] = channels
         self.long: bool = long
-        self.home: typing.Optional[bool] = home
+        self.home: Optional[bool] = home
 
-        self.initial_embed: typing.Optional[discord.Embed] = None
+        self.initial_embed: Optional[discord.Embed] = None
 
         self.bot = self.channels[0].bot
 
         # For exact event.
-        self.event: typing.Optional[fs.MatchEvent] = None
+        self.event: Optional[fs.MatchEvent] = None
 
         # Begin loop on init
         task = self.bot.loop.create_task(self.event_loop())
@@ -73,8 +74,7 @@ class TickerEvent:
             embed.colour = self.event_type.colour
             embed.description = ""
 
-            breaks = self.fixture.breaks
-            txt = self.event_type.value.replace("#PERIOD#", f"{breaks + 1}")
+            txt = self.event.__class__.__name__
 
             if self.home is None:
                 embed.set_author(name=txt)
@@ -177,7 +177,7 @@ class TickerEvent:
                 await i.output(self, embed)
             return  # Done.
 
-        index: typing.Optional[int] = None
+        index: Optional[int] = None
         for count in range(5):
             await self.fixture.refresh(self.bot)
 
@@ -246,7 +246,7 @@ class TickerEvent:
 class TickerChannel:
     """An object representing a channel with a Match Event Ticker"""
 
-    bot: typing.ClassVar[Bot]
+    bot: ClassVar[Bot]
 
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
@@ -254,17 +254,17 @@ class TickerChannel:
         self.dispatched: dict[TickerEvent, discord.Message] = {}
 
         # Settings
-        self.goals: typing.Optional[bool] = None
-        self.kick_offs: typing.Optional[bool] = None
-        self.full_times: typing.Optional[bool] = None
-        self.half_times: typing.Optional[bool] = None
-        self.second_halfs: typing.Optional[bool] = None
-        self.red_cards: typing.Optional[bool] = None
-        self.final_results: typing.Optional[bool] = None
-        self.penalties: typing.Optional[bool] = None
-        self.delays: typing.Optional[bool] = None
-        self.vars: typing.Optional[bool] = None
-        self.extra_times: typing.Optional[bool] = None
+        self.goals: Optional[bool] = None
+        self.kick_offs: Optional[bool] = None
+        self.full_times: Optional[bool] = None
+        self.half_times: Optional[bool] = None
+        self.second_halfs: Optional[bool] = None
+        self.red_cards: Optional[bool] = None
+        self.final_results: Optional[bool] = None
+        self.penalties: Optional[bool] = None
+        self.delays: Optional[bool] = None
+        self.vars: Optional[bool] = None
+        self.extra_times: Optional[bool] = None
 
     @property
     def id(self) -> int:  # pylint: disable=C0103
@@ -281,8 +281,8 @@ class TickerChannel:
         self,
         event: TickerEvent,
         short_embed: discord.Embed,
-        full_embed: typing.Optional[discord.Embed] = None,
-    ) -> typing.Optional[discord.Message]:
+        full_embed: Optional[discord.Embed] = None,
+    ) -> Optional[discord.Message]:
         """Send the appropriate embed to this channel"""
         # Check if we need short or long embed.
         # For each stored db_field value,
@@ -644,7 +644,7 @@ class Ticker(commands.Cog):
         self,
         interaction: Interaction,
         channel: discord.TextChannel,
-    ) -> typing.Optional[TickerChannel]:
+    ) -> Optional[TickerChannel]:
         """Send a dialogue to create a new ticker."""
         # Ticker Verify -- NOT A SCORES CHANNEL
         sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
@@ -718,7 +718,7 @@ class Ticker(commands.Cog):
                 bad.add(i["channel_id"])
                 continue
 
-            chan = typing.cast(discord.TextChannel, chan)
+            chan = cast(discord.TextChannel, chan)
 
             tkrchan = TickerChannel(chan)
             await tkrchan.configure_channel()
@@ -738,8 +738,8 @@ class Ticker(commands.Cog):
         self,
         event_type: fs.EventType,
         fixture: fs.Fixture,
-        home: typing.Optional[bool] = None,
-    ) -> typing.Optional[TickerEvent]:
+        home: Optional[bool] = None,
+    ) -> Optional[TickerEvent]:
         """Event handler for when something occurs during a fixture."""
         # Update the competition's Table on certain events.
 
@@ -780,6 +780,13 @@ class Ticker(commands.Cog):
             channels = [i for i in channels if i.red_cards is not None]
 
             long: bool = any([i.red_cards is True for i in channels])
+
+        elif event_type == evt.VAR_RED_CARD:
+            channels = [
+                i for i in channels if None not in [i.red_cards, i.vars]
+            ]
+
+            long: bool = any([all([i.red_cards, i.vars]) for i in channels])
 
         elif event_type == evt.HALF_TIME:
             channels = [i for i in channels if i.half_times is not None]
@@ -855,11 +862,11 @@ class Ticker(commands.Cog):
     async def manage(
         self,
         interaction: Interaction,
-        channel: typing.Optional[discord.TextChannel],
+        channel: Optional[discord.TextChannel],
     ) -> None:
         """View the config of this channel's Match Event Ticker"""
         if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
+            channel = cast(discord.TextChannel, interaction.channel)
 
         # Validate channel is a ticker channel.
         try:
@@ -871,8 +878,7 @@ class Ticker(commands.Cog):
                 return
 
         view = TickerConfig(interaction.user, chan)
-        embed = view.pages[0]
-        await interaction.response.send_message(view=view, embed=embed)
+        await interaction.response.send_message(view=view, embed=view.pages[0])
 
     @ticker.command()
     @discord.app_commands.describe(
@@ -883,7 +889,7 @@ class Ticker(commands.Cog):
         self,
         interaction: Interaction,
         competition: fs.comp_trnsf,
-        channel: typing.Optional[discord.TextChannel],
+        channel: Optional[discord.TextChannel],
     ) -> None:
         """Add a league to your Match Event Ticker"""
 
@@ -901,7 +907,7 @@ class Ticker(commands.Cog):
             return await interaction.response.send_message(embed=embed)
 
         if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
+            channel = cast(discord.TextChannel, interaction.channel)
 
         tickers = self.bot.ticker_channels
         try:
@@ -927,9 +933,7 @@ class Ticker(commands.Cog):
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
-    async def on_guild_channel_delete(
-        self, channel: discord.abc.GuildChannel
-    ) -> None:
+    async def on_guild_channel_delete(self, channel: GuildChannel) -> None:
         """Handle delete channel data from database upon channel deletion."""
         sql = """DELETE FROM ticker_channels WHERE channel_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:

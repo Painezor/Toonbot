@@ -7,6 +7,8 @@ import operator
 import typing
 
 import discord
+from discord.ui import TextInput
+from discord import SelectOption
 from discord.ext import commands
 
 from ext.utils import timed_events, view_utils
@@ -18,82 +20,6 @@ if typing.TYPE_CHECKING:
     User: typing.TypeAlias = discord.User | discord.Member
 
 
-class PollButton(discord.ui.Button):
-    """A Voting Button"""
-
-    view: PollView
-
-    def __init__(
-        self, custom_id: str, label: str, emoji: typing.Optional[str] = None
-    ) -> None:
-        super().__init__(
-            emoji=emoji,
-            label=label,
-            style=discord.ButtonStyle.primary,
-            custom_id=custom_id,
-        )
-
-        self.label: str
-
-    async def callback(self, interaction: Interaction) -> None:
-        """Reply to user to let them know their vote has changed."""
-        emoji = f"{self.emoji} " if self.emoji is not None else ""
-
-        reply = f"Vote set to {emoji}{self.label}"
-        await interaction.response.send_message(reply, ephemeral=True)
-
-        votes: dict[str, list] = self.view.votes
-        for vote_list in votes.values():
-            try:
-                vote_list.remove(interaction.user.id)
-            except ValueError:
-                continue
-
-        self.view.votes[self.label].append(interaction.user.id)
-        return await self.view.update(interaction)
-
-
-# TODO: Buttons as Decorators
-class PollSelect(discord.ui.Select):
-    """A Voting Dropdown"""
-
-    view: PollView
-
-    def __init__(self, options: list[str], votes: int, custom_id: str) -> None:
-        if votes == 1:
-            placeholder = "Make your choice"
-        else:
-            placeholder = f"Select up to {votes} choices"
-
-        super().__init__(
-            max_values=min(votes, len(options)),
-            options=[discord.SelectOption(label=x, value=x) for x in options],
-            placeholder=placeholder,
-            custom_id=custom_id,
-        )
-
-    async def callback(self, interaction: Interaction) -> None:
-        """Remove old votes and add new ones."""
-        if interaction.user.id in self.view.votes:
-            rep = f"Your vote has been changed to {self.values}"
-        else:
-            rep = f"You have voted for {self.values}"
-
-        await interaction.response.send_message(content=rep, ephemeral=True)
-
-        votes: dict[str, list] = self.view.votes
-
-        for vote_list in votes.values():
-            try:
-                vote_list.remove(interaction.user.id)
-            except ValueError:
-                continue
-
-        for i in self.values:
-            self.view.votes[i].append(interaction.user.id)
-        return await self.view.update(interaction)
-
-
 class PollView(view_utils.BaseView):
     """View for a poll commands"""
 
@@ -103,29 +29,47 @@ class PollView(view_utils.BaseView):
         question: str,
         answers: list[str],
         minutes: int,
-        votes: int,
+        max_votes: int,
     ) -> None:
         self.question: str = question
-        self.votes: dict[str, list[int]] = {k: [] for k in answers}
+        self.votes: dict[str, set[int]] = {k: set() for k in answers}
 
         self.end = discord.utils.utcnow() + datetime.timedelta(minutes=minutes)
         self.ends_at = timed_events.Timestamp(self.end).countdown
 
         super().__init__(invoker)
 
-        # Validate Uniqueness.
-        if votes > 1 or len(self.votes) > 5:
-            cid = f"{hash(self.end)}"
-            self.add_item(PollSelect(answers, votes, custom_id=cid))
-        else:
-            for label in self.votes.keys():
-                cid = f"{hash(self.end)} + {label}"
-                self.add_item(PollButton(label=label, custom_id=cid))
+        self.dropdown.options = [SelectOption(label=i) for i in answers]
 
+        # Validate Uniqueness.
+        if max_votes != 1:
+            self.dropdown.placeholder = f"Select up to {max_votes} choices"
+        self.dropdown.max_values = max_votes
         self.task = asyncio.get_running_loop().create_task(self.destruct())
         self.message: discord.Message
 
-    def read_votes(self, final=False) -> str:
+    @discord.ui.select(placeholder="Make Your Choice")
+    async def dropdown(
+        self, interaction: Interaction, sel: discord.ui.Select[PollView]
+    ) -> None:
+        """A Voting Dropdown - Remove old votes and add new ones."""
+        new_votes = ", ".join(sel.values)
+        if any(interaction.user.id in i for i in self.votes.values()):
+            rep = f"Your vote has been changed to {new_votes}"
+        else:
+            rep = f"You have voted for {new_votes}"
+
+        votes: dict[str, set[int]] = self.votes
+
+        for vote_list in votes.values():
+            vote_list.discard(interaction.user.id)
+
+        for i in sel.values:
+            self.votes[i].add(interaction.user.id)
+        await self.update(interaction)
+        await interaction.followup.send(content=rep, ephemeral=True)
+
+    def read_votes(self, final: bool = False) -> str:
         """Parse the votes and conver it to a string"""
         output = ""
 
@@ -173,12 +117,10 @@ class PollView(view_utils.BaseView):
         except discord.HTTPException:
             pass
 
-        chan = typing.cast(discord.TextChannel, self.message.channel)
-        if chan is not None:
-            try:
-                await chan.send(embed=embed)
-            except (discord.NotFound, discord.Forbidden):
-                pass
+        try:
+            await self.message.channel.send(embed=embed)
+        except (discord.NotFound, discord.Forbidden):
+            pass
 
     async def update(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
@@ -198,38 +140,41 @@ class PollView(view_utils.BaseView):
         edit = interaction.response.edit_message
         return await edit(view=self, embed=embed)
 
-    async def interaction_check(self, _: Interaction, /) -> bool:
+    async def interaction_check(self, /) -> bool:  # type: ignore
+        """Always allow people to vote"""
         return True
 
 
 class PollModal(discord.ui.Modal, title="Create a poll"):
     """UI Sent to user to ask them to create a poll."""
 
-    minutes = discord.ui.TextInput(
+    minutes: TextInput[PollModal] = TextInput(
         label="Enter Poll Duration in Minutes",
         default="60",
         placeholder="60",
         max_length=4,
     )
 
-    question = discord.ui.TextInput(
+    question: TextInput[PollModal] = TextInput(
         label="Question", placeholder="Enter your question here"
     )
 
-    answers = discord.ui.TextInput(
+    answers: TextInput[PollModal] = TextInput(
         label="Answers (one per line)",
         style=discord.TextStyle.paragraph,
         placeholder="Red\nBlue\nYellow",
     )
 
-    votes = discord.ui.TextInput(
+    votes: TextInput[PollModal] = TextInput(
         label="Max votes per user", default="1", placeholder="1", max_length=2
     )
 
     def __init__(self) -> None:
         super().__init__()
 
-    async def on_submit(self, interaction: Interaction, /) -> None:
+    async def on_submit(  # type: ignore
+        self, interaction: Interaction, /
+    ) -> None:
         """When the Modal is submitted, pick at random and send back"""
         question = self.question.value
         answers = self.answers.value.split("\n")[:25]

@@ -2,22 +2,23 @@
 from __future__ import annotations
 
 import logging
-import typing
+from typing import TypeAlias, TYPE_CHECKING, Optional
 
 import aiohttp
-import discord
+from discord import Locale, Interaction as Itr
+from discord.app_commands import Choice, Transform, Transformer
 
 from .wg_id import WG_ID
 from .clan import PartialClan
 from .enums import Map, Region
 from .gamemode import GameMode
-from .player import Player, PlayerClanData
+from .player import PartialPlayer, PlayerClanData
 from .warships import Ship
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
+    Interaction: TypeAlias = Itr[PBot]
 
 
 CLAN_SEARCH = "https://api.worldofwarships.%%/wows/clans/list/"
@@ -41,39 +42,40 @@ def get_locale(interaction: Interaction) -> str:
     """Convert an interaction's locale into API language field"""
     try:
         language = {
-            discord.Locale.czech: "cs",
-            discord.Locale.german: "de",
-            discord.Locale.spain_spanish: "es",
-            discord.Locale.french: "fr",
-            discord.Locale.japanese: "ja",
-            discord.Locale.polish: "pl",
-            discord.Locale.russian: "ru",
-            discord.Locale.thai: "th",
-            discord.Locale.taiwan_chinese: "zh-tw",
-            discord.Locale.turkish: "tr",
-            discord.Locale.chinese: "zh-cn",
-            discord.Locale.brazil_portuguese: "pt-br",
+            Locale.czech: "cs",
+            Locale.german: "de",
+            Locale.spain_spanish: "es",
+            Locale.french: "fr",
+            Locale.japanese: "ja",
+            Locale.polish: "pl",
+            Locale.russian: "ru",
+            Locale.thai: "th",
+            Locale.taiwan_chinese: "zh-tw",
+            Locale.turkish: "tr",
+            Locale.chinese: "zh-cn",
+            Locale.brazil_portuguese: "pt-br",
         }[interaction.locale]
     except KeyError:
         language = "en"
     return language
 
 
-class ClanTransformer(discord.app_commands.Transformer):
+class ClanTransformer(Transformer):
     """Convert User Input to a Clan Object"""
+
+    clans: list[PartialClan] = []
 
     async def autocomplete(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> list[discord.app_commands.Choice[str]]:
+    ) -> list[Choice[str]]:
         """Autocomplete for a list of clan names"""
         if len(value) < 2:
             txt = "🚫 Search too short"
-            return [discord.app_commands.Choice(name=txt, value="0")]
+            return [Choice(name=txt, value="0")]
 
-        region = getattr(interaction.namespace, "region", None)
-        rgn = next((i for i in Region if i.db_key == region), Region.EU)
-
-        link = CLAN_SEARCH.replace("%%", rgn.domain)
+        rgn = interaction.namespace.region
+        region = next((i for i in Region if i.domain == rgn), Region.EU)
+        link = CLAN_SEARCH.replace("%%", region.domain)
         params = {
             "search": value,
             "limit": 25,
@@ -83,34 +85,31 @@ class ClanTransformer(discord.app_commands.Transformer):
         async with interaction.client.session.get(link, params=params) as resp:
             if resp.status != 200:
                 logger.error("%s on %s", resp.status, link)
-                return []
+            data = await resp.json()
 
-            clans = await resp.json()
+        choices: list[Choice[str]] = []
 
-        choices: list[discord.app_commands.Choice[str]] = []
-        clans = [PartialClan(i) for i in clans.pop("data", [])]
-        interaction.extras["clans"] = clans
-        for i in clans:
-            name = f"[{i.tag}] {i.name}"
-            val = str(i.clan_id)
-            choice = discord.app_commands.Choice(name=name, value=val)
-            choices.append(choice)
+        self.clans = [PartialClan(i) for i in data.pop("data", [])]
+
+        for i in self.clans:
+            logger.info("%s: %s", i.name, i)
+            name = f"[{i.tag}] {i.name}"[:100]
+            choices.append(Choice(name=name, value=str(i.clan_id)))
         return choices
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> PartialClan:
         """Conversion"""
-        clans: list[PartialClan] = interaction.extras["clans"]
-        return next(i for i in clans if int(value) == i.clan_id)
+        return next(i for i in self.clans if int(value) == i.clan_id)
 
 
-class MapTransformer(discord.app_commands.Transformer):
+class MapTransformer(Transformer):
     """Convert User Input to a Map Object"""
 
     async def autocomplete(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> list[discord.app_commands.Choice[str]]:
+    ) -> list[Choice[str]]:
         """Autocomplete for the list of maps in World of Warships"""
         cur = value.casefold()
 
@@ -126,15 +125,13 @@ class MapTransformer(discord.app_commands.Transformer):
             for k, val in items["data"].items():
                 interaction.client.maps.update({k: Map(val)})
 
-        choices: list[discord.app_commands.Choice[str]] = []
+        choices: list[Choice[str]] = []
         for i in sorted(interaction.client.maps, key=lambda j: j.name):
             if cur not in i.ac_match:
                 continue
 
             name = i.ac_row[:100]
-            val = str(i.battle_arena_id)
-            choice = discord.app_commands.Choice(name=name, value=val)
-            choices.append(choice)
+            choices.append(Choice(name=name, value=str(i.battle_arena_id)))
 
             if len(choices) == 25:
                 break
@@ -149,7 +146,7 @@ class MapTransformer(discord.app_commands.Transformer):
         return next(i for i in maps if i.battle_arena_id == int(value))
 
 
-class ModeTransformer(discord.app_commands.Transformer):
+class ModeTransformer(Transformer):
     """Convert user input to API Game Mode"""
 
     async def autocomplete(  # type: ignore
@@ -157,41 +154,42 @@ class ModeTransformer(discord.app_commands.Transformer):
         interaction: Interaction,
         current: str,
         /,
-    ) -> list[discord.app_commands.Choice[str]]:
+    ) -> list[Choice[str]]:
         """Autocomplete from list of stored teams"""
         curr = current.casefold()
-        choices: list[discord.app_commands.Choice[str]] = []
+        choices: list[Choice[str]] = []
         for i in sorted(interaction.client.modes, key=lambda x: x.name):
             if curr not in i.name.casefold():
                 continue
 
-            choice = discord.app_commands.Choice(name=i.name, value=i.name)
+            choice = Choice(name=i.name, value=i.name)
             choices.append(choice)
         return choices
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[GameMode]:
+    ) -> Optional[GameMode]:
         """Convert"""
         return next(i for i in interaction.client.modes if i.name == value)
 
 
-class PlayerTransformer(discord.app_commands.Transformer):
+class PlayerTransformer(Transformer):
     """Convert User Input to Player Object"""
+
+    players: list[PartialPlayer] = []
 
     async def autocomplete(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> list[discord.app_commands.Choice[str]]:
+    ) -> list[Choice[str]]:
         """Fetch player's account ID by searching for their name."""
         if len(value) < 2:
             txt = "🚫 Search too short"
-            return [discord.app_commands.Choice(name=txt, value="0")]
+            return [Choice(name=txt, value="0")]
 
         params = {"application_id": WG_ID, "search": value, "limit": 25}
-        region = getattr(interaction.namespace, "region", None)
-        region = next((i for i in Region if i.db_key == region), Region.EU)
+        _ = interaction.namespace.region
+        region = next((i for i in Region if i.value == _), Region.EU)
 
-        logger.info("Fetching players")
         link = PLAYER_SEARCH.replace("%%", region.domain)
         async with interaction.client.session.get(link, params=params) as resp:
             if resp.status != 200:
@@ -199,13 +197,13 @@ class PlayerTransformer(discord.app_commands.Transformer):
                 logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
-        players = [Player(i) for i in data.pop("data", [])]
-        logger.info("Generated %s players", len(players))
+        self.players = [PartialPlayer(i) for i in data.pop("data", [])]
+        logger.info("Generated %s players", len(self.players))
 
         link = PLAYER_CLAN.replace("%%", region.domain)
         parms = {
             "application_id": WG_ID,
-            "account_id": ", ".join([str(i.account_id) for i in players]),
+            "account_id": ", ".join([str(i.account_id) for i in self.players]),
             "extra": "clan",
         }
 
@@ -216,45 +214,41 @@ class PlayerTransformer(discord.app_commands.Transformer):
                 clan_raw = await resp.json()
                 clan_data = clan_raw.pop("data")
 
-        logger.info("Clan data results %s", clan_data)
-
+        choices: list[Choice[str]] = []
         for k, val in clan_data.items():
             # k is the player's id
-            player = next(i for i in players if i.account_id == int(k))
-            player.clan = PlayerClanData(val)
-
-        choices: list[discord.app_commands.Choice[str]] = []
-        for i in players[:25]:
-            if i.clan is not None:
-                name = f"[{i.clan.tag}] {i.nickname}"
+            try:
+                plr = next(i for i in self.players if i.account_id == int(k))
+            except StopIteration:
+                plrs = ", ".join([str(p.account_id) for p in self.players])
+                logger.info("Failed to map %s to %s", k, plrs)
+                continue
+            if val:
+                plr.clan = PlayerClanData(val)
+                name = f"[{plr.clan.tag}] {plr.nickname}"
             else:
-                name = i.nickname
-
-            value = str(i.account_id)
-            choices.append(discord.app_commands.Choice(name=name, value=value))
-
-        interaction.extras["players"] = players
-        logger.info("Made %s choices", len(choices))
+                plr.clan = None
+                name = plr.nickname
+            choices.append(Choice(name=name, value=str(plr.account_id)))
         return choices
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> Player:
+    ) -> PartialPlayer:
         """Conversion"""
-        players: list[Player] = interaction.extras["players"]
-        return next(i for i in players if i.account_id == int(value))
+        return next(i for i in self.players if str(i.account_id) == value)
 
 
-class ShipTransformer(discord.app_commands.Transformer):
+class ShipTransformer(Transformer):
     """Convert User Input to a ship Object"""
 
     async def autocomplete(  # type: ignore
         self, interaction: Interaction, current: str, /
-    ) -> list[discord.app_commands.Choice[str]]:
+    ) -> list[Choice[str]]:
         """Autocomplete for the list of maps in World of Warships"""
 
         current = current.casefold()
-        choices: list[discord.app_commands.Choice[str]] = []
+        choices: list[Choice[str]] = []
         for i in sorted(interaction.client.ships, key=lambda i: i.name):
             if not i.ship_id_str:
                 continue
@@ -264,7 +258,7 @@ class ShipTransformer(discord.app_commands.Transformer):
 
             value = i.ship_id_str
             name = i.ac_row[:100]
-            choices.append(discord.app_commands.Choice(name=name, value=value))
+            choices.append(Choice(name=name, value=value))
 
             if len(choices) == 25:
                 break
@@ -279,18 +273,26 @@ class ShipTransformer(discord.app_commands.Transformer):
         return next(i for i in ships if i.ship_id_str == value)
 
 
-clan_transform: typing.TypeAlias = discord.app_commands.Transform[
-    PartialClan, ClanTransformer
-]
-map_transform: typing.TypeAlias = discord.app_commands.Transform[
-    Map, MapTransformer
-]
-mode_transform: typing.TypeAlias = discord.app_commands.Transform[
-    GameMode, ModeTransformer
-]
-player_transform: typing.TypeAlias = discord.app_commands.Transform[
-    Player, PlayerTransformer
-]
-ship_transform: typing.TypeAlias = discord.app_commands.Transform[
-    Ship, ShipTransformer
-]
+class RegionTransformer(Transformer):
+    """Convert User Input to Region Object"""
+
+    async def autocomplete(  # type: ignore
+        self, _: Interaction, current: str, /
+    ) -> list[Choice[str]]:
+        """Return api.Region stuff"""
+        opts = [Choice(name=i.name, value=i.domain) for i in Region]
+        return [i for i in opts if current.casefold() in i.name.casefold()]
+
+    async def transform(  # type: ignore
+        self, _: Interaction, value: str, /
+    ) -> Region:
+        """Retrieve the ship object for the selected autocomplete"""
+        return next(i for i in Region if i.domain == value)
+
+
+clan_transform: TypeAlias = Transform[PartialClan, ClanTransformer]
+map_transform: TypeAlias = Transform[Map, MapTransformer]
+mode_transform: TypeAlias = Transform[GameMode, ModeTransformer]
+player_transform: TypeAlias = Transform[PartialPlayer, PlayerTransformer]
+region_transform: TypeAlias = Transform[Region, RegionTransformer]
+ship_transform: TypeAlias = Transform[Ship, ShipTransformer]

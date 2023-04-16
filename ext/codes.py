@@ -60,7 +60,7 @@ class Codes(commands.Cog):
 
         view = discord.ui.View()
         for i in regions:
-            region = next(r for r in Region if i == r.db_key)
+            region = next(r for r in Region if i == r.value)
 
             dom = region.code_prefix
             url = f"https://{dom}.wargaming.net/shop/redeem/?bonus_mode={code}"

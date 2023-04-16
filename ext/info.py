@@ -17,7 +17,6 @@ if typing.TYPE_CHECKING:
     Interaction: typing.TypeAlias = discord.Interaction[PBot | Bot]
 User: typing.TypeAlias = discord.User | discord.Member
 
-# TODO: Donate Button Command.
 # TODO: Subclass Embeds for Info (Too many branches linter warning)
 
 
@@ -351,6 +350,12 @@ class Info(commands.Cog):
                     embed.description += f"**Server**: {gild.name} ({gild.id})"
                 embed.timestamp = emo.created_at
 
+                if ments := [i.mention for i in emo.roles]:
+                    embed.add_field(name="Roles", value=" ".join(ments))
+
+                if emo.user:
+                    embed.description += f"Uploaded By {emo.user.mention}"
+
             embeds.append(embed)
 
         if not embeds:
@@ -527,13 +532,9 @@ class Info(commands.Cog):
         # Embed 1: Generic Info
         base_embed = discord.Embed(colour=member.accent_colour)
         base_embed.timestamp = discord.utils.utcnow()
+        embed_utils.user_to_author(base_embed, member)
 
-        try:
-            ico = member.display_avatar.url
-        except AttributeError:
-            ico = None
-
-        base_embed.set_author(name=member, icon_url=ico)
+        embeds: list[discord.Embed] = []
 
         generic = base_embed.copy()
         mem = member
@@ -612,6 +613,7 @@ class Info(commands.Cog):
         if flags:
             generic.add_field(name="Flags", value=", ".join(flags))
 
+        embeds.append(generic)
         # Embed 2 - User Permissions
         if interaction.channel:
             perm_embed = base_embed.copy()
@@ -626,22 +628,22 @@ class Info(commands.Cog):
 
             chan = interaction.channel
             perm_embed.description = f"Showing Permissions in <#{chan.id}>"
-        else:
-            perm_embed = None
+            embeds.append(perm_embed)
 
         # Embed 3 - User Avatar
         avatar = base_embed.copy()
         avatar.description = f"{member.mention}'s avatar"
         avatar.set_image(url=member.display_avatar.url)
 
+        embeds.append(avatar)
+
         # Shared Servers.
         matches = [f"`{i.id}:` **{i.name}**" for i in member.mutual_guilds]
         shared = discord.Embed(colour=discord.Colour.og_blurple())
 
         shared.description = f"User found on {len(matches)} servers."
-        embeds = embed_utils.rows_to_embeds(shared, matches, 20)
-        embeds += [i for i in [generic, perm_embed, avatar] if i is not None]
 
+        embeds += embed_utils.rows_to_embeds(shared, matches, 20)
         view = view_utils.Paginator(interaction.user, embeds)
         await interaction.response.send_message(view=view, embed=view.pages[0])
         view.message = await interaction.original_response()

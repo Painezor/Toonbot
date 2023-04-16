@@ -331,9 +331,9 @@ class TrackerConfig(view_utils.DropdownPaginator):
 
     @discord.ui.select(placeholder="Remove tracked roles", row=1)
     async def dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select[TrackerConfig]
+        self, itr: Interaction, sel: discord.ui.Select[TrackerConfig]
     ):
-        await self.remove_tracked(interaction, sel.values)
+        await self.remove_tracked(itr, sel.values)
 
     async def remove_tracked(
         self, interaction: Interaction, roles: list[str]
@@ -668,7 +668,7 @@ class TwitchTracker(commands.Cog):
             ccs = [i for i in ccs if search in i.auto_complete]
 
         if region is not None:
-            ccs = [i for i in ccs if i.region.db_key == region]
+            ccs = [i for i in ccs if i.region.value == region]
 
         if language is not None:
             ccs = [i for i in ccs if language in i.language_names]

@@ -3,7 +3,6 @@ from .clan import (
     Clan,
     ClanBattleSeason,
     ClanBattleWinner,
-    ClanBuilding,
     ClanLeaderboardStats,
     ClanMember,
     ClanMemberVortexData,
@@ -32,11 +31,12 @@ from .emojis import (
 from .enums import Map, Nation, Region
 from .gamemode import GameMode, get_game_modes
 from .modules import Module, get_modules
-from .player import Player, PlayerStats, PlayerStatsMode
+from .player import PartialPlayer, PlayerStats, ModeStats, fetch_stats
 from .transformers import (
     clan_transform,
     mode_transform,
     player_transform,
+    region_transform,
     ship_transform,
 )
 from .warships import Ship, ShipFit, ShipProfile, get_ships
@@ -52,7 +52,6 @@ __all__ = [
     "PartialClan",
     "ClanBattleSeason",
     "ClanBattleWinner",
-    "ClanBuilding",
     "ClanSeasonStats",
     "ClanLeaderboardStats",
     "PlayerCBStats",
@@ -81,9 +80,10 @@ __all__ = [
     "Module",
     "get_modules",
     # player,
-    "Player",
-    "PlayerStatsMode",
+    "PartialPlayer",
+    "ModeStats",
     "PlayerStats",
+    "fetch_stats",
     # ship
     "get_ships",
     "Ship",
@@ -93,5 +93,6 @@ __all__ = [
     "clan_transform",
     "mode_transform",
     "player_transform",
+    "region_transform",
     "ship_transform",
 ]

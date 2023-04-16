@@ -7,6 +7,8 @@ import logging
 import json
 import io
 import random
+
+from typing import Any, TYPE_CHECKING, TypeAlias
 import typing
 
 import discord
@@ -15,12 +17,12 @@ from PIL import Image, ImageDraw, ImageOps, ImageFont
 
 from ext.utils import view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    Interaction: TypeAlias = discord.Interaction[Bot]
 
-User: typing.TypeAlias = discord.User | discord.Member
+User: TypeAlias = discord.User | discord.Member
 
 # Project Oxford
 API = "https://westeurope.api.cognitive.microsoft.com/face/v1.0/detect"
@@ -38,6 +40,8 @@ logger = logging.getLogger("images")
 
 @dataclasses.dataclass(slots=True)
 class FaceRectangle:
+    """General Coordinates of the face"""
+
     top: int
     left: int
     width: int
@@ -45,34 +49,36 @@ class FaceRectangle:
 
 
 @dataclasses.dataclass
-class Pupil:
-    x: int
-    y: int
+class Point:
+    """X & Y coordinates of a pupil"""
+
+    x: float  # pylint: disable=C0103
+    y: float  # pylint: disable=C0103
 
 
 @dataclasses.dataclass(slots=True)
 class FaceLandmarks:
-    pupilLeft: Pupil
-    pupilRight: Pupil
+    """Various entities on the face"""
+
+    pupilLeft: Point
+    pupilRight: Point
+    noseTip: Point
+    mouthRight: Point
+    mouthRight: Point
 
 
 # TODO: Coordinates dataclass
 @dataclasses.dataclass(slots=True)
-class Coordinates:
+class FacialRecognitionAPIResponse:
     """Coordinates returned from project oxford"""
 
     faceRectangle: FaceRectangle
-    faceeLandmarks: FaceLandmarks
+    faceLandmarks: FaceLandmarks
 
 
 # [
 #     {
 #         "faceLandmarks": {
-#             "pupilLeft": {"x": 1054.8, "y": 284.1},
-#             "pupilRight": {"x": 1159.3, "y": 277.6},
-#             "noseTip": {"x": 1109.1, "y": 347.8},
-#             "mouthLeft": {"x": 1054.6, "y": 381.8},
-#             "mouthRight": {"x": 1164.7, "y": 372.0},
 #             "eyebrowLeftOuter": {"x": 1016.8, "y": 269.2},
 #             "eyebrowLeftInner": {"x": 1085.5, "y": 271.2},
 #             "eyeLeftOuter": {"x": 1038.9, "y": 287.3},
@@ -107,7 +113,7 @@ class Coordinates:
 class ImageCache:
     """Cached Images for an ImageView"""
 
-    coordinates: dict = dataclasses.field(default_factory=dict)
+    coordinates: dict[str, Any] = dataclasses.field(default_factory=dict)
     image: typing.Optional[bytes] = None
 
     bob: typing.Optional[io.BytesIO] = None

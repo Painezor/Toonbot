@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime
 import logging
 import typing
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands
@@ -11,12 +12,12 @@ from discord.ext import commands
 from ext.utils import view_utils, timed_events, embed_utils
 
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot | PBot]
+    User: TypeAlias = discord.User | discord.Member
 
 # TODO: Split /logs command into subcommands with sub-views & Parent.
 # TODO: Fallback parser using regular events -- Check if bot has
@@ -31,6 +32,14 @@ TWTCH = (
     "https://seeklogo.com/images/T/"
     "twitch-tv-logo-51C922E0F0-seeklogo.com.png"
 )
+
+
+# TODO: Create LogChannel Object to subsume notifications_cache
+class LogChannel:
+    """A Channel that tracks changes on a discord server."""
+
+    def __init__(self, channel: discord.TextChannel) -> None:
+        self.channel = channel
 
 
 # We don't need to db call every single time an event happens, just when
@@ -48,18 +57,13 @@ async def update_cache(bot: Bot | PBot) -> None:
 
 def stringify_minutes(value: int) -> str:
     """Convert Minutes to less painful to read value"""
-    match value:
-        case 60:
-            return "1 Hour"
-        case 1440:
-            return "1 Day"
-        case 4320:
-            return "3 Days"
-        case 10080:
-            return "7 Days"
-        case _:
-            logging.info("Unhandled archive duration %s", value)
-            return str(value)
+    try:
+        return {60: "1 Hour", 1440: "1 Day", 4320: "3 Days", 10080: "7 Days"}[
+            value
+        ]
+    except KeyError:
+        logging.error("Unhandled archive duration %s", value)
+        return str(value)
 
 
 def stringify_seconds(value: int) -> str:
@@ -287,10 +291,10 @@ def iter_embed(
 
         elif entry.action == action.app_command_permission_update:
             # Yike. Fuck. Shit
-            if isinstance(extra, discord.Object):
-                app_extra = typing.cast(discord.Object, entry.extra)
-                embed.description += f"Application ID #{app_extra.id}"
-            elif isinstance(extra, discord.PartialIntegration):
+
+            app_extra = typing.cast(discord.Object, entry.extra)
+            embed.description += f"Application ID #{app_extra.id}"
+            if isinstance(extra, discord.PartialIntegration):
                 ex = typing.cast(discord.PartialIntegration, extra)
                 txt = f"{ex.name} ({ex.type} / {ex.id}) {ex.account.name}\n"
                 embed.description += txt
@@ -313,19 +317,16 @@ def iter_embed(
             # Extra Handling.
             role_override = False
             user_override = False
-            if isinstance(extra, discord.Object):
-                extra: discord.Object = extra
-                role_override = extra.type == "role"
-                user_override = extra.type == "user"
+            if extra is not None and hasattr(extra, "type"):
+                extra: typing.Optional[discord.Object] = extra
+                role_override = isinstance(extra.type, type(discord.Role))
+                user_override = isinstance(extra.type, type(discord.User))
 
-            if isinstance(extra, discord.Role) or role_override:
+            if role_override:
                 role = typing.cast(discord.Role, extra)
                 embed.description += f"<@&{role.id}>\n"
 
-            if (
-                isinstance(extra, (discord.Member, discord.User))
-                or user_override
-            ):
+            if user_override:
                 usr = typing.cast(discord.Member, extra)
                 embed.description += f"<@{usr.id}>\n"
 
@@ -680,9 +681,9 @@ def iter_embed(
 
             output = ""
             for user_or_role, dow in overwrites:
-                if user_or_role is not None:
+                if user_or_role:
                     if isinstance(user_or_role, discord.Object):
-                        if user_or_role.type == "role":
+                        if isinstance(user_or_role.type, discord.Role):
                             output += f"<@&{user_or_role.id}>"
                         else:
                             output += f"<@{user_or_role.id}>"
@@ -693,7 +694,7 @@ def iter_embed(
                 else:
                     output += "????????????"
 
-                rows = []
+                rows: list[str] = []
                 for k, val in dow:
                     if val is True:
                         rows.append(f"✅ {k}")
@@ -818,7 +819,7 @@ def iter_embed(
                 embed.add_field(name="Banned Terms", value=text)
 
             if trg.regex_patterns:
-                rules = []
+                rules: list[str] = []
                 for i in trg.regex_patterns:
                     rules.append(f"`{discord.utils.escape_markdown(i)}`")
                 text = ", ".join(rules)
@@ -843,7 +844,7 @@ def iter_embed(
                 embed.description += "**Trigger**: `Keywords Presets`\n"
             elif trg_t == amt.mention_spam:
                 embed.description += "**Trigger**: `Mention Spam`\n"
-            elif trg_t == amt.mention_spam:
+            elif trg_t == amt.spam:
                 embed.description += "**Trigger**: `Spam`\n"
 
         elif key == "type":
@@ -915,10 +916,9 @@ def iter_embed(
     return embed
 
 
-class ToggleButton(discord.ui.Button):
+# TODO: Dropdown instead of Button
+class ToggleButton(discord.ui.Button["LogsConfig"]):
     """A Button to toggle the notifications settings."""
-
-    view: LogsConfig
 
     def __init__(self, db_key: str, value: bool, row: int = 0) -> None:
         self.value: bool = value
@@ -929,9 +929,9 @@ class ToggleButton(discord.ui.Button):
         title: str = db_key.replace("_", " ").title()
         super().__init__(label=f"{title}", emoji=emoji, row=row, style=style)
 
-    async def callback(self, interaction: Interaction) -> None:
+    async def callback(self, interaction: Interaction) -> None:  # type: ignore
         """Set view value to button value"""
-
+        assert self.view is not None
         await interaction.response.defer()
         bot = interaction.client
         async with bot.db.acquire(timeout=60) as connection:
@@ -1173,7 +1173,7 @@ class AuditLogs(commands.Cog):
         for servers that request it"""
 
         cache = self.bot.notifications_cache
-        channels = []
+        channels: list[discord.TextChannel] = []
         for i in cache:
             if i["joins"] and i["guild_id"] == member.guild.id:
                 channel = self.bot.get_channel(i["channel_id"])
@@ -1297,8 +1297,9 @@ class AuditLogs(commands.Cog):
         for i in cache:
             if i["emote_and_sticker"] and i["guild_id"] == guild.id:
                 i = self.bot.get_channel(i["channel_id"])
-                assert isinstance(i, discord.TextChannel)
+
                 if i is not None:
+                    typing.cast(discord.TextChannel, i)
                     channels.append(i)
 
         if not channels:
@@ -1358,10 +1359,10 @@ class AuditLogs(commands.Cog):
             return  # Ignore bots to avoid chain reaction
 
         cache = self.bot.notifications_cache
-        channels = []
+        channels: list[discord.abc.GuildChannel] = []
         for i in cache:
             if i["deleted_messages"] and i["guild_id"] == message.guild.id:
-                channel = self.bot.get_channel(i["channel_id"])
+                channel = message.guild.get_channel(i["channel_id"])
                 if channel is not None:
                     channels.append(channel)
 
@@ -1374,15 +1375,14 @@ class AuditLogs(commands.Cog):
         embed_utils.user_to_footer(embed, message.author)
 
         embed.description = f"<#{message.channel.id}>\n\n{message.content}"
-        attachments: list[discord.File] = []
 
-        atts = []
+        atts: list[discord.File] = []
         dels = discord.Embed(title="Attachments")
         dels.description = ""
         for num, i in enumerate(message.attachments):
             type_ = i.content_type
             url = i.proxy_url
-            val = f"{num}. {i.filename} ({type_})[{url}] ({i.size})\n"
+            val = f"{num}. {i.filename} [{type_}]({url}) ({i.size})\n"
             dels.description += val
             try:
                 atts.append(await i.to_file(spoiler=True, use_cached=True))
@@ -1395,7 +1395,7 @@ class AuditLogs(commands.Cog):
         embeds = [i for i in [embed, dels] if i]
         for channel in channels:
             try:
-                await channel.send(embeds=embeds, files=attachments)
+                await channel.send(embeds=embeds, files=atts)
             except discord.HTTPException:
                 continue
 
@@ -1554,25 +1554,6 @@ class AuditLogs(commands.Cog):
                 await channel.send(embed=embed)
             except (discord.Forbidden, discord.NotFound):
                 continue
-
-    @commands.Cog.listener()
-    async def on_app_command_completion(
-        self,
-        interaction: Interaction,
-        cmd: discord.app_commands.Command | discord.app_commands.ContextMenu,
-    ) -> None:
-        """Log commands as they are run"""
-        guild = interaction.guild.name if interaction.guild else "DM"
-        user = interaction.user
-
-        c_n = cmd.qualified_name
-        if isinstance(cmd, discord.app_commands.ContextMenu):
-            logger.info("Command Ran [%s %s] /%s", user, guild, c_n)
-            return
-
-        params = ", ".join([f"{k}={val}" for k, val in interaction.namespace])
-        logger.info("Command Ran [%s %s] /%s %s", user, guild, c_n, params)
-        return
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(view_audit_log=True)

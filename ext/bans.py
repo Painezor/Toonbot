@@ -41,9 +41,6 @@ class BanView(view_utils.DropdownPaginator):
 
         super().__init__(invoker, embed, rows, options, multi=True)
 
-    async def handle_page(self, interaction: Interaction) -> None:
-        await super().handle_page(interaction)
-
     @discord.ui.select(placeholder="Unban members")
     async def dropdown(
         self, itr: Interaction, select: discord.ui.Select[BanView]

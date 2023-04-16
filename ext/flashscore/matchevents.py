@@ -17,7 +17,7 @@ from .constants import (
     YELLOW_CARD_EMOJI,
 )
 
-from .players import Player
+from .players import PartialPlayer
 
 if typing.TYPE_CHECKING:
     from .abc import Fixture, Team
@@ -116,7 +116,7 @@ def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
                     surname, forename = s_name.rsplit(" ", 1)
                 except ValueError:
                     forename, surname = None, s_name
-                player = Player(forename, surname, s_url)
+                player = PartialPlayer(forename, surname, s_url)
                 event.player_off = player
 
         else:
@@ -140,7 +140,7 @@ def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
                 surname, forename = p_name.rsplit(" ", 1)
             except ValueError:
                 forename, surname = None, p_name
-            event.player = Player(forename, surname, p_url)
+            event.player = PartialPlayer(forename, surname, p_url)
 
         # Assist of a goal.
         if isinstance(event, Goal):
@@ -159,7 +159,7 @@ def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
                 except ValueError:
                     forename, surname = None, a_name
 
-                player = Player(forename, surname, a_url)
+                player = PartialPlayer(forename, surname, a_url)
 
                 event.assist = player
 
@@ -189,11 +189,11 @@ class MatchEvent:
 
     fixture: Fixture
 
-    assist: typing.Optional[Player] = None
+    assist: typing.Optional[PartialPlayer] = None
     colour: discord.Colour = discord.Colour.dark_embed()
     description: typing.Optional[str] = None
     icon_url: typing.Optional[str] = None
-    player: typing.Optional[Player] = None
+    player: typing.Optional[PartialPlayer] = None
     team: typing.Optional[Team] = None
     note: typing.Optional[str] = None
     time: typing.Optional[str] = None
@@ -241,7 +241,7 @@ class Substitution(MatchEvent):
     """A substitution event for a fixture"""
 
     colour = discord.Colour.greyple()
-    player_off: typing.Optional[Player] = None
+    player_off: typing.Optional[PartialPlayer] = None
 
     def __str__(self) -> str:
         output = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
@@ -258,7 +258,7 @@ class Goal(MatchEvent):
     """A Generic Goal Event"""
 
     colour = discord.Colour.green()
-    assist: typing.Optional[Player] = None
+    assist: typing.Optional[PartialPlayer] = None
 
     def __str__(self) -> str:
         output = [self.timestamp]
@@ -411,7 +411,7 @@ class VAR(MatchEvent):
 
     in_progress: bool = False
     colour = discord.Colour.og_blurple()
-    assist: typing.Optional[Player] = None
+    assist: typing.Optional[PartialPlayer] = None
 
     def __str__(self) -> str:
         out = ["`📹 VAR`"] if self.time is None else [f"`📹 VAR {self.time}`"]

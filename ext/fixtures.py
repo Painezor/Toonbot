@@ -273,6 +273,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             opt.description = f"⚽ {i.goals} {team}"
             options.append(opt)
 
+        self.base_embed: discord.Embed = embed
         self.page: Page = page
         super().__init__(invoker, embed, rows, options, 20, parent=parent)
 
@@ -305,8 +306,7 @@ class TopScorersView(view_utils.DropdownPaginator):
 
         nt_flt = view.values
 
-        assert interaction.message is not None
-        embed = interaction.message.embeds[0]
+        embed = self.base_embed
 
         tm_flt = self.team_filter
         invoker = interaction.user
@@ -340,9 +340,7 @@ class TopScorersView(view_utils.DropdownPaginator):
         await view.wait()
 
         tm_flt = teams
-
-        embed = self.message.embeds[0]
-
+        embed = self.base_embed
         nt_flt = self.nationality_filter
         invoker = interaction.user
 
@@ -566,7 +564,7 @@ class ItemView(view_utils.BaseView):
         tag = "div.tabs__group"
 
         # While we're here, let's also grab the logo url.
-        if not isinstance(self.object, (fs.Player, fs.Fixture)):
+        if not isinstance(self.object, (fs.PartialPlayer, fs.Fixture)):
             if not isinstance(self.object, fs.Fixture):
                 if self.object.logo_url is None:
                     logo = self.page.locator("img.heading__logo")
@@ -948,7 +946,7 @@ class ItemView(view_utils.BaseView):
     # Competition, Fixture, Team
     async def top_scorers(self, interaction: Interaction) -> TopScorersView:
         """Handle Top Scorer Fetching"""
-        if isinstance(self.object, fs.Player):
+        if isinstance(self.object, fs.PartialPlayer):
             raise NotImplementedError
 
         obj = self.object

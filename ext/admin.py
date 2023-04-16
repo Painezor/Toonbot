@@ -47,6 +47,10 @@ class Admin(commands.Cog):
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot: Bot | PBot = bot
 
+    @commands.Cog.listener()
+    async def on_command_error(self, _, error: discord.DiscordException):
+        raise error
+
     @commands.is_owner()
     @commands.command(name="sync")
     async def sync(
@@ -76,17 +80,18 @@ class Admin(commands.Cog):
     @discord.app_commands.autocomplete(cog=cg_ac)
     async def reload(self, interaction: Interaction, cog: str) -> None:
         """Reloads a module."""
+        await interaction.response.defer(thinking=True)
         try:
             await self.bot.reload_extension("ext." + cog.casefold())
         except commands.ExtensionError as err:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = error_to_codeblock(err)
-            await interaction.response.send_message(embed=embed)
+            await interaction.edit_original_response(embed=embed)
             raise
 
         embed = discord.Embed(colour=discord.Colour.og_blurple())
         embed.description = f"⚙️ Reloaded {cog}"
-        return await interaction.response.send_message(embed=embed)
+        await interaction.edit_original_response(embed=embed)
 
     @cogs.command()
     @discord.app_commands.autocomplete(cog=cg_ac)
@@ -119,7 +124,7 @@ class Admin(commands.Cog):
 
         embed = discord.Embed(title="Modules")
         embed.colour = discord.Colour.og_blurple()
-        embed.description = f":⚙️: Unloaded {cog}"
+        embed.description = f"⚙️ Unloaded {cog}"
         return await interaction.response.send_message(embed=embed)
 
     console = discord.app_commands.Group(
@@ -203,6 +208,23 @@ class Admin(commands.Cog):
         out_embed.description = desc
         embeds = [in_embed, out_embed]
         return await interaction.response.send_message(embeds=embeds)
+
+    @commands.Cog.listener()
+    async def on_app_command_completion(
+        self, interaction: Interaction, cmd: typing.Any
+    ) -> None:
+        """Log commands as they are run"""
+        guild = interaction.guild.name if interaction.guild else "DM"
+        user = interaction.user
+
+        c_n = cmd.qualified_name
+        if isinstance(cmd, discord.app_commands.ContextMenu):
+            logger.info("Command Ran [%s %s] /%s", user, guild, c_n)
+            return
+
+        params = ", ".join([f"{k}={val}" for k, val in interaction.namespace])
+        logger.info("Command Ran [%s %s] /%s %s", user, guild, c_n, params)
+        return
 
 
 async def setup(bot: Bot | PBot) -> None:
