@@ -189,7 +189,8 @@ class Random(commands.Cog):
         for _ in [5, 10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
         embed = view.embed
-        return await interaction.response.send_message(view=view, embed=embed)
+        await interaction.response.send_message(view=view, embed=embed)
+        view.message = await interaction.original_response()
 
     @discord.app_commands.command(name="8ball")
     @discord.app_commands.describe(question="enter a question")

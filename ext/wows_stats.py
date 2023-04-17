@@ -1,9 +1,9 @@
 """Private world of warships related commands"""
 from __future__ import annotations
 
+import importlib
 import logging
 from typing import Any, TYPE_CHECKING, TypeAlias, Optional, Literal
-import importlib
 
 import discord
 from discord.ext import commands
@@ -180,125 +180,95 @@ class PlayerView(view_utils.BaseView):
         draws = stats.draws
 
         desc: list[str] = []
-        try:
-            win_rate = round(wins / played * 100, 2)
-            rest = f"({played} Battles - {wins} W / {draws} D / {loss} L )"
-            desc.append(f"**Win Rate**: {win_rate}% {rest}")
+        if not played:
+            embed.description = "This player has not played any battles"
+            await interaction.response.edit_message(embed=embed, view=self)
+            return
 
-            sv_rt = round(survived / played * 100, 2)
-            s_tot = format(survived, ",")
-            txt = f"**Survival Rate (Overall)**: {sv_rt}% (Total: {s_tot})"
-            desc.append(txt)
-        except ZeroDivisionError:
-            desc.append("This player has not played any battles")
+        win_rate = round(wins / played * 100, 2)
+        draws = f"/ {draws} D " if draws else ""
+        rest = f"({played} Battles - {wins} W {draws}/ {loss} L)"
+        desc.append(f"**Win Rate**: {win_rate}% {rest}")
+        sv_rt = round(survived / played * 100, 2)
+        s_tot = format(survived, ",")
+        txt = f"**Survival Rate (Overall)**: {sv_rt}% (Total: {s_tot})"
+        desc.append(txt)
 
-        try:
+        if wins:
             swr = round(suv_wins / wins * 100, 2)
             tot_w = format(suv_wins, ",")
             desc.append(f"**Survival Rate (Wins)**: {swr}% (Total: {tot_w})")
-        except ZeroDivisionError:
-            pass  # 0% WR
-
-        # Totals
-        dmg = stats.damage_dealt
-        kills = stats.frags
-        tot_xp = stats.xp
-        spotted = stats.ships_spotted
-        spotting = stats.damage_scouting
-        potential = stats.potential_damage
-        planes = stats.planes_killed
-        x_avg = format(round(tot_xp / played), ",")
-        x_tot = format(tot_xp, ",")
-        desc.append(f"**Average XP**: {x_avg}\n" f"**Total XP**: {x_tot}")
 
         # Averages - Kills, Damage, Spotting, Potential
-        try:
-            d_avg = format(round(dmg / played), ",")
-            k_avg = round(kills / played, 2)
-            x_avg = format(round(tot_xp / played), ",")
-            p_avg = format(round(potential / played), ",")
-            s_avg = format(round(spotting / played), ",")
-            sp_av = format(round(spotted / played, 2), ",")
-            pl_av = round(planes / played, 2)
+        averages: list[str] = []
+        totals: list[str] = []
 
-            avg = (
-                f"**Kills**: {k_avg}\n**Damage**: {d_avg}\n"
-                f"**Potential**: {p_avg}\n**Spotting**: {s_avg}\n"
-                f"**Ships Spotted**: {sp_av}\n**XP**: {x_avg}\n"
-                f"**Planes**: {pl_av}"
-            )
-            embed.add_field(name="Averages", value=avg)
+        def add_lines(
+            label: str, rnd: Optional[int], val: Optional[int], games: int
+        ) -> None:
+            """Add rows to the fields"""
+            if not val:
+                return
+            _ = f"**{label}**: "
+            averages.append(f'{_}{format(round(val / games, rnd), ",")}')
+            totals.append(f"{_}{format(round(val), ',')}")
 
-            # Records
-            r_dmg = format(stats.max_damage_dealt, ",")
-            r_xp = format(stats.max_xp, ",")
-            r_kills = stats.max_frags_battle
-            r_pot = format(stats.max_total_agro, ",")
-            r_spot = format(stats.max_damage_scouting, ",")
-            r_ship_max = stats.max_ships_spotted
-            r_planes = stats.max_planes_killed
+        add_lines("Damage", None, stats.damage_dealt, played)
+        add_lines("Kills", 2, stats.frags, played)
+        add_lines("Experience", None, stats.xp, played)
+        add_lines("Potential Damage", None, stats.max_total_agro, played)
+        add_lines("Spotting Damage", None, stats.damage_scouting, played)
+        add_lines("Ships Spotted", 2, stats.ships_spotted, played)
+        add_lines("Planes Killed", 2, stats.planes_killed, played)
 
-            def get(ship_id: int) -> api.Ship:
-                ships = interaction.client.ships
-                return next(i for i in ships if i.ship_id == ship_id)
+        embed.add_field(name="Averages", value="\n".join(averages))
+        embed.add_field(name="Totals", value="\n".join(totals))
 
-            s_dmg = get(stats.max_damage_dealt_ship_id)
-            s_xp = get(stats.max_xp_ship_id)
-            s_kills = get(stats.max_frags_ship_id)
-            s_pot = get(stats.max_total_agro_ship_id)
-            s_spot = get(stats.max_scouting_damage_ship_id)
-            s_ship_max = get(stats.max_ships_spotted_ship_id)
-            s_planes = get(stats.max_planes_killed_ship_id)
+        records: list[str] = []
+        ships = interaction.client.ships
 
-            # Records, Totals
-            rec: list[str] = []
-            for record, ship in [
-                (r_kills, s_kills),
-                (r_dmg, s_dmg),
-                (r_pot, s_pot),
-                (r_ship_max, s_ship_max),
-                (r_spot, s_spot),
-                (r_xp, s_xp),
-                (r_planes, s_planes),
-            ]:
-                try:
-                    rec.append(f"{record} ({ship.name})")
-                except AttributeError:
-                    rec.append(f"{record}")
+        def handle_record(
+            label: str, stat: tuple[Optional[int], Optional[int]]
+        ) -> None:
+            """Fetch Ship & Add rows to the record field"""
+            value, ship_id = stat
 
-            embed.add_field(name="Records", value="\n".join(rec))
+            if value is None:
+                return
 
-            embed.add_field(
-                name="Totals",
-                value=f"{format(kills, ',')}\n{format(dmg, ',')}\n"
-                f"{format(potential, ',')}\n{format(spotting, ',')}\n"
-                f"{format(spotted, ',')}\n{format(tot_xp, ',')}\n"
-                f"{format(planes, ',')}",
-            )
-        except ZeroDivisionError:
-            desc.append(
-                "```diff\n- Could not find player stats for this"
-                " game mode and division size```"
-            )
-            logging.error(
-                "Could not find stats for size [%s] mode [%s]",
-                div_size,
-                mode,
-            )
+            ship = next((i for i in ships if i.ship_id == ship_id), None)
+            if ship is None:
+                shp = ""
+            else:
+                emote = ship.emoji
+                shp = f"{ship.nation.flag} {emote} {ship.name} T{ship.tier}"
+            records.append(f"**{label}**: {format(stat)} {shp}")
+
+        _ = (stats.max_damage_dealt, stats.max_damage_dealt_ship_id)
+        handle_record("Damage", _)
+        handle_record("Experience", (stats.max_xp, stats.max_xp_ship_id))
+        _ = (stats.max_frags_battle, stats.max_frags_ship_id)
+        handle_record("Kills", _)
+        _ = (stats.max_total_agro, stats.max_total_agro_ship_id)
+        handle_record("Potential Damage", _)
+        _ = (stats.max_damage_scouting, stats.max_scouting_damage_ship_id)
+        handle_record("Spotting Damage", _)
+        _ = (stats.max_ships_spotted, stats.max_ships_spotted_ship_id)
+        handle_record("Ships Spotted", _)
+        _ = (stats.max_planes_killed, stats.max_planes_killed_ship_id)
+        handle_record("Planes Killed", _)
+
+        embed.add_field(name="Records", value="\n".join(records))
 
         # Operations specific stats.
-        if stats.wins_by_tasks is not None:
-            star_rate = sorted(
-                [(k, v) for k, v in stats.wins_by_tasks.items()],
-                key=lambda st: int(st[0]),
-            )
-
+        if stats.wins_by_tasks:
             star1, star2 = r"\⭐", r"\★"
-            star_desc = [
-                f"{x * star1}{(5 - x) * star2}: {star_rate[x][1]}"
-                for x in range(0, 5)
-            ]
-            embed.add_field(name="Star Breakdown", value="\n".join(star_desc))
+
+            stars: list[str] = []
+            for k, val in stats.wins_by_tasks.items():
+                _ = f"{k * star1} + {(5 - k) * star2}: {val}"
+                stars.append(_)
+            embed.add_field(name="Star Breakdown", value="\n".join(stars))
 
         embed.description = "\n".join(desc)
         return await interaction.response.edit_message(embed=embed, view=self)

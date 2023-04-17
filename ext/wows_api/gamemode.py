@@ -1,11 +1,10 @@
 """World of Warships Game Modes"""
 from __future__ import annotations
 
-import dataclasses
 import logging
-import typing
 
 import aiohttp
+from pydantic import BaseModel  # pylint: disable=no-name-in-module
 
 from .wg_id import WG_ID
 
@@ -14,7 +13,7 @@ logger = logging.getLogger("api.gamemodes")
 MODES = "https://api.worldofwarships.eu/wows/encyclopedia/battletypes/"
 
 
-async def get_game_modes() -> set[GameMode]:
+async def get_game_modes() -> list[GameMode]:
     """Get a list of Game Modes from the API"""
     params = {"application_id": WG_ID, "language": "en"}
 
@@ -25,12 +24,10 @@ async def get_game_modes() -> set[GameMode]:
                 logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
-    data = data.pop("data").values()
-    return set(GameMode(i) for i in data)
+    return [GameMode(**i) for i in data.pop("data").values()]
 
 
-@dataclasses.dataclass(slots=True)
-class GameMode:
+class GameMode(BaseModel):
     """ "An Object representing different Game Modes"""
 
     description: str
@@ -38,15 +35,8 @@ class GameMode:
     name: str
     tag: str
 
-    def __init__(self, data: dict[str, str]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
-
-    def __hash__(self) -> int:
-        return hash(self.name)
-
     @property
-    def emoji(self) -> typing.Optional[str]:
+    def emoji(self) -> str:
         """Get the Emoji Representation of the game mode."""
         return {
             "BRAWL": "<:Brawl:989921560901058590>",
@@ -57,4 +47,4 @@ class GameMode:
             "PVE_PREMADE": "<:Scenario_Hard:989922089303687230>",
             "PVP": "<:Randoms:988865875824222338>",
             "RANKED": "<:Ranked:989845163989950475>",
-        }.get(self.tag, None)
+        }[self.tag]

@@ -3,6 +3,7 @@ from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
 import logging
+from typing import Optional, TYPE_CHECKING
 import typing
 
 import aiohttp
@@ -11,7 +12,7 @@ from lxml import html
 
 from ext.utils import view_utils, timed_events, flags, embed_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
@@ -133,7 +134,7 @@ class Team(SearchResult):
     """An object representing a Team from Transfermarkt"""
 
     emoji: str = "👕"
-    league: typing.Optional[Competition] = None
+    league: Optional[Competition] = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -355,10 +356,10 @@ class Team(SearchResult):
 class PartialPlayer(SearchResult):
     """An Object representing a player from transfermarkt"""
 
-    age: typing.Optional[int] = None
-    team: typing.Optional[Team] = None
-    position: typing.Optional[str] = None
-    picture: typing.Optional[str] = None
+    age: Optional[int] = None
+    team: Optional[Team] = None
+    position: Optional[str] = None
+    picture: Optional[str] = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -380,7 +381,7 @@ class PartialPlayer(SearchResult):
 class Referee(SearchResult):
     """An object representing a referee from transfermarkt"""
 
-    age: typing.Optional[int] = None
+    age: Optional[int] = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -397,10 +398,10 @@ class Referee(SearchResult):
 class Staff(SearchResult):
     """An object representing a Trainer or Manager from Transfermarkt"""
 
-    team: typing.Optional[Team] = None
-    age: typing.Optional[int] = None
-    job: typing.Optional[str] = None
-    picture: typing.Optional[str] = None
+    team: Optional[Team] = None
+    age: Optional[int] = None
+    job: Optional[str] = None
+    picture: Optional[str] = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -429,7 +430,7 @@ class Transfer:
 
     fee: str
     fee_link: str
-    date: str
+    date: Optional[str] = None
 
     def __init__(self) -> None:
         pass
@@ -477,7 +478,7 @@ class Transfer:
             o_l_link = o_l_link.split("/saison_id", maxsplit=1)[0]
 
         xpath = './/td[4]//img[@class="flaggenrahmen"]/@alt'
-        ctry = "".join(data.xpath(xpath))
+        ctry = data.xpath(xpath)
 
         old_lg = Competition(o_l_name, o_l_link, country=ctry)
         tran.old_team = Team(o_t_name, o_t_link, league=old_lg, country=ctry)
@@ -586,7 +587,8 @@ class Transfer:
     def loan_fee(self) -> str:
         """Returns either Loan Information or the total fee of a player's
         transfer"""
-        output = f"[{self.fee}]({self.fee_link}): {self.date}"
+        date = "" if self.date is None else f": {self.date}"
+        output = f"[{self.fee}]({self.fee_link}) {date}"
         return output
 
     def __str__(self) -> str:
@@ -720,7 +722,9 @@ class StadiumAttendance:
     @property
     def markdown(self) -> str:
         """return string of [Name](Link)"""
-        return f"[{self.name}]({self.link})"
+        link = f"({self.link})" if self.link else ""
+        name = f"[{self.name}]" if self.name else ""
+        return f"{name}{link}"
 
     @property
     def capacity_row(self) -> str:
@@ -786,7 +790,7 @@ class SearchView(view_utils.DropdownPaginator):
     @classmethod
     async def search(
         cls: typing.Type["T"], query: str, interaction: Interaction
-    ) -> typing.Optional["T"]:
+    ) -> Optional["T"]:
         """Generate a SearchView from the query"""
         url = TF + "/schnellsuche/ergebnis/schnellsuche"
         # Header names, scrape then compare (don't follow a pattern.)

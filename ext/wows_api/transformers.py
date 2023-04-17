@@ -7,6 +7,7 @@ from typing import TypeAlias, TYPE_CHECKING, Optional
 import aiohttp
 from discord import Locale, Interaction as Itr
 from discord.app_commands import Choice, Transform, Transformer
+from pydantic import ValidationError
 
 from .wg_id import WG_ID
 from .clan import PartialClan
@@ -89,7 +90,7 @@ class ClanTransformer(Transformer):
 
         choices: list[Choice[str]] = []
 
-        self.clans = [PartialClan(i) for i in data.pop("data", [])]
+        self.clans = [PartialClan(**i) for i in data.pop("data", [])]
 
         for i in self.clans:
             logger.info("%s: %s", i.name, i)
@@ -197,7 +198,11 @@ class PlayerTransformer(Transformer):
                 logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
-        self.players = [PartialPlayer(i) for i in data.pop("data", [])]
+        try:
+            self.players = [PartialPlayer(**i) for i in data.pop("data", [])]
+        except ValidationError as err:
+            print(err)
+
         logger.info("Generated %s players", len(self.players))
 
         link = PLAYER_CLAN.replace("%%", region.domain)
@@ -214,6 +219,7 @@ class PlayerTransformer(Transformer):
                 clan_raw = await resp.json()
                 clan_data = clan_raw.pop("data")
 
+        logger.info("got %s clan_data items", len(clan_data))
         choices: list[Choice[str]] = []
         for k, val in clan_data.items():
             # k is the player's id
@@ -223,8 +229,9 @@ class PlayerTransformer(Transformer):
                 plrs = ", ".join([str(p.account_id) for p in self.players])
                 logger.info("Failed to map %s to %s", k, plrs)
                 continue
+
             if val:
-                plr.clan = PlayerClanData(val)
+                plr.clan = PlayerClanData(**val)
                 name = f"[{plr.clan.tag}] {plr.nickname}"
             else:
                 plr.clan = None

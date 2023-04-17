@@ -276,11 +276,11 @@ class ClanView(view_utils.BaseView):
         avg.append(f"{_}{format(round(sum(valid) / len(valid)), ',')}")
         rec.append(f"{_}{format(high.battles_count, ',')} ({high.name})")
 
-        # _ = "**Battles Per Day**: "
-        # high = max(mems, key=lambda i: i.battles_per_day or 0)
-        # valid = [i.battles_per_day for i in mems if i.battles_per_day]
-        # avg.append(f"{_}{round(sum(valid) / len(valid))}\n")
-        # rec.append(f"{_}{high.battles_per_day} ({high.name})\n")
+        _ = "**Battles Per Day**: "
+        high = max(mems, key=lambda i: i.battles_per_day or 0)
+        valid = [i.battles_per_day for i in mems if i.battles_per_day]
+        avg.append(f"{_}{round(sum(valid) / len(valid))}\n")
+        rec.append(f"{_}{high.battles_per_day} ({high.name})\n")
 
         embed.add_field(name="Averages", value="\n".join(avg), inline=False)
         _ = "Best Averages"
@@ -302,7 +302,7 @@ class ClanView(view_utils.BaseView):
             # delta = datetime.timedelta(days=i.days_in_clan)
             # time = Timestamp(self.clan.created_at - delta).relative
             embed.description += f"{i.days_in_clan} Days: {i.name}\n"
-        return await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 class WinnerView(view_utils.DropdownPaginator):
@@ -385,6 +385,7 @@ class Clans(commands.Cog):
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
         importlib.reload(view_utils)
+        importlib.reload(api)
 
     async def cog_load(self) -> None:
         """Fetch Clan Related Data on startup"""

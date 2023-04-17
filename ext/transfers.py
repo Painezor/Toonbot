@@ -6,6 +6,7 @@ from importlib import reload
 
 import logging
 import typing
+from typing import Optional, TYPE_CHECKING
 
 import discord
 from discord.ext import commands, tasks
@@ -16,7 +17,7 @@ from ext.utils import view_utils, embed_utils
 
 logger = logging.getLogger("transfers.py")
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
     Interaction: typing.TypeAlias = discord.Interaction[Bot]
@@ -41,7 +42,7 @@ class TFCompetitionTransformer(discord.app_commands.Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> typing.Optional[tfm.CompetitionSearch]:
+    ) -> Optional[tfm.CompetitionSearch]:
         return await tfm.CompetitionSearch.search(value, interaction)
 
 
@@ -74,7 +75,7 @@ class TransferChannel:
 
         self.leagues = set(
             tfm.Competition(
-                name=r["name"], country=r["country"], link=r["link"]
+                name=r["name"], country=[r["country"]], link=r["link"]
             )
             for r in records
         )
@@ -106,7 +107,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
         embed = discord.Embed(colour=discord.Colour.dark_blue())
         embed.title = "Transfers Ticker config"
-        embed.description = f"Tracked leagues for {channel.mention}```yaml\n"
+        embed.description = f"Tracked leagues for {channel.mention}\n"
 
         missing: list[str] = []
 
@@ -132,10 +133,12 @@ class TransfersConfig(view_utils.DropdownPaginator):
             lbl = league.name[:100]
             opt = discord.SelectOption(label=lbl, value=league.link)
             opt.emoji = league.flags[0]
-            rows.append(f"{league.flags} {league.country}: {league.markdown}")
+            ctr = league.country[0]
+            flg = league.flags[0]
+            rows.append(f"{flg} {ctr}: {league.markdown}")
             options.append(opt)
 
-        super().__init__(invoker, embed, rows, options, footer="```")
+        super().__init__(invoker, embed, rows, options)
 
         if not rows:
             mention = self.channel.channel.mention
@@ -185,7 +188,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
         view = TransfersConfig(itr.user, self.channel)
         await view_itr.response.send_message(view=view, embed=view.pages[0])
-        return
+        view.message = await itr.original_response()
 
     @discord.ui.button(row=3, style=discord.ButtonStyle.primary, label="Reset")
     async def reset(self, interaction: Interaction, _) -> None:
@@ -215,6 +218,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
         view = TransfersConfig(interaction.user, self.channel)
         await view_itr.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
 
     @discord.ui.button(label="Delete", row=3, style=discord.ButtonStyle.red)
     async def delete(self, interaction: Interaction, _) -> None:
@@ -276,7 +280,7 @@ class Transfers(commands.Cog):
         self,
         interaction: Interaction,
         channel: discord.TextChannel,
-    ) -> typing.Optional[TransferChannel]:
+    ) -> Optional[TransferChannel]:
         """Create a ticker for the channel"""
 
         chan = channel.mention
@@ -366,8 +370,9 @@ class Transfers(commands.Cog):
             if skip_output:
                 continue
 
-            old = i.old_team.link
-            new = i.new_team.link
+            old = i.old_team.league.link if i.old_team.league else None
+            new = i.new_team.league.link if i.new_team.league else None
+            logger.info("Scanning for %s or %s", old, new)
             # Fetch the list of channels to output the transfer to.
             sql = """SELECT DISTINCT transfers_channels.channel_id
                      FROM transfers_channels LEFT OUTER JOIN transfers_leagues
@@ -379,6 +384,8 @@ class Transfers(commands.Cog):
 
             if not records:
                 continue
+
+            logger.info("Disaptching Transfer to %s channels", len(records))
 
             embed = i.embed()
 
@@ -411,7 +418,7 @@ class Transfers(commands.Cog):
     async def manage(
         self,
         interaction: Interaction,
-        channel: typing.Optional[discord.TextChannel],
+        channel: Optional[discord.TextChannel],
     ) -> None:
         """View the config of this channel's transfer ticker"""
         if channel is None:
@@ -428,6 +435,7 @@ class Transfers(commands.Cog):
 
         view = TransfersConfig(interaction.user, chan)
         await interaction.response.send_message(view=view, embed=view.pages[0])
+        view.message = await interaction.original_response()
 
     @tf.command()
     @discord.app_commands.describe(competition="Search for a competition name")
@@ -437,7 +445,7 @@ class Transfers(commands.Cog):
         competition: discord.app_commands.Transform[
             tfm.Competition, TFCompetitionTransformer
         ],
-        channel: typing.Optional[discord.TextChannel],
+        channel: Optional[discord.TextChannel],
     ) -> None:
         """Add a league to your transfer ticker channel(s)"""
         if channel is None:

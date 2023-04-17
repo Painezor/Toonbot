@@ -107,7 +107,7 @@ class PBot(commands.AutoShardedBot):
         self.clan_battle_seasons: list[api.ClanBattleSeason]
         self.clan_battle_winners: dict[int, list[api.ClanBattleWinner]]
         self.maps: set[api.Map] = set()
-        self.modes: set[api.GameMode] = set()
+        self.modes: list[api.GameMode] = []
         self.modules: dict[int, api.Module] = dict()
         self.ships: list[Ship] = []
 

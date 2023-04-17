@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from importlib import reload
 
-import collections
 import logging
 from typing import Any, TypeAlias, TYPE_CHECKING
 
@@ -61,12 +60,12 @@ class ShipEmbed(discord.Embed):
         super().__init__()
 
         if any([ship.is_premium, ship.is_special]):
-            icon_url = ship.type.images.image_premium
+            icon_url = ship.type.image_premium
         else:
-            icon_url = ship.type.images.image
+            icon_url = ship.type.image
         cls_ = ship.type.name
 
-        nation = ship.nation.value
+        nation = ship.nation.sane
         tier = f"Tier {ship.tier}"
 
         name = [i for i in [tier, nation, cls_, ship.name] if i]
@@ -125,9 +124,8 @@ class AircraftEmbed(ShipEmbed):
                 f"**Accuracy**: {d_b.accuracy.min} - {d_b.accuracy.max}",
             ]
 
-            fire_chance = round(d_b.bomb_burn_probability, 1)
-            if fire_chance:
-                value.append(f"**Fire Chance**: {fire_chance}%")
+            if fire_chance := d_b.bomb_burn_probability:
+                value.append(f"**Fire Chance**: {round(fire_chance, 1)}%")
             self.add_field(name=name, value="\n".join(value), inline=False)
 
         self.set_footer(text="Rocket planes & Skip Bombs are not in the API.")
@@ -153,7 +151,7 @@ class AuxiliaryEmbed(ShipEmbed):
             desc.append(f"**Secondary Range**: {sec.distance}")
             desc.append(f"**Total Barrels**: {barrel}")
 
-            for i in sec.slots:
+            for i in sec.slots.values():
                 name = i.name
 
                 text = [
@@ -171,20 +169,16 @@ class AuxiliaryEmbed(ShipEmbed):
                 self.add_field(name=name, value="\n".join(text))
 
         if (a_a := fitting.profile.anti_aircraft) is None:
-            aad = ["```diff\n- This ship has no AA Capability.```"]
+            desc.append("```diff\n- This ship has no AA Capability.```")
         else:
-            aa_guns: dict[str, list[str]] = collections.defaultdict(list)
-            for i in a_a.slots:
-                row = f"{i.guns}x{i.calibre}mm ({i.avg_damage} dps)\n"
-                aa_guns[i.name].append(row)
+            assert a_a.slots is not None
+            rows: list[str] = []
+            for i in a_a.slots.values():
+                dps = i.avg_damage
+                row = f"{i.name}: {i.guns}x{i.caliber}mm ({dps} dps)\n"
+                rows.append(row)
 
-            aad: list[str] = []
-            for k, val in aa_guns.items():
-                aad.append(f"**{k}**\n")
-                aad.append("\n".join(val))
-                aad.append("\n")
-
-        self.add_field(name="AA Guns", value="".join(aad), inline=False)
+            self.add_field(name="AA Guns", value="".join(rows), inline=False)
 
         self.description = "\n".join(desc)
 
@@ -199,7 +193,7 @@ class MainGunEmbed(ShipEmbed):
         mains = fitting.profile.artillery
         guns: list[str] = []
         caliber = ""
-        for i in mains.slots:
+        for i in mains.slots.values():
             self.title = i.name
             guns.append(f"{i.guns}x{i.barrels}")
             caliber = f"{str(self.title).split('mm', maxsplit=1)[0]}"
@@ -214,7 +208,7 @@ class MainGunEmbed(ShipEmbed):
             f"**Reload Time**: {rlt}s ({mains.gun_rate} rounds/minute)"
         )
 
-        for i in mains.shells:
+        for i in mains.shells.values():
             shell_data = [
                 f"**Damage**: {format(i.damage, ',')}",
                 f"**Initial Velocity**: {format(i.bullet_speed, ',')}m/s",
@@ -294,9 +288,9 @@ class OverviewEmbed(ShipEmbed):
 
         self.description = "\n".join(desc)
 
-        if fitting.ship.next_ships:
+        if fitting.ship.next_ship_objects:
             vals: list[tuple[int, str]] = []
-            for ship, xp_ in fitting.ship.next_ship_objects.items():
+            for ship, xp_ in fitting.ship.next_ship_objects:
                 creds = format(ship.price_credit, ",")
                 xp_ = format(xp_, ",")
                 text = (
@@ -316,8 +310,9 @@ class TorpedoesEmbed(ShipEmbed):
     def __init__(self, fitting: api.ShipFit):
         super().__init__(fitting.ship)
         assert (torps := fitting.profile.torpedoes) is not None
+        assert torps.slots is not None
 
-        for i in torps.slots:
+        for i in torps.slots.values():
             value = f"{i.guns}x{i.barrels}x{i.caliber}mm"
             self.add_field(name=i.name, value=value)
 
@@ -349,7 +344,8 @@ class ShipView(view_utils.BaseView):
         self.ship: api.Ship = ship
 
         matches: list[api.Module] = []
-        for i in [j for j in ship.modules_tree if j.is_default]:
+        modules = list(ship.modules_tree.values()) if ship.modules_tree else []
+        for i in [j for j in modules if j.is_default]:
             try:
                 matches.append(interaction.client.modules[i.module_id])
             except KeyError:
@@ -372,20 +368,22 @@ class ShipView(view_utils.BaseView):
         else:
             self.aircraft.disabled = True
 
-        for i in ship.previous_ship_objects:
+        for i in ship.previous_ships:
             self.add_item(ShipButton(self, i, "▶️"))
 
-        for i in ship.next_ship_objects.keys():
-            self.add_item(ShipButton(self, i, "◀️"))
+        for i in ship.next_ship_objects:
+            self.add_item(ShipButton(self, i[0], "◀️"))
 
         # Select Options
         options: list[discord.SelectOption] = []
         for i in self.ship.modules.all_modules:
-            if i in self.fitting.all_modules:
+            if i in self.fitting.modules.values():
                 continue
 
             module = interaction.client.modules[i]
-            orig = next(i for i in ship.modules_tree if i.module_id == i)
+
+            i = str(i)
+            orig = next(val for k, val in ship.modules_tree.items() if k == i)
 
             name = f"{module.name} ({module.__class__.__name__})"
             opt = discord.SelectOption(label=name, emoji=module.profile.emoji)
@@ -492,7 +490,8 @@ class Fittings(commands.Cog):
         await fetch_modules(interaction, ship)
         view = ShipView(interaction, ship)
         embed = OverviewEmbed(view.fitting)
-        return await interaction.response.send_message(view=view, embed=embed)
+        await interaction.response.send_message(view=view, embed=embed)
+        view.message = await interaction.original_response()
 
 
 async def setup(bot: PBot) -> None:

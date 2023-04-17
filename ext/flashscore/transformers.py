@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING, TypeAlias, Literal, overload, Optional
 from urllib.parse import quote
 
 from discord.app_commands import Transform, Transformer, Choice
-from discord.ui import Select, select
+from discord.ui import Select
+import discord
 from discord import (
     Interaction as Itr,
     User as usr,
@@ -243,10 +244,10 @@ class TeamSelect(view_utils.DropdownPaginator):
         self.interaction: Interaction
         self.team: Team
 
-    @select(placeholder="Choose a team")
-    async def dropdown(self, _, select: Select[TeamSelect]) -> None:
+    @discord.ui.select(placeholder="Choose a team")
+    async def dropdown(self, _, sel: Select[TeamSelect]) -> None:
         """Spawn Team Clan View"""
-        self.team = next(i for i in self.teams if i.id in select.values)
+        self.team = next(i for i in self.teams if i.id in sel.values)
 
 
 class FixtureSelect(view_utils.DropdownPaginator):
@@ -274,7 +275,7 @@ class FixtureSelect(view_utils.DropdownPaginator):
         self.fixture: Fixture
         self.interaction: Interaction
 
-    @select(placeholder="Choose a fixture")
+    @discord.ui.select(placeholder="Choose a fixture")
     async def dropdown(
         self, itr: Interaction, sel: Select[FixtureSelect]
     ) -> None:
@@ -307,7 +308,7 @@ class CompetitionSelect(view_utils.DropdownPaginator):
         self.competition: Competition
         self.interaction: Interaction
 
-    @select(placeholder="Select a competition")
+    @discord.ui.select(placeholder="Select a competition")
     async def dropdown(
         self, itr: Interaction, sel: Select[CompetitionSelect]
     ) -> None:
@@ -509,6 +510,8 @@ class TFCompetitionTransformer(Transformer):
 
 
 class LiveCompTransformer(TFCompetitionTransformer):
+    """Get only live competitions"""
+
     async def autocomplete(  # type: ignore
         self, interaction: Interaction, current: str, /
     ) -> list[Choice[str]]:

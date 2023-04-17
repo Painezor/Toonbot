@@ -1,7 +1,6 @@
 """Match Events used for the ticker"""
 from __future__ import annotations
 
-import dataclasses
 import enum
 import logging
 import typing
@@ -183,7 +182,6 @@ def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
     return events
 
 
-@dataclasses.dataclass(slots=True)
 class MatchEvent:
     """An object representing an event happening in a fixture"""
 

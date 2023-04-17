@@ -18,11 +18,11 @@ class Nation(enum.Enum):
 
     def __new__(cls, *args: str) -> Nation:
         obj = object.__new__(cls)
-        obj._value_ = args[0]
+        obj._value_ = args[1]
         return obj
 
-    def __init__(self, _, match: str, flag: str) -> None:
-        self.match: str = match
+    def __init__(self, name: str, _: str, flag: str) -> None:
+        self.sane: str = name
         self.flag: str = flag
         super().__init__()
 

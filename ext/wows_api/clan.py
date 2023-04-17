@@ -1,12 +1,12 @@
 """Data realted to the fetching of World of Warships Clans from the API"""
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import logging
 from typing import Any, Optional
 
 import aiohttp
+from pydantic import BaseModel  # pylint: disable=no-name-in-module
 from .enums import Region
 from .wg_id import WG_ID
 
@@ -34,7 +34,7 @@ async def get_clan_details(clan_id: int, region: Region) -> Clan:
     async with aiohttp.ClientSession() as session:
         async with session.get(url, params=params) as resp:
             data = await resp.json()
-    return Clan(data.pop("data")[str(clan_id)], region)
+    return Clan(**data.pop("data")[str(clan_id)])
 
 
 async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:
@@ -49,7 +49,7 @@ async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:
                 logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
-    return ClanVortexData(data.pop("clanview"))
+    return ClanVortexData(**data.pop("clanview"))
 
 
 async def get_member_vortex(
@@ -64,7 +64,7 @@ async def get_member_vortex(
                 logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
-    return [ClanMemberVortexData(i) for i in data.pop("items")]
+    return [ClanMemberVortexData(**i) for i in data.pop("items")]
 
 
 async def get_cb_leaderboard(
@@ -85,7 +85,7 @@ async def get_cb_leaderboard(
             if resp.status != 200:
                 text = await resp.text()
                 logger.error("%s %s: %s", resp.status, text, resp.url)
-            return [ClanLeaderboardStats(i) for i in await resp.json()]
+            return [ClanLeaderboardStats(**i) for i in await resp.json()]
 
 
 async def get_cb_seasons(language: str = "en") -> list[ClanBattleSeason]:
@@ -107,7 +107,7 @@ async def get_cb_seasons(language: str = "en") -> list[ClanBattleSeason]:
     for k, val in data.items():  # Key is useless
         if len(str(k)) == 3:
             continue  # Discard Fucked shit.
-        output.append(ClanBattleSeason(val))
+        output.append(ClanBattleSeason(**val))
     return output
 
 
@@ -125,21 +125,16 @@ async def get_cb_winners() -> dict[int, list[ClanBattleWinner]]:
     # k is season - int
     # val is dict
     for k, val in winners.items():
-        winners[k] = [ClanBattleWinner(i) for i in val]
+        winners[k] = [ClanBattleWinner(**i) for i in val]
     return winners
 
 
-@dataclasses.dataclass(slots=True)
-class ClanBattleLeague:
+class ClanBattleLeague(BaseModel):
     """A League in a Clan Battle Season"""
 
     color: str
     icon: str
     name: str
-
-    def __init__(self, data: dict[str, str]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
 
     @property
     def emote(self) -> str:
@@ -164,8 +159,7 @@ class ClanBattleLeague:
         }[self.name]
 
 
-@dataclasses.dataclass(slots=True)
-class ClanBattleSeason:
+class ClanBattleSeason(BaseModel):
     """Clan Battle Leagues"""
 
     division_points: int
@@ -177,14 +171,6 @@ class ClanBattleSeason:
     start_time: datetime.datetime
 
     leagues: list[ClanBattleLeague]
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            if k == "leagues":
-                val = [ClanBattleLeague(i) for i in val]
-            elif k in ["start_time", "finish_time"]:
-                val = datetime.datetime.fromtimestamp(val)
-            setattr(self, k, val)
 
     @property
     def top_league(self) -> ClanBattleLeague:
@@ -205,8 +191,7 @@ class ClanBattleSeason:
         raise AttributeError
 
 
-@dataclasses.dataclass(slots=True)
-class ClanSeasonStats:
+class ClanSeasonStats(BaseModel):
     """A Single Clan's statistics for a Clan Battles season"""
 
     clan: PartialClan
@@ -227,15 +212,8 @@ class ClanSeasonStats:
 
     last_win_at: datetime.datetime
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            if k == "last_win_at":
-                val = datetime.datetime.fromtimestamp(val)
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class ClanBattleWinner:
+class ClanBattleWinner(BaseModel):
     """Winner of a Clan Battle Season"""
 
     clan_id: int
@@ -247,13 +225,8 @@ class ClanBattleWinner:
     season_id: int
     tag: str
 
-    def __init__(self, data: dict[str, int | str]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class ClanLeaderboardStats:
+class ClanLeaderboardStats(BaseModel):
     """Stats from the Clan Leaderboard Endpoint"""
 
     battles_count: int
@@ -276,15 +249,8 @@ class ClanLeaderboardStats:
     season_number: int
     tag: str
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            if k in ["last_battle_at"]:
-                val = datetime.datetime.strptime(val, "%Y-%m-%d %H:%M:%S%z")
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class PlayerCBStats:
+class PlayerCBStats(BaseModel):
     """A Player's Clan Battle Stats for a season"""
 
     win_rate: float
@@ -292,26 +258,16 @@ class PlayerCBStats:
     damage_per_battle: float
     frags_per_battle: float
 
-    def __init__(self, data: dict[str, int | float]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class ClanRole:
+class ClanRole(BaseModel):
     """A Clan Role"""
 
     rank: int
     name: str
     order: int
 
-    def __init__(self, data: dict[str, int | str]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class ClanMemberVortexData:
+class ClanMemberVortexData(BaseModel):
     """A member's data, from Vortex API"""
 
     abnormal_results: bool
@@ -340,34 +296,17 @@ class ClanMemberVortexData:
     # Data is not always present for this value
     battles_per_day: Optional[float] = None
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            if k == "role":
-                val = ClanRole(val)
-            try:
-                setattr(self, k, val)
-            except AttributeError:
-                if val is None:
-                    continue
-                logger.info("ClanMemberVortexData %s %s %s", k, type(val), val)
 
-
-@dataclasses.dataclass(slots=True)
-class ClanMember:
+class ClanMember(BaseModel):
     """A Clan Member From the clans API"""
 
     account_id: int
-    account_name: int
+    account_name: str
     joined_at: datetime.datetime
     role: str
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, value in data.items():
-            setattr(self, k, value)
 
-
-@dataclasses.dataclass(slots=True)
-class Clan:
+class Clan(BaseModel):
     """Fetched from Clan Details EndPoint"""
 
     clan_id: int
@@ -387,26 +326,27 @@ class Clan:
     tag: str
     updated_at: datetime.datetime
 
-    members: list[ClanMember]
-
-    region: Region
-
-    def __init__(self, data: dict[str, Any], region: Region) -> None:
-        for k, val in data.items():
-            if k == "members":
-                self.members = [ClanMember(i) for i in val.values()]
-            else:
-                setattr(self, k, val)
-        self.region = region
+    # Parsed Later
+    members: list[ClanMember] = []
 
     @property
     def title(self) -> str:
         """[Tag] Name"""
         return f"[{self.tag}] {self.name}"
 
+    @property
+    def region(self) -> Region:
+        """Get a Region object based on the clan's ID number."""
+        if 0 < self.clan_id < 500000000:
+            raise ValueError("CIS is no longer supported")
+        if 500000000 < self.clan_id < 999999999:
+            return Region.EU
+        if 1000000000 < self.clan_id < 1999999999:
+            return Region.NA
+        return Region.SEA
 
-@dataclasses.dataclass(slots=True)
-class ClanBuildings:
+
+class ClanBuildings(BaseModel):
     """Generic Container for the clan base's buildings."""
 
     academy: list[int]
@@ -419,11 +359,6 @@ class ClanBuildings:
     steel_yard: list[int]
     treasury: list[int]
     university: list[int]
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        logger.info("Data passed to ClanBuildings is %s")
-
-        data.pop("")
 
     @property
     def coal_bonus(self) -> str:
@@ -535,8 +470,7 @@ class ClanBuildings:
         return ", ".join(rewards[: len(self.treasury)])
 
 
-@dataclasses.dataclass(slots=True)
-class ClanVortexData:
+class ClanVortexData(BaseModel):
     """Data about a clan from the Vortex Endpoint"""
 
     clan_buildings: ClanBuildings
@@ -579,25 +513,6 @@ class ClanVortexData:
     # # Misc
     is_banned: bool
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        ladder = data.pop("wows_ladder")  # This info we care about.
-
-        for k, val in ladder.items():
-            if k in ["last_battle_at", "last_win_at"]:
-                try:
-                    val = datetime.datetime.strptime(val, DATE_FORMAT)
-                except TypeError:
-                    val = None
-            elif k == "ratings":
-                val = [(ClanSeasonStats(i) for i in val)]
-            elif k == "buildings":
-                val = ClanBuildings(val)
-
-            try:
-                setattr(self, k, val)
-            except AttributeError:
-                logger.info("ClanVortexData %s %s %s", k, type(val), val)
-
     @property
     def _league(self) -> str:
         return {
@@ -636,8 +551,7 @@ class ClanVortexData:
     #     return f"{league} {div} ({self.max_public_rating // 100} points)"
 
 
-@dataclasses.dataclass(slots=True)
-class PartialClan:
+class PartialClan(BaseModel):
     """A World of Warships clan."""
 
     clan_id: int
@@ -645,12 +559,6 @@ class PartialClan:
     members_count: int
     name: str
     tag: str
-
-    def __init__(self, data: dict[str, Any]):
-        for k, val in data.items():
-            if k == "created_at":
-                val = datetime.datetime.fromtimestamp(val)
-            setattr(self, k, val)
 
     async def fetch_details(self) -> Clan:
         """Fetch clan information."""
@@ -666,12 +574,11 @@ class PartialClan:
         """Get a Region object based on the clan's ID number."""
         if 0 < self.clan_id < 500000000:
             raise ValueError("CIS is no longer supported")
-        elif 500000000 < self.clan_id < 999999999:
+        if 500000000 < self.clan_id < 999999999:
             return Region.EU
-        elif 1000000000 < self.clan_id < 1999999999:
+        if 1000000000 < self.clan_id < 1999999999:
             return Region.NA
-        else:
-            return Region.SEA
+        return Region.SEA
 
     async def player_cb_stats(self, season: int) -> list[PlayerCBStats]:
         """Attempt to fetch clan battle stats for members"""
@@ -686,6 +593,4 @@ class PartialClan:
                     err = f"{resp.status} {await resp.text()} on {url}"
                     raise ConnectionError(err)
                 season_stats = await resp.json()
-
-        logging.info("DEBUG: Season Stats\n%s", season_stats)
-        return [PlayerCBStats(i) for i in season_stats["items"]]
+        return [PlayerCBStats(**i) for i in season_stats["items"]]

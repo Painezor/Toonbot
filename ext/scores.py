@@ -1,12 +1,13 @@
 """Handle the data parsed by score_task.py"""
 from __future__ import annotations
+import datetime
 
 import itertools
 import logging
-from typing import TYPE_CHECKING, Optional, TypeAlias
-import typing
+from typing import TYPE_CHECKING, Optional, TypeAlias, cast
 
 import discord
+from discord import Message, Embed
 from discord.ext import commands
 
 import ext.flashscore as fs
@@ -38,7 +39,7 @@ class ScoreChannel:
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
         self.messages: list[discord.Message] = []
-        self._current_embeds: dict[Optional[str], discord.Embed] = dict()
+        self._current_embeds: dict[Optional[str], Embed] = dict()
         self.leagues: set[fs.Competition] = set()
 
     @property
@@ -58,7 +59,10 @@ class ScoreChannel:
         def is_me(message: discord.Message) -> bool:
             return message.author.id == bot.application_id
 
-        await self.channel.purge(reason=rsn, check=is_me, limit=20)
+        try:
+            await self.channel.purge(reason=rsn, check=is_me, limit=20)
+        except discord.HTTPException:
+            return
 
     async def get_leagues(self, bot: Bot) -> set[fs.Competition]:
         """Fetch target leagues for the ScoreChannel from the database"""
@@ -88,7 +92,7 @@ class ScoreChannel:
         if not self.leagues:
             await self.get_leagues(bot)
 
-        embeds: list[discord.Embed] = []
+        embeds: list[Embed] = []
         for i in self.leagues:
             embeds += i.score_embeds
 
@@ -97,7 +101,7 @@ class ScoreChannel:
             await self.purge(bot)
 
         if not embeds:
-            embed = discord.Embed(title="No Games Found")
+            embed = Embed(title="No Games Found")
             embed.description = NO_GAMES_FOUND
             embeds = [embed]
 
@@ -105,18 +109,30 @@ class ScoreChannel:
         stacked = embed_utils.stack_embeds(embeds)
 
         # Zip the lists into tuples to simultaneously iterate Limit to 5 max
+        tuples: list[tuple[Optional[Message], Optional[list[Embed]]]]
         tuples = list(itertools.zip_longest(self.messages, stacked))
-        tuples.sort(key=lambda x: x[0].edited_at or x[0].created_at)
+
+        def sorter(
+            item: tuple[Optional[Message], Optional[list[Embed]]]
+        ) -> datetime.datetime:
+            if item[0] is None:
+                return datetime.datetime.now()
+            if item[0].edited_at:
+                return item[0].edited_at
+            return item[0].created_at
+
+        tuples.sort(key=sorter)
 
         # We have a limit of 5 messages due to ratelimiting
         count = 0
-        for message, embeds in tuples:
-            if embeds is None:
+        for message, m_embeds in tuples:
+            if m_embeds is None:
                 # This message does not need editing.
+                assert message is not None
                 if message.flags.suppress_embeds:
                     continue
             elif message is not None:
-                for embed in embeds:
+                for embed in m_embeds:
                     try:
                         old = self._current_embeds[embed.title].description
                         new = embed.description
@@ -130,7 +146,7 @@ class ScoreChannel:
                     continue
 
             index = self.messages.index(message) if message else None
-            await self.send_or_edit(bot, index, message, embeds)
+            await self.send_or_edit(bot, index, message, m_embeds)
 
             count += 1
             if count > 4:
@@ -143,7 +159,7 @@ class ScoreChannel:
         bot: Bot,
         index: Optional[int],
         message: Optional[discord.Message],
-        embeds: Optional[list[discord.Embed]],
+        embeds: Optional[list[Embed]],
     ) -> None:
         """Try to send this messagee to a our channel"""
         if message is None and embeds is None:
@@ -213,7 +229,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
         leagues = [i for i in channel.leagues if i.url is not None]
         self.channel: ScoreChannel = channel
 
-        embed = discord.Embed(colour=discord.Colour.dark_teal())
+        embed = Embed(colour=discord.Colour.dark_teal())
         embed.title = "LiveScores config"
 
         chan = self.channel.channel
@@ -254,7 +270,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
 
         lg_text = "```yaml\n" + "\n".join(sorted(sel.values)) + "```"
         ment = self.channel.mention
-        embed = discord.Embed(title="LiveScores", colour=discord.Colour.red())
+        embed = Embed(title="LiveScores", colour=discord.Colour.red())
         embed.description = f"Remove these leagues from {ment}? {lg_text}"
 
         await itr.response.edit_message(embed=embed, view=view)
@@ -280,7 +296,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
             self.channel.leagues.remove(item)
 
         msg = f"Removed {self.channel.mention} tracked leagues: \n{lg_text}"
-        embed = discord.Embed(description=msg, colour=discord.Colour.red())
+        embed = Embed(description=msg, colour=discord.Colour.red())
         embed.title = "LiveScores"
         embed_utils.user_to_footer(embed, itr.user)
         await itr.followup.send(content=msg)
@@ -298,7 +314,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
         view = view_utils.Confirmation(interaction.user, "Remove", "Cancel")
         view.true.style = discord.ButtonStyle.red
 
-        embed = discord.Embed(title="Ticker", colour=discord.Colour.red())
+        embed = Embed(title="Ticker", colour=discord.Colour.red())
         ment = self.channel.mention
         embed.description = f"Reset leagues to default {ment}?\n"
 
@@ -313,7 +329,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
 
         await self.channel.reset_leagues(interaction)
 
-        embed = discord.Embed(title="LiveScores: Tracked Leagues Reset")
+        embed = Embed(title="LiveScores: Tracked Leagues Reset")
         embed.description = self.channel.mention
         embed_utils.user_to_footer(embed, interaction.user)
         await interaction.followup.send(embed=embed)
@@ -342,8 +358,6 @@ class Scores(commands.Cog):
     @commands.Cog.listener()
     async def on_scores_ready(self) -> None:
         """When Livescores Fires a "scores ready" event, handle it"""
-        logger.info("Recieved Scores Ready event.")
-
         if not self.bot.score_channels:
             await self.update_cache()
 
@@ -430,7 +444,7 @@ class Scores(commands.Cog):
     ) -> None:
         """View or Delete tracked leagues from a live-scores channel."""
         if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
+            channel = cast(discord.TextChannel, interaction.channel)
 
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -438,7 +452,7 @@ class Scores(commands.Cog):
                 row = await connection.fetchrow(sql, channel.id)
 
         if not row:
-            embed = discord.Embed(colour=discord.Colour.red())
+            embed = Embed(colour=discord.Colour.red())
             _ = f"🚫 {channel.mention} is not a live-scores channel."
             embed.description = _
             reply = interaction.response.send_message
@@ -474,7 +488,7 @@ class Scores(commands.Cog):
                 name, reason=reason, topic=topic
             )
         except discord.Forbidden:
-            embed = discord.Embed(colour=discord.Colour.red())
+            embed = Embed(colour=discord.Colour.red())
             err = "🚫 I need manage_channels permissions to make a channel."
             embed.description = err
             reply = interaction.response.send_message
@@ -527,27 +541,27 @@ class Scores(commands.Cog):
 
         if competition.title == "WORLD: Club Friendly":
             err = "🚫 You can't add club friendlies as a competition, sorry."
-            embed = discord.Embed(colour=discord.Colour.red(), description=err)
+            embed = Embed(colour=discord.Colour.red(), description=err)
             return await interaction.response.send_message(embed=embed)
 
         if competition.url is None:
             err = "🚫 Could not fetch url from competition"
-            embed = discord.Embed(colour=discord.Colour.red(), description=err)
+            embed = Embed(colour=discord.Colour.red(), description=err)
             return await interaction.response.send_message(embed=embed)
 
         if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
+            channel = cast(discord.TextChannel, interaction.channel)
 
         score_chans = self.bot.score_channels
         try:
             chan = next(i for i in score_chans if i.channel.id == channel.id)
         except StopIteration:
-            embed = discord.Embed(colour=discord.Colour.red())
+            embed = Embed(colour=discord.Colour.red())
             ment = channel.mention
             embed.description = f"🚫 {ment} is not a live-scores channel."
             return await interaction.response.send_message(embed=embed)
 
-        embed = discord.Embed(title="LiveScores: Tracked League Added")
+        embed = Embed(title="LiveScores: Tracked League Added")
         embed.description = f"{chan.channel.mention}\n\n{competition.url}"
         embed_utils.user_to_footer(embed, interaction.user)
         await interaction.response.send_message(embed=embed)
@@ -572,7 +586,7 @@ class Scores(commands.Cog):
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""
         if not interaction.client.games:
-            embed = discord.Embed(colour=discord.Colour.red())
+            embed = Embed(colour=discord.Colour.red())
             embed.description = "🚫 No live games found"
             return await interaction.response.send_message(embed=embed)
 
@@ -582,12 +596,12 @@ class Scores(commands.Cog):
 
         comp = None
         header = f"Scores as of: {timed_events.Timestamp().long}\n"
-        base_embed = discord.Embed(color=discord.Colour.og_blurple())
+        base_embed = Embed(color=discord.Colour.og_blurple())
         base_embed.title = "Current scores"
         base_embed.description = header
         embed = base_embed.copy()
         embed.description = ""
-        embeds: list[discord.Embed] = []
+        embeds: list[Embed] = []
 
         for i, j in [(i.competition, i.live_score_text) for i in games]:
             if i and i != comp:  # We need a new header if it's a new comp.

@@ -74,6 +74,7 @@ def stringify_seconds(value: int) -> str:
             0: "`None`",
             60: "1 minute",
             120: "2 minutes",
+            300: "5 minutes",
             600: "10 minutes",
             1800: "30 minutes",
             3600: "1 hour",

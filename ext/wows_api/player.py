@@ -1,12 +1,12 @@
 """Information related to Players from the Wows API"""
 from __future__ import annotations
 
-import dataclasses
 import datetime
 import logging
-from typing import Any, Optional
+from typing import Optional
 
 import aiohttp
+from pydantic import BaseModel  # pylint: disable = no-name-in-module
 from .wg_id import WG_ID
 from .enums import Region
 from .clan import Clan, PartialClan
@@ -65,22 +65,16 @@ async def fetch_stats(players: list[PartialPlayer]) -> list[PlayerStats]:
                 raise ConnectionError()
             data = await resp.json()
 
-    return [PlayerStats(i) for i in data.pop("data").values()]
+    return [PlayerStats(**i) for i in data.pop("data").values()]
 
 
-@dataclasses.dataclass(slots=True)
-class PartialPlayer:
+class PartialPlayer(BaseModel):
     """A World of Warships player."""
 
     account_id: int
     nickname: str
 
     clan: Optional[PlayerClanData] = None
-
-    def __init__(self, data: dict[str, int | str]) -> None:
-        # Player Search Endpoint
-        for k, val in data.items():
-            setattr(self, k, val)
 
     async def fetch_ship_stats(self, ship: Ship) -> PlayerStats:
         """Get stats for a player in a specific ship"""
@@ -99,7 +93,7 @@ class PartialPlayer:
                     raise ConnectionError(resp.status)
                 data = await resp.json()
 
-        statistics = PlayerStats(data.pop("statistics"))
+        statistics = PlayerStats(**data.pop("statistics"))
         return statistics
 
     @property
@@ -131,25 +125,16 @@ class PartialPlayer:
         return f"https://{dom}.wows-numbers.com/player/{acc_id},{name}/"
 
 
-@dataclasses.dataclass(slots=True)
-class PlayerClanData:
+class PlayerClanData(BaseModel):
     """Information about the player's current clan"""
 
     account_id: int
-    account_name: int
+    account_name: str
     clan_id: int
     joined_at: datetime.datetime
     role: str
 
     clan: PartialClan
-
-    def __init__(self, data: Optional[dict[str, Any]]) -> None:
-        if data is None:
-            return
-        for k, val in data.items():
-            if k == "clan":
-                val = PartialClan(val)
-            setattr(self, k, val)
 
     @property
     def tag(self) -> str:
@@ -161,9 +146,81 @@ class PlayerClanData:
         return await self.clan.fetch_details()
 
 
-@dataclasses.dataclass(slots=True)
-class PlayerBattleStatistics:
+class PlayerModeArmamentStats(BaseModel):
+    """A player's stats for a specific armament within a gamemode"""
+
+    frags: int
+    hits: Optional[int]
+    max_frags_battle: Optional[int]
+    max_frags_ship_id: Optional[int]
+    shots: Optional[int]
+
+
+class ModeStats(BaseModel):
+    """Generic Container for all API Data"""
+
+    battles: int  # Total Number of Battles
+    survived_battles: int
+    survived_wins: int
+    wins: int
+    xp: int  # pylint: disable=C0103
+
+    art_agro: Optional[int]  # Potential Damage
+    capture_points: Optional[int]  # Sum of Below x2
+    control_captured_points: Optional[int]  # Same
+    control_dropped_points: Optional[int]  # Defended
+    damage_dealt: Optional[int]
+    damage_scouting: Optional[int]  # Spotting Damage
+    damage_to_buildings: Optional[int]  # Dead
+    draws: Optional[int]  # Draws
+    dropped_capture_points: Optional[int]  # ????
+    frags: Optional[int]  # Kills
+    losses: int  # Losses
+    max_damage_dealt: Optional[int]
+    max_damage_dealt_ship_id: Optional[int]
+    max_damage_dealt_to_buildings: Optional[int]
+    max_damage_dealt_to_buildings_ship_id: Optional[int]
+    max_damage_scouting: Optional[int]
+    max_frags_battle: Optional[int]
+    max_frags_ship_id: Optional[int]
+    max_planes_killed: Optional[int]
+    max_planes_killed_ship_id: Optional[int]
+    max_scouting_damage_ship_id: Optional[int]
+    max_ships_spotted: Optional[int]
+    max_ships_spotted_ship_id: Optional[int]
+    max_suppressions_count: Optional[int]
+    max_suppressions_ship_id: Optional[int]
+    max_total_agro: Optional[int]  # Potential Damage
+    max_total_agro_ship_id: Optional[int]
+    max_xp: Optional[int]
+    max_xp_ship_id: Optional[int]
+    planes_killed: Optional[int]
+    ships_spotted: Optional[int]
+    suppressions_count: Optional[int]
+    team_capture_points: Optional[int]  # Team Total Cap Points earned
+    team_dropped_capture_points: Optional[
+        int
+    ]  # Team Total Defence Points Earned
+    torpedo_agro: Optional[int]
+
+    # Garbage
+    battles_since_510: Optional[int]
+    battles_since_512: Optional[int]
+
+    # Subdicts
+    aircraft: Optional[PlayerModeArmamentStats]
+    main_battery: Optional[PlayerModeArmamentStats]
+    ramming: Optional[PlayerModeArmamentStats]
+    second_battery: Optional[PlayerModeArmamentStats]
+    torpedoes: Optional[PlayerModeArmamentStats]
+    wins_by_tasks: Optional[dict[int, int]]
+
+
+class PlayerBattleStatistics(BaseModel):
     """Stats retrieved from the Player Statistics Endpoint"""
+
+    distance: int
+    battles: int
 
     oper_div: ModeStats
     oper_div_hard: ModeStats
@@ -176,125 +233,23 @@ class PlayerBattleStatistics:
     pvp_div2: ModeStats
     pvp_div3: ModeStats
     pvp_solo: ModeStats
+    rank_div2: ModeStats
+    rank_div3: ModeStats
+    rank_solo: ModeStats
 
-    def __init__(self, data: dict[str, dict[str, Any]]) -> None:
-        for k, val in data.items():
-            setattr(self, k, ModeStats(val))
 
-
-@dataclasses.dataclass(slots=True)
-class PlayerStats:
+class PlayerStats(BaseModel):
     """Generics for a Player"""
 
     account_id: int
-    created_at: datetime.datetime
+    created_at: int
     hidden_profile: bool
-    last_battle_time: datetime.datetime
+    last_battle_time: int
     leveling_tier: int  # e.g. 17
     leveling_points: int  # 28887
-    logout_at: datetime.datetime
+    logout_at: int
     nickname: str
     karma: None  # requires Oauth
     private: None  # requires Oauth
     statistics: PlayerBattleStatistics
-    updated_at: datetime.datetime
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            if k == "club":
-                continue  # Dead data.
-
-            elif k == "statistics":
-                val = PlayerBattleStatistics(val)
-
-            elif k in [
-                "created_at",
-                "last_battle_time",
-                "logout_at",
-                "updated_at",
-            ]:
-                val = datetime.datetime.fromtimestamp(val)
-
-            setattr(self, k, val)
-
-
-@dataclasses.dataclass(slots=True)
-class ModeStats:
-    """Generic Container for all API Data"""
-
-    art_agro: int  # Potential Damage
-    battles: int  # Total Number of Battles
-    capture_points: int  # Sum of Below x2
-    control_capture_points: int  # Same
-    control_dropped_points: int  # Defended
-    damage_dealt: int
-    damage_scouting: int  # Spotting Damage
-    damage_to_buildings: int  # Dead
-    draws: int  # Draws
-    dropped_capture_points: int  # ????
-    frags: int  # Kills
-    losses: int  # Losses
-    max_damage_dealt: int
-    max_damage_dealt_ship_id: int
-    max_damage_dealt_to_buildings: int
-    max_damage_scouting: int
-    max_frags_battle: int
-    max_frags_ship_id: int
-    max_planes_killed: int
-    max_planes_killed_ship_id: int
-    max_scouting_damage_ship_id: int
-    max_ships_spotted: int
-    max_ships_spotted_ship_id: int
-    max_suppressions: int
-    max_suppressions_ship_id: int
-    max_total_agro: int  # Potential Damage
-    max_total_agro_ship_id: int
-    max_xp: int
-    max_xp_ship_id: int
-    planes_killed: int
-    ships_spotted: int
-    suppressions_count: int
-    survived_battles: int
-    survived_wins: int
-    team_capture_points: int  # Team Total Cap Points earned
-    team_dropped_capture_points: int  # Team Total Defence Points Earned
-    torpedo_agro: int
-    wins: int
-    xp: int  # pylint: disable=C0103
-
-    # Subdicts
-    aircraft: PlayerModeArmamentStats
-    main_battery: PlayerModeArmamentStats
-    ramming: PlayerModeArmamentStats
-    second_battery: PlayerModeArmamentStats
-    torpedoes: PlayerModeArmamentStats
-
-    # Operations fucky.
-    wins_by_tasks: Optional[dict[str, int]] = None
-
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, value in data.items():
-            if k in ARMAMENT_TYPES:
-                setattr(self, k, PlayerModeArmamentStats(value))
-            else:
-                setattr(self, k, value)
-
-    @property
-    def potential_damage(self) -> int:
-        """Combined sum of art_agro and torpedo_agro"""
-        return self.art_agro + self.torpedo_agro
-
-
-@dataclasses.dataclass(slots=True)
-class PlayerModeArmamentStats:
-    """A player's stats for a specific armament within a gamemode"""
-
-    hits: int
-    frags: int
-    max_frags_battle: int
-    max_frags_ship_id: int
-    shots: int
-
-    def __init__(self, data: dict[str, int]) -> None:
-        for k, value in data.items():
-            setattr(self, k, value)
+    updated_at: int
