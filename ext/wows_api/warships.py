@@ -6,7 +6,10 @@ import logging
 from typing import Any, Optional
 
 import aiohttp
-from pydantic import BaseModel  # pylint: disable=no-name-in-module
+from pydantic import (  # pylint: disable=no-name-in-module
+    BaseModel,
+    ValidationError,
+)
 
 from ext.wows_api.modules import Module
 
@@ -59,7 +62,11 @@ async def get_ships() -> list[Ship]:
                 _type = data["type"]
                 data["type"] = next(i for i in ship_types if i.name == _type)
 
-                ship = Ship(**data)
+                try:
+                    ship = Ship(**data)
+                except ValidationError as err:
+                    logger.error(err)
+                    continue
 
                 ships.append(ship)
             return meta["page_total"]
@@ -125,7 +132,7 @@ class CompatibleModules(BaseModel):
     torpedoes: list[int]
 
     @property
-    def all_modules(self) -> list[int]:
+    def all(self) -> list[int]:
         """Get all populated fields"""
         vals: list[list[int]] = list(self.dict().values())
         return [item for i in vals for item in i]
@@ -187,7 +194,7 @@ class Ship(BaseModel):
     def ac_row(self) -> str:
         """Autocomplete text"""
         _ = self.type.name
-        return f"{self.name} (Tier {self.tier} {self.nation.flag} {_})"
+        return f"{self.name} (Tier {self.tier} {self.nation.sane} {_})"
 
 
 class ShipFit:
@@ -195,7 +202,7 @@ class ShipFit:
 
     ship: Ship
 
-    modules: dict[type[Module], Module]
+    modules: dict[type[Module], Module] = {}
 
     profile: ShipProfile
 

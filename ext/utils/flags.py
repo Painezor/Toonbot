@@ -112,7 +112,6 @@ def get_flag(string: str) -> str:
     # Try pycountry
     try:
         retrieved = to_indicators(country_dict[string])
-        logger.info("Got %s from country_dict", retrieved)
         return retrieved
     except KeyError:
         pass
@@ -122,15 +121,12 @@ def get_flag(string: str) -> str:
     try:
         retrieved = countries.get(name=string)  # type: ignore
         if retrieved is not None:
-            logger.info("Got %s from countries.get", retrieved)  # type: ignore
             return to_indicators(retrieved.alpha_2)  # type: ignore
     except (KeyError, AttributeError):
         pass
 
     try:
         retrieved = countries.lookup(string)  # type: ignore
-        if retrieved is not None:
-            logger.info("Got %s from lookup", retrieved)  # type: ignore
         return to_indicators(str(retrieved.alpha_2))  # type: ignore
     except (AttributeError, LookupError):
         pass
@@ -138,7 +134,6 @@ def get_flag(string: str) -> str:
     # Use manual fallbacks
     try:
         retrieved = backup_dict[string.casefold()]
-        logger.info("Got %s from backup_dict", retrieved)
         return retrieved
     except KeyError:
         logger.error("No country found for '%s'", string)

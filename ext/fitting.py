@@ -29,7 +29,7 @@ async def fetch_modules(interaction: Interaction, ship: api.Ship) -> None:
     """Grab all data related to the ship from the API"""
     # Get needed module IDs
     current_ids = interaction.client.modules.keys()
-    ship_module_ids = ship.modules.all_modules
+    ship_module_ids = ship.modules.all
     to_fetch = [i for i in ship_module_ids if i not in current_ids]
     interaction.client.modules.update(await api.get_modules(to_fetch))
     return
@@ -138,35 +138,37 @@ class AuxiliaryEmbed(ShipEmbed):
         super().__init__(fitting.ship)
 
         desc: list[str] = []
-        if (sec := fitting.profile.atbas) is None:
+
+        if fitting.profile.atbas is None or not fitting.profile.atbas.slots:
             i = "```diff\n- This ship has no secondary armament.```"
             self.add_field(name="No Secondary Armament", value=i)
 
-        elif not sec.slots:
-            i = "```diff\n- Secondary armament not found in API.```"
-            self.add_field(name="API Error", value=i)
-
         else:
-            barrel = fitting.profile.hull.atba_barrels
+            sec = fitting.profile.atbas
+            if not fitting.profile.hull:
+                barrel = "?"
+            else:
+                barrel = fitting.profile.hull.atba_barrels
             desc.append(f"**Secondary Range**: {sec.distance}")
             desc.append(f"**Total Barrels**: {barrel}")
 
-            for i in sec.slots.values():
-                name = i.name
+            if sec.slots:
+                for i in sec.slots.values():
+                    name = i.name
 
-                text = [
-                    f"**Damage**: {format(i.damage, ',')}",
-                    f"**Shell Type**: {i.type}",
-                    f"**Reload Time**: {i.shot_delay}s ("
-                    f"{round(i.gun_rate, 1)} rounds/minute)",
-                    f"**Initial Velocity**: {i.bullet_speed}m/s",
-                    f"**Shell Weight**: {i.bullet_mass}kg",
-                ]
+                    text = [
+                        f"**Damage**: {format(i.damage, ',')}",
+                        f"**Shell Type**: {i.type}",
+                        f"**Reload Time**: {i.shot_delay}s ("
+                        f"{round(i.gun_rate, 1)} rounds/minute)",
+                        f"**Initial Velocity**: {i.bullet_speed}m/s",
+                        f"**Shell Weight**: {i.bullet_mass}kg",
+                    ]
 
-                if fire_chance := i.burn_probability:
-                    text.append(f"**Fire Chance**: {round(fire_chance, 1)}")
+                    if fires := i.burn_probability:
+                        text.append(f"**Fire Chance**: {round(fires, 1)}")
 
-                self.add_field(name=name, value="\n".join(text))
+                    self.add_field(name=name, value="\n".join(text))
 
         if (a_a := fitting.profile.anti_aircraft) is None:
             desc.append("```diff\n- This ship has no AA Capability.```")
@@ -174,11 +176,13 @@ class AuxiliaryEmbed(ShipEmbed):
             assert a_a.slots is not None
             rows: list[str] = []
             for i in a_a.slots.values():
-                dps = i.avg_damage
-                row = f"{i.name}: {i.guns}x{i.caliber}mm ({dps} dps)\n"
+                row = f"{i.name}: {i.guns}x{i.caliber}mm"
+                if i.avg_damage is not None:
+                    row += f" ({format(i.avg_damage, ',')} dps)"
+
                 rows.append(row)
 
-            self.add_field(name="AA Guns", value="".join(rows), inline=False)
+            self.add_field(name="AA Guns", value="\b".join(rows), inline=False)
 
         self.description = "\n".join(desc)
 
@@ -191,12 +195,18 @@ class MainGunEmbed(ShipEmbed):
 
         # Guns
         mains = fitting.profile.artillery
+
+        if not mains:
+            self.description = "No main guns found for this ship."
+            return
+
         guns: list[str] = []
         caliber = ""
-        for i in mains.slots.values():
-            self.title = i.name
-            guns.append(f"{i.guns}x{i.barrels}")
-            caliber = f"{str(self.title).split('mm', maxsplit=1)[0]}"
+        if mains.slots:
+            for i in mains.slots.values():
+                self.title = i.name
+                guns.append(f"{i.guns}x{i.barrels}")
+                caliber = f"{str(self.title).split('mm', maxsplit=1)[0]}"
 
         reload_time: float = mains.shot_delay
 
@@ -258,21 +268,29 @@ class OverviewEmbed(ShipEmbed):
         self.set_footer(text=fitting.ship.description)
 
         # Parse Modules for ship data
-        rst = fitting.profile.mobility.rudder_time
-        detect = fitting.profile.concealment.detect_distance_by_ship
-        air_detect = fitting.profile.concealment.detect_distance_by_plane
-        desc = [
-            f"**Hit Points**: {format(fitting.profile.hull.health, ',')}",
-            f"**Concealment**: {detect}km ({air_detect}km by air)",
-            f"**Maximum Speed**: {fitting.profile.mobility.max_speed}kts",
-            f"**Rudder Shift Time**: {rst} seconds",
-            f"**Turning Radius**: {fitting.profile.mobility.turning_radius}m",
-        ]
+        desc: list[str] = []
+        if fitting.profile.hull:
+            hp = format(fitting.profile.hull.health, ",")
+            desc.append(f"**Hit Points**: {hp}")
+
+        if fitting.profile.concealment:
+            detect = fitting.profile.concealment.detect_distance_by_ship
+            air_detect = fitting.profile.concealment.detect_distance_by_plane
+            desc.append(f"**Concealment**: {detect}km ({air_detect}km by air)")
+
+        if fitting.profile.mobility:
+            if _ := fitting.profile.mobility.max_speed:
+                desc.append(f"**Maximum Speed**: {_}kts")
+            if _ := fitting.profile.mobility.rudder_time:
+                desc.append(f"**Rudder Shift Time**: {_} seconds")
+            if _ := fitting.profile.mobility.turning_radius:
+                desc.append(f"**Turning Radius**: {_}m")
 
         # f"-{params['armour']['flood_prob']}% flood chance."
         #  This field appears to be Garbage.
-        if (belt := fitting.profile.armour.flood_damage) != 0:
-            desc.append(f"**Torpedo Belt**: -{belt}% damage")
+        if fitting.profile.armour:
+            if (belt := fitting.profile.armour.flood_damage) != 0:
+                desc.append(f"**Torpedo Belt**: -{belt}% damage")
 
         # Build Rest of embed description
         if fitting.ship.price_gold != 0:
@@ -311,6 +329,7 @@ class TorpedoesEmbed(ShipEmbed):
         super().__init__(fitting.ship)
         assert (torps := fitting.profile.torpedoes) is not None
         assert torps.slots is not None
+        assert fitting.profile.hull is not None
 
         for i in torps.slots.values():
             value = f"{i.guns}x{i.barrels}x{i.caliber}mm"
@@ -347,17 +366,17 @@ class ShipView(view_utils.BaseView):
         modules = list(ship.modules_tree.values()) if ship.modules_tree else []
         for i in [j for j in modules if j.is_default]:
             try:
-                matches.append(interaction.client.modules[i.module_id])
+                matches.append(interaction.client.modules[str(i.module_id)])
             except KeyError:
-                logger.error("ShiPView Failed module id %s", i.module_id)
+                logger.error("ShipView Failed module id %s", i.module_id)
 
         self.fitting = api.ShipFit(ship, matches)
 
         if not self.fitting.profile.artillery:
-            self.main_guns.disabled = True
+            self.remove_item(self.main_guns)
 
         if not self.fitting.profile.torpedoes:
-            self.torpedoes.disabled = True
+            self.remove_item(self.torpedoes)
 
         if self.fitting.profile.dive_bomber is not None:
             self.aircraft.emoji = api.DIVE_BOMBER_EMOJI
@@ -366,7 +385,7 @@ class ShipView(view_utils.BaseView):
         elif self.fitting.profile.torpedo_bomber is not None:
             self.aircraft.emoji = api.TORPEDO_PLANE_EMOJI
         else:
-            self.aircraft.disabled = True
+            self.remove_item(self.aircraft)
 
         for i in ship.previous_ships:
             self.add_item(ShipButton(self, i, "▶️"))
@@ -376,11 +395,15 @@ class ShipView(view_utils.BaseView):
 
         # Select Options
         options: list[discord.SelectOption] = []
-        for i in self.ship.modules.all_modules:
+        for i in self.ship.modules.all:
             if i in self.fitting.modules.values():
                 continue
 
-            module = interaction.client.modules[i]
+            try:
+                module = interaction.client.modules[str(i)]
+            except KeyError:
+                logger.info(f"Module {i} not in bot")
+                continue
 
             i = str(i)
             orig = next(val for k, val in ship.modules_tree.items() if k == i)
@@ -408,26 +431,12 @@ class ShipView(view_utils.BaseView):
 
         self.last_button: discord.ui.Button[ShipView]
 
-    @discord.ui.button(emoji=api.AUXILIARY_EMOJI)
+    @discord.ui.button(emoji=api.HULL_EMOJI)
     async def overview(self, interaction: Interaction, _) -> None:
         """Get a general overview of the ship"""
         embed = OverviewEmbed(self.fitting)
         self.last_button = self.overview
         await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button()
-    async def aircraft(self, interaction: Interaction, _) -> None:
-        """Get information about the ship's Aircraft"""
-        embed = AircraftEmbed(self.fitting)
-        self.last_button = self.aircraft
-        return await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(emoji=api.AUXILIARY_EMOJI)
-    async def auxiliary(self, interaction: Interaction, _) -> None:
-        """Get information on the ship's secondaries and anti-air."""
-        embed = AuxiliaryEmbed(self.fitting)
-        self.last_button = self.auxiliary
-        return await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(emoji=api.ARTILLERY_EMOJI)
     async def main_guns(self, interaction: Interaction, _) -> None:
@@ -443,14 +452,31 @@ class ShipView(view_utils.BaseView):
         self.last_button = self.torpedoes
         return await interaction.response.edit_message(embed=embed, view=self)
 
+    @discord.ui.button(emoji=api.AUXILIARY_EMOJI)
+    async def auxiliary(self, interaction: Interaction, _) -> None:
+        """Get information on the ship's secondaries and anti-air."""
+        embed = AuxiliaryEmbed(self.fitting)
+        self.last_button = self.auxiliary
+        return await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(emoji=api.ROCKET_PLANE_EMOJII)
+    async def aircraft(self, interaction: Interaction, _) -> None:
+        """Get information about the ship's Aircraft"""
+        embed = AircraftEmbed(self.fitting)
+        self.last_button = self.aircraft
+        return await interaction.response.edit_message(embed=embed, view=self)
+
     @discord.ui.select(placeholder="Change modules", row=1)
     async def modules(
         self, itr: Interaction, sel: discord.ui.Select[ShipView]
     ) -> None:
         """Dropdown to change modules."""
         for value in sel.values:
-            module = itr.client.modules[int(value)]
+            module = itr.client.modules[value]
             self.fitting.set_module(module)
+
+            logger.info("logging dir() of selected module.")
+            logger.info(dir(module))
 
         await self.fitting.get_params()
 

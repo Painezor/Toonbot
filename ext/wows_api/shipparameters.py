@@ -10,7 +10,7 @@ logger = logging.getLogger("api.shipparams")
 class AAGun(BaseModel):
     """Details about a ship's AA gun"""
 
-    avg_damage: int
+    avg_damage: Optional[int]
     caliber: int
     distance: float
     guns: int
@@ -25,17 +25,20 @@ class ShipAAProfile(BaseModel):
 
 
 class Range(BaseModel):
-    """Armour for a specific section of a ship"""
+    """
+    Armour for a specific section of a ship
 
-    max: int
-    min: int
+    """
+
+    max: Optional[int]
+    min: Optional[int]
 
 
 class ShipArmourProfile(BaseModel):
     """Information about a ship profile's Armour"""
 
     flood_damage: int  # Belt Torpedo Reduction in %
-    flood_prob: int  # Belt Flood Chance Reduction in %
+    # flood_prob: int  # Belt Flood Chance Reduction in %
     health: int
     total: float  # Damage Reduction %  -- This is dead.
 
@@ -122,8 +125,8 @@ class ShipConcealmentProfile(BaseModel):
 class BomberAccuracy(BaseModel):
     """THe accuracy of a divebomber"""
 
-    min: float
-    max: float
+    min: Optional[float]
+    max: Optional[float]
 
 
 class ShipDiveBomberProfile(BaseModel):
@@ -131,18 +134,18 @@ class ShipDiveBomberProfile(BaseModel):
 
     bomb_bullet_mass: int
     bomb_burn_probability: Optional[float]
-    bomb_damage: int
-    bomb_name: str
+    bomb_damage: Optional[int]
+    bomb_name: Optional[str]
     cruise_speed: int
     dive_bomber_id: int
     dive_bomber_id_str: str
-    gunner_damage: int
-    max_damage: int
+    gunner_damage: Optional[int]
+    max_damage: Optional[int]
     max_health: int
     name: str
     plane_level: int
-    prepare_time: int
-    squadrons: int
+    prepare_time: Optional[int]
+    squadrons: Optional[int]
 
     accuracy: BomberAccuracy
     count_in_squadron: Range
@@ -179,17 +182,17 @@ class ShipEngineProfile(BaseModel):
 class ShipFighterProfile(BaseModel):
     """Information about a ship profile's Fighters"""
 
-    avg_damage: int
-    cruise_speed: int
+    avg_damage: Optional[int]
+    cruise_speed: Optional[int]
     fighters_id: int
     fighters_id_str: str
-    gunner_damage: int
-    max_ammo: int
-    max_health: int
-    name: int
-    plane_level: int
-    prepare_time: int
-    squadrons: int
+    gunner_damage: Optional[int]
+    max_ammo: Optional[int]
+    max_health: Optional[int]
+    name: Optional[str]
+    plane_level: Optional[int]
+    prepare_time: Optional[int]
+    squadrons: Optional[int]
 
     count_in_squadron: Range
 
@@ -208,7 +211,7 @@ class ShipFireControlProfile(BaseModel):
     """Information about a ship profile's Fire Control System"""
 
     distance: float  # firing range
-    distance_increase: int  # range %
+    distance_increase: Optional[int]  # range %
     fire_control_id: int
     fire_control_id_str: str
 
@@ -274,20 +277,20 @@ class ShipMobilityProfile(BaseModel):
 class ShipTorpedoBomberProfile(BaseModel):
     """Information about a ship profile's Torpedo Bombers"""
 
-    cruise_speed: int
-    gunner_damage: int
-    max_damage: int
-    max_health: int
-    name: str
-    plane_level: int
-    prepare_time: int
-    squadrons: int
+    cruise_speed: Optional[int]
+    gunner_damage: Optional[int]
+    max_damage: Optional[int]
+    max_health: Optional[int]
+    name: Optional[str]
+    plane_level: Optional[int]
+    prepare_time: Optional[int]
+    squadrons: Optional[int]
     torpedo_bomber_id: int
     torpedo_bomber_id_str: str
-    torpedo_damage: int
-    torpedo_distance: float
-    torpedo_max_speed: int
-    torpedo_name: str
+    torpedo_damage: Optional[int]
+    torpedo_distance: Optional[float]
+    torpedo_max_speed: Optional[int]
+    torpedo_name: Optional[str]
 
     count_in_squadron: Range
 
@@ -345,21 +348,21 @@ class ShipWeaponryProfile(BaseModel):
 class ShipProfile(BaseModel):
     """Information about a ship in a specific configuration (A "Profile")"""
 
-    battle_level_range_max: int
-    battle_level_range_min: int
+    battle_level_range_max: Optional[int]
+    battle_level_range_min: Optional[int]
 
     anti_aircraft: Optional[ShipAAProfile]
-    armour: ShipArmourProfile
-    artillery: ShipArtilleryProfile
+    armour: Optional[ShipArmourProfile]
+    artillery: Optional[ShipArtilleryProfile]
     atbas: Optional[ShipSecondaryProfile]
-    concealment: ShipConcealmentProfile
+    concealment: Optional[ShipConcealmentProfile]
     dive_bomber: Optional[ShipDiveBomberProfile]
-    engine: ShipEngineProfile
+    engine: Optional[ShipEngineProfile]
     fighters: Optional[ShipFighterProfile]
     fire_control: Optional[ShipFireControlProfile]
     flight_control: Optional[ShipFlightControlProfile]
-    hull: ShipHullProfile
-    mobility: ShipMobilityProfile
+    hull: Optional[ShipHullProfile]
+    mobility: Optional[ShipMobilityProfile]
     torpedo_bomber: Optional[ShipTorpedoBomberProfile]
     torpedoes: Optional[ShipTorpedoProfile]
-    weaponry: ShipWeaponryProfile
+    weaponry: Optional[ShipWeaponryProfile]

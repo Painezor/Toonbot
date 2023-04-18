@@ -317,16 +317,10 @@ async def quote_add(
                 embed.description = "❌ That quote is already in the database"
                 return await interaction.response.send_message(embed=embed)
 
-        await cache_quotes(interaction.client)
-
         embed = discord.Embed(colour=discord.Colour.green())
         embed.description = "Added to quote database"
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-
-        view = QuotesView(interaction)
-        view.index = len(interaction.client.quotes) - 1
-        embed = QuoteEmbed(interaction, view.quotes[view.index])
-        return await interaction.followup.send(embed=embed, view=view)
+        await interaction.response.send_message(embed=embed)
+        await cache_quotes(interaction.client)
 
 
 class QuoteDB(commands.Cog):

@@ -23,7 +23,7 @@ if typing.TYPE_CHECKING:
     User: typing.TypeAlias = discord.User | discord.Member
 
 with open("credentials.json", mode="r", encoding="utf-8") as fun:
-    credentials = json.load(fun)
+    creds = json.load(fun)
 
 
 CCS = "https://wows-static-content.gcdn.co/cms-data/contributors_wg.json"
@@ -244,7 +244,6 @@ async def cc_ac(
     """Autocomplete from the list of stored CCs"""
     bot: PBot = interaction.client
     ccs = bot.contributors
-    ccs = [i for i in ccs if i.name is not None]
 
     # Region Filtering
     if region := interaction.namespace.region:
@@ -374,7 +373,7 @@ class TwitchTracker(commands.Cog):
         """On cog load, generate list of Tracker Channels"""
         await self.fetch_ccs()
         await self.update_cache()
-        client = TBot.from_client_credentials(**credentials["Twitch API"])
+        client: TBot = TBot.from_client_credentials(**creds["Twitch API"])
         self.bot.twitch = client
         await self.bot.twitch.connect()
 

@@ -193,7 +193,7 @@ class Admin(commands.Cog):
             if isawaitable(result := eval(code, env)):  # type: ignore
                 result = await result
             desc = f"```py\n{result}\n```"
-        except commands.ExtensionError as err:
+        except Exception as err:
             result = error_to_codeblock(err)
             desc = result
 

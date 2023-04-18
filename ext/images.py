@@ -32,7 +32,7 @@ TINDER = """https://cdn0.iconfinder.com/data/icons/social-flat-rounded-rects/51
 
 
 with open("credentials.json", mode="r", encoding="utf-8") as fun:
-    credentials = json.load(fun)
+    creds = json.load(fun)
 
 
 logger = logging.getLogger("images")
@@ -155,7 +155,7 @@ class ImageView(view_utils.BaseView):
         # Prepare POST
         headers = {
             "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": credentials["Oxford"]["OxfordKey"],
+            "Ocp-Apim-Subscription-Key": creds["Oxford"]["OxfordKey"],
         }
         params = {
             "returnFaceId": "False",

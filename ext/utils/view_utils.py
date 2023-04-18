@@ -122,10 +122,14 @@ class BaseView(discord.ui.View):
     ) -> None:
         """Log errors"""
         logger.error("Error on view item %s", item, exc_info=True)
-        edit = interaction.response.edit_message
+
+        if interaction.response.is_done():
+            edit = interaction.edit_original_response
+        else:
+            edit = interaction.response.edit_message
         txt = f"Something broke\n```py\n{error}```"
         try:
-            return await edit(content=txt, embed=None)
+            await edit(content=txt, embed=None)
         except discord.NotFound:
             self.stop()
 

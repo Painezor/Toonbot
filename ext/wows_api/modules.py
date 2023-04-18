@@ -1,9 +1,9 @@
 """Data retrieved from the Modules endpoint"""
-import dataclasses
 import logging
-from typing import Any
+from typing import Optional
 
 import aiohttp
+from pydantic import BaseModel, ValidationError
 
 from .emojis import (
     ARTILLERY_EMOJI,
@@ -22,32 +22,20 @@ from .wg_id import WG_ID
 
 MODULES = "https://api.worldofwarships.eu/wows/encyclopedia/modules/"
 
-logger = logging.getLogger("ext.modules")
+logger = logging.getLogger("api.modules")
 
 
-class ModuleProfile:  # Generic
-    """Data Not always present"""
-
-    emoji = AUXILIARY_EMOJI
-
-
-@dataclasses.dataclass(slots=True)
-class ArtilleryProfile(ModuleProfile):
+class ArtilleryModuleProfile(BaseModel):
     """An 'Artillery' Module"""
 
     gun_rate: float
-    max_damage_ap: int
-    max_damage_he: int
+    max_damage_AP: int
+    max_damage_HE: int
     rotation_time: float
     emoji = ARTILLERY_EMOJI
 
-    def __init__(self, data: dict[str, int | float]) -> None:
-        for k, val in data.items():
-            setattr(self, k.lower(), val)
 
-
-@dataclasses.dataclass(slots=True)
-class DiveBomberProfile(ModuleProfile):
+class DiveBomberModuleProfile(BaseModel):
     """A 'Dive Bomber' Module"""
 
     accuracy: BomberAccuracy
@@ -58,27 +46,16 @@ class DiveBomberProfile(ModuleProfile):
 
     emoji = DIVE_BOMBER_EMOJI
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.accuracy = BomberAccuracy(data.pop("accuracy"))
-        for k, val in data.items():
-            setattr(self, k.lower(), val)
 
-
-@dataclasses.dataclass(slots=True)
-class EngineProfile(ModuleProfile):
+class EngineModuleProfile(BaseModel):
     """An 'Engine' Module"""
 
     max_speed: float
 
     emoji = ENGINE_EMOJI
 
-    def __init__(self, data: dict[str, float]) -> None:
-        for k, val in data.items():
-            setattr(self, k.lower(), val)
 
-
-@dataclasses.dataclass(slots=True)
-class FighterProfile(ModuleProfile):
+class FighterModuleProfile(BaseModel):
     """A 'Fighter' Module"""
 
     avg_damage: int
@@ -88,13 +65,8 @@ class FighterProfile(ModuleProfile):
 
     emoji = ROCKET_PLANE_EMOJII
 
-    def __init__(self, data: dict[str, int]) -> None:
-        for k, val in data.items():
-            setattr(self, k.lower(), val)
 
-
-@dataclasses.dataclass(slots=True)
-class FireControlProfile(ModuleProfile):
+class FireControlModuleProfile(BaseModel):
     """A 'Fire Control' Module"""
 
     distance: float
@@ -102,13 +74,8 @@ class FireControlProfile(ModuleProfile):
 
     emoji = FIRE_CONTROL_EMOJI
 
-    def __init__(self, data: dict[str, float | int]) -> None:
-        for k, val in data.items():
-            setattr(self, k.lower(), val)
 
-
-@dataclasses.dataclass(slots=True)
-class FlightControlProfile(ModuleProfile):
+class FlightControlModuleProfile(BaseModel):
     """Deprecated - CV FlightControl"""
 
     bomber_squadrons: int
@@ -117,45 +84,29 @@ class FlightControlProfile(ModuleProfile):
 
     emoji = ROCKET_PLANE_EMOJII
 
-    def __init__(self, data: dict[str, int]) -> None:
-        for k, val in data.items():
-            setattr(self, k.lower(), val)
 
-
-@dataclasses.dataclass(slots=True)
-class HullArmour(ModuleProfile):
+class HullArmour(BaseModel):
     """The Thickness of the Ship's armour in mm"""
 
     min: int
     max: int
 
-    def __init__(self, data: dict[str, int]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class HullProfile(ModuleProfile):
+class HullModuleProfile(BaseModel):
     """A 'Hull' Module"""
 
     anti_aircraft_barrels: int
     artillery_barrels: int
     atba_barrels: int
     health: int
-    planes_amount: int
+    planes_amount: Optional[int]
     torpedoes_barrels: int
     range: HullArmour
 
     emoji = HULL_EMOJI
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        self.range = HullArmour(data.pop("range"))
-        for k, val in data.items():
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class TorpedoBomberProfile(ModuleProfile):
+class TorpedoBomberModuleProfile(BaseModel):
     """A 'Torpedo Bomber' Module"""
 
     cruise_speed: int
@@ -168,13 +119,8 @@ class TorpedoBomberProfile(ModuleProfile):
 
     emoji = TORPEDO_PLANE_EMOJI
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
 
-
-@dataclasses.dataclass(slots=True)
-class TorpedoProfile(ModuleProfile):
+class TorpedoModuleProfile(BaseModel):
     """A 'Torpedoes' Module"""
 
     distance: int
@@ -184,13 +130,27 @@ class TorpedoProfile(ModuleProfile):
 
     emoji = TORPEDOES_EMOJI
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
+
+class ModuleProfile(BaseModel):  # Generic
+    """Data Not always present"""
+
+    artillery: Optional[ArtilleryModuleProfile]
+    dive_bomber: Optional[DiveBomberModuleProfile]
+    engine: Optional[EngineModuleProfile]
+    fighter: Optional[FighterModuleProfile]
+    fire_control: Optional[FireControlModuleProfile]
+    flight_control: Optional[FlightControlModuleProfile]
+    hull: Optional[HullModuleProfile]
+    torpedo_bomber: Optional[TorpedoBomberModuleProfile]
+    torpedoes: Optional[TorpedoModuleProfile]
+
+    @property
+    def emoji(self) -> str:
+        """Generic Emoji"""
+        return AUXILIARY_EMOJI
 
 
-@dataclasses.dataclass(slots=True)
-class Module:
+class Module(BaseModel):
     """A Module that can be mounted in a ship fitting"""
 
     image: str
@@ -203,18 +163,8 @@ class Module:
 
     profile: ModuleProfile
 
-    def __init__(self, data: dict[str, Any]) -> None:
-        for k, val in data.items():
-            if k == "profile":
-                try:
-                    val = {"artillery": ArtilleryProfile(val)}[k]
-                except KeyError:
-                    logger.info("Module profile is %s", val)
-                    return
-            setattr(self, k.lower(), val)
 
-
-async def get_modules(modules: list[int]) -> dict[int, Module]:
+async def get_modules(modules: list[int]) -> dict[str, Module]:
     """Fetch Module Objects from the world of warships API"""
     module_id = ", ".join(str(i) for i in modules)
     params = {"application_id": WG_ID, "module_id": module_id}
@@ -225,6 +175,11 @@ async def get_modules(modules: list[int]) -> dict[int, Module]:
             logger.error("%s %s: %s", resp.status, text, resp.url)
         data = await resp.json()
 
-    output = {id_: Module(data) for id_, data in data["data"].items()}
+    output: dict[str, Module] = {}
+    for id_, data in data["data"].items():
+        try:
+            output.update({id_: Module(**data)})
+        except ValidationError:
+            continue
 
     return output

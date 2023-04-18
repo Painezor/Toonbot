@@ -4,9 +4,11 @@ from __future__ import annotations
 import datetime
 import logging
 import typing
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, TypeAlias, Optional
 
 import discord
+from discord import Emoji, Message, Embed
+from discord.abc import Messageable
 from discord.ext import commands
 
 from ext.utils import view_utils, timed_events, embed_utils
@@ -166,10 +168,10 @@ def iter_embed(
     diff: discord.AuditLogDiff,
     main: bool = False,
     last: bool = False,
-) -> discord.Embed:
+) -> Embed:
     # Diff is either entry.changes.before or entry.changes.after
 
-    embed = discord.Embed()
+    embed = Embed()
     embed.description = ""
 
     # Start by getting info about our Target.
@@ -190,7 +192,7 @@ def iter_embed(
             ico = entry.guild.icon.url if entry.guild.icon else None
             embed.set_author(name=entry.guild.name, icon_url=ico)
 
-        elif isinstance(target, (discord.Member, discord.User)):
+        elif isinstance(target, User):
             ico = target.display_avatar.url if target.display_avatar else None
             embed.set_author(name=f"{target} ({target.id})", icon_url=ico)
             embed.description = f"<@{target.id}>\n\n"
@@ -210,7 +212,7 @@ def iter_embed(
             mems = len(target.members)
             embed.description = f"<@&{target.id}> ({mems} users)\n\n"
 
-        elif isinstance(target, discord.Emoji):
+        elif isinstance(target, Emoji):
             embed.set_author(name=f"{target.name} ({target.id})")
             embed.set_thumbnail(url=target.url)
             embed.description = f"{str(target)} [Link]({target.url})\n\n"
@@ -296,7 +298,7 @@ def iter_embed(
             app_extra = typing.cast(discord.Object, entry.extra)
             embed.description += f"Application ID #{app_extra.id}"
             if isinstance(extra, discord.PartialIntegration):
-                ex = typing.cast(discord.PartialIntegration, extra)
+                ex = extra
                 txt = f"{ex.name} ({ex.type} / {ex.id}) {ex.account.name}\n"
                 embed.description += txt
 
@@ -319,9 +321,8 @@ def iter_embed(
             role_override = False
             user_override = False
             if extra is not None and hasattr(extra, "type"):
-                extra: typing.Optional[discord.Object] = extra
-                role_override = isinstance(extra.type, type(discord.Role))
-                user_override = isinstance(extra.type, type(discord.User))
+                role_override = isinstance(extra, discord.Role)
+                user_override = isinstance(extra, discord.User)
 
             if role_override:
                 role = typing.cast(discord.Role, extra)
@@ -979,7 +980,7 @@ class LogsConfig(view_utils.BaseView):
                     await connection.execute(sq3, ch_id)
                     return await self.update(interaction, content="Generating")
 
-        embed = discord.Embed(color=0x7289DA, title="Notification Logs config")
+        embed = Embed(color=0x7289DA, title="Notification Logs config")
         embed.description = "Click buttons below to toggle logging events."
 
         row = 0
@@ -1134,14 +1135,14 @@ class AuditLogs(commands.Cog):
 
         if entry.category == discord.AuditLogActionCategory.create:
             before = None
-            after = discord.Embed()
+            after = Embed()
             after.timestamp = entry.created_at
 
             after = iter_embed(
                 entry, entry.changes.after, main=True, last=True
             )
         elif entry.category == discord.AuditLogActionCategory.delete:
-            before = discord.Embed()
+            before = Embed()
             before.timestamp = entry.created_at
 
             before = iter_embed(
@@ -1174,18 +1175,18 @@ class AuditLogs(commands.Cog):
         for servers that request it"""
 
         cache = self.bot.notifications_cache
-        channels: list[discord.TextChannel] = []
+        channels: list[Messageable] = []
         for i in cache:
             if i["joins"] and i["guild_id"] == member.guild.id:
                 channel = self.bot.get_channel(i["channel_id"])
-                if channel is not None:
+                if isinstance(channel, Messageable):
                     channels.append(channel)
 
         if not channels:
             return
 
         # Extended member join information.
-        embed = discord.Embed(colour=0x7289DA, title="Member Joined")
+        embed = Embed(colour=0x7289DA, title="Member Joined")
         embed_utils.user_to_author(embed, member)
 
         def onboard() -> str:
@@ -1262,18 +1263,18 @@ class AuditLogs(commands.Cog):
         or other departures"""
         # Check if in mod action log and override to specific channels.
         cache = self.bot.notifications_cache
-        channels = []
+        channels: list[Messageable] = []
         for i in cache:
             if i["joins"] and i["guild_id"] == payload.guild_id:
                 channel = self.bot.get_channel(i["channel_id"])
-                if channel is not None:
+                if isinstance(channel, Messageable):
                     channels.append(channel)
 
         if not channels:
             return
 
         user: User = payload.user
-        embed = discord.Embed(title="Member Left", description=user.mention)
+        embed = Embed(title="Member Left", description=user.mention)
         embed.colour = discord.Colour.dark_red()
         embed.timestamp = discord.utils.utcnow()
         embed_utils.user_to_author(embed, user)
@@ -1289,34 +1290,30 @@ class AuditLogs(commands.Cog):
     async def on_guild_emojis_update(
         self,
         guild: discord.Guild,
-        before: list[discord.Emoji],
-        after: list[discord.Emoji],
+        before: list[Emoji],
+        after: list[Emoji],
     ) -> None:
         """Event listener for outputting information about updated emojis"""
         cache = self.bot.notifications_cache
-        channels: list[discord.TextChannel] = []
+        channels: list[Messageable] = []
         for i in cache:
             if i["emote_and_sticker"] and i["guild_id"] == guild.id:
                 i = self.bot.get_channel(i["channel_id"])
 
-                if i is not None:
-                    typing.cast(discord.TextChannel, i)
+                if isinstance(i, Messageable):
                     channels.append(i)
 
         if not channels:
             return
 
-        embed = discord.Embed(color=discord.Colour.dark_purple())
+        embed = Embed(color=discord.Colour.dark_purple())
 
         # Find if it was addition or removal.
 
-        def parse_emoji(
-            emoji: discord.Emoji, added: bool = False
-        ) -> discord.Embed:
+        def parse_emoji(emoji: Emoji, added: Optional[bool] = None) -> Embed:
             new_embed = embed.copy()
             if emoji.roles:
-                role = max(emoji.roles, key=lambda i: i.position)
-                role = role.mention
+                role = min(emoji.roles, key=lambda i: i.position).mention
             else:
                 role = ""
 
@@ -1338,7 +1335,7 @@ class AuditLogs(commands.Cog):
         new = [i for i in after if i not in before]
         removed = [i for i in before if i not in after]
 
-        embeds: list[discord.Embed] = []
+        embeds: list[Embed] = []
 
         embeds += [parse_emoji(emoji, True) for emoji in new if emoji.managed]
         embeds += [parse_emoji(emoji) for emoji in removed if emoji.managed]
@@ -1351,7 +1348,7 @@ class AuditLogs(commands.Cog):
 
     # Deleted message notif
     @commands.Cog.listener()
-    async def on_message_delete(self, message: discord.Message) -> None:
+    async def on_message_delete(self, message: Message) -> None:
         """Event handler for reposting deleted messages from users"""
         if message.guild is None:
             return  # Ignore DMs
@@ -1360,17 +1357,17 @@ class AuditLogs(commands.Cog):
             return  # Ignore bots to avoid chain reaction
 
         cache = self.bot.notifications_cache
-        channels: list[discord.abc.GuildChannel] = []
+        channels: list[Messageable] = []
         for i in cache:
             if i["deleted_messages"] and i["guild_id"] == message.guild.id:
                 channel = message.guild.get_channel(i["channel_id"])
-                if channel is not None:
+                if isinstance(channel, Messageable):
                     channels.append(channel)
 
         if not channels:
             return
 
-        embed = discord.Embed(colour=discord.Colour.yellow())
+        embed = Embed(colour=discord.Colour.yellow())
         embed.title = "Deleted Message"
         embed.timestamp = message.created_at
         embed_utils.user_to_footer(embed, message.author)
@@ -1378,7 +1375,7 @@ class AuditLogs(commands.Cog):
         embed.description = f"<#{message.channel.id}>\n\n{message.content}"
 
         atts: list[discord.File] = []
-        dels = discord.Embed(title="Attachments")
+        dels = Embed(title="Attachments")
         dels.description = ""
         for num, i in enumerate(message.attachments):
             type_ = i.content_type
@@ -1401,18 +1398,18 @@ class AuditLogs(commands.Cog):
                 continue
 
     @commands.Cog.listener()
-    async def on_bulk_message_delete(self, messages: list[discord.Message]):
+    async def on_bulk_message_delete(self, messages: list[Message]):
         """Iter message_delete"""
         guild = messages[0].guild
         if guild is None:
             return
 
         cache = self.bot.notifications_cache
-        channels = []
+        channels: list[Messageable] = []
         for i in cache:
             if i["deleted_messages"] and i["guild_id"] == guild.id:
                 channel = self.bot.get_channel(i["channel_id"])
-                if channel is not None:
+                if isinstance(channel, Messageable):
                     channels.append(channel)
 
         if not channels:
@@ -1422,9 +1419,7 @@ class AuditLogs(commands.Cog):
             await self.on_message_delete(i)
 
     @commands.Cog.listener()
-    async def on_message_edit(
-        self, before: discord.Message, after: discord.Message
-    ) -> None:
+    async def on_message_edit(self, before: Message, after: Message) -> None:
         """Edited message output."""
         if before.guild is None:
             return
@@ -1437,18 +1432,18 @@ class AuditLogs(commands.Cog):
             return
 
         cache = self.bot.notifications_cache
-        channels = []
+        channels: list[Messageable] = []
         for i in cache:
             if i["edited_messages"] and i["guild_id"] == before.guild.id:
                 i = self.bot.get_channel(i["channel_id"])
-                if i is not None:
+                if isinstance(i, Messageable):
                     channels.append(i)
 
         if not channels:
             return
 
         if before.reference:
-            reply = discord.Embed()
+            reply = Embed()
             if before.reference:
                 if before.reference.cached_message:
                     cache = before.reference.cached_message
@@ -1463,13 +1458,13 @@ class AuditLogs(commands.Cog):
             reply = None
 
         if before.content != after.content:
-            embed = discord.Embed(title="Message Edited")
+            embed = Embed(title="Message Edited")
             embed_utils.user_to_footer(embed, before.author)
             embed.colour = discord.Colour.brand_red()
             embed.description = f"<#{before.channel.id}>\n> {before.content}"
             embed.timestamp = before.created_at
 
-            embe2 = discord.Embed(colour=discord.Colour.brand_green())
+            embe2 = Embed(colour=discord.Colour.brand_green())
             embe2.timestamp = after.edited_at
             embe2.description = f"> {after.content}"
 
@@ -1479,10 +1474,10 @@ class AuditLogs(commands.Cog):
         else:
             embed = embe2 = None
 
-        atts = []
+        atts: list[discord.File] = []
         if before.attachments != after.attachments:
             att = [i for i in before.attachments if i not in after.attachments]
-            gone = discord.Embed(title="Removed Attachments")
+            gone = Embed(title="Removed Attachments")
             gone.description = ""
             for num, i in enumerate(att, 1):
                 type_ = i.content_type
@@ -1517,18 +1512,18 @@ class AuditLogs(commands.Cog):
         guilds = [i.id for i in self.bot.guilds if i.get_member(after.id)]
 
         cache = self.bot.notifications_cache
-        channels = []
+        channels: list[Messageable] = []
         for i in cache:
             if i["users"] and i["guild_id"] in guilds:
                 channel = self.bot.get_channel(i["channel_id"])
-                if channel is not None:
+                if isinstance(channel, Messageable):
                     channels.append(channel)
 
         if not channels:
             return
 
         # Key, Before, After
-        embed = discord.Embed(colour=discord.Colour.dark_gray())
+        embed = Embed(colour=discord.Colour.dark_gray())
         embed_utils.user_to_footer(embed, before)
         embed.description = ""
         embed.timestamp = discord.utils.utcnow()
@@ -1575,74 +1570,3 @@ class AuditLogs(commands.Cog):
 async def setup(bot: Bot | PBot) -> None:
     """Loads the notifications cog into the bot"""
     await bot.add_cog(AuditLogs(bot))
-
-
-# Old Code
-
-# async def handle_channel_update(entry: discord.AuditLogEntry):
-#     """Handler for when a channel is updated"""
-
-#     if key := changes.pop("default_reaction_emoji", False):
-#         b = key["before"]
-#         a = key["after"]
-#         before.description += f"**Default Reaction Emoji**: {b}\n"
-#         after.description += f"**Default Reaction Emoji**: {a}\n"
-
-#     if key := changes.pop("default_thread_slowmode_delay", False):
-#         sm_bf = stringify_seconds(key["before"])
-#         sm_af = stringify_seconds(key["after"])
-#         before.description += f"**Thread Reply Slowmode**: {sm_bf}\n"
-#         after.description += f"**Thread Reply Slowmode**: {sm_af}\n"
-
-# async def handle_guild_update(self, entry: discord.AuditLogEntry):
-#     """Handler for When a guild is updated."""
-
-#     if key := changes.pop("system_channel_flags", None):
-#         bf: discord.SystemChannelFlags = key["before"]
-#         af: discord.SystemChannelFlags = key["after"]
-
-#         b = bf.guild_reminder_notifications
-#         a = af.guild_reminder_notifications
-#         if a != b:
-#             o = "on" if b else "off"
-#             before.description += f"**Setup Tips**: {o}\n"
-#             o = "on" if a else "off"
-#             after.description += f"**Setup Tips**: {o}\n"
-
-#         if (b := bf.join_notifications) != (a := af.join_notifications):
-#             o = "on" if b else "off"
-#             before.description += f"**Join Notifications**: {o}\n"
-#             o = "on" if a else "off"
-#             after.description += f"**Join Notifications**: {o}\n"
-
-#         b = bf.join_notification_replies
-#         a = af.join_notification_replies
-#         if a != b:
-#             o = "on" if b else "off"
-#             before.description += f"**Join Stickers**: {o}\n"
-#             o = "on" if a else "off"
-#             after.description += f"**Join Stickers**: {o}\n"
-
-#         b = bf.premium_subscription
-#         a = af.premium_subscriptions
-#         if a != b:
-#             o = "on" if b else "off"
-#             before.description += f"**Boost Notifications**: {o}\n"
-#             o = "on" if a else "off"
-#             after.description += f"**Boost Notifications**: {o}\n"
-
-#         b = bf.role_subscription_purchase_notifications
-#         a = af.role_subscription_purchase_notifications
-#         if a != b:
-#             o = "on" if b else "off"
-#             before.description += f"**Role Subscriptions**: {o}\n"
-#             o = "on" if a else "off"
-#             after.description += f"**Role Subscriptions**: {o}\n"
-
-#         b = bf.role_subscription_purchase_notification_replies
-#         a = af.role_subscription_purchase_notification_replies
-#         if a != b:
-#             o = "on" if b else "off"
-#             before.description += f"**Role Sub Stickers**: {o}\n"
-#             o = "on" if a else "off"
-#             after.description += f"**Role Sub Stickers**: {o}\n"
