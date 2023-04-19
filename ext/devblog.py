@@ -9,6 +9,7 @@ from discord.ext import commands, tasks
 from lxml import html
 import yatg
 
+from ext import wows_api as api
 from ext.utils import flags, view_utils, embed_utils
 
 if typing.TYPE_CHECKING:
@@ -23,29 +24,29 @@ RSS = "https://blog.worldofwarships.com/rss-en.xml"
 
 SHIP_EMOTES = {
     "aircarrier": {
-        "normal": "<:aircarrier:991362771662930032>",
-        "premium": "<:aircarrier_premium:991362995424862228>",
-        "special": "<:aircarrier_special:991362955696406578>",
+        "normal": api.CARRIER_EMOJI,
+        "premium": api.CARRIER_PREMIUM_EMOJI,
+        "special": api.CARRIER_SPECIAL_EMOJI,
     },
     "battleship": {
-        "normal": "<:battleship:991360614901493771>",
-        "premium": "<:battleship_premium:991360127707914382>",
-        "special": "<:battleship_special:991359103467274270>",
+        "normal": api.BATTLESHIP_EMOJI,
+        "premium": api.BATTLESHIP_PREMIUM_EMOJI,
+        "special": api.BATTLESHIP_SPECIAL_EMOJI,
     },
     "cruiser": {
-        "normal": "<:Cruiser:991318278611939331>",
-        "premium": "<:cruiser_premium:991360312357953557>",
-        "special": "<:cruiser_special:991356650701205574>",
+        "normal": api.CRUISER_EMOJI,
+        "premium": api.CRUISER_PREMIUM_EMOJI,
+        "special": api.CRUISER_SPECIAL_EMOJI,
     },
     "destroyer": {
-        "normal": "<:Destroyer:991321386532491395>",
-        "premium": "<:destroyer_premium:991360466322460762>",
-        "special": "<:destroyer_special:991359827966173194>",
+        "normal": api.DESTROYER_EMOJI,
+        "premium": api.DESTROYER_PREMIUM_EMOJI,
+        "special": api.DESTROYER_SPECIAL_EMOJI,
     },
     "submarine": {
-        "normal": "<:submarine:991360776763879484>",
-        "premium": "",
-        "special": "<:submarine_special:991360980544143461>",
+        "normal": api.SUBMARINE_EMOJI,
+        "premium": api.SUBMARINE_PREMIUM_EMOJI,
+        "special": api.SUBMARINE_SPECIAL_EMOJI,
     },
 }
 

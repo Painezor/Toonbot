@@ -2,18 +2,18 @@
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import logging
 import json
 import io
 import random
 
-from typing import Any, TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 import typing
 
 import discord
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageOps, ImageFont
+from pydantic import BaseModel  # pylint: disable=no-name-in-module
 
 from ext.utils import view_utils
 
@@ -38,84 +38,81 @@ with open("credentials.json", mode="r", encoding="utf-8") as fun:
 logger = logging.getLogger("images")
 
 
-@dataclasses.dataclass(slots=True)
-class FaceRectangle:
+class FaceRectangle(BaseModel):
     """General Coordinates of the face"""
 
     top: int
     left: int
     width: int
-    right: int
+    height: int
 
 
-@dataclasses.dataclass
-class Point:
+class Point(BaseModel):
     """X & Y coordinates of a pupil"""
 
     x: float  # pylint: disable=C0103
     y: float  # pylint: disable=C0103
 
 
-@dataclasses.dataclass(slots=True)
-class FaceLandmarks:
+class FaceLandmarks(BaseModel):
     """Various entities on the face"""
 
     pupilLeft: Point
     pupilRight: Point
     noseTip: Point
+    mouthLeft: Point
     mouthRight: Point
-    mouthRight: Point
+    eyebrowLeftOuter: Point
+    eyebrowLeftInner: Point
+    eyebrowRightInner: Point
+    eyebrowRightOuter: Point
+    eyeLeftOuter: Point
+    eyeLeftInner: Point
+    eyeLeftTop: Point
+    eyeLeftBottom: Point
+    eyeRightInner: Point
+    eyeRightOuter: Point
+    eyeRightTop: Point
+    eyeRightBottom: Point
+    noseRootLeft: Point
+    noseRootRight: Point
+    noseLeftAlarTop: Point
+    noseRightAlarTop: Point
+    noseLeftAlarOutTip: Point
+    noseRightAlarOutTip: Point
+    upperLipTop: Point
+    upperLipBottom: Point
+    underLipTop: Point
+    underLipBottom: Point
 
 
-# TODO: Coordinates dataclass
-@dataclasses.dataclass(slots=True)
-class FacialRecognitionAPIResponse:
+class FaceAttributes(BaseModel):
+    """Kinda useless but how the model goes"""
+
+    headPose: HeadPose
+
+
+class HeadPose(BaseModel):
+    """Yaw / Pitch / Roll of a Head"""
+
+    yaw: int
+    pitch: int
+    roll: int
+
+
+class FacialRecognitionAPIResponse(BaseModel):
     """Coordinates returned from project oxford"""
 
     faceRectangle: FaceRectangle
     faceLandmarks: FaceLandmarks
+    faceAttributes: FaceAttributes
 
 
-# [
-#     {
-#         "faceLandmarks": {
-#             "eyebrowLeftOuter": {"x": 1016.8, "y": 269.2},
-#             "eyebrowLeftInner": {"x": 1085.5, "y": 271.2},
-#             "eyeLeftOuter": {"x": 1038.9, "y": 287.3},
-#             "eyeLeftTop": {"x": 1055.9, "y": 278.5},
-#             "eyeLeftBottom": {"x": 1055.2, "y": 292.9},
-#             "eyeLeftInner": {"x": 1072.5, "y": 288.5},
-#             "eyebrowRightInner": {"x": 1127.9, "y": 268.6},
-#             "eyebrowRightOuter": {"x": 1201.0, "y": 259.0},
-#             "eyeRightInner": {"x": 1142.1, "y": 284.1},
-#             "eyeRightTop": {"x": 1159.7, "y": 272.6},
-#             "eyeRightBottom": {"x": 1161.7, "y": 285.9},
-#             "eyeRightOuter": {"x": 1178.5, "y": 278.6},
-#             "noseRootLeft": {"x": 1093.5, "y": 291.8},
-#             "noseRootRight": {"x": 1125.1, "y": 289.8},
-#             "noseLeftAlarTop": {"x": 1083.3, "y": 327.4},
-#             "noseRightAlarTop": {"x": 1133.1, "y": 323.7},
-#             "noseLeftAlarOutTip": {"x": 1071.3, "y": 345.0},
-#             "noseRightAlarOutTip": {"x": 1148.8, "y": 342.6},
-#             "upperLipTop": {"x": 1111.0, "y": 374.8},
-#             "upperLipBottom": {"x": 1113.3, "y": 384.9},
-#             "underLipTop": {"x": 1113.8, "y": 396.7},
-#             "underLipBottom": {"x": 1115.0, "y": 408.5},
-#         },
-#         "faceAttributes": {
-#             "headPose": {"pitch": -13.0, "roll": -4.3, "yaw": -3.7}
-#         },
-#     }
-# ]
-
-
-@dataclasses.dataclass(slots=True)
 class ImageCache:
     """Cached Images for an ImageView"""
 
-    coordinates: dict[str, Any] = dataclasses.field(default_factory=dict)
+    coordinates: list[FacialRecognitionAPIResponse]
     image: typing.Optional[bytes] = None
-
     bob: typing.Optional[io.BytesIO] = None
     eyes: typing.Optional[io.BytesIO] = None
     knob: typing.Optional[io.BytesIO] = None
@@ -155,7 +152,7 @@ class ImageView(view_utils.BaseView):
         # Prepare POST
         headers = {
             "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": creds["Oxford"]["OxfordKey"],
+            "Ocp-Apim-Subscription-Key": creds["Oxford.OxfordKey"],
         }
         params = {
             "returnFaceId": "False",
@@ -170,8 +167,6 @@ class ImageView(view_utils.BaseView):
             if resp.status != 200:
                 logger.error("%s", await resp.json(), exc_info=True)
             self.cache.coordinates = await resp.json()
-        logger.info("Coordinates JSON is %s", self.cache.coordinates)
-        logger.debug("TODO: convert this to a Dataclass")
 
         # Get target image as file
         async with interaction.client.session.get(self.target_url) as resp:
@@ -195,11 +190,11 @@ class ImageView(view_utils.BaseView):
             bob = Image.open("Images/ross face.png")
 
             for i in self.cache.coordinates:
-                pos_x = int(i["faceRectangle"]["left"])
-                pos_y = int(i["faceRectangle"]["top"])
-                wid = int(i["faceRectangle"]["width"])
-                hght = int(i["faceRectangle"]["height"])
-                roll = int(i["faceAttributes"]["headPose"]["roll"]) * -1
+                pos_x = int(i.faceRectangle.left)
+                pos_y = int(i.faceRectangle.top)
+                wid = int(i.faceRectangle.width)
+                hght = int(i.faceRectangle.height)
+                roll = int(i.faceAttributes.headPose.roll * -1)
 
                 top = int(pos_x + (wid * 1.25)) - int(pos_x - (wid / 4))
                 bot = int((pos_y + (hght * 1.25))) - int(pos_y - (hght / 2))
@@ -245,14 +240,14 @@ class ImageView(view_utils.BaseView):
             image = Image.open(io.BytesIO(target))
             for i in self.cache.coordinates:
                 # Get eye bounds
-                lix = int(i["faceLandmarks"]["eyeLeftInner"]["x"])
-                lox = int(i["faceLandmarks"]["eyeLeftOuter"]["x"])
-                lty = int(i["faceLandmarks"]["eyeLeftTop"]["y"])
-                # lby = int(i["faceLandmarks"]["eyeLeftBottom"]["y"])
-                rox = int(i["faceLandmarks"]["eyeRightOuter"]["x"])
-                rix = int(i["faceLandmarks"]["eyeRightInner"]["x"])
-                rty = int(i["faceLandmarks"]["eyeRightTop"]["y"])
-                # rby = int(i["faceLandmarks"]["eyeRightBottom"]["y"])
+                lix = int(i.faceLandmarks.eyeLeftInner.x)
+                lox = int(i.faceLandmarks.eyeLeftOuter.x)
+                lty = int(i.faceLandmarks.eyeLeftTop.y)
+                # lby = int(i["faceLandmarks.eyeLeftBottom.y"])
+                rox = int(i.faceLandmarks.eyeRightOuter.x)
+                rix = int(i.faceLandmarks.eyeRightInner.x)
+                rty = int(i.faceLandmarks.eyeRightTop.y)
+                # rby = int(i["faceLandmarks.eyeRightBottom.y"])
 
                 left_width = lix - lox
                 right_width = rox - rix
@@ -360,13 +355,13 @@ class ImageView(view_utils.BaseView):
             image = Image.open(io.BytesIO(target)).convert(mode="RGBA")
             knob = Image.open("Images/knob.png")
 
-            for coords in self.cache.coordinates:
-                mlx = int(coords["faceLandmarks"]["mouthLeft"]["x"])
-                mrx = int(coords["faceLandmarks"]["mouthRight"]["x"])
-                lip_y = int(coords["faceLandmarks"]["upperLipBottom"]["y"])
-                lip_x = int(coords["faceLandmarks"]["upperLipBottom"]["x"])
+            for i in self.cache.coordinates:
+                mlx = int(i.faceLandmarks.mouthLeft.x)
+                mrx = int(i.faceLandmarks.mouthRight.x)
+                lip_y = int(i.faceLandmarks.upperLipBottom.y)
+                lip_x = int(i.faceLandmarks.upperLipBottom.x)
 
-                angle = int(coords["faceAttributes"]["headPose"]["roll"] * -1)
+                angle = int(i.faceAttributes.headPose.roll * -1)
                 wid = int((mrx - mlx)) * 2
                 hght = wid
                 mask = ImageOps.fit(knob, (wid, hght)).rotate(angle)
@@ -502,13 +497,13 @@ class Images(commands.Cog):
             fitted.close()
             other.close()
 
-            # Write "it's a mutual match"
-            text = f"You and {user_name} have liked each other."
+            # Write Text
+            txt = f"You and {user_name} have liked each other."
             font = ImageFont.truetype("Whitney-Medium.ttf", 24)
-            wid = font.getsize(text)[0]  # Width, Height
+            wid = font.getsize(txt)[0]  # Width, Height
 
             size = (300 - wid / 2, 180)
-            ImageDraw.Draw(base).text(size, text, font=font, fill="#ffffff")
+            ImageDraw.Draw(base).text(size, txt, font=font, fill="#ffffff")
 
             base.save(out := io.BytesIO(), "PNG")
             base.close()

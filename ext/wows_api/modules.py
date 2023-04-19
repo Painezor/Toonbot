@@ -41,7 +41,7 @@ class DiveBomberModuleProfile(BaseModel):
     accuracy: BomberAccuracy
     bomb_burn_probability: float
     cruise_speed: int
-    max_damage: int
+    max_damage: Optional[int]
     max_health: int
 
     emoji = DIVE_BOMBER_EMOJI
@@ -58,9 +58,9 @@ class EngineModuleProfile(BaseModel):
 class FighterModuleProfile(BaseModel):
     """A 'Fighter' Module"""
 
-    avg_damage: int
+    avg_damage: Optional[int]
     cruise_speed: int
-    max_ammo: int
+    max_ammo: Optional[int]
     max_health: int
 
     emoji = ROCKET_PLANE_EMOJII
@@ -110,7 +110,7 @@ class TorpedoBomberModuleProfile(BaseModel):
     """A 'Torpedo Bomber' Module"""
 
     cruise_speed: int
-    distance: float
+    distance: Optional[float]
     max_damage: int
     max_health: int
     torpedo_damage: int

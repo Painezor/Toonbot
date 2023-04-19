@@ -13,6 +13,23 @@ from pydantic import (  # pylint: disable=no-name-in-module
 
 from ext.wows_api.modules import Module
 
+from .emojis import (
+    BATTLESHIP_EMOJI,
+    BATTLESHIP_PREMIUM_EMOJI,
+    BATTLESHIP_SPECIAL_EMOJI,
+    CARRIER_EMOJI,
+    CARRIER_PREMIUM_EMOJI,
+    CARRIER_SPECIAL_EMOJI,
+    CRUISER_EMOJI,
+    CRUISER_PREMIUM_EMOJI,
+    CRUISER_SPECIAL_EMOJI,
+    DESTROYER_EMOJI,
+    DESTROYER_PREMIUM_EMOJI,
+    DESTROYER_SPECIAL_EMOJI,
+    SUBMARINE_EMOJI,
+    SUBMARINE_PREMIUM_EMOJI,
+    SUBMARINE_SPECIAL_EMOJI,
+)
 from .enums import Nation
 from .shipparameters import ShipProfile
 from .wg_id import WG_ID
@@ -38,11 +55,12 @@ async def get_ships() -> list[Ship]:
                 logger.error("%s %s: %s", resp.status, rsn, INFO)
             data = await resp.json()
 
-        ship_types: list[ShipType] = []
-        for i in data["data"]["ship_types"].values():
-            images: dict[str, Any] = data["data"]["ship_type_images"][i]
-            images.update({"name": i})
-            ship_types.append(ShipType(**images))
+        types: list[ShipType] = []
+        for k, val in data["data"]["ship_types"].items():
+            images: dict[str, Any] = data["data"]["ship_type_images"][k]
+            images.update({"name": val})
+            images.update({"api_name": k})
+            types.append(ShipType(**images))
 
         params.update({"page_no": 1})
         ships: list[Ship] = []
@@ -60,7 +78,7 @@ async def get_ships() -> list[Ship]:
             for data in items["data"].values():
                 # Get from Resolved Ship Types.
                 _type = data["type"]
-                data["type"] = next(i for i in ship_types if i.name == _type)
+                data["type"] = next(i for i in types if i.api_name == _type)
 
                 try:
                     ship = Ship(**data)
@@ -93,11 +111,13 @@ async def get_ships() -> list[Ship]:
 class ShipType(BaseModel):
     """
     name: Submarine, Destroyer, Cruiser, Battleship, Aircraft Carrier.
+    api_name: AirCarrier, etc.
     image: Tech tree images
     image_elite: Tech Tree Fully Researched Images
     image_premium: Premium ship images.
     """
 
+    api_name: str
     name: str
     image: str
     image_elite: str
@@ -183,12 +203,32 @@ class Ship(BaseModel):
     @property
     def emoji(self) -> str:
         """Get an emoji based on the ship's class & premium state"""
+
         if self.is_premium:
-            pass
+            return {
+                "Aircraft Carrier": CARRIER_PREMIUM_EMOJI,
+                "Battleship": BATTLESHIP_PREMIUM_EMOJI,
+                "Cruiser": CRUISER_PREMIUM_EMOJI,
+                "Destroyer": DESTROYER_PREMIUM_EMOJI,
+                "Submarine": SUBMARINE_PREMIUM_EMOJI,
+            }[self.type.name]
+
         if self.is_special:
-            pass
-        logger.error("missing ship type for %s", self.type.name)
-        return ""
+            return {
+                "Aircraft Carrier": CARRIER_SPECIAL_EMOJI,
+                "Battleship": BATTLESHIP_SPECIAL_EMOJI,
+                "Cruiser": CRUISER_SPECIAL_EMOJI,
+                "Destroyer": DESTROYER_SPECIAL_EMOJI,
+                "Submarine": SUBMARINE_SPECIAL_EMOJI,
+            }[self.type.name]
+
+        return {
+            "Aircraft Carrier": CARRIER_EMOJI,
+            "Battleship": BATTLESHIP_EMOJI,
+            "Cruiser": CRUISER_EMOJI,
+            "Destroyer": DESTROYER_EMOJI,
+            "Submarine": SUBMARINE_EMOJI,
+        }[self.type.name]
 
     @property
     def ac_row(self) -> str:
@@ -224,12 +264,12 @@ class ShipFit:
 
         convert = {
             "Artillery": "artillery_id",
-            "Dive Bomber" "Hull": "dive_bomber_id",
+            "DiveBomber" "Hull": "dive_bomber_id",
             "Engine": "engine_id",
             "Fighter": "fighter_id",
             "Suo": "fire_control_id",
             "Hull": "hull_id",
-            "Torpedo Bomber": "torpedo_bomber_id",
+            "TorpedoBomber": "torpedo_bomber_id",
             "Torpedoes": "torpedoes_id",
         }
         for i in self.modules.values():

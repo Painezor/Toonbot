@@ -116,7 +116,7 @@ class ScoreChannel:
             item: tuple[Optional[Message], Optional[list[Embed]]]
         ) -> datetime.datetime:
             if item[0] is None:
-                return datetime.datetime.now()
+                return discord.utils.utcnow()
             if item[0].edited_at:
                 return item[0].edited_at
             return item[0].created_at

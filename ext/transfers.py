@@ -289,7 +289,13 @@ class Transfers(commands.Cog):
 
         embed = discord.Embed(title="Create a ticker")
         embed.description = f"{chan} has no transfer ticker, create one?"
-        await interaction.response.send_message(embed=embed, view=view)
+
+        if interaction.response.is_done():
+            send = interaction.response.send_message
+        else:
+            send = interaction.response.edit_message
+
+        await send(embed=embed, view=view)
         await view.wait()
 
         if not view.value:
