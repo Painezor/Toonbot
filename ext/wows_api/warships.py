@@ -39,7 +39,7 @@ async def get_ships() -> list[Ship]:
             data = await resp.json()
 
         ship_types: list[ShipType] = []
-        for i in data["data"]["ship_types"].keys():
+        for i in data["data"]["ship_types"].values():
             images: dict[str, Any] = data["data"]["ship_type_images"][i]
             images.update({"name": i})
             ship_types.append(ShipType(**images))
@@ -202,7 +202,7 @@ class ShipFit:
 
     ship: Ship
 
-    modules: dict[type[Module], Module] = {}
+    modules: dict[str, Module] = {}
 
     profile: ShipProfile
 
@@ -216,22 +216,34 @@ class ShipFit:
 
     def set_module(self, module: Module) -> None:
         """Set a module into the internal fitting"""
-        logger.info('Recieved module type "%s" in set_module', module.type)
-        self.modules[type(module)] = module
+        self.modules[module.type] = module
 
     async def get_params(self, language: str = "en") -> ShipProfile:
         """Fetch the ship's parameters with the current fitting"""
         params = {"application_id": WG_ID, "language": language}
 
+        convert = {
+            "Artillery": "artillery_id",
+            "Dive Bomber" "Hull": "dive_bomber_id",
+            "Engine": "engine_id",
+            "Fighter": "fighter_id",
+            "Suo": "fire_control_id",
+            "Hull": "hull_id",
+            "Torpedo Bomber": "torpedo_bomber_id",
+            "Torpedoes": "torpedoes_id",
+        }
         for i in self.modules.values():
-            params.update({i.type: str(i.module_id)})
+            try:
+                params.update({convert[i.type]: str(i.module_id)})
+            except KeyError:
+                logger.error("Unable to convert %s to id field", i.type)
 
-        session = aiohttp.ClientSession()
-        async with session.get(SHIP_PROFILE, params=params) as resp:
-            if resp.status != 200:
-                rsn = await resp.text()
-                logger.error("%s %s: %s", resp.status, rsn, resp.url)
-            data = await resp.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(SHIP_PROFILE, params=params) as resp:
+                if resp.status != 200:
+                    rsn = await resp.text()
+                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
+                data = await resp.json()
 
         self.profile = ShipProfile(**data)
         return self.profile

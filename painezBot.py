@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 
     import ext.wows_api as api
     from ext.wows_api.warships import Ship
-    from ext.twitch import Contributor, TBot, TrackerChannel
 
 
 with open("credentials.json", encoding="utf-8") as fun:
@@ -98,12 +97,7 @@ class PBot(commands.AutoShardedBot):
         self.browser: BrowserContext
         self.session: aiohttp.ClientSession
 
-        # Twitch API
-        self.twitch: TBot
-        self.tracker_channels: list[TrackerChannel] = []
-
         # Wows
-        self.contributors: list[Contributor] = []
         self.clan_battle_seasons: list[api.ClanBattleSeason]
         self.clan_battle_winners: dict[int, list[api.ClanBattleWinner]]
         self.maps: set[api.Map] = set()

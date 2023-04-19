@@ -1,18 +1,20 @@
 """Get ship Parameters with various modules equipped"""
 from __future__ import annotations
 
-from importlib import reload
-
 import logging
-from typing import Any, TypeAlias, TYPE_CHECKING
+import random
+from typing import TYPE_CHECKING, Any, Optional, TypeAlias
 
 import discord
 from discord.ext import commands
 
-from ext.utils import view_utils
 import ext.wows_api as api
+from ext.utils import view_utils
 
-reload(api)
+WIP = (
+    "```diff\n- This ship is still in testing and marked as Work in Progress\n"
+    "- These values may not be final."
+)
 
 
 if TYPE_CHECKING:
@@ -25,13 +27,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("fitting")
 
 
-async def fetch_modules(interaction: Interaction, ship: api.Ship) -> None:
+async def get_modules(interaction: Interaction, ship: api.Ship) -> None:
     """Grab all data related to the ship from the API"""
     # Get needed module IDs
     current_ids = interaction.client.modules.keys()
     ship_module_ids = ship.modules.all
     to_fetch = [i for i in ship_module_ids if i not in current_ids]
-    interaction.client.modules.update(await api.get_modules(to_fetch))
+    logger.info("Fetching %s", to_fetch)
+    interaction.client.modules.update(await api.fetch_modules(to_fetch))
     return
 
 
@@ -40,14 +43,14 @@ class ShipButton(discord.ui.Button["ShipView"]):
 
     def __init__(self, parent: ShipView, ship: api.Ship, emoji: str):
         label = f"Tier {ship.tier}: {ship.name}"
-        super().__init__(emoji=emoji, label=label, row=2)
+        super().__init__(emoji=emoji, label=label, row=4)
 
         self.parent = parent
         self.ship = ship
 
     async def callback(self, interaction: Interaction) -> None:  # type: ignore
         """Create the new view, and send it back with the interaction"""
-        await fetch_modules(interaction, self.ship)
+        await get_modules(interaction, self.ship)
         view = ShipView(interaction, self.ship, parent=self.parent)
         embed = OverviewEmbed(view.fitting)
         await interaction.response.edit_message(view=view, embed=embed)
@@ -91,11 +94,6 @@ class AircraftEmbed(ShipEmbed):
                 # TODO: Flesh out rest of rocket plane data
                 "\n*Rocket Plane Damage not available in the API, sorry*",
             ]
-            logger.info("Rkt avg_damage: %s", rkt.avg_damage)
-            logger.info("rkt gunner_damage: %s", rkt.gunner_damage)
-            logger.info("rkt max_ammo %s", rkt.max_ammo)
-            logger.info("rkt prepare_time %s", rkt.prepare_time)
-            logger.info("rkt squarons %s", rkt.squadrons)
             self.add_field(name=name, value="\n".join(value), inline=False)
 
         if (t_b := fitting.profile.torpedo_bomber) is not None:
@@ -104,7 +102,6 @@ class AircraftEmbed(ShipEmbed):
             value = [
                 f"**Hit Points**: {format(t_b.max_health, ',')}",
                 f"**Cruising Speed**: {t_b.cruise_speed} kts",
-                "",
                 f"**Torpedo**: {t_b.torpedo_name}",
                 f"**Max Damage**: {format(t_b.max_damage)}",
                 f"**Max Speed**: {t_b.torpedo_max_speed} kts",
@@ -182,7 +179,7 @@ class AuxiliaryEmbed(ShipEmbed):
 
                 rows.append(row)
 
-            self.add_field(name="AA Guns", value="\b".join(rows), inline=False)
+            self.add_field(name="AA Guns", value="\n".join(rows), inline=False)
 
         self.description = "\n".join(desc)
 
@@ -240,8 +237,9 @@ class OverviewEmbed(ShipEmbed):
     def __init__(self, fitting: api.ShipFit):
         super().__init__(fitting.ship)
 
-        tier = fitting.ship.tier
-        slots = fitting.ship.mod_slots
+        ship = fitting.ship
+        tier = ship.tier
+        slots = ship.mod_slots
 
         # Check for bonus Slots (Arkansas Beta, Z-35, …)
         if tier:
@@ -249,11 +247,11 @@ class OverviewEmbed(ShipEmbed):
                 slts = 1
             elif tier < 5:
                 slts = 2
-            elif tier == 5:
+            elif tier < 6:
                 slts = 3
             elif tier < 7:
                 slts = 4
-            elif tier == 8:
+            elif tier < 8:
                 slts = 5
             else:
                 slts = 6
@@ -262,7 +260,7 @@ class OverviewEmbed(ShipEmbed):
                 text = f"This ship has {slots} upgrades instead of {slts}"
                 self.add_field(name="Special Upgrade Slots", value=text)
 
-        if fitting.ship.images:
+        if ship.images:
             self.set_image(url=fitting.ship.images.large)
 
         self.set_footer(text=fitting.ship.description)
@@ -293,33 +291,30 @@ class OverviewEmbed(ShipEmbed):
                 desc.append(f"**Torpedo Belt**: -{belt}% damage")
 
         # Build Rest of embed description
-        if fitting.ship.price_gold != 0:
+        if ship.price_gold != 0:
             cost = format(fitting.ship.price_gold, ",")
             desc.append(f"**Doubloon Price**: {cost}")
 
-        elif fitting.ship.price_credit != 0:
+        elif ship.price_credit != 0:
             cost = format(fitting.ship.price_credit, ",")
             desc.append(f"**Credit Price**: {cost}")
 
-        if fitting.ship.has_demo_profile:
-            self.add_field(name="WIP", value="Parameters are not Final.")
+        if ship.has_demo_profile:
+            self.add_field(name="WIP", value=WIP)
 
         self.description = "\n".join(desc)
 
-        if fitting.ship.next_ship_objects:
-            vals: list[tuple[int, str]] = []
-            for ship, xp_ in fitting.ship.next_ship_objects:
-                creds = format(ship.price_credit, ",")
-                xp_ = format(xp_, ",")
-                text = (
-                    f"**{ship.name}** (Tier {ship.tier} {ship.type.name}):"
-                    f"{xp_} XP, {creds} credits"
-                )
-                vals.append((ship.tier, text))
+        if ship.next_ship_objects:
+            desc: list[str] = []
 
-            if vals:
-                keys = [i[1] for i in sorted(vals, key=lambda x: x[0])]
-                self.add_field(name="Next Ships", value="\n".join(keys))
+            tup = sorted(ship.next_ship_objects, key=lambda x: x[0].tier)
+            for nxt, xp_ in tup:
+                creds = format(nxt.price_credit, ",")
+                xp_ = format(xp_, ",")
+                desc.append(f"**{nxt.name}**: {xp_} XP, {creds} credits")
+
+            if desc:
+                self.add_field(name="Next Ships", value="\n".join(desc))
 
 
 class TorpedoesEmbed(ShipEmbed):
@@ -327,13 +322,20 @@ class TorpedoesEmbed(ShipEmbed):
 
     def __init__(self, fitting: api.ShipFit):
         super().__init__(fitting.ship)
-        assert (torps := fitting.profile.torpedoes) is not None
-        assert torps.slots is not None
-        assert fitting.profile.hull is not None
+        torps = fitting.profile.torpedoes
 
-        for i in torps.slots.values():
-            value = f"{i.guns}x{i.barrels}x{i.caliber}mm"
-            self.add_field(name=i.name, value=value)
+        if torps is None:
+            self.description = "Torpedoes Not Found :concern:"
+            return
+
+        if torps.slots:
+            tpd: list[str] = []
+            for i in torps.slots.values():
+                _ = f"**{i.name}**\n{i.guns}x{i.barrels}x{i.caliber}mm"
+                tpd.append(_)
+
+            if tpd:
+                self.add_field(name="Slots", value="\n\n".join(tpd))
 
         self.title = torps.torpedo_name
 
@@ -345,13 +347,15 @@ class TorpedoesEmbed(ShipEmbed):
             f"**Damage**: {format(torps.max_damage, ',')}",
             f"**Detectability**: {torps.visibility_dist}km",
             f"**Reload Time**: {round(torps.reload_time, 2)}s",
-            f"**Launchers**: {fitting.profile.hull.torpedoes_barrels}",
             f"**Launcher 180° Time**: {torps.rotation_time}s",
         ]
+        if hull := fitting.profile.hull:
+            trp_desc.append(f"**Launchers**: {hull.torpedoes_barrels}")
 
         self.description = "\n".join(trp_desc)
 
 
+# TODO: WowsBuilder Button
 class ShipView(view_utils.BaseView):
     """A view representing a ship"""
 
@@ -388,15 +392,18 @@ class ShipView(view_utils.BaseView):
             self.remove_item(self.aircraft)
 
         for i in ship.previous_ships:
-            self.add_item(ShipButton(self, i, "▶️"))
+            self.add_item(ShipButton(self, i, "◀️"))
 
         for i in ship.next_ship_objects:
-            self.add_item(ShipButton(self, i[0], "◀️"))
+            self.add_item(ShipButton(self, i[0], "▶️"))
 
-        # Select Options
+        self.update_dropdown(interaction)
+
+    def update_dropdown(self, interaction: Interaction) -> None:
+        """Refressh the options of the dropdown"""
         options: list[discord.SelectOption] = []
         for i in self.ship.modules.all:
-            if i in self.fitting.modules.values():
+            if i in [i.module_id for i in self.fitting.modules.values()]:
                 continue
 
             try:
@@ -406,9 +413,10 @@ class ShipView(view_utils.BaseView):
                 continue
 
             i = str(i)
-            orig = next(val for k, val in ship.modules_tree.items() if k == i)
+            tree = self.ship.modules_tree.items()
+            orig = next(val for k, val in tree if k == i)
 
-            name = f"{module.name} ({module.__class__.__name__})"
+            name = module.name
             opt = discord.SelectOption(label=name, emoji=module.profile.emoji)
             opt.value = str(module.module_id)
 
@@ -428,69 +436,72 @@ class ShipView(view_utils.BaseView):
 
         self.modules.options = options
         self.modules.max_values = len(options)
-
-        self.last_button: discord.ui.Button[ShipView]
+        id_str = self.ship.ship_id_str
+        self.builder.url = f"https://app.wowssb.com/ship?shipIndexes={id_str}"
 
     @discord.ui.button(emoji=api.HULL_EMOJI)
     async def overview(self, interaction: Interaction, _) -> None:
         """Get a general overview of the ship"""
         embed = OverviewEmbed(self.fitting)
-        self.last_button = self.overview
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(emoji=api.ARTILLERY_EMOJI)
     async def main_guns(self, interaction: Interaction, _) -> None:
         """Get information about the ship's main battery"""
         embed = MainGunEmbed(self.fitting)
-        self.last_button = self.main_guns
         return await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(emoji=api.TORPEDOES_EMOJI)
     async def torpedoes(self, interaction: Interaction, _) -> None:
         """Get information about the ship's torpedoes"""
         embed = TorpedoesEmbed(self.fitting)
-        self.last_button = self.torpedoes
         return await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(emoji=api.AUXILIARY_EMOJI)
     async def auxiliary(self, interaction: Interaction, _) -> None:
         """Get information on the ship's secondaries and anti-air."""
         embed = AuxiliaryEmbed(self.fitting)
-        self.last_button = self.auxiliary
         return await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.button(emoji=api.ROCKET_PLANE_EMOJII)
     async def aircraft(self, interaction: Interaction, _) -> None:
         """Get information about the ship's Aircraft"""
         embed = AircraftEmbed(self.fitting)
-        self.last_button = self.aircraft
         return await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.select(placeholder="Change modules", row=1)
+    @discord.ui.select(placeholder="Change modules", row=3)
     async def modules(
         self, itr: Interaction, sel: discord.ui.Select[ShipView]
     ) -> None:
         """Dropdown to change modules."""
+        last: str = "Hull"
         for value in sel.values:
             module = itr.client.modules[value]
             self.fitting.set_module(module)
-
-            logger.info("logging dir() of selected module.")
-            logger.info(dir(module))
+            last = module.type
 
         await self.fitting.get_params()
 
         try:
             embed = {
-                self.aircraft: AircraftEmbed(self.fitting),
-                self.auxiliary: AuxiliaryEmbed(self.fitting),
-                self.main_guns: MainGunEmbed(self.fitting),
-                self.overview: OverviewEmbed(self.fitting),
-                self.torpedoes: TorpedoesEmbed(self.fitting),
-            }[self.last_button]
+                "Artillery": MainGunEmbed(self.fitting),
+                "Hull": OverviewEmbed(self.fitting),
+                "Torpedoes": TorpedoesEmbed(self.fitting),
+                "cock": AuxiliaryEmbed(self.fitting),
+                "fuck": AircraftEmbed(self.fitting),
+            }[last]
         except KeyError:
             embed = OverviewEmbed(self.fitting)
+
+        self.update_dropdown(itr)
         await itr.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(row=5, style=discord.ButtonStyle.url, label="WoWsSB")
+    async def builder(
+        self, itr: Interaction, btn: discord.ui.Button[ShipView]
+    ) -> None:
+        """Open a link to wows ShipBuilder"""
+        return
 
 
 class Fittings(commands.Cog):
@@ -498,7 +509,6 @@ class Fittings(commands.Cog):
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
-        reload(api)
 
     async def cog_load(self) -> None:
         """Fetch Generics from API and store to bot."""
@@ -506,14 +516,49 @@ class Fittings(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.describe(ship="Search for a ship by it's name")
-    @discord.app_commands.guilds(250252535699341312)
+    @discord.app_commands.guilds()
     async def ship(
         self,
         interaction: Interaction,
         ship: api.ship_transform,
     ) -> None:
         """Search for a ship in the World of Warships API"""
-        await fetch_modules(interaction, ship)
+        await get_modules(interaction, ship)
+        view = ShipView(interaction, ship)
+        embed = OverviewEmbed(view.fitting)
+        await interaction.response.send_message(view=view, embed=embed)
+        view.message = await interaction.original_response()
+
+    @discord.app_commands.command()
+    @discord.app_commands.rename(class_="class")
+    @discord.app_commands.describe(
+        nation="Ship Nation", tier="Ship Tier", _class="Ship Class"
+    )
+    async def random_ship(
+        self,
+        interaction: Interaction,
+        tier: Optional[discord.app_commands.Range[int, 1, 11]],
+        class_: Optional[api.class_transform],
+        nation: Optional[api.Nation],
+    ) -> None:
+        """Get a random ship"""
+        ships = interaction.client.ships
+        if tier:
+            ships = [i for i in ships if i.tier == tier]
+        if class_:
+            ships = [i for i in ships if i.type == class_]
+        if nation:
+            ships = [i for i in ships if i.nation == nation]
+
+        if not ships:
+            embed = discord.Embed(color=discord.Color.red())
+            embed.description = "❌ No ships match your filters!"
+            resp = interaction.response.send_message
+            await resp(embed=embed, ephemeral=True)
+            return
+
+        ship = random.choice(ships)
+        await get_modules(interaction, ship)
         view = ShipView(interaction, ship)
         embed = OverviewEmbed(view.fitting)
         await interaction.response.send_message(view=view, embed=embed)

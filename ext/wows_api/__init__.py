@@ -30,10 +30,11 @@ from .emojis import (
 )
 from .enums import Map, Nation, Region
 from .gamemode import GameMode, get_game_modes
-from .modules import Module, get_modules
+from .modules import Module, fetch_modules
 from .player import PartialPlayer, PlayerStats, ModeStats, fetch_stats
 from .transformers import (
     clan_transform,
+    class_transform,
     mode_transform,
     player_transform,
     region_transform,
@@ -78,7 +79,7 @@ __all__ = [
     "GameMode",
     # modules,
     "Module",
-    "get_modules",
+    "fetch_modules",
     # player,
     "PartialPlayer",
     "ModeStats",
@@ -91,6 +92,7 @@ __all__ = [
     "ShipFit",
     # transformers
     "clan_transform",
+    "class_transform",
     "mode_transform",
     "player_transform",
     "region_transform",

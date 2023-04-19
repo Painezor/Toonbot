@@ -6,15 +6,13 @@ import typing
 import json
 
 import discord
-import twitchio
+import twitchio  # type: ignore
 from discord.ext import commands
-from iso639 import Lang
-
+from iso639 import Lang  # type: ignore
 
 from ext.logs import stringify_seconds
 from ext.utils import embed_utils, flags, timed_events, view_utils
 from ext import wows_api as api
-from twitchio.ext.commands import Bot as TBot
 
 if typing.TYPE_CHECKING:
     from painezbot import PBot
@@ -24,6 +22,7 @@ if typing.TYPE_CHECKING:
 
 with open("credentials.json", mode="r", encoding="utf-8") as fun:
     creds = json.load(fun)
+    client = twitchio.Client.from_client_credentials(**creds["Twitch API"])
 
 
 CCS = "https://wows-static-content.gcdn.co/cms-data/contributors_wg.json"
@@ -43,8 +42,6 @@ logger = logging.getLogger("twitch")
 # TODO: Autocompletes to transformers
 class Contributor:
     """An Object representing a World of Warships CC"""
-
-    bot: typing.ClassVar[PBot]
 
     def __init__(
         self,
@@ -242,8 +239,7 @@ async def cc_ac(
     interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Autocomplete from the list of stored CCs"""
-    bot: PBot = interaction.client
-    ccs = bot.contributors
+    ccs = contributors
 
     # Region Filtering
     if region := interaction.namespace.region:
@@ -268,13 +264,15 @@ async def cc_ac(
     return choices
 
 
+contributors: list[Contributor] = []
+
+
 async def language_ac(
     interaction: Interaction, current: str
 ) -> list[discord.app_commands.Choice[str]]:
     """Filter by Language"""
 
-    ccs = interaction.client.contributors
-
+    ccs = contributors
     langs = set(a for b in [y.language_names for y in ccs] for a in b)
 
     cur = current.casefold()
@@ -368,14 +366,14 @@ class TwitchTracker(commands.Cog):
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
         TrackerChannel.bot = bot
+        self.tracker_channels: list[TrackerChannel] = []
 
     async def cog_load(self) -> None:
         """On cog load, generate list of Tracker Channels"""
         await self.fetch_ccs()
         await self.update_cache()
-        client: TBot = TBot.from_client_credentials(**creds["Twitch API"])
-        self.bot.twitch = client
-        await self.bot.twitch.connect()
+        self.twitch = client
+        await client.connect()
 
     async def update_cache(self) -> list[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""
@@ -388,18 +386,12 @@ class TwitchTracker(commands.Cog):
         channel_ids = [r["channel_id"] for r in channel_ids]
 
         # Purge Old.
-        cached = [
-            i.channel.id
-            for i in self.bot.tracker_channels
-            if i.channel.id in channel_ids
-        ]
-
         # Fetch New
         trackers: list[TrackerChannel] = []
         for c_id in channel_ids:
             channel = self.bot.get_channel(c_id)
 
-            if channel is None or c_id in cached:
+            if channel is None:
                 continue
 
             channel = typing.cast(discord.TextChannel, channel)
@@ -407,8 +399,8 @@ class TwitchTracker(commands.Cog):
             chan = TrackerChannel(channel)
             await chan.get_tracks()
             trackers.append(chan)
-        self.bot.tracker_channels = trackers
-        return self.bot.tracker_channels
+        self.tracker_channels = trackers
+        return self.tracker_channels
 
     async def create(
         self, interaction: Interaction, channel: discord.TextChannel
@@ -431,7 +423,7 @@ class TwitchTracker(commands.Cog):
         tkr = TrackerChannel(channel)
 
         await tkr.create_tracker()
-        self.bot.tracker_channels.append(tkr)
+        self.tracker_channels.append(tkr)
         await interaction.followup.send(f"Twitch Tracker created in {chan}")
         return tkr
 
@@ -442,7 +434,7 @@ class TwitchTracker(commands.Cog):
                 raise ConnectionError(f"Failed to connect to {CCS}")
             ccs = await resp.json()
 
-        contributors: list[Contributor] = []
+        contributors.clear()
 
         for i in ccs:
             realm = {
@@ -454,8 +446,7 @@ class TwitchTracker(commands.Cog):
             i = Contributor(i["name"], i["links"], i["lang"].split(","), realm)
 
             contributors.append(i)
-        self.bot.contributors = contributors
-        return self.bot.contributors
+        return contributors
 
     async def make_twitch_embed(self, member: discord.Member) -> discord.Embed:
         """Generate the embed for the twitch user"""
@@ -471,7 +462,7 @@ class TwitchTracker(commands.Cog):
         if twitch_name := member.activity.twitch_name:
             embed.colour = 0x9146FF
 
-            info = await self.bot.twitch.fetch_channel(twitch_name)
+            info = await self.twitch.fetch_channel(twitch_name)
 
             if info.delay > 0:
                 minutes, seconds = divmod(info.delay, 60)
@@ -539,7 +530,7 @@ class TwitchTracker(commands.Cog):
     ) -> None:
         """When the user updates presence, we check if they started streaming
         We then check if they are in the channel's list of tracked users."""
-        if not self.bot.tracker_channels:
+        if not self.tracker_channels:
             await self.update_cache()
 
         if before.activity == after.activity:
@@ -548,7 +539,7 @@ class TwitchTracker(commands.Cog):
         if not isinstance(after.activity, discord.Streaming):
             return
 
-        chns = self.bot.tracker_channels
+        chns = self.tracker_channels
         tcs = [i for i in chns if i.channel.guild.id == after.guild.id]
 
         valid_channels: list[TrackerChannel] = []
@@ -584,7 +575,7 @@ class TwitchTracker(commands.Cog):
 
         await interaction.response.defer()
 
-        ftch = await self.bot.twitch.fetch_streams(game_ids=[WOWS_GAME_ID])
+        ftch = await self.twitch.fetch_streams(game_ids=[WOWS_GAME_ID])
 
         streams: list[Stream] = []
         for i in ftch:
@@ -594,7 +585,7 @@ class TwitchTracker(commands.Cog):
             streams.append(stm)
 
         if contributor is not None:
-            cc_twitch = "".join(i.markdown for i in self.bot.contributors)
+            cc_twitch = "".join(i.markdown for i in contributors)
             for i in streams:
                 if f"http://www.twitch.tv/{i.user}" in cc_twitch:
                     i.contributor = True
@@ -624,7 +615,7 @@ class TwitchTracker(commands.Cog):
         try:
             twitch = next(i for i in cont.links if "twitch" in i)
             twitch_id = twitch.split("/")[-1]
-            user = await self.bot.twitch.fetch_users(names=[twitch_id])
+            user = await self.twitch.fetch_users(names=[twitch_id])
             user = user[0]
             embed.set_image(url=user.profile_image)
 
@@ -655,7 +646,7 @@ class TwitchTracker(commands.Cog):
         language: typing.Optional[str] = None,
     ) -> None:
         """Fetch The List of all CCs"""
-        ccs = self.bot.contributors
+        ccs = contributors
 
         if search is not None:
             ccs = [i for i in ccs if search == i.name]
@@ -713,7 +704,7 @@ class TwitchTracker(commands.Cog):
         embed_utils.user_to_footer(embed, interaction.user)
 
         try:
-            tkr = self.bot.tracker_channels
+            tkr = self.tracker_channels
             chan = next(i for i in tkr if i.channel.id == channel.id)
             send = interaction.response.edit_message
         except StopIteration:
@@ -743,7 +734,7 @@ class TwitchTracker(commands.Cog):
             channel = typing.cast(discord.TextChannel, interaction.channel)
 
         try:
-            tkr = self.bot.tracker_channels
+            tkr = self.tracker_channels
             chan = next(i for i in tkr if i.channel.id == channel.id)
             send = interaction.response.edit_message
         except StopIteration:
@@ -769,7 +760,7 @@ class TwitchTracker(commands.Cog):
                 await connection.execute(sql, channel.id)
 
         # Lists are Mutable.
-        trk = self.bot.tracker_channels
+        trk = self.tracker_channels
         trk = [i for i in trk if i.channel.id != channel.id]
         return trk
 

@@ -70,7 +70,7 @@ class FireControlModuleProfile(BaseModel):
     """A 'Fire Control' Module"""
 
     distance: float
-    distance_increase: int
+    distance_increase: Optional[int]
 
     emoji = FIRE_CONTROL_EMOJI
 
@@ -146,7 +146,10 @@ class ModuleProfile(BaseModel):  # Generic
 
     @property
     def emoji(self) -> str:
-        """Generic Emoji"""
+        """Retrieve the emoji from the profiel, else Generic Emoji"""
+        for i in self.dict(exclude_none=True).values():
+            if i:
+                return i["emoji"]
         return AUXILIARY_EMOJI
 
 
@@ -164,22 +167,24 @@ class Module(BaseModel):
     profile: ModuleProfile
 
 
-async def get_modules(modules: list[int]) -> dict[str, Module]:
+async def fetch_modules(modules: list[int]) -> dict[str, Module]:
     """Fetch Module Objects from the world of warships API"""
     module_id = ", ".join(str(i) for i in modules)
     params = {"application_id": WG_ID, "module_id": module_id}
-    session = aiohttp.ClientSession()
-    async with session.get(MODULES, params=params) as resp:
-        if resp.status != 200:
-            text = await resp.text()
-            logger.error("%s %s: %s", resp.status, text, resp.url)
-        data = await resp.json()
+    async with aiohttp.ClientSession() as session:
+        async with session.get(MODULES, params=params) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                logger.error("%s %s: %s", resp.status, text, resp.url)
+            data = await resp.json()
 
     output: dict[str, Module] = {}
     for id_, data in data["data"].items():
         try:
             output.update({id_: Module(**data)})
-        except ValidationError:
+        except ValidationError as err:
+            logger.error("Validation failed on %s", id_)
+            logger.error(err)
             continue
 
     return output

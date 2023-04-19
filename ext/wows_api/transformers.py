@@ -14,7 +14,7 @@ from .clan import PartialClan
 from .enums import Map, Region
 from .gamemode import GameMode
 from .player import PartialPlayer, PlayerClanData
-from .warships import Ship
+from .warships import Ship, ShipType
 
 if TYPE_CHECKING:
     from painezbot import PBot
@@ -105,6 +105,30 @@ class ClanTransformer(Transformer):
         return next(i for i in self.clans if int(value) == i.clan_id)
 
 
+class ClassTransformer(Transformer):
+    """Convert User input to API ShipType"""
+
+    async def autocomplete(  # type: ignore
+        self,
+        interaction: Interaction,
+        current: str,
+        /,
+    ) -> list[Choice[str]]:
+        """Autocomplete from list of classes of current ships"""
+        ships = interaction.client.ships
+        types = set(i.type.name.lower() for i in ships)
+        cur = current.lower()
+        return [Choice(name=i, value=i) for i in types if cur in i]
+
+    async def transform(  # type: ignore
+        self, interaction: Interaction, value: str
+    ) -> Optional[ShipType]:
+        """Get a shiptype"""
+        for i in interaction.client.ships:
+            if i.type.name == value:
+                return i.type
+
+
 class MapTransformer(Transformer):
     """Convert User Input to a Map Object"""
 
@@ -156,7 +180,7 @@ class ModeTransformer(Transformer):
         current: str,
         /,
     ) -> list[Choice[str]]:
-        """Autocomplete from list of stored teams"""
+        """Autocomplete from list of stored modes"""
         curr = current.casefold()
         choices: list[Choice[str]] = []
         for i in sorted(interaction.client.modes, key=lambda x: x.name):
@@ -298,6 +322,7 @@ class RegionTransformer(Transformer):
 
 
 clan_transform: TypeAlias = Transform[PartialClan, ClanTransformer]
+class_transform: TypeAlias = Transform[ShipType, ClassTransformer]
 map_transform: TypeAlias = Transform[Map, MapTransformer]
 mode_transform: TypeAlias = Transform[GameMode, ModeTransformer]
 player_transform: TypeAlias = Transform[PartialPlayer, PlayerTransformer]
