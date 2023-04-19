@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from typing import Any, TYPE_CHECKING, TypeAlias, Optional, Literal
+from typing import Any, TYPE_CHECKING, TypeAlias, Optional  # , Literal
 
 import discord
 from discord.ext import commands
@@ -29,26 +29,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("warships")
 
-REGION = Literal["eu", "na", "sea"]
+# REGION = Literal["eu", "na", "sea"]
 
 # TODO: Calculation of player's PR
 # https://wows-numbers.com/personal/rating
-
-
-SHIP_KEYS = {
-    "max_frags_battle": "max_frags_ship_id",
-    "max_damage_dealt": "max_damage_dealt_ship_id",
-    "max_xp": "max_xp_ship_id",
-    "max_total_agro": "max_total_agro_ship_id",
-    "max_damage_scouting": "max_scouting_damage_ship_id",
-    "max_ships_spotted": "max_ships_spotted_ship_id",
-    "max_planes_killed": "max_planes_killed_ship_id",
-    "main_battery.max_frags_battle": "main_battery.max_frags_ship_id",
-    "second_battery.max_frags_battle": "second_battery.max_frags_ship_id",
-    "ramming.max_frags_battle": "ramming.max_frags_ship_id",
-    "torpedoes.max_frags_battle": "torpedoes.max_frags_ship_id",
-    "aircraft.max_frags_battle": "aircraft.max_frags_ship_id",
-}
 
 
 class PlayerView(view_utils.BaseView):
@@ -56,12 +40,12 @@ class PlayerView(view_utils.BaseView):
 
     def __init__(
         self,
-        invoker: User,
+        interaction: Interaction,
         player: api.PartialPlayer,
         ship: Optional[api.warships.Ship] = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(invoker, **kwargs)
+        super().__init__(interaction.user, **kwargs)
 
         # Passed
         self.player: api.PartialPlayer = player
@@ -75,10 +59,70 @@ class PlayerView(view_utils.BaseView):
         else:
             self.clan.label = f"[{player.clan.tag}]"
 
-        self.wows_numbers.url = self.player.wows_numbers
-        self.profile.url = self.player.community_link
+        self.mode: api.GameMode
+        self.div_size: int
 
-    @discord.ui.button()
+        _ = self.player.wows_numbers
+        self.add_item(discord.ui.Button(url=_, label="WoWs Numbers", row=4))
+        _ = self.player.community_link
+        self.add_item(discord.ui.Button(url=_, label="Profile Page", row=4))
+
+        opts: list[discord.SelectOption] = []
+        for i in interaction.client.modes:
+            opt = discord.SelectOption(name=i.name, value=i.tag)
+            opt.emoji = {"PVP": api.PVP_EMOJI}
+
+            opts.append(discord.SelectOption(name=))
+
+        self.dropdown.options = opts
+
+    @discord.ui.select(placeholder="Change Mode", row=2)
+    async def dropdown(
+        self, interaction: Interaction, sel: discord.ui.Select[PlayerView]
+    ) -> None:
+        """Dropdown allowing the user to change game mode selection"""
+        _ = inteaction.client.modes 
+        mode = next(i for i in _ if i.tag in sel.values)
+
+
+
+    @discord.ui.button(label="Overall", row=1)
+    async def overall(
+        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+    ) -> None:
+        """Get Solo Stats for the game mode"""
+        self.div_size = 0
+        embed = await self.parse_stats(interaction)
+        await interaction.response.edit_message(view=self, embed=embed)
+
+    @discord.ui.button(label="Solo", row=1)
+    async def solo_stats(
+        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+    ) -> None:
+        """Get Solo Stats for the game mode"""
+        self.div_size = 1
+        embed = await self.parse_stats(interaction)
+        await interaction.response.edit_message(view=self, embed=embed)
+
+    @discord.ui.button(label="Div 2", row=1)
+    async def duo_stats(
+        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+    ) -> None:
+        """Get 2 man div Stats for the game mode"""
+        self.div_size = 2
+        embed = await self.parse_stats(interaction)
+        await interaction.response.edit_message(view=self, embed=embed)
+
+    @discord.ui.button(label="Div 3", row=1)
+    async def trio_stats(
+        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+    ) -> None:
+        """Get 3 man div stats for the game mode"""
+        self.dive_size = 3
+        embed = await self.parse_stats(interaction)
+        await interaction.response.edit_message(view=self, embed=embed)
+
+    @discord.ui.button(row=4)
     async def clan(self, interaction: Interaction, _) -> None:
         """Button to go to the player's clan"""
         assert self.player.clan is not None
@@ -88,27 +132,30 @@ class PlayerView(view_utils.BaseView):
         await interaction.response.send_message(embed=embed, view=view)
         view.message = await interaction.original_response()
 
-    @discord.ui.button(label="WoWs Numbers", style=discord.ButtonStyle.url)
-    async def wows_numbers(
-        self, _: Interaction, __: discord.ui.Button[PlayerView]
-    ) -> None:
-        """A button with a link to the player's wowsnumbers page"""
-        return
+    def add_div_buttons(self) -> None:
+        """Bulk add the div buttons."""
+        if self.overall in self.children:
+            return
 
-    @discord.ui.button(label="Profile", style=discord.ButtonStyle.url)
-    async def profile(
-        self, _: Interaction, __: discord.ui.Button[PlayerView]
-    ) -> None:
-        """A button with a link to the player's profile page"""
-        return
+        btns = [self.overall, self.solo_stats, self.duo_stats, self.trio_stats]
+        for i in btns:
+            self.add_item(i)
 
-    async def push_stats(
-        self, interaction: Interaction, mode: api.GameMode, div_size: int = 0
-    ) -> None:
-        """Send Stats Embed to View"""
-        # Can be gotten via normal API
+    def remove_div_buttons(self) -> None:
+        """Bulk remove the div buttons"""
+        if self.overall not in self.children:
+            return
+        btns = [self.overall, self.solo_stats, self.duo_stats, self.trio_stats]
+        for i in btns:
+            self.remove_item(i)
+
+    async def parse_stats(
+        self,
+        interaction: Interaction,
+    ) -> discord.Embed:
+        """Convert the user's stats into an embed"""
         embed = discord.Embed()
-        embed.set_author(name=self.player.nickname, icon_url=mode.image)
+        embed.set_author(name=self.player.nickname, icon_url=self.mode.image)
         if self.api_stats is None:
             if self.ship is None:
                 p_stats = await api.fetch_stats([self.player])
@@ -137,39 +184,12 @@ class PlayerView(view_utils.BaseView):
             "PVE_PREMADE": {
                 1: (self.api_stats.statistics.oper_div, "Operations (Premade)")
             },
-        }[mode.tag][div_size]
+        }[self.mode.tag][self.div_size]
 
-        # Handle Buttons
-        # Row 1: Change Div Size
-        row_1: list[view_utils.Funcable] = []
-        if mode.tag in ["RANKED", "PVP", "COOPERATIVE"]:
-            for i in range(0, 3):
-                if div_size != i:
-                    name = f"{i}" if i != 0 else "Overall"
-
-                    args = [i]
-                    btn = view_utils.Funcable(name, self.push_stats, args=args)
-                    btn.disabled = div_size == i
-                    row_1.append(btn)
-
-        self.add_function_row(row_1, row=1)
-
-        # Row 2: Change Mode
-        row_2: list[view_utils.Funcable] = []
-        for i in interaction.client.modes:
-            if i.tag in ["EVENT", "BRAWL", "PVE_PREMADE"]:
-                continue
-            # We can't fetch CB data without a clan.
-            if i.tag == "CLAN" and not self.player.clan:
-                continue
-
-            btn = view_utils.Funcable(f"{i.name} ({i.tag})", self.push_stats)
-            btn.description = i.description
-            btn.emoji = i.emoji
-            btn.args = [mode]
-            btn.disabled = mode == i
-            row_2.append(btn)
-        self.add_function_row(row_2, row=2)
+        if self.mode.tag in ["PVP", "PVE"]:
+            self.add_div_buttons()
+        else:
+            self.remove_div_buttons()
 
         # Overall Rates - Survival, WR, Wins, Loss, Draw
         survived = stats.survived_battles
@@ -182,8 +202,7 @@ class PlayerView(view_utils.BaseView):
         desc: list[str] = []
         if not played:
             embed.description = "This player has not played any battles"
-            await interaction.response.edit_message(embed=embed, view=self)
-            return
+            return embed
 
         win_rate = round(wins / played * 100, 2)
         draws = f"/ {draws} D " if draws else ""
@@ -271,6 +290,31 @@ class PlayerView(view_utils.BaseView):
             embed.add_field(name="Star Breakdown", value="\n".join(stars))
 
         embed.description = "\n".join(desc)
+        return embed
+
+    async def push_stats(self, interaction: Interaction) -> None:
+        """Send Stats Embed to View"""
+        # Can be gotten via normal API
+
+        # Handle Buttons
+        # Row 1: Change Div Size
+        # Row 2: Change Mode
+        row_2: list[view_utils.Funcable] = []
+        for i in interaction.client.modes:
+            if i.tag in ["EVENT", "BRAWL", "PVE_PREMADE"]:
+                continue
+            # We can't fetch CB data without a clan.
+            if i.tag == "CLAN" and not self.player.clan:
+                continue
+
+            btn = view_utils.Funcable(f"{i.name} ({i.tag})", self.push_stats)
+            btn.description = i.description
+            btn.emoji = i.emoji
+            btn.args = [mode]
+            btn.disabled = mode == i
+            row_2.append(btn)
+        self.add_function_row(row_2, row=2)
+
         return await interaction.response.edit_message(embed=embed, view=self)
 
 

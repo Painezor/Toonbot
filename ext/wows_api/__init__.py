@@ -18,6 +18,15 @@ from .clan import (
     get_member_vortex,
 )
 from .emojis import (
+    # Game Modes
+    BRAWL_EMOJI,
+    COOP_EMOJI,
+    EVENT_EMOJI,
+    PVP_EMOJI,
+    RANKED_EMOJI,
+    SCENARIO_EMOJI,
+    SCENARIO_HARD_EMOJI,
+    # Modules
     ARTILLERY_EMOJI,
     AUXILIARY_EMOJI,
     DIVE_BOMBER_EMOJI,
@@ -77,6 +86,13 @@ __all__ = [
     "ClanMember",
     "ClanMemberVortexData",
     # emojis
+    "BRAWL_EMOJI",
+    "COOP_EMOJI",
+    "EVENT_EMOJI",
+    "PVP_EMOJI",
+    "RANKED_EMOJI",
+    "SCENARIO_EMOJI",
+    "SCENARIO_HARD_EMOJI",
     "ARTILLERY_EMOJI",
     "AUXILIARY_EMOJI",
     "DIVE_BOMBER_EMOJI",

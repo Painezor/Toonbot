@@ -7,7 +7,6 @@ import typing
 import discord
 from discord.ext import commands, tasks
 from lxml import html
-import yatg
 
 from ext import wows_api as api
 from ext.utils import flags, view_utils, embed_utils
@@ -152,8 +151,7 @@ class Blog:
                     if sub_node.text is not None:
                         sub_node.text = sub_node.text.strip()
 
-                string = html.tostring(node, encoding="unicode")
-                out.append(yatg.html_2_ascii_table(string))
+                out.append("<Table Omitted, please see web article>")
                 for sub_node in node.iterdescendants():
                     sub_node.text = None
             elif node.tag in ["tbody", "tr", "td"]:
