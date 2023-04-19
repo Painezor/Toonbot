@@ -119,10 +119,12 @@ class PartialPlayer(BaseModel):
     @property
     def wows_numbers(self) -> str:
         """Get a link to this player's wows_numbers page."""
-        dom = {Region.NA: "na", Region.SEA: "asia", Region.EU: ""}[self.region]
+        dom = {Region.NA: "na.", Region.SEA: "asia.", Region.EU: ""}[
+            self.region
+        ]
         name = self.nickname
         acc_id = self.account_id
-        return f"https://{dom}.wows-numbers.com/player/{acc_id},{name}/"
+        return f"https://{dom}wows-numbers.com/player/{acc_id},{name}/"
 
 
 class PlayerClanData(BaseModel):
@@ -214,6 +216,10 @@ class ModeStats(BaseModel):
     second_battery: Optional[PlayerModeArmamentStats]
     torpedoes: Optional[PlayerModeArmamentStats]
     wins_by_tasks: Optional[dict[int, int]]
+
+    @property
+    def potential_damage(self) -> int:
+        return (self.art_agro or 0) + (self.torpedo_agro or 0)
 
 
 class PlayerBattleStatistics(BaseModel):

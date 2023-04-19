@@ -2,19 +2,19 @@
 from __future__ import annotations
 
 import logging
-import typing
+from typing import TYPE_CHECKING, TypeAlias, Optional, cast
 
 import discord
 from discord.ext import commands
 
 from ext.utils import embed_utils, view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot | PBot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot | PBot]
+    User: TypeAlias = discord.User | discord.Member
 
 logger = logging.getLogger("bans")
 
@@ -52,7 +52,7 @@ class BanView(view_utils.DropdownPaginator):
         embed.description = ""
         embed.timestamp = discord.utils.utcnow()
 
-        guild = typing.cast(discord.Guild, itr.guild)
+        guild = cast(discord.Guild, itr.guild)
         embed_utils.user_to_footer(embed, itr.user)
 
         reason = f"Requested by {itr.user}"
@@ -68,6 +68,17 @@ class BanView(view_utils.DropdownPaginator):
         n_embed = new_view.pages[0]
         await itr.response.edit_message(embed=n_embed, view=new_view)
         await itr.followup.send(embed=embed)
+
+    async def handle_page(self, interaction: Interaction) -> None:
+        """Refresh the view and send to user"""
+        try:
+            embed = self.pages[self.index]
+        except IndexError:
+            embed = discord.Embed(title="Banned Users")
+            embed.colour = discord.Colour.dark_red()
+            embed.description = f"🚫 No bans found on {interaction.guild}"
+        self.update_buttons()
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
 class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
@@ -92,7 +103,7 @@ class BanModal(discord.ui.Modal, title="Bulk ban user IDs"):
         embed.description = ""
         embed.add_field(name="reason", value=self.reason.value)
 
-        guild = typing.cast(discord.Guild, interaction.guild)
+        guild = cast(discord.Guild, interaction.guild)
 
         mems = self.ban_list.value.split("\n")
         targets = [int(i.strip()) for i in mems if i]
@@ -130,10 +141,10 @@ class BanCog(commands.Cog):
     async def bans(
         self,
         interaction: Interaction,
-        name: typing.Optional[str],
+        name: Optional[str],
     ) -> None:
         """Show the ban list for the server"""
-        guild = typing.cast(discord.Guild, interaction.guild)
+        guild = cast(discord.Guild, interaction.guild)
 
         embed = discord.Embed(colour=discord.Colour.red())
         # Exhaust All Bans.

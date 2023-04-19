@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: TypeAlias = discord.Interaction[Bot | PBot]
-    User: TypeAlias = discord.User | discord.Member
+User: TypeAlias = discord.User | discord.Member
 
 # TODO: Split /logs command into subcommands with sub-views & Parent.
 # TODO: Fallback parser using regular events -- Check if bot has

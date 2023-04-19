@@ -21,6 +21,7 @@ from .emojis import (
     # Game Modes
     BRAWL_EMOJI,
     COOP_EMOJI,
+    CLAN_EMOJI,
     EVENT_EMOJI,
     PVP_EMOJI,
     RANKED_EMOJI,
@@ -87,6 +88,7 @@ __all__ = [
     "ClanMemberVortexData",
     # emojis
     "BRAWL_EMOJI",
+    "CLAN_EMOJI",
     "COOP_EMOJI",
     "EVENT_EMOJI",
     "PVP_EMOJI",

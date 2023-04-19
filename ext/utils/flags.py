@@ -89,6 +89,7 @@ backup_dict = {
     "commonwealth": "<:Commonwealth:991329664591212554>",
     "europe": "🇪🇺",
     "pan_america": "<:PanAmerica:991330048390991933>",
+    "pan_asia": "<:pan_asia:1098389406450188349>",
     "usa": "🇺🇸",
     "ussr": "<:USSR:991330483445186580>",
 }
