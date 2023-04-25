@@ -93,6 +93,7 @@ class AircraftEmbed(ShipEmbed):
             ]
             self.add_field(name=name, value="\n".join(value), inline=False)
 
+        value: list[str] = []
         if (t_b := fitting.profile.torpedo_bomber) is not None:
             name = f"{t_b.name} (Tier {t_b.plane_level}, Torpedo Bombers"
 
@@ -108,7 +109,7 @@ class AircraftEmbed(ShipEmbed):
         if (d_b := fitting.profile.dive_bomber) is not None:
             name = f"{d_b.name} (Tier {d_b.plane_level}, Dive Bombers"
 
-            value: list[str] = [f"**{d_b.bomb_name}**"]
+            value = [f"**{d_b.bomb_name}**"]
 
             if d_b.max_damage:
                 value.append(f"**Max Damage**: {format(d_b.max_damage, ',')}")
@@ -140,7 +141,7 @@ class AuxiliaryEmbed(ShipEmbed):
             desc.append("```diff\n- This ship has no secondary armament.```")
         else:
             if not fitting.profile.hull:
-                barrel = "?"
+                barrel = 0
             else:
                 barrel = fitting.profile.hull.atba_barrels
             desc.append(f"**Secondary Range**: {sec.distance}km")

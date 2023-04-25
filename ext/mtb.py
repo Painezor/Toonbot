@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-import typing
+from typing import TYPE_CHECKING, cast, Any, Optional
 
 import asyncpg
 import discord
@@ -13,8 +13,9 @@ from lxml import html
 
 import ext.flashscore as fs
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
+    from playwright.async_api import Page
 
 logger = logging.getLogger("matchthread")
 
@@ -29,6 +30,7 @@ class MatchThread:
     def __init__(
         self,
         bot: Bot,
+        page: Page,
         fixture: fs.Fixture,
         settings: asyncpg.Record,
         record: asyncpg.Record,
@@ -42,7 +44,26 @@ class MatchThread:
         self.t_v = None
 
         # Caching
-        self.old_markdown = ""
+        self._old_markdown = ""
+
+        self.offset: Optional[int] = self.settings["pre_match_offset"]
+        self.srd_string: str = self.settings["subreddit"]
+
+        # Notification Channel
+        chn = self.bot.get_channel(self.settings["notify_channel"])
+        chn = cast(discord.TextChannel, chn)
+        self.channel: Optional[discord.TextChannel] = chn
+
+        # Pre/Match/Post
+        self.pre: Any = None
+        self.match: Any = None
+        self.post: Any = None
+        self._pre_url: Optional[str] = None
+        self._mt_url: Optional[str] = None
+        self._post_url: Optional[str] = None
+
+        # Browser Page
+        self.page: Page = page
 
         # Commence loop
         self.stop = False
@@ -62,74 +83,74 @@ class MatchThread:
     async def start(self) -> None:
         """The core loop for the match thread bot."""
         # Gather initial data
-        await self.fixture.refresh(self.bot)
+        await self.fixture.refresh(self.page)
 
         # Post Pre-Match Thread if required
         title, markdown = await self.pre_match()
 
-        subreddit = await self.bot.reddit.subreddit(self.settings["subreddit"])
+        sub: Any = await self.bot.reddit.subreddit(self.srd_string, fetch=True)
+        subreddit = sub
 
         k_o = self.fixture.kickoff
         if k_o is None:
             raise ValueError("Kickoff is None")
 
         if self.mtb_history["pre_match_url"] is None:
-            if (offset := self.settings["pre_match_offset"]) is None:
+            if (offset := self.offset) is None:
                 offset = 3
-            offset = datetime.timedelta(days=offset)
+            delta = datetime.timedelta(days=offset)
 
-            target_time = k_o - offset
+            target_time = k_o - delta
 
             await discord.utils.sleep_until(target_time)
 
-            pre = await subreddit.submit(selftext=markdown, title=title)
-            await pre.load()
+            self.pre = await subreddit.submit(selftext=markdown, title=title)
+            await self.pre.load()
 
             async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
                     sql = """UPDATE mtb_history SET pre_match_url = $1 WHERE
-                             (subreddit, fs_link) = ($2, $3)"""
-                    self.mtb_history = await connection.fetchrow(
+                             (subreddit, fs_link) = ($2, $3) RETURNING *"""
+                    await connection.execute(
                         sql,
-                        pre.url,
+                        self.pre.url,
                         self.settings["subreddit"],
                         self.fixture.url,
                     )
         else:
-            pre = await self.bot.reddit.submission(
+            self.pre = await self.bot.reddit.submission(
                 url=self.mtb_history["pre_match_url"]
             )
-            await pre.edit(markdown)
+            await self.pre.edit(markdown)
+            self._pre_url = self.pre.url
 
-        if channel := self.bot.get_channel(self.settings["notify_channel"]):
+        if self.channel:
             embed = self.base_embed
             embed.title = f"Pre-Match Thread: {self.fixture.score_line}"
-            embed.url = pre.url
+            embed.url = self._pre_url
             embed.description = f"[Flashscore Link]({self.fixture.url})"
-
-            channel = typing.cast(discord.TextChannel, channel)
-            await channel.send(embed=embed)
+            await self.channel.send(embed=embed)
 
         # Sleep until ready to post.
         if isinstance(self.fixture.time, datetime.datetime):
-            if (offset := self.settings["match_offset"]) is None:
+            if (offset := self.offset) is None:
                 offset = 15
-            offset = datetime.timedelta(minutes=offset)
-            await discord.utils.sleep_until(k_o - offset)
+            delta = datetime.timedelta(minutes=offset)
+            await discord.utils.sleep_until(k_o - delta)
 
         # Refresh fixture at kickoff.
-        await self.fixture.refresh(self.bot)
+        await self.fixture.refresh(self.page)
         title, markdown = await self.write_markdown()
 
         # Post initial thread or resume existing thread.
-        if self.mtb_history["match_thread_url"] is None:
-            match = await subreddit.submit(selftext=markdown, title=title)
-            await match.load()
-            if channel:
+        if self._mt_url is None:
+            self.match = await subreddit.submit(selftext=markdown, title=title)
+            await self.match.load()
+            if self.channel:
                 s_r = self.settings["subreddit"]
                 url = self.fixture.url
-                await channel.send(
-                    f"{s_r} Match Thread Posted: {match.url} | <{url}>"
+                await self.channel.send(
+                    f"{s_r} Match Thread Posted: {self.match.url} | <{url}>"
                 )
 
             async with self.bot.db.acquire(timeout=60) as connection:
@@ -137,28 +158,30 @@ class MatchThread:
                     sql = """UPDATE mtb_history SET match_thread_url = $1
                           WHERE (subreddit, fs_link) = ($2, $3) RETURNING *"""
 
-                    self.mtb_history = await connection.fetchrow(
+                    rec = await connection.fetchrow(
                         sql,
-                        match.url,
-                        self.settings["subreddit"],
+                        self.match.url,
+                        self.srd_string,
                         self.fixture.url,
                     )
+                    assert rec is not None
+                    self.mtb_history = rec
         else:
             mt_url = self.mtb_history["match_thread_url"]
-            match = await self.bot.reddit.submission(url=mt_url)
-            await match.edit(markdown)
+            self.match = await self.bot.reddit.submission(url=mt_url)
+            await self.match.edit(markdown)
 
         for _ in range(300):  # Maximum number of loops.
             if self.stop:
                 break
 
-            await self.fixture.refresh(self.bot)
+            await self.fixture.refresh(self.page)
 
             title, markdown = await self.write_markdown()
             # Only need to update if something has changed.
-            if markdown != self.old_markdown:
-                await match.edit(markdown)
-                self.old_markdown = markdown
+            if markdown != self._old_markdown:
+                await self.match.edit(markdown)
+                self._old_markdown = markdown
 
             if self.fixture.state is not None:
                 if self.fixture.state.colour in [0xFFFFFF, 0xFF0000]:
@@ -169,55 +192,51 @@ class MatchThread:
         # Make post-match thread
         title, markdown = await self.write_markdown(post_match=True)
         # Create post match thread, insert link into DB.
-        if self.mtb_history["post_match_url"] is None:
-            post = await subreddit.submit(selftext=markdown, title=title)
-            await post.load()
+        if self._post_url is None:
+            self.post = await subreddit.submit(selftext=markdown, title=title)
+            await self.post.load()
 
             async with self.bot.db.acquire(timeout=60) as con:
                 async with con.transaction():
                     sql = """UPDATE mtb_history SET post_match_url = $1 WHERE
                             (subreddit, fs_link) = ($2, $3)"""
                     url = self.fixture.url
-                    p_url = post.url
-                    s_r = self.settings["subreddit"]
-                    self.mtb_history = await con.fetchrow(sql, p_url, s_r, url)
-            if channel:
-                await channel.send(
+                    p_url = self.post.url
+                    self._post_url = p_url
+                    s_r = self.srd_string
+                    rec = await con.fetchrow(sql, p_url, s_r, url)
+                    if rec is not None:
+                        self.mtb_history = rec
+            if self.channel:
+                await self.channel.send(
                     f"{s_r} Post-Match Thread: <{p_url}> | <{url}>"
                 )
 
         else:
-            post_url = self.mtb_history["post_match_url"]
-            post = await self.bot.reddit.submission(url=post_url)
+            post_url = self._post_url
+            self.post = await self.bot.reddit.submission(url=post_url)
 
         # Re-write post with actual link in it.
         title, markdown = await self.write_markdown(post_match=True)
-        await post.edit(markdown)
+        await self.post.edit(markdown)
 
         # Edit match markdown to include the post-match link.
         _, markdown = await self.write_markdown()
         mt_url = self.mtb_history["match_thread_url"]
-        match = await self.bot.reddit.submission(url=mt_url)
-        await match.edit(markdown)
+        self.match = await self.bot.reddit.submission(url=mt_url)
+        await self.match.edit(markdown)
 
         # Then edit the pre-match thread with both links too.
-        markdown = pre.selftext
-        if self.mtb_history is not None:
-            markdown = markdown.replace(
-                "*Pre*", f"[Pre]({self.mtb_history['pre_match_url']})"
-            )
-            markdown = markdown.replace(
-                "*Match*", f"[Match]({self.mtb_history['match_thread_url']})"
-            )
-            markdown = markdown.replace(
-                "*Post*", f"[Post]({self.mtb_history['post_match_url']})"
-            )
-        await pre.edit(markdown)
+        markdown: Any = self.pre.selftext
+        markdown = markdown.replace("*Pre*", f"[Pre]({self._pre_url})")
+        markdown = markdown.replace("*Match*", f"[Match]({self._mt_url})")
+        markdown = markdown.replace("*Post*", f"[Post]({self._post_url})")
+        await self.pre.edit(markdown)
 
-        if channel:
+        if self.channel:
             url = self.fixture.url
-            await channel.send(
-                f"{subreddit} Match Thread Completed: {post.url} | <{url}>"
+            await self.channel.send(
+                f"{subreddit} Match Thread Done: {self._post_url} | <{url}>"
             )
 
     async def pre_match(self):
@@ -257,7 +276,7 @@ class MatchThread:
         # markdown += await self.fixture.preview()
         return title, markdown
 
-    async def fetch_tv(self) -> dict:
+    async def fetch_tv(self) -> dict[str, str]:
         """Fetch information about where the match will be televised"""
 
         async with self.bot.session.get(LSTV) as resp:
@@ -266,7 +285,7 @@ class MatchThread:
                 logger.error("%s %s: %s", resp.status, text, resp.url)
             tree = html.fromstring(await resp.text())
 
-        tv = {}
+        tv: dict[str, str] = {}
         for i in tree.xpath(".//tr//a"):
             if self.fixture.home.name in "".join(i.xpath(".//text()")):
                 lnk = i.xpath(".//@href")
@@ -299,25 +318,27 @@ class MatchThread:
                 f"http://www.livesoccertv.com/{i}" for i in uk_tv_links
             ]
             uk_tv = list(zip(uk_tv_channels, uk_tv_links))
-            tv.update({"uk_tv": [f"[{i}]({j})" for i, j in uk_tv]})
+            tv.update({"uk_tv": f"[{i}]({j})" for i, j in uk_tv})
         return tv
 
-    async def send_notification(self, channel_id, post):
+    async def send_notification(self, channel_id: int, post: Any):
         """Announce new posts to designated channels."""
         channel = self.bot.get_channel(channel_id)
         if channel is None:
             return  # Rip
 
-        channel = typing.cast(discord.TextChannel, channel)
+        channel = cast(discord.TextChannel, channel)
         await channel.send(
             embed=discord.Embed(
                 colour=0xFF4500, title=post.title, url=post.url
             )
         )
 
-    async def write_markdown(self, post_match=False):
+    async def write_markdown(
+        self, post_match: bool = False
+    ) -> tuple[str, str]:
         """Write markdown for the current fixture"""
-        await self.fixture.refresh(self.bot)
+        await self.fixture.refresh(self.page)
 
         # Alias for easy replacing.
         home = self.fixture.home.name
@@ -376,7 +397,7 @@ class MatchThread:
             title = f"Match Thread: {home} vs {away}"
 
         # Referee and Venue
-        ven = []
+        ven: list[str] = []
         if self.fixture.referee:
             ven.append(f"**🙈 Referee**: {self.fixture.referee}")
         if self.fixture.stadium:
@@ -418,7 +439,7 @@ class MatchThread:
 
             if not self.t_v:
                 t_v = await self.fetch_tv()
-                if t_v is not None:
+                if t_v:
                     self.t_v = (
                         f"📺🇬🇧 **TV** (UK): {t_v['uk_tv']}\n\n"
                         if t_v["uk_tv"]
@@ -477,7 +498,6 @@ class MatchThreadCommands(commands.Cog):
         self.scheduler_task.cancel()
         for i in self.active_threads:
             i.stop = True
-            i.task.cancel()
 
     @tasks.loop(hours=24)
     async def schedule_threads(self) -> None:
@@ -491,11 +511,10 @@ class MatchThreadCommands(commands.Cog):
             if (team := self.bot.get_team(i["team_flashscore_id"])) is None:
                 continue
 
-            cache = self.bot.competitions
             page = await self.bot.browser.new_page()
 
             try:
-                fixtures = await team.fixtures(page, cache)
+                fixtures = await team.fixtures(page)
             finally:
                 await page.close()
 
@@ -530,8 +549,10 @@ class MatchThreadCommands(commands.Cog):
                     sql = """INSERT INTO mtb_history (subreddit, fs_link)
                              VALUES ($1, $2) RETURNING *"""
                     record = await connection.fetchrow(sql, sub, fixture.url)
+                    assert record is not None
 
-        thread = MatchThread(self.bot, fixture, settings, record)
+        page = await self.bot.browser.new_page()
+        thread = MatchThread(self.bot, page, fixture, settings, record)
         self.active_threads.append(thread)
         await thread.start()
 

@@ -9,20 +9,17 @@ import logging
 import math
 import pathlib
 import re
-import typing
+from typing import TYPE_CHECKING, Optional, Any
 
-from PIL import Image
-from asyncpraw.models import Subreddit
-import asyncprawcore
-
+import asyncprawcore  # type: ignore
 import discord
 from discord.ext import commands, tasks
 from lxml import html
+from PIL import Image
 
 import ext.flashscore as fs
 
-
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
 
@@ -37,6 +34,9 @@ REDDIT_THUMBNAIL = (
 logger = logging.getLogger("sidebar")
 
 
+# TODO: Ask Asyncpraw guy to make his shit unfucked.
+
+
 def rows_to_md_table(
     header: str, strings: list[str], per: int = 20, max_length: int = 10240
 ):
@@ -46,7 +46,7 @@ def rows_to_md_table(
         # Every row we buffer the length of the new result.
         max_length -= len(obj)
 
-        # Every 20 rows we buffer the length of  another header.
+        # Every 20 rows we buffer the length of another header.
         if num % 20 == 0:
             max_length -= len(header)
         if max_length < 0:
@@ -88,7 +88,7 @@ class NUFCSidebar(commands.Cog):
         self.sidebar_task.change_interval(hours=6)
 
         markdown = await self.make_sidebar()
-        subreddit = await self.bot.reddit.subreddit("NUFC")
+        subreddit: Any = await self.bot.reddit.subreddit("NUFC")
         page = await subreddit.wiki.get_page("config/sidebar")
         await page.edit(content=markdown)
 
@@ -100,11 +100,11 @@ class NUFCSidebar(commands.Cog):
         subreddit: str = "NUFC",
         qry: str = "newcastle",
         team_id: str = "p6ahwuwJ",
-    ):
+    ) -> str:
         """Build the sidebar markdown"""
         # Fetch all data
-        srd = await self.bot.reddit.subreddit(subreddit)
-        wiki = await srd.wiki.get_page("sidebar")
+        srd: Any = await self.bot.reddit.subreddit(subreddit)
+        wiki: Any = await srd.wiki.get_page("sidebar")
 
         wiki_content = wiki.content_md
 
@@ -112,11 +112,10 @@ class NUFCSidebar(commands.Cog):
         if fsr is None:
             raise ValueError(f"Team with ID {team_id} not found in db")
 
-        cache = self.bot.competitions
         page = await self.bot.browser.new_page()
         try:
-            fixtures = await fsr.fixtures(page, cache)
-            results = await fsr.results(page, cache)
+            fixtures = await fsr.fixtures(page)
+            results = await fsr.results(page)
         finally:
             await page.close()
 
@@ -161,7 +160,7 @@ class NUFCSidebar(commands.Cog):
         # Get match threads
         last_opponent = qry.split(" ")[0]
 
-        nufc_sub = await self.bot.reddit.subreddit("NUFC")
+        nufc_sub: Any = await self.bot.reddit.subreddit("NUFC")
 
         pre = "Pre"
         match = "Match"
@@ -234,7 +233,7 @@ class NUFCSidebar(commands.Cog):
             ):
                 image = Image.open(badges[0])
                 image.save("TEMP_BADGE.png", "PNG")
-                sco = await self.bot.reddit.subreddit("NUFC")
+                sco: Any = await self.bot.reddit.subreddit("NUFC")
                 await sco.stylesheet.upload("TEMP_BADGE.png", "temp")
                 await sco.stylesheet.update(
                     sco.stylesheet().stylesheet, reason="Upload a badge"
@@ -242,9 +241,8 @@ class NUFCSidebar(commands.Cog):
                 image.close()
 
         pool = records
+        rows: list[str] = []
         if fixtures:
-            rows = []
-
             for fix in fixtures:
                 h_sh = fix.home.name
 
@@ -288,7 +286,7 @@ class NUFCSidebar(commands.Cog):
         if results:
             header = "* Previous Results\n"
             markdown += header
-            rows: list[str] = []
+            rows.clear()
             for i in results:
                 h_sh = i.home.name
 
@@ -317,8 +315,8 @@ class NUFCSidebar(commands.Cog):
                 rows.append(f"{k_o} | {h_ico} {sco} {a_ico}\n")
 
             hdr = "\n Date | Result\n--:|:--\n"
-            pad = 10240 - len(markdown + footer)
-            markdown += rows_to_md_table(hdr, rows, 20, pad)
+            used: int = 10240 - len(markdown + footer)
+            markdown += rows_to_md_table(hdr, rows, 20, used)
         markdown += footer
         return markdown
 
@@ -331,8 +329,8 @@ class NUFCSidebar(commands.Cog):
     async def sidebar(
         self,
         interaction: discord.Interaction[Bot],
-        caption: typing.Optional[str],
-        image: typing.Optional[discord.Attachment],
+        caption: Optional[str],
+        image: Optional[discord.Attachment],
     ) -> None:
         """Upload an image to the sidebar, or edit the caption."""
         if not caption and not image:
@@ -345,7 +343,7 @@ class NUFCSidebar(commands.Cog):
         embed = discord.Embed(color=0xFF4500, url=REDDIT)
         embed.set_author(icon_url=REDDIT_THUMBNAIL, name="Sidebar updated")
 
-        subreddit = await self.bot.reddit.subreddit("NUFC")
+        subreddit: Any = await self.bot.reddit.subreddit("NUFC")
         if caption:
             page = await subreddit.wiki.get_page("sidebar")
 
@@ -358,7 +356,7 @@ class NUFCSidebar(commands.Cog):
 
         if image:
             await image.save(pathlib.Path(image.filename))
-            sub: Subreddit = await self.bot.reddit.subreddit("NUFC")
+            sub: Any = await self.bot.reddit.subreddit("NUFC")
             try:
                 await sub.stylesheet.upload("sidebar", "sidebar")
             except asyncprawcore.TooLarge:

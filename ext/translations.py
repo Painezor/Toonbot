@@ -2,12 +2,12 @@
 from __future__ import annotations
 
 import json
-import typing
+from typing import TYPE_CHECKING
 
 import discord
 from discord.ext import commands
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
 
@@ -35,7 +35,7 @@ class TL(discord.app_commands.Translator):
         self,
         string: discord.app_commands.locale_str,
         locale: discord.Locale,
-        context: discord.app_commands.TranslationContext,
+        context: discord.app_commands.TranslationContextTypes,
     ) -> str | None:
         """
         `locale_str` is the string that is requesting to be translated

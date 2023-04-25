@@ -2,8 +2,7 @@
 from __future__ import annotations
 
 import random
-import typing
-import importlib
+from typing import Optional, TYPE_CHECKING, TypeAlias
 
 import asyncpg
 import discord
@@ -11,10 +10,10 @@ from discord.ext import commands
 
 from ext.utils import view_utils, embed_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
+    Interaction: TypeAlias = discord.Interaction[Bot]
 
 
 QT = "https://discordapp.com/assets/2c21aeda16de354ba5334551a883b481.png"
@@ -148,17 +147,25 @@ class QuotesView(view_utils.AsyncPaginator):
         recs = self.all_quotes if self.all_guilds else self.guild_quotes
         super().__init__(interaction.user, len(recs))
 
-        self.quotes: list[asyncpg.Record] = recs
+        self.quotes = recs
+        self.qtjmp: Optional[discord.ui.Button[QuotesView]] = None
 
     @discord.ui.button(row=0, emoji="🎲")
-    async def random(self, interaction: Interaction, _) -> None:
+    async def random(
+        self, interaction: Interaction, _: discord.ui.Button[QuotesView]
+    ) -> None:
         """Randomly select a number"""
-        self.index = random.randrange(1, self.pages) - 1
-        quote = self.quotes[self.index]
-        embed = QuoteEmbed(interaction, quote)
+        try:
+            self.index = random.randrange(1, self.pages) - 1
+            quote = self.quotes[self.index]
+            embed = QuoteEmbed(interaction, quote)
+        except ValueError:
+            embed = discord.Embed(title="No Quotes on server")
+            embed.description = "Your server does not have any quotes!"
+        self.edit_buttons()
         return await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(row=3, emoji="🌍")
+    @discord.ui.button(row=1, emoji="🌍")
     async def global_btn(
         self, interaction: Interaction, btn: discord.ui.Button[QuotesView]
     ) -> None:
@@ -173,6 +180,8 @@ class QuotesView(view_utils.AsyncPaginator):
             btn.style = discord.ButtonStyle.red
             self.delete.disabled = False
 
+        self.pages = len(self.quotes)
+
         self.index = 0
         embed = QuoteEmbed(interaction, self.quotes[self.index])
         self.edit_buttons()
@@ -180,19 +189,32 @@ class QuotesView(view_utils.AsyncPaginator):
 
     def edit_buttons(self) -> None:
         """Refresh the jump button's text"""
-        quote = self.quotes[self.index]
+        self.jump.label = f"{self.index + 1}/{self.pages}"
+
+        try:
+            quote = self.quotes[self.index]
+        except IndexError:
+            if self.qtjmp is not None:
+                self.remove_item(self.qtjmp)
+            return
+
+        self.next.disabled = self.pages <= self.index + 1
+        self.jump.disabled = self.pages < 3
+        self.previous.disabled = self.index == 0
+
         gid = quote["guild_id"]
         cid = quote["channel_id"]
         mid = quote["message_id"]
-        self.jump.url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
 
-    @discord.ui.button(emoji="🔗", row=3, style=discord.ButtonStyle.url)
-    async def jump(self, *_) -> None:
-        """Jump to Quote"""
-        return
+        url = f"https://discord.com/channels/{gid}/{cid}/{mid}"
+        if self.qtjmp is None:
+            self.qtjmp = discord.ui.Button(url=url, emoji="🔗")
+
+        if self.qtjmp not in self.children:
+            self.add_item(self.qtjmp)
 
     @discord.ui.button(
-        row=3, emoji="🗑️", style=discord.ButtonStyle.red, label="Delete"
+        row=1, emoji="🗑️", style=discord.ButtonStyle.red, label="Delete"
     )
     async def delete(self, interaction: Interaction, _) -> None:
         """Delete quote by quote ID"""
@@ -330,8 +352,6 @@ class QuoteDB(commands.Cog):
         bot.tree.add_command(quote_add)
         self.bot: Bot = bot
 
-        importlib.reload(view_utils)
-
     async def cog_load(self) -> None:
         """When the cog loads…"""
         await self.opt_outs()
@@ -367,7 +387,6 @@ class QuoteDB(commands.Cog):
         except ValueError:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = "🚫 Your server has no quotes!"
-
         return await interaction.response.send_message(embed=embed, view=view)
 
     @quotes.command()
@@ -393,7 +412,7 @@ class QuoteDB(commands.Cog):
         self,
         interaction: Interaction,
         text: discord.app_commands.Transform[asyncpg.Record, QuoteTransformer],
-        user: typing.Optional[discord.Member] = None,
+        user: Optional[discord.Member] = None,
     ) -> None:
         """Search for a quote by quote text"""
         if interaction.user.id in self.bot.quote_blacklist:

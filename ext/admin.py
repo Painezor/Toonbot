@@ -60,7 +60,7 @@ class Admin(commands.Cog):
         try:
             if not guild_id:
                 await self.bot.tree.sync()
-                txt = "Asked discord to sync, please wait up to 1 hour."
+                txt = "Sync request sent, can take up to 1 hour."
                 return await ctx.send(txt)
             await self.bot.tree.sync(guild=discord.Object(id=guild_id))
             guild = self.bot.get_guild(guild_id)

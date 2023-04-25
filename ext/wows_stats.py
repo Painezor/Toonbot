@@ -2,14 +2,16 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING, TypeAlias, Optional  # , Literal
+from typing import TYPE_CHECKING, Any, Optional, TypeAlias
 
 import discord
+from discord.ui import Button, Select
 from discord.ext import commands
 
-from ext.clans import ClanView
 from ext import wows_api as api
+from ext.clans import ClanView
 from ext.utils import view_utils
+from ext.wows_api.player import PlayerShipStats
 
 if TYPE_CHECKING:
     from painezbot import PBot
@@ -24,7 +26,6 @@ if TYPE_CHECKING:
 # https://api.worldofwarships.eu/wows/clans/glossary/
 # TODO: Recent command.
 # https://api.worldofwarships.eu/wows/account/statsbydate/
-# TODO: Refactor to take player stats from website instead.
 
 logger = logging.getLogger("warships")
 
@@ -32,6 +33,8 @@ logger = logging.getLogger("warships")
 
 # TODO: Calculation of player's PR
 # https://wows-numbers.com/personal/rating
+
+API_MISSING_MODES = ["BRAWL", "CLAN"]
 
 
 class PlayerView(view_utils.BaseView):
@@ -55,7 +58,7 @@ class PlayerView(view_utils.BaseView):
         self.div_size: int = div_size
 
         # Fetched
-        self.api_stats: Optional[api.PlayerStats] = None
+        self.api_stats: Optional[api.PlayerStats | api.PlayerShipStats] = None
 
         # Button Handling.
         if player.clan is None:
@@ -63,14 +66,10 @@ class PlayerView(view_utils.BaseView):
         else:
             self.clan.label = f"[{player.clan.tag}]"
 
-        logger.info(player.__dict__)
-
         _ = player.wows_numbers
-        logger.info(_)
-        self.add_item(discord.ui.Button(url=_, label="WoWs Numbers", row=0))
+        self.add_item(Button(url=_, label="WoWs Numbers", row=0))
         _ = player.community_link
-        logger.info(_)
-        self.add_item(discord.ui.Button(url=_, label="Profile Page", row=0))
+        self.add_item(Button(url=_, label="Profile Page", row=0))
         self.refresh_dropdown(interaction)
 
     def refresh_dropdown(self, interaction: Interaction) -> None:
@@ -98,24 +97,28 @@ class PlayerView(view_utils.BaseView):
                 }[i.tag]
             except KeyError:
                 logger.error("Dropdown Missing emoji for %s", i.tag)
+
+            if i.tag in API_MISSING_MODES:
+                continue
             opts.append(opt)
 
         self.dropdown.options = opts
 
     @discord.ui.select(placeholder="Change Mode", row=2)
     async def dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select[PlayerView]
+        self, interaction: Interaction, sel: Select[PlayerView]
     ) -> None:
         """Dropdown allowing the user to change game mode selection"""
         _ = interaction.client.modes
         self.mode = next(i for i in _ if i.tag in sel.values)
         self.refresh_dropdown(interaction)
+        self.div_size = 0
         embed = await self.parse_stats(interaction)
         await interaction.response.edit_message(view=self, embed=embed)
 
     @discord.ui.button(label="Overall", row=1)
     async def overall(
-        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+        self, interaction: Interaction, _: Button[PlayerView]
     ) -> None:
         """Get Solo Stats for the game mode"""
         self.div_size = 0
@@ -124,7 +127,7 @@ class PlayerView(view_utils.BaseView):
 
     @discord.ui.button(label="Solo", row=1)
     async def solo_stats(
-        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+        self, interaction: Interaction, _: Button[PlayerView]
     ) -> None:
         """Get Solo Stats for the game mode"""
         self.div_size = 1
@@ -133,7 +136,7 @@ class PlayerView(view_utils.BaseView):
 
     @discord.ui.button(label="Div 2", row=1)
     async def duo_stats(
-        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+        self, interaction: Interaction, _: Button[PlayerView]
     ) -> None:
         """Get 2 man div Stats for the game mode"""
         self.div_size = 2
@@ -142,7 +145,7 @@ class PlayerView(view_utils.BaseView):
 
     @discord.ui.button(label="Div 3", row=1)
     async def trio_stats(
-        self, interaction: Interaction, _: discord.ui.Button[PlayerView]
+        self, interaction: Interaction, _: Button[PlayerView]
     ) -> None:
         """Get 3 man div stats for the game mode"""
         self.div_size = 3
@@ -150,7 +153,9 @@ class PlayerView(view_utils.BaseView):
         await interaction.response.edit_message(view=self, embed=embed)
 
     @discord.ui.button(row=0)
-    async def clan(self, interaction: Interaction, _) -> None:
+    async def clan(
+        self, interaction: Interaction, _: Button[PlayerView]
+    ) -> None:
         """Button to go to the player's clan"""
         assert self.player.clan is not None
         clan = await self.player.clan.fetch_details()
@@ -166,35 +171,49 @@ class PlayerView(view_utils.BaseView):
         """Convert the user's stats into an embed"""
         embed = discord.Embed()
         embed.set_author(name=self.player.nickname, icon_url=self.mode.image)
-        if self.api_stats is None:
-            if self.ship is None:
-                p_stats = await api.fetch_stats([self.player])
-                self.api_stats = p_stats[0]
-            else:
-                self.api_stats = await self.player.fetch_ship_stats(self.ship)
 
-        stats: api.ModeStats
-        stats, embed.title = {
-            "BRAWL": {},
+        if self.ship is None:
+            if self.api_stats is None:
+                p_stats = await api.fetch_player_stats([self.player])
+                self.api_stats = p_stats[0]
+            assert isinstance(self.api_stats, api.PlayerStats)
+            statistics = self.api_stats.statistics
+        else:
+            if self.api_stats is None:
+                dct = await api.fetch_player_ship_stats(self.player, self.ship)
+                self.api_stats = dct[str(self.ship.ship_id)]
+            assert isinstance(self.api_stats, PlayerShipStats)
+            statistics = self.api_stats
+
+        stats: Optional[api.ModeBattleStats]
+
+        num = {0: "Overall", 1: "Solo", 2: "Div 2", 3: "Div 3"}[self.div_size]
+        embed.title = f"{self.mode.tag.title} ({num})"
+
+        dct = {
+            "BRAWL": None,
+            "CLAN": None,
             "COOPERATIVE": {
-                0: (self.api_stats.statistics.pve, "Co-op (Overall)"),
-                1: (self.api_stats.statistics.pve_solo, "Co-op (Solo)"),
-                2: (self.api_stats.statistics.pve_div2, "Co-op (Div 2)"),
-                3: (self.api_stats.statistics.pve_div3, "Co-op (Div 3)"),
+                0: statistics.pve,
+                1: statistics.pve_solo,
+                2: statistics.pve_div2,
+                3: statistics.pve_div3,
             },
+            "EVENT": None,
             "PVP": {
-                0: (self.api_stats.statistics.pvp, "PVP (Overall)"),
-                1: (self.api_stats.statistics.pvp_solo, "PVP (Solo)"),
-                2: (self.api_stats.statistics.pvp_div2, "PVP (Div 2)"),
-                3: (self.api_stats.statistics.pvp_div3, "PVP (Div 3)"),
+                0: statistics.pvp,
+                1: statistics.pvp_solo,
+                2: statistics.pvp_div2,
+                3: statistics.pvp_div3,
             },
-            "PVE": {
-                1: (self.api_stats.statistics.oper_solo, "Operations (Solo)"),
-            },
-            "PVE_PREMADE": {
-                1: (self.api_stats.statistics.oper_div, "Operations (Premade)")
-            },
-        }[self.mode.tag][self.div_size]
+            "PVE": statistics.oper_solo,
+            "PVE_PREMADE": statistics.oper_div_hard,
+        }[self.mode.tag]
+
+        if self.tag == "PVE" and self.div_size != 1:
+            stats = statistics.oper_div
+        else:
+            stats = dct[self.div_size] if isinstance(dct, dict) else dct
 
         self.refresh_dropdown(interaction)
         btns = [self.overall, self.solo_stats, self.duo_stats, self.trio_stats]
@@ -206,6 +225,10 @@ class PlayerView(view_utils.BaseView):
             if self.overall in self.children:
                 for i in btns:
                     self.remove_item(i)
+
+        if stats is None:
+            embed.description = "No Player Stats found in API for this mode"
+            return embed
 
         # Overall Rates - Survival, WR, Wins, Loss, Draw
         survived = stats.survived_battles
@@ -228,7 +251,7 @@ class PlayerView(view_utils.BaseView):
         desc.append(f"**Win Rate**: {win_rate}% {rest}")
         sv_rt = round(survived / played * 100, 2)
         s_tot = format(survived, ",")
-        txt = f"**Survival Rate (Overall)**: {sv_rt}% ({s_tot} Battles)"
+        txt = f"**Survival Rate**: {sv_rt}% ({s_tot} Battles)"
         desc.append(txt)
 
         if wins:
@@ -252,8 +275,8 @@ class PlayerView(view_utils.BaseView):
                 return
 
             _ = f"**{label}**: "
-            _ += f'{format(round(val / games, rnd), ",")}'
-            _ += f" ({format(round(val), ',')})\n"
+            _ += f'{format(round(val / games, rnd), ",")}'  # Average
+            _ += f" ({format(round(val), ',')})\n"  # Total
 
             if record:
                 ship = next((i for i in ships if i.ship_id == ship_id), None)
@@ -263,7 +286,7 @@ class PlayerView(view_utils.BaseView):
                     emote = ship.emoji
                     flag = ship.nation.flag
                     shp = f"{flag} {emote} {ship.name}"
-                _ += f"┗ {shp}: {format(round(record, rnd), ',')}\n"
+                _ += f"┗ {shp}: {format(round(record, rnd), ',')}"
             desc.append(_)
 
         top, _ = stats.max_damage_dealt, stats.max_damage_dealt_ship_id
@@ -288,11 +311,11 @@ class PlayerView(view_utils.BaseView):
 
         # Operations specific stats.
         if stats.wins_by_tasks:
-            star1, star2 = r"\⭐", r"\★"
+            star1, star2 = r"\★", r"\“☆"
 
             stars: list[str] = []
             for k, val in stats.wins_by_tasks.items():
-                _ = f"{k * star1} + {(5 - k) * star2}: {val}"
+                _ = f"{k * star1} {(5 - k) * star2}: {val}"
                 stars.append(_)
             embed.add_field(name="Star Breakdown", value="\n".join(stars))
 
@@ -306,9 +329,7 @@ class WowsStats(commands.Cog):
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
 
-    # TODO: Test - Clan Battles
     @discord.app_commands.command()
-    @discord.app_commands.guilds(250252535699341312)
     @discord.app_commands.describe(
         player="Search for a player name",
         region="Which region is this player on",
@@ -321,9 +342,9 @@ class WowsStats(commands.Cog):
         interaction: Interaction,
         region: api.region_transform,
         player: api.player_transform,
-        mode: Optional[api.mode_transform],
-        division: Optional[discord.app_commands.Range[int, 0, 3]],
         ship: Optional[api.ship_transform] = None,
+        mode: Optional[api.mode_transform] = None,
+        division: Optional[discord.app_commands.Range[int, 0, 3]] = None,
     ) -> None:
         """Search for a player's Stats"""
         del region  # Shut up linter.

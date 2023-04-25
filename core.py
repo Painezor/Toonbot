@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, Optional, cast
 
 import aiohttp
 import asyncpg
-import asyncpraw
+import asyncpraw  # type: ignore
+
 import discord
 from discord.ext import commands
 
@@ -96,8 +97,8 @@ class Bot(commands.AutoShardedBot):
         self.fixture_defaults: list[asyncpg.Record] = []
 
         # Livescores
-        self.games: list[fs.Fixture] = []
-        self.teams: list[fs.Team] = []
+        self.games: set[fs.Fixture] = set()
+        self.teams: set[fs.Team] = set()
         self.competitions: set[fs.Competition] = set()
         self.score_channels: set[ScoreChannel] = set()
         self.scores: Optional[asyncio.Task[None]] = None
@@ -122,9 +123,7 @@ class Bot(commands.AutoShardedBot):
         # Sidebar
         self.reddit_teams: list[asyncpg.Record] = []
         self.sidebar: asyncio.Task[None]
-
-        rdt = asyncpraw.Reddit(**_credentials["Reddit"])
-        self.reddit: asyncpraw.Reddit = rdt
+        self.reddit = asyncpraw.Reddit(**_credentials["Reddit"])
 
         # Streams
         self.streams: dict[int, list[Stream]] = collections.defaultdict(list)
@@ -160,7 +159,7 @@ class Bot(commands.AutoShardedBot):
                 logger.error("Failed to load cog %s", i, exc_info=True)
         return
 
-    async def save_competition(self, cmp: fs.Competition) -> None:
+    async def save_competitions(self, cmp: list[fs.Competition]) -> None:
         """Save the competition to the bot database"""
         sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
             VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
@@ -168,13 +167,25 @@ class Bot(commands.AutoShardedBot):
             (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
             """
 
+        rows = [(i.id, i.country, i.name, i.logo_url, i.url) for i in cmp]
+
         async with self.db.acquire(timeout=60) as conn:
             async with conn.transaction():
-                await conn.execute(
-                    sql, cmp.id, cmp.country, cmp.name, cmp.logo_url, cmp.url
-                )
-        self.competitions.add(cmp)
-        logger.info("saved competition. %s %s %s", cmp.name, cmp.id, cmp.url)
+                await conn.executemany(sql, rows)
+        self.competitions.update(cmp)
+
+    async def save_teams(self, teams: list[fs.Team]) -> None:
+        """Save the Team to the Bot Database"""
+        sql = """INSERT INTO fs_teams (id, name, logo_url, url)
+                VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET
+                (name, logo_url, url)
+                = (EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
+                """
+        rows = [(i.id, i.name, i.logo_url, i.url) for i in teams]
+        async with self.db.acquire(timeout=60) as conn:
+            async with conn.transaction():
+                await conn.executemany(sql, rows)
+        self.teams.update(teams)
 
     def get_competition(self, value: str) -> Optional[fs.Competition]:
         """Retrieve a competition from the ones stored in the bot."""
@@ -201,10 +212,6 @@ class Bot(commands.AutoShardedBot):
     def get_team(self, team_id: str) -> Optional[fs.Team]:
         """Retrieve a Team from the ones stored in the bot."""
         return next((i for i in self.teams if i.id == team_id), None)
-
-    def get_fixture(self, fixture_id: str) -> Optional[fs.Fixture]:
-        """Retrieve a Fixture from the ones stored in the bot."""
-        return next((i for i in self.games if i.id == fixture_id), None)
 
     async def dump_image(self, data: BytesIO) -> Optional[str]:
         """Save a stitched image"""

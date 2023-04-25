@@ -7,8 +7,7 @@ import json
 import io
 import random
 
-from typing import TYPE_CHECKING, TypeAlias
-import typing
+from typing import TYPE_CHECKING, TypeAlias, Optional
 
 import discord
 from discord.ext import commands
@@ -112,11 +111,11 @@ class ImageCache:
     """Cached Images for an ImageView"""
 
     coordinates: list[FacialRecognitionAPIResponse]
-    image: typing.Optional[bytes] = None
-    bob: typing.Optional[io.BytesIO] = None
-    eyes: typing.Optional[io.BytesIO] = None
-    knob: typing.Optional[io.BytesIO] = None
-    ruins: typing.Optional[io.BytesIO] = None
+    image: Optional[bytes] = None
+    bob: Optional[io.BytesIO] = None
+    eyes: Optional[io.BytesIO] = None
+    knob: Optional[io.BytesIO] = None
+    ruins: Optional[io.BytesIO] = None
 
 
 class ImageView(view_utils.BaseView):
@@ -125,9 +124,9 @@ class ImageView(view_utils.BaseView):
     def __init__(
         self,
         interaction: Interaction,
-        user: typing.Optional[User] = None,
-        link: typing.Optional[str] = None,
-        file: typing.Optional[discord.Attachment] = None,
+        user: Optional[User] = None,
+        link: Optional[str] = None,
+        file: Optional[discord.Attachment] = None,
     ) -> None:
         if link is not None:
             self.target_url = link
@@ -152,7 +151,7 @@ class ImageView(view_utils.BaseView):
         # Prepare POST
         headers = {
             "Content-Type": "application/json",
-            "Ocp-Apim-Subscription-Key": creds["Oxford.OxfordKey"],
+            "Ocp-Apim-Subscription-Key": creds["Oxford"]["OxfordKey"],
         }
         params = {
             "returnFaceId": "False",
@@ -405,9 +404,9 @@ class Images(commands.Cog):
     async def eyes(
         self,
         interaction: Interaction,
-        user: typing.Optional[User],
-        link: typing.Optional[str],
-        file: typing.Optional[discord.Attachment],
+        user: Optional[User],
+        link: Optional[str],
+        file: Optional[discord.Attachment],
     ) -> None:
         """Draw Googly eyes on an image using Facial Recognition API."""
         user = interaction.user if not user else user
@@ -425,9 +424,9 @@ class Images(commands.Cog):
     async def ruins(
         self,
         interaction: Interaction,
-        user: typing.Optional[User],
-        link: typing.Optional[str],
-        file: typing.Optional[discord.Attachment],
+        user: Optional[User],
+        link: Optional[str],
+        file: Optional[discord.Attachment],
     ) -> None:
         """Local man ruins everything"""
         user = interaction.user if not user else user
@@ -444,9 +443,9 @@ class Images(commands.Cog):
     async def bob_ross(
         self,
         interaction: Interaction,
-        user: typing.Optional[User],
-        link: typing.Optional[str],
-        file: typing.Optional[discord.Attachment],
+        user: Optional[User],
+        link: Optional[str],
+        file: Optional[discord.Attachment],
     ) -> None:
         """Draw Bob Ross Hair on an image using Facial Recognition API"""
         user = interaction.user if not user else user

@@ -56,29 +56,21 @@ class ScoreLoop(commands.Cog):
     @tasks.loop(minutes=1)
     async def score_loop(self) -> None:
         """Score Checker Loop"""
-        need_refresh = await self.fetch_games()
-        if need_refresh:
-            self.bot.loop.create_task(self.bulk_fixtures(need_refresh))
-
-        # Used for ordinal checking,
         hours = CURRENT_DATETIME_OFFSET
         offset = datetime.timezone(datetime.timedelta(hours=hours))
         now = datetime.datetime.now(offset)
         ordinal = now.toordinal()
 
-        # Discard yesterday's games.
-        games: list[fs.Fixture] = self.bot.games
-
         if self._last_ordinal != ordinal:
-            logger.info("Day changed %s -> %s", self._last_ordinal, ordinal)
-            for i in games:
-                if i.kickoff is None:
-                    continue
-
-                if ordinal > i.kickoff.toordinal():
-                    self.bot.games.remove(i)
+            self.bot.games.clear()
             self._last_ordinal = ordinal
 
+        need_refresh = await self.fetch_games()
+        if need_refresh:
+            self.bot.loop.create_task(self.bulk_fixtures(need_refresh))
+
+        # Used for ordinal checking,
+        # Discard yesterday's games.
         comps = set(i.competition for i in self.bot.games if i.competition)
 
         for comp in comps:
@@ -111,8 +103,21 @@ class ScoreLoop(commands.Cog):
         tree = html.fromstring(await page.content())
 
         # Handle Teams
-        fixture.home = await fs.Team.from_fixture_html(self.bot, tree)
-        fixture.away = await fs.Team.from_fixture_html(self.bot, tree, False)
+        home, away = await fs.Team.from_fixture_html(tree)
+        try:
+            home = next(i for i in self.bot.teams if i.id == home.id)
+        except StopIteration:
+            pass
+        fixture.home = home
+
+        try:
+            away = next(i for i in self.bot.teams if i.id == away.id)
+        except StopIteration:
+            pass
+
+        fixture.away = away
+
+        await self.bot.save_teams([home, away])
 
         div = tree.xpath(".//span[@class='tournamentHeader__country']")[0]
 
@@ -161,8 +166,6 @@ class ScoreLoop(commands.Cog):
         tree = html.fromstring(await selector.inner_html())
 
         mylg = tree.xpath(".//span[contains(@title, 'Add this')]/@class")[0]
-
-        logger.info("mylg = %s", mylg)
         mylg = [i for i in mylg.rsplit(maxsplit=1) if "_" in i][-1]
         comp_id = mylg.rsplit("_", maxsplit=1)[-1]
 
@@ -187,7 +190,7 @@ class ScoreLoop(commands.Cog):
         if src is not None:
             comp.logo_url = fs.FLASHSCORE + src
 
-        await self.bot.save_competition(comp)
+        await self.bot.save_competitions([comp])
         fixture.competition = comp
 
     async def bulk_fixtures(
@@ -195,7 +198,7 @@ class ScoreLoop(commands.Cog):
     ) -> None:
         """Fetch all data for a fixture"""
 
-        recur = "" if not recursion else f"Attempt {recursion}"
+        recur = "" if not recursion else f"retry #{recursion}"
         logger.info("Batch Fetching %s fixtures %s", len(fixtures), recur)
 
         async def spawn_worker() -> None:
@@ -263,54 +266,16 @@ class ScoreLoop(commands.Cog):
                 # Awaiting.
                 continue
 
-            url = fs.FLASHSCORE + link
-
             # Set & forget: Competition, Teams
-            if (fix := self.bot.get_fixture(match_id)) is None:
-                # These values never need to be updated.
-                xpath = "./text()"
-                teams = [i.strip() for i in tree.xpath(xpath) if i.strip()]
-
-                if teams[0].startswith("updates"):
-                    # Awaiting Updates.
-                    teams[0] = teams[0].replace("updates", "")
-
-                if len(teams) == 1:
-                    teams = teams[0].split(" - ")
-
-                if len(teams) == 2:
-                    home_name, away_name = teams
-
-                elif len(teams) == 3:
-                    if teams[1] == "La Duchere":
-                        home_name = f"{teams[0]} {teams[1]}"
-                        away_name = teams[2]
-                    elif teams[2] == "La Duchere":
-                        home_name = teams[0]
-                        away_name = f"{teams[1]} {teams[2]}"
-
-                    elif teams[0] == "Banik Most":
-                        home_name = f"{teams[0]} {teams[1]}"
-                        away_name = teams[2]
-                    elif teams[1] == "Banik Most":
-                        home_name = teams[0]
-                        away_name = f"{teams[1]} {teams[2]}"
-                    else:
-                        logger.error("Fetch games found %s", teams)
-                        continue
-                else:
-                    logger.error("Fetch games found teams %s", teams)
+            fix = next((i for i in self.bot.games if i.id == match_id), None)
+            if fix is None:
+                fix = fs.Fixture.from_mobi(tree, match_id)
+                if fix is None:
                     continue
 
-                home = fs.Team(None, home_name, None)
-                away = fs.Team(None, away_name, None)
-                fix = fs.Fixture(home, away, match_id, url)
-
                 to_fetch.append(fix)
-
-                self.bot.games.append(fix)
+                self.bot.games.add(fix)
                 await asyncio.sleep(0)
-
                 old_state = None
             else:
                 old_state = fix.state
@@ -393,15 +358,15 @@ class ScoreLoop(commands.Cog):
             # So, we update the match score, and parse additional states
 
             score_line = "".join(tree.xpath(".//a/text()")).split(":")
-            h_score, a_score = score_line
+            h_s, a_s = score_line
 
-            if a_score != "-":
-                maybe_ovr = "".join([i for i in a_score if not i.isdigit()])
+            if a_s != "-":
+                maybe_ovr = "".join([i for i in a_s if not i.isdigit()])
                 if maybe_ovr:
                     override = maybe_ovr
 
-                h_score = int(h_score)
-                a_score = int("".join([i for i in a_score if i.isdigit()]))
+                h_score: int = int(h_s)
+                a_score: int = int("".join([i for i in a_s if i.isdigit()]))
 
                 if fix.home_score != h_score:
                     if fix.home_score is not None:
@@ -443,7 +408,7 @@ class ScoreLoop(commands.Cog):
                         "Half Time": fs.GameState.HALF_TIME,
                         "Live": fs.GameState.FINAL_RESULT_ONLY,
                         "Penalties": fs.GameState.PENALTIES,
-                    }[sub_t]
+                    }[str(sub_t)]
                 except KeyError:
                     if "'" not in sub_t and ":" not in sub_t:
                         logger.error("1 part time unhandled: %s", sub_t)

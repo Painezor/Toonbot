@@ -2,7 +2,15 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, TypeAlias, Literal, overload, Optional
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    List,
+    TypeAlias,
+    Literal,
+    overload,
+    Optional,
+)
 from urllib.parse import quote
 
 from discord.app_commands import Transform, Transformer, Choice
@@ -20,7 +28,9 @@ from discord import (
 
 from ext.utils import view_utils
 
-from .abc import Competition, Team, Fixture
+from .competitions import Competition
+from .team import Team
+from .fixture import Fixture
 
 if TYPE_CHECKING:
     from core import Bot
@@ -73,6 +83,20 @@ locales = {
 }
 
 
+def get_lang_id(interaction: Interaction) -> int:
+    """Get languagee id"""
+    try:
+        return locales[interaction.locale]
+    except KeyError:
+        try:
+            if interaction.guild_locale is None:
+                return 1
+            else:
+                return locales[interaction.guild_locale]
+        except KeyError:
+            return 1
+
+
 @overload
 async def search(
     query: str, mode: Literal["comp"], interaction: Interaction
@@ -87,6 +111,42 @@ async def search(
     ...
 
 
+def parse_competition(
+    i: dict[str, Any], interaction: Interaction
+) -> Optional[Competition]:
+    """Parse a competition object"""
+    if i["type"]["name"] == "TournamentTemplate":
+        id_ = i["id"]
+        name = i["name"]
+        ctry = i["defaultCountry"]["name"]
+        url = i["url"]
+
+        comp = interaction.client.get_competition(id_)
+
+        if comp is None:
+            comp = Competition(id_, name, ctry, url)
+
+        if i["images"]:
+            logo_url = i["images"][0]["path"]
+            comp.logo_url = logo_url
+
+        return comp
+    else:
+        types = i["participantTypes"]
+        logging.info("unhandled particpant types %s", types)
+
+
+def parse_team(i: dict[str, Any], interaction: Interaction) -> Team:
+    if (team := interaction.client.get_team(i["id"])) is None:
+        team = Team(i["id"], i["name"], i["url"])
+    try:
+        team.logo_url = i["images"][0]["path"]
+    except IndexError:
+        pass
+    team.gender = i["gender"]["name"]
+    return team
+
+
 async def search(
     query: str,
     mode: Literal["comp", "team"],
@@ -96,16 +156,7 @@ async def search(
     replace = query.translate(dict.fromkeys(map(ord, "'[]#<>"), None))
     query = quote(replace)
 
-    try:
-        lang_id = locales[interaction.locale]
-    except KeyError:
-        try:
-            if interaction.guild_locale is None:
-                lang_id = 1
-            else:
-                lang_id = locales[interaction.guild_locale]
-        except KeyError:
-            lang_id = 1
+    lang_id = get_lang_id(interaction)
 
     # Type IDs: 1 - Team | Tournament, 2 - Team, 3 - Player 4 - PlayerInTeam
     url = (
@@ -123,60 +174,23 @@ async def search(
     comps: list[Competition] = []
     for i in res:
         if i["participantTypes"] is None:
-            if i["type"]["name"] == "TournamentTemplate":
-                id_ = i["id"]
-                name = i["name"]
-                ctry = i["defaultCountry"]["name"]
-                url = i["url"]
-
-                comp = interaction.client.get_competition(id_)
-
-                if comp is None:
-                    comp = Competition(id_, name, ctry, url)
-                    await interaction.client.save_competition(comp)
-
-                if i["images"]:
-                    logo_url = i["images"][0]["path"]
-                    comp.logo_url = logo_url
-
+            if comp := parse_competition(i, interaction):
                 comps.append(comp)
-            else:
-                types = i["participantTypes"]
-                logging.info("unhandled particpant types %s", types)
         else:
             for type_ in i["participantTypes"]:
                 t_name = type_["name"]
                 if t_name in ["National", "Team"]:
-                    if mode == "comp":
-                        continue
-
-                    team = Team(i["id"], i["name"], i["url"])
-                    try:
-                        team.logo_url = i["images"][0]["path"]
-                    except IndexError:
-                        pass
-                    team.gender = i["gender"]["name"]
-
-                    if lang_id == 1:
-                        await team.save(interaction.client)
-                    teams.append(team)
+                    if team := parse_team(i, interaction):
+                        teams.append(team)
                 elif t_name == "TournamentTemplate":
-                    if mode == "team":
-                        continue
-
-                    ctry = i["defaultCountry"]["name"]
-                    nom = i["name"]
-                    comp = Competition(i["id"], nom, ctry, i["url"])
-                    try:
-                        comp.logo_url = i["images"][0]["path"]
-                    except IndexError:
-                        pass
-
-                    if lang_id == 1:
-                        await interaction.client.save_competition(comp)
+                    if comp := parse_competition(i, interaction):
+                        comps.append(comp)
                 else:
                     continue  # This is a player, we don't want those.
 
+    if lang_id == 1:
+        await interaction.client.save_competitions(comps)
+        await interaction.client.save_teams(teams)
     if mode == "comp":
         return comps
     return teams
@@ -321,10 +335,9 @@ async def choose_recent_fixture(
     interaction: Interaction, fsr: Competition | Team
 ) -> Fixture:
     """Allow the user to choose from the most recent games of a fixture"""
-    cache = interaction.client.competitions
     page = await interaction.client.browser.new_page()
     try:
-        fixtures = await fsr.results(page, cache)
+        fixtures = await fsr.results(page)
     finally:
         await page.close()
 
@@ -345,7 +358,7 @@ class TeamTransformer(Transformer):
         self, interaction: Interaction, current: str, /
     ) -> list[Choice[str]]:
         """Autocomplete from list of stored teams"""
-        teams = interaction.client.teams
+        teams = list(interaction.client.teams)
         teams.sort(key=lambda x: x.name)
 
         # Run Once - Set Default for interaction.
@@ -430,7 +443,9 @@ class FixtureTransformer(Transformer):
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> Optional[Fixture]:
-        if fix := interaction.client.get_fixture(value):
+        """Try to convert input to a fixture"""
+        games = interaction.client.games
+        if fix := next((i for i in games if i.id == value), None):
             return fix
 
         if fsr := interaction.client.get_team(value):
@@ -536,7 +551,60 @@ class LiveCompTransformer(TFCompetitionTransformer):
         return choices[:25]
 
 
-comp_trnsf: TypeAlias = Transform[Competition, TFCompetitionTransformer]
+fixture_only = [""]
+team_or_comp = ["fixtures", "results"]
+team_or_fixture = ["news`"]
+
+
+class UniversalTransformer(Transformer):
+    """
+    A Universal Flashscore Transformer that can return
+    a Fixture, Competition, or Team
+    """
+
+    async def autocomplete(  # type: ignore
+        self, interaction: Interaction, value: str
+    ) -> List[Choice[str]]:
+        """Grab all current Fixtures, Teams, and Competitions matching value"""
+
+        cur = value.casefold()
+        opts: list[Choice[str]] = []
+
+        cln = interaction.client
+
+        pool = None
+        if interaction.command is None:
+            pass
+        elif interaction.command.name in fixture_only:
+            pool = cln.games
+        elif interaction.command.name in team_or_comp:
+            pool = cln.teams | cln.competitions
+        elif interaction.command.name in team_or_fixture:
+            pool = cln.teams | cln.games
+
+        if pool is None:
+            pool = cln.games | cln.teams | cln.competitions
+
+        for i in pool:
+            if cur not in i.ac_row.casefold() or i.id is None:
+                continue
+
+            opts.append(Choice(name=f"{i.emoji} {i.title}"[:100], value=i.id))
+        return opts[:25]
+
+    async def transform(  # type: ignore
+        self, interaction: Interaction, value: str
+    ) -> Any:
+        """Return the first Fixture, Competition, or Team Found"""
+        cln = interaction.client
+        pool = cln.teams | cln.competitions | cln.games
+
+        # TODO: Fallback Search
+        return next((i for i in pool if i.id == value), None)
+
+
+universal = Transform[Competition | Fixture | Team, UniversalTransformer]
+cmp_tran: TypeAlias = Transform[Competition, TFCompetitionTransformer]
 live_comp_transf: TypeAlias = Transform[Competition, LiveCompTransformer]
-fix_trnsf: TypeAlias = Transform[Fixture, FixtureTransformer]
-team_trnsf: TypeAlias = Transform[Team, TeamTransformer]
+fx_tran: TypeAlias = Transform[Fixture, FixtureTransformer]
+tm_tran: TypeAlias = Transform[Team, TeamTransformer]

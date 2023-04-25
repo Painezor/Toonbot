@@ -24,7 +24,7 @@ class BaseView(discord.ui.View):
     """Error Handler."""
 
     message: Optional[discord.Message] = None
-    embed: Optional[discord.Embed]
+    embed: Optional[discord.Embed] = None
 
     def __init__(
         self,
@@ -58,7 +58,8 @@ class BaseView(discord.ui.View):
         # This function is only accessible if self.parent is set.
         assert self.parent is not None
         view = self.parent
-        await interaction.response.edit_message(view=view, embed=view.embed)
+        edit = interaction.response.edit_message
+        await edit(view=view, embed=view.embed, attachments=[])
 
     @discord.ui.button(emoji="🚯", row=0, style=discord.ButtonStyle.red)
     async def _stop(self, interaction: discord.Interaction, _) -> None:
@@ -197,7 +198,7 @@ class Paginator(BaseView):
     @discord.ui.button(label="◀️", row=0)
     async def previous(self, interaction: Interaction, _) -> None:
         """Go to previous page"""
-        self.index = max(self.index - 1, 0)
+        self.index -= 1
         await self.handle_page(interaction)
 
     @discord.ui.button(emoji="🔎", row=0, style=discord.ButtonStyle.blurple)
@@ -208,7 +209,7 @@ class Paginator(BaseView):
     @discord.ui.button(emoji="▶️", row=0)
     async def next(self, interaction: Interaction, _) -> None:
         """Go To next Page"""
-        self.index = min(self.index + 1, len(self.pages))
+        self.index += 1
         await self.handle_page(interaction)
 
 

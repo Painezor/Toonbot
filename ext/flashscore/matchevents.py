@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import enum
 import logging
-import typing
+from lxml import html
+from typing import Any, TYPE_CHECKING, Optional, Type
 
 import discord
 
@@ -16,35 +17,41 @@ from .constants import (
     YELLOW_CARD_EMOJI,
 )
 
-from .players import PartialPlayer
+from .players import FSPlayer
 
-if typing.TYPE_CHECKING:
-    from .abc import Fixture, Team
+if TYPE_CHECKING:
+    from .fixture import Fixture
+    from .team import Team
 
 
 logger = logging.getLogger("matchevents")
 
 
-def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
+def parse_header(i: html.HtmlElement, fixture: Fixture) -> None:
+    """Store Penalties"""
+    text = [x.strip() for x in i.xpath(".//text()")]
+    if "Penalties" in text:
+        try:
+            fixture.penalties_home = text[1]
+            fixture.penalties_away = text[3]
+            logger.info("Parsed a 2 part penalties OK!!")
+        except IndexError:
+            # If Penalties are still in progress, it's actually
+            # in format ['Penalties', '1 - 2']
+            _, pen_string = text
+            home, away = pen_string.split(" - ")
+            fixture.penalties_home = home
+            fixture.penalties_away = away
+
+
+def parse_events(fixture: Fixture, tree: Any) -> list[MatchEvent]:
     """Get a list of match events"""
     events: list[MatchEvent] = []
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
         # Detection of Teams
         team_detection = i.attrib["class"]
         if "Header" in team_detection:
-            text = [x.strip() for x in i.xpath(".//text()")]
-            if "Penalties" in text:
-                try:
-                    fixture.penalties_home = text[1]
-                    fixture.penalties_away = text[3]
-                    logger.info("Parsed a 2 part penalties OK!!")
-                except IndexError:
-                    # If Penalties are still in progress, it's actually
-                    # in format ['Penalties', '1 - 2']
-                    _, pen_string = text
-                    home, away = pen_string.split(" - ")
-                    fixture.penalties_home = home
-                    fixture.penalties_away = away
+            parse_header(i, fixture)
             continue
 
         try:
@@ -103,20 +110,7 @@ def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
         # Subs
         elif "substitution" in svg_class:
             event = Substitution(fixture)
-            xpath = './/div[contains(@class, "incidentSubOut")]/a/'
-            if s_name := "".join(node.xpath(xpath + "text()")):
-                s_name = s_name.strip()
-
-                s_url = "".join(node.xpath(xpath + "@href"))
-                if s_url:
-                    s_url = FLASHSCORE + s_url
-
-                try:
-                    surname, forename = s_name.rsplit(" ", 1)
-                except ValueError:
-                    forename, surname = None, s_name
-                player = PartialPlayer(forename, surname, s_url)
-                event.player_off = player
+            event.set_player_off(node)
 
         else:
             logger.info("parsing match events on %s", fixture.url)
@@ -128,39 +122,11 @@ def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
             event = MatchEvent(fixture)
 
         # Event Player.
-        xpath = './/a[contains(@class, "playerName")]//text()'
-        if p_name := "".join(node.xpath(xpath)).strip():
-            xpath = './/a[contains(@class, "playerName")]//@href'
-            p_url = "".join(node.xpath(xpath)).strip()
-            if p_url:
-                p_url = FLASHSCORE + p_url
-
-            try:
-                surname, forename = p_name.rsplit(" ", 1)
-            except ValueError:
-                forename, surname = None, p_name
-            event.player = PartialPlayer(forename, surname, p_url)
+        event.set_player(node)
 
         # Assist of a goal.
         if isinstance(event, Goal):
-            xpath = './/div[contains(@class, "assist")]//text()'
-            if a_name := "".join(node.xpath(xpath)):
-                a_name = a_name.strip("()")
-
-                xpath = './/div[contains(@class, "assist")]//@href'
-
-                a_url = "".join(node.xpath(xpath))
-                if a_url:
-                    a_url = FLASHSCORE + a_url
-
-                try:
-                    surname, forename = a_name.rsplit(" ", 1)
-                except ValueError:
-                    forename, surname = None, a_name
-
-                player = PartialPlayer(forename, surname, a_url)
-
-                event.assist = player
+            event.set_assist(node)
 
         if "home" in team_detection:
             event.team = fixture.home
@@ -174,9 +140,8 @@ def parse_events(fixture: Fixture, tree: typing.Any) -> list[MatchEvent]:
 
         # Description of the event.
         xpath = './/div[contains(@class, "incidentIcon")]//@title'
-        title = "".join(node.xpath(xpath)).strip()
-        description = title.replace("<br />", " ")
-        event.description = description
+        title = "".join(node.xpath(xpath)).strip().replace("<br />", " ")
+        event.description = title
 
         events.append(event)
     return events
@@ -187,14 +152,14 @@ class MatchEvent:
 
     fixture: Fixture
 
-    assist: typing.Optional[PartialPlayer] = None
+    assist: Optional[FSPlayer] = None
     colour: discord.Colour = discord.Colour.dark_embed()
-    description: typing.Optional[str] = None
-    icon_url: typing.Optional[str] = None
-    player: typing.Optional[PartialPlayer] = None
-    team: typing.Optional[Team] = None
-    note: typing.Optional[str] = None
-    time: typing.Optional[str] = None
+    description: Optional[str] = None
+    icon_url: Optional[str] = None
+    player: Optional[FSPlayer] = None
+    team: Optional[Team] = None
+    note: Optional[str] = None
+    time: Optional[str] = None
 
     def __init__(self, fixture: Fixture) -> None:
         self.fixture = fixture
@@ -202,6 +167,36 @@ class MatchEvent:
     def is_done(self) -> bool:
         """Check to see if more information is required"""
         return self.player is not None
+
+    def set_assist(self, node: html.HtmlElement) -> None:
+        xpath = './/div[contains(@class, "assist")]//text()'
+        if a_name := "".join(node.xpath(xpath)):
+            a_name = a_name.strip("()")
+
+            xpath = './/div[contains(@class, "assist")]//@href'
+
+            a_url = "".join(node.xpath(xpath))
+            if a_url:
+                a_url = FLASHSCORE + a_url
+            try:
+                surname, forename = a_name.rsplit(" ", 1)
+            except ValueError:
+                forename, surname = None, a_name
+            self.assist = FSPlayer(forename, surname, a_url)
+
+    def set_player(self, node: html.HtmlElement) -> None:
+        xpath = './/a[contains(@class, "playerName")]//text()'
+        if p_name := "".join(node.xpath(xpath)).strip():
+            xpath = './/a[contains(@class, "playerName")]//@href'
+            p_url = "".join(node.xpath(xpath)).strip()
+            if p_url:
+                p_url = FLASHSCORE + p_url
+
+            try:
+                surname, forename = p_name.rsplit(" ", 1)
+            except ValueError:
+                forename, surname = None, p_name
+            self.player = FSPlayer(forename, surname, p_url)
 
     @property
     def embed(self) -> discord.Embed:
@@ -239,7 +234,23 @@ class Substitution(MatchEvent):
     """A substitution event for a fixture"""
 
     colour = discord.Colour.greyple()
-    player_off: typing.Optional[PartialPlayer] = None
+    player_off: Optional[FSPlayer] = None
+
+    def set_player_off(self, node: html.HtmlElement) -> None:
+        xpath = './/div[contains(@class, "incidentSubOut")]/a/'
+        if s_name := "".join(node.xpath(xpath + "text()")):
+            s_name = s_name.strip()
+
+            s_url = "".join(node.xpath(xpath + "@href"))
+            if s_url:
+                s_url = FLASHSCORE + s_url
+
+            try:
+                surname, forename = s_name.rsplit(" ", 1)
+            except ValueError:
+                forename, surname = None, s_name
+            player = FSPlayer(forename, surname, s_url)
+            self.player_off = player
 
     def __str__(self) -> str:
         output = ["`🔄`"] if self.time is None else [f"`🔄 {self.time}`"]
@@ -256,7 +267,7 @@ class Goal(MatchEvent):
     """A Generic Goal Event"""
 
     colour = discord.Colour.green()
-    assist: typing.Optional[PartialPlayer] = None
+    assist: Optional[FSPlayer] = None
 
     def __str__(self) -> str:
         output = [self.timestamp]
@@ -409,7 +420,7 @@ class VAR(MatchEvent):
 
     in_progress: bool = False
     colour = discord.Colour.og_blurple()
-    assist: typing.Optional[PartialPlayer] = None
+    assist: Optional[FSPlayer] = None
 
     def __str__(self) -> str:
         out = ["`📹 VAR`"] if self.time is None else [f"`📹 VAR {self.time}`"]
@@ -431,7 +442,7 @@ class EventType(enum.Enum):
         self,
         value: str,
         colour: discord.Colour,
-        valid_events: typing.Type[MatchEvent],
+        valid_events: Type[MatchEvent],
     ):
         self._value_ = value
         self.colour = colour

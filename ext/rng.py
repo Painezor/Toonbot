@@ -68,7 +68,7 @@ class DiceButton(discord.ui.Button["DiceBox"]):
         super().__init__(label=f"Roll D{sides}", row=row, style=style)
         self.sides: int = sides
 
-    async def callback(self, interaction: discord.Interaction) -> None:
+    async def callback(self, interaction: Interaction) -> None:  # type: ignore
         """When clicked roll"""
         assert self.view is not None
         roll = random.randrange(1, self.sides + 1)
@@ -76,7 +76,7 @@ class DiceButton(discord.ui.Button["DiceBox"]):
             self.view.rolls = [[roll]]
         else:
             self.view.rolls[-1].append(roll)
-        return await self.view.update(interaction)
+        await self.view.update(interaction)
 
 
 class CoinView(view_utils.BaseView):
@@ -230,7 +230,6 @@ class Random(commands.Cog):
 
         embed = discord.Embed(title="8 Ball", colour=0x000001)
         embed.description = f"**{question}**\n{random.choice(res)}"
-
         usr = interaction.user
         embed.set_author(icon_url=usr.display_avatar.url, name=usr)
         return await interaction.response.send_message(embed=embed)

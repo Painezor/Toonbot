@@ -10,10 +10,9 @@ from typing import Optional, TYPE_CHECKING, ClassVar, TypeAlias, cast
 import discord
 from discord.abc import GuildChannel
 from discord.ext import commands
-from playwright.async_api import TimeoutError as pw_TimeoutError
 
 import ext.flashscore as fs
-from ext.utils import embed_utils, view_utils
+from ext.utils import embed_utils, view_utils, flags
 
 if TYPE_CHECKING:
     from core import Bot
@@ -179,17 +178,20 @@ class TickerEvent:
 
         index: Optional[int] = None
         for count in range(5):
-            await self.fixture.refresh(self.bot)
+            page = await self.bot.browser.new_page()
+            try:
+                await self.fixture.refresh(page)
+            finally:
+                await page.close()
 
             # Figure out which event we're supposed to be using
             # (Either newest event, or Stored if refresh)
             if index is None:
-                if self.home is None:
-                    team = None
-                elif self.home is True:
-                    team = self.fixture.home
-                else:
-                    team = self.fixture.away
+                team = {
+                    None: None,
+                    True: self.fixture.home,
+                    False: self.fixture.away,
+                }[self.home]
 
                 events = self.fixture.events
                 teamed: list[fs.MatchEvent] = []
@@ -368,12 +370,13 @@ class TickerConfig(view_utils.DropdownPaginator):
 
         options: list[discord.SelectOption] = []
         _ = filter(lambda i: i.url is not None, tc.leagues)
-        leagues = list(sorted(_, key=lambda x: x.title))
-        for i in leagues:
+        comps = list(sorted(_, key=lambda x: x.title))
+        for i in comps:
             assert i.url is not None  # Already Filtered.
             opt = discord.SelectOption(label=i.title, value=i.url)
             opt.description = i.url
-            opt.emoji = i.flag
+            flag = flags.get_flag(i.country)
+            opt.emoji = flag
             options.append(opt)
 
         embed = discord.Embed(colour=discord.Colour.dark_teal())
@@ -393,8 +396,10 @@ class TickerConfig(view_utils.DropdownPaginator):
             embed.add_field(name="Missing Permissions", value=txt)
 
         # Handle Empty
-        if not (rows := [f"{i.flag} {i.markdown}" for i in leagues]):
+        if not comps:
             rows = [f"{tc.mention} has no tracked leagues."]
+        else:
+            rows = [f"{flags.get_flag(i.country)} {i.markdown}" for i in comps]
 
         super().__init__(invoker, embed, rows, options, footer="```")
 
@@ -601,33 +606,6 @@ class Ticker(commands.Cog):
         TickerChannel.bot = bot
         self.workers: asyncio.Queue[Page] = asyncio.Queue(5)
 
-    async def get_table(self, link: str):
-        """Fetch the table for a competition from"""
-        page = await self.workers.get()
-
-        try:
-            await page.goto(link, timeout=5000)
-
-            # Chaining Locators is fucking stupid.
-            # Thank you for coming to my ted talk.
-            inner = page.locator(".tableWrapper")
-            outer = page.locator("div", has=inner)
-            table_div = page.locator("div", has=outer).last
-
-            try:
-                await table_div.wait_for(state="visible", timeout=5000)
-            except pw_TimeoutError:
-                return ""
-
-            javascript = "ads => ads.forEach(x => x.remove());"
-            await page.eval_on_selector_all(fs.ADS, javascript)
-
-            image = await table_div.screenshot(type="png")
-        finally:
-            await self.workers.put(page)
-
-        return await self.bot.dump_image(io.BytesIO(image))
-
     async def cog_load(self) -> None:
         """Reset the cache on load."""
         await self.update_cache()
@@ -733,6 +711,21 @@ class Ticker(commands.Cog):
             logger.info("Deleted %s bad Ticker channels", len(bad))
         return self.bot.ticker_channels
 
+    async def refresh_table(self, obj: fs.Fixture) -> None:
+        """Refresh table for object"""
+        if obj.competition is None:
+            return
+
+        page = await self.workers.get()
+        try:
+            image = await obj.get_table(page)
+            if image is not None:
+                table = io.BytesIO(image)
+                url = await self.bot.dump_image(table)
+                obj.competition.table = url
+        finally:
+            await self.workers.put(page)
+
     @commands.Cog.listener()
     async def on_fixture_event(
         self,
@@ -767,7 +760,7 @@ class Ticker(commands.Cog):
             channels = [i for i in channels if i.goals is not None]
 
             if channels:
-                fixture.competition.table = await self.get_table(url)
+                await self.refresh_table(fixture)
 
             long: bool = any([i.goals is True for i in channels])
 
@@ -804,9 +797,6 @@ class Ticker(commands.Cog):
             evt.SCORE_AFTER_EXTRA_TIME,
         ]:
             channels = [i for i in channels if i.goals is not None]
-
-            if channels:
-                fixture.competition.table = await self.get_table(url)
 
             long: bool = any([i.full_times is True for i in channels])
 
@@ -888,7 +878,7 @@ class Ticker(commands.Cog):
     async def add_league(
         self,
         interaction: Interaction,
-        competition: fs.comp_trnsf,
+        competition: fs.cmp_tran,
         channel: Optional[discord.TextChannel],
     ) -> None:
         """Add a league to your Match Event Ticker"""

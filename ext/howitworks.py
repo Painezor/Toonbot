@@ -1,17 +1,19 @@
 """Command for the "How it Works" Video Series"""
 from __future__ import annotations
-import typing
+
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
+from discord import SelectOption
 from discord.ext import commands
 
 from ext.utils import view_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[PBot]
+    User: TypeAlias = discord.User | discord.Member
 
 # TODO: Fetch YouTube Playlist via API?
 HIW = {
@@ -39,9 +41,7 @@ HIW = {
     "Upgrades": "https://youtu.be/zqwa9ZlzMA8",
 }
 
-opts = [
-    discord.SelectOption(label=k, value=val) for k, val in sorted(HIW.items())
-]
+opts = [SelectOption(label=k, value=val) for k, val in sorted(HIW.items())]
 
 
 class HowItWorksTransformer(discord.app_commands.Transformer):

@@ -22,8 +22,7 @@ class Stream:
         self.added_by: User = added_by
 
     def __str__(self):
-        text = self.link if self.name is None else self.name
-        return f"[{text}]({self.link}) added by {self.added_by.mention}"
+        return f"[{self.name}]({self.link}) added by {self.added_by.mention}"
 
     @property
     def ac_row(self) -> str:
@@ -42,7 +41,7 @@ async def st_ac(
     cur = current.casefold()
     matches = [i.name[:100] for i in strms if cur in i.ac_row]
 
-    options = []
+    options: list[discord.app_commands.Choice[str]] = []
     for item in matches:
         options.append(discord.app_commands.Choice(name=item, value=item))
 

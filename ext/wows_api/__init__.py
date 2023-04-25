@@ -57,7 +57,14 @@ from .emojis import (
 from .enums import Map, Nation, Region
 from .gamemode import GameMode, get_game_modes
 from .modules import Module, fetch_modules
-from .player import PartialPlayer, PlayerStats, ModeStats, fetch_stats
+from .player import (
+    PartialPlayer,
+    PlayerStats,
+    PlayerShipStats,
+    ModeBattleStats,
+    fetch_player_stats,
+    fetch_player_ship_stats,
+)
 from .transformers import (
     clan_transform,
     class_transform,
@@ -131,9 +138,11 @@ __all__ = [
     "fetch_modules",
     # player,
     "PartialPlayer",
-    "ModeStats",
+    "ModeBattleStats",
     "PlayerStats",
-    "fetch_stats",
+    "PlayerShipStats",
+    "fetch_player_ship_stats",
+    "fetch_player_stats",
     # ship
     "get_ships",
     "Ship",

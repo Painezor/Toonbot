@@ -11,7 +11,7 @@ from discord import Message, Embed
 from discord.ext import commands
 
 import ext.flashscore as fs
-from ext.utils import embed_utils, view_utils, timed_events
+from ext.utils import embed_utils, view_utils, timed_events, flags
 
 if TYPE_CHECKING:
     from core import Bot
@@ -115,11 +115,12 @@ class ScoreChannel:
         def sorter(
             item: tuple[Optional[Message], Optional[list[Embed]]]
         ) -> datetime.datetime:
-            if item[0] is None:
+            message, _ = item
+            if message is None:
                 return discord.utils.utcnow()
-            if item[0].edited_at:
-                return item[0].edited_at
-            return item[0].created_at
+            if message.edited_at:
+                return message.edited_at
+            return message.created_at
 
         tuples.sort(key=sorter)
 
@@ -127,14 +128,14 @@ class ScoreChannel:
         count = 0
         for message, m_embeds in tuples:
             if m_embeds is None:
-                # This message does not need editing.
                 assert message is not None
+                # This message does not need editing.
                 if message.flags.suppress_embeds:
                     continue
             elif message is not None:
                 for embed in m_embeds:
                     try:
-                        old = self._current_embeds[embed.title].description
+                        old = self._current_embeds[embed.url].description
                         new = embed.description
                         if old != new:
                             break  # We're good to go.
@@ -145,8 +146,10 @@ class ScoreChannel:
                     # message can be skipped.
                     continue
 
-            index = self.messages.index(message) if message else None
-            await self.send_or_edit(bot, index, message, m_embeds)
+            try:
+                await self.send_or_edit(message, m_embeds)
+            except (discord.NotFound, discord.Forbidden):
+                bot.score_channels.discard(self)
 
             count += 1
             if count > 4:
@@ -156,8 +159,6 @@ class ScoreChannel:
     # Then map these indexes to the appropriate embeds
     async def send_or_edit(
         self,
-        bot: Bot,
-        index: Optional[int],
         message: Optional[discord.Message],
         embeds: Optional[list[Embed]],
     ) -> None:
@@ -167,39 +168,23 @@ class ScoreChannel:
 
         if embeds is not None:
             for i in embeds:
-                self._current_embeds[i.title] = i
+                self._current_embeds[i.url] = i
 
-        try:
-            # Suppress Message's embeds until they're needed again.
-            if message is None:
-                assert embeds is not None
-                # No message exists in cache,
-                # or we need an additional message.
-                new_msg = await self.channel.send(embeds=embeds)
-                self.messages.append(new_msg)
-                return
-
-            if embeds is None:
-                if message.flags.suppress_embeds:
-                    return
-                new_msg = await message.edit(suppress=True)
-
-            else:
-                new_msg = await message.edit(embeds=embeds, suppress=False)
-
-            if index is not None:
-                self.messages[index] = new_msg
-                return
+        # Suppress Message's embeds until they're needed again.
+        if message is None:
+            assert embeds is not None
+            # No message exists in cache,
+            # or we need an additional message.
+            new_msg = await self.channel.send(embeds=embeds)
             self.messages.append(new_msg)
+            return
 
-        except (discord.Forbidden, discord.NotFound):
-            # If we don't have permissions to send Messages in the channel,
-            # remove it and stop iterating
-            bot.score_channels.discard(self)
-            return
-        except discord.HTTPException as err:
-            logger.error("Scores err: Error %s (%s)", err.status, err.text)
-            return
+        if embeds is None:
+            if message.flags.suppress_embeds:
+                return
+            await message.edit(suppress=True)
+        else:
+            await message.edit(embeds=embeds, suppress=False)
 
     async def reset_leagues(self, interaction: Interaction) -> None:
         """Reset the channel's list of leagues to the defaults"""
@@ -254,8 +239,10 @@ class ScoresConfig(view_utils.DropdownPaginator):
 
             opt = discord.SelectOption(label=i.title, value=i.url)
             opt.description = i.url
-            opt.emoji = i.flag
-            rows.append(f"{i.flag} {i.markdown}")
+
+            flag = flags.get_flag(i.country)
+            opt.emoji = flag
+            rows.append(f"{flag} {i.markdown}")
             options.append(opt)
 
         super().__init__(invoker, embed, rows, options)
@@ -381,7 +368,7 @@ class Scores(commands.Cog):
         for i in teams:
             if self.bot.get_team(i["id"]) is None:
                 team = fs.Team.from_record(i)
-                self.bot.teams.append(team)
+                self.bot.teams.add(team)
 
         sql = """SELECT * FROM scores_leagues"""
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -534,7 +521,7 @@ class Scores(commands.Cog):
     async def add_league(
         self,
         interaction: Interaction,
-        competition: fs.comp_trnsf,
+        competition: fs.cmp_tran,
         channel: Optional[discord.TextChannel],
     ) -> None:
         """Add a league to an existing live-scores channel"""

@@ -68,7 +68,7 @@ class SearchResult:
         return flags.get_flags(self.country)
 
 
-class Competition(SearchResult):
+class TFCompetition(SearchResult):
     """An Object representing a competition from transfermarkt"""
 
     emoji: str = "🏆"
@@ -130,11 +130,11 @@ class Competition(SearchResult):
         return embeds
 
 
-class Team(SearchResult):
+class TFTeam(SearchResult):
     """An object representing a Team from Transfermarkt"""
 
     emoji: str = "👕"
-    league: Optional[Competition] = None
+    league: Optional[TFCompetition] = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -353,11 +353,11 @@ class Team(SearchResult):
         return embed_utils.rows_to_embeds(embed, trophies)
 
 
-class PartialPlayer(SearchResult):
+class TFPlayer(SearchResult):
     """An Object representing a player from transfermarkt"""
 
     age: Optional[int] = None
-    team: Optional[Team] = None
+    team: Optional[TFTeam] = None
     position: Optional[str] = None
     picture: Optional[str] = None
 
@@ -398,7 +398,7 @@ class Referee(SearchResult):
 class Staff(SearchResult):
     """An object representing a Trainer or Manager from Transfermarkt"""
 
-    team: Optional[Team] = None
+    team: Optional[TFTeam] = None
     age: Optional[int] = None
     job: Optional[str] = None
     picture: Optional[str] = None
@@ -423,10 +423,10 @@ class Agent(SearchResult):
 class Transfer:
     """An Object representing a transfer from transfermarkt"""
 
-    player: PartialPlayer
+    player: TFPlayer
 
-    new_team: Team
-    old_team: Team
+    new_team: TFTeam
+    old_team: TFTeam
 
     fee: str
     fee_link: str
@@ -443,7 +443,7 @@ class Transfer:
 
         link = TF + "".join(data.xpath(".//td[1]//tr[1]/td[2]/a/@href"))
 
-        player = PartialPlayer(name, link)
+        player = TFPlayer(name, link)
 
         # Box 1 - Player Info
         player.picture = "".join(data.xpath(".//img/@data-src"))
@@ -480,8 +480,8 @@ class Transfer:
         xpath = './/td[4]//img[@class="flaggenrahmen"]/@alt'
         ctry = data.xpath(xpath)
 
-        old_lg = Competition(o_l_name, o_l_link, country=ctry)
-        tran.old_team = Team(o_t_name, o_t_link, league=old_lg, country=ctry)
+        old_lg = TFCompetition(o_l_name, o_l_link, country=ctry)
+        tran.old_team = TFTeam(o_t_name, o_t_link, league=old_lg, country=ctry)
 
         # Box 5 - New Team
         xpath = './/td[5]//img[@class="tiny_wappen"]//@title'
@@ -505,9 +505,9 @@ class Transfer:
 
         xpath = './/td[5]//img[@class="flaggenrahmen"]/@alt'
         ctry = data.xpath(xpath)
-        nw_lg = Competition(n_l_name, n_l_link, country=ctry)
+        nw_lg = TFCompetition(n_l_name, n_l_link, country=ctry)
 
-        new_team = Team(n_t_name, n_t_link, league=nw_lg, country=ctry)
+        new_team = TFTeam(n_t_name, n_t_link, league=nw_lg, country=ctry)
 
         tran.new_team = new_team
         player.team = new_team
@@ -518,7 +518,7 @@ class Transfer:
         return tran
 
     @classmethod
-    def from_team(cls, data: typing.Any, out: bool, team: Team) -> Transfer:
+    def from_team(cls, data: typing.Any, out: bool, team: TFTeam) -> Transfer:
         """Generated from a Team Object"""
         tran = Transfer()
 
@@ -535,7 +535,7 @@ class Transfer:
         if link and TF not in link:
             link = TF + link
 
-        player = PartialPlayer(name=name, link=link)
+        player = TFPlayer(name=name, link=link)
         xpath = './img[@class="bilderrahmen-fixed"]/@data-src'
         player.picture = "".join(data.xpath(xpath))
 
@@ -565,8 +565,8 @@ class Transfer:
         xpath = "./td[5]//tr[2]//a/@href"
         comp_link = "".join(data.xpath(xpath)).strip()
 
-        league = Competition(name=comp_name, link=comp_link)
-        b_team = Team(name=team_name, link=team_link)
+        league = TFCompetition(name=comp_name, link=comp_link)
+        b_team = TFTeam(name=team_name, link=team_link)
         b_team.league = league
 
         xpath = "./td[5]//img[@class='flaggenrahmen']/@title"
@@ -636,10 +636,10 @@ class TeamView(view_utils.Paginator):
     """A View representing a Team on TransferMarkt"""
 
     def __init__(
-        self, invoker: User, team: Team, embeds: list[discord.Embed]
+        self, invoker: User, team: TFTeam, embeds: list[discord.Embed]
     ) -> None:
         super().__init__(invoker, embeds)
-        self.team: Team = team
+        self.team: TFTeam = team
 
     @discord.ui.button(label="Transfers", emoji="🔄", row=1)
     async def transfers(self, interaction: Interaction, _) -> None:
@@ -686,7 +686,7 @@ class StadiumAttendance:
     capacity: int
     total: int
     average: int
-    team: Team
+    team: TFTeam
 
     def __init__(self, data: typing.Any) -> None:
         # Two Subnodes
@@ -700,7 +700,7 @@ class StadiumAttendance:
         # Team info
         name = "".join(team_node.xpath(".//a/text()"))
         link = TF + "".join(data.xpath(".//a/@href"))
-        self.team = Team(name, link)
+        self.team = TFTeam(name, link)
 
         cap = "".join(data.xpath('.//td[@class="rechts"][1]/text()'))
         self.capacity = int(cap.replace(".", ""))
@@ -749,10 +749,10 @@ class CompetitionView(view_utils.Paginator):
     """A View representing a competition on TransferMarkt"""
 
     def __init__(
-        self, invoker: User, comp: Competition, embeds: list[discord.Embed]
+        self, invoker: User, comp: TFCompetition, embeds: list[discord.Embed]
     ) -> None:
         super().__init__(invoker, embeds)
-        self.competition: Competition = comp
+        self.competition: TFCompetition = comp
 
     @discord.ui.button(label="Attendance", emoji="🏟️")
     async def attendance(self, interaction: Interaction, _) -> None:
@@ -840,7 +840,7 @@ class SearchView(view_utils.DropdownPaginator):
         for i in results:
             desc = i.country[0] if i.country else ""
 
-            if isinstance(i, Team):
+            if isinstance(i, TFTeam):
                 desc += f": {i.league.name}" if i.league else ""
 
             option = discord.SelectOption(label=i.name, value=i.link)
@@ -906,7 +906,7 @@ class SearchView(view_utils.DropdownPaginator):
         for i in self.items:
             desc = i.country[0] if i.country else ""
 
-            if isinstance(i, Team):
+            if isinstance(i, TFTeam):
                 desc += f": {i.league.name}" if i.league else ""
 
             opt = discord.SelectOption(label=i.name, value=i.link)
@@ -959,18 +959,18 @@ class CompetitionSearch(SearchView):
     query_string = "Wettbewerb_page"
     match_string = "competitions"
 
-    value: Competition
+    value: TFCompetition
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[Competition]:
+    def parse(rows: list[typing.Any]) -> list[TFCompetition]:
         """Parse a transfermarkt page into a list of Competition Objects"""
-        results: list[Competition] = []
+        results: list[TFCompetition] = []
         for i in rows:
             name = "".join(i.xpath(".//td[2]/a/text()")).strip()
             link = TF + "".join(i.xpath(".//td[2]/a/@href")).strip()
 
             country = [_.strip() for _ in i.xpath(".//td[3]/img/@title")]
-            comp = Competition(name=name, link=link, country=country)
+            comp = TFCompetition(name=name, link=link, country=country)
 
             results.append(comp)
         return results
@@ -983,12 +983,12 @@ class PlayerSearch(SearchView):
     query_string = "Spieler_page"
     match_string = "for players"
 
-    value: PartialPlayer
+    value: TFPlayer
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[PartialPlayer]:
+    def parse(rows: list[typing.Any]) -> list[TFPlayer]:
         """Parse a transfer page to get a list of players"""
-        results: list[PartialPlayer] = []
+        results: list[TFPlayer] = []
         for i in rows:
             xpath = (
                 './/tm-tooltip[@data-type="player"]/a/@title |'
@@ -1005,7 +1005,7 @@ class PlayerSearch(SearchView):
             if link and TF not in link:
                 link = TF + link
 
-            player = PartialPlayer(name=name, link=link)
+            player = TFPlayer(name=name, link=link)
 
             xpath = './/img[@class="bilderrahmen-fixed"]/@src'
             player.picture = "".join(i.xpath(xpath))
@@ -1019,7 +1019,7 @@ class PlayerSearch(SearchView):
                 if team_link and TF not in team_link:
                     team_link = TF + team_link
 
-                team = Team(name=team_name, link=team_link)
+                team = TFTeam(name=team_name, link=team_link)
                 player.team = team
             except IndexError:
                 pass
@@ -1105,7 +1105,7 @@ class StaffSearch(SearchView):
                     leg = TF + leg
                 team_link = leg
 
-                staff.team = Team(team_name, team_link)
+                staff.team = TFTeam(team_name, team_link)
             except IndexError:
                 pass
             results.append(staff)
@@ -1119,12 +1119,12 @@ class TeamSearch(SearchView):
     query_string = "Verein_page"
     match_string = "results: Clubs"
 
-    value: Team
+    value: TFTeam
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[Team]:
+    def parse(rows: list[typing.Any]) -> list[TFTeam]:
         """Fetch a list of teams from a transfermarkt page"""
-        results: list[Team] = []
+        results: list[TFTeam] = []
 
         for i in rows:
             xpath = './/tm-tooltip[@data-type="club"]/a/@title'
@@ -1150,51 +1150,51 @@ class TeamSearch(SearchView):
             xpath = './/td[@class="suche-vereinswappen"]/img/@src'
             logo = "".join(i.xpath(xpath))
 
-            league = Competition(lg_name, lg_lnk, country=country, logo=logo)
+            league = TFCompetition(lg_name, lg_lnk, country=country, logo=logo)
 
-            team = Team(name, link, league=league)
+            team = TFTeam(name, link, league=league)
 
             results.append(team)
         return results
 
 
 DEFAULT_LEAGUES = [
-    Competition(
+    TFCompetition(
         name="Premier League",
         country="England",
         link=TF + "premier-league/startseite/wettbewerb/GB1",
     ),
-    Competition(
+    TFCompetition(
         name="Championship",
         country="England",
         link=TF + "/championship/startseite/wettbewerb/GB2",
     ),
-    Competition(
+    TFCompetition(
         name="Eredivisie",
         country="Netherlands",
         link=TF + "/eredivisie/startseite/wettbewerb/NL1",
     ),
-    Competition(
+    TFCompetition(
         name="Bundesliga",
         country="Germany",
         link=TF + "/bundesliga/startseite/wettbewerb/L1",
     ),
-    Competition(
+    TFCompetition(
         name="Serie A",
         country="Italy",
         link=TF + "/serie-a/startseite/wettbewerb/IT1",
     ),
-    Competition(
+    TFCompetition(
         name="LaLiga",
         country="Spain",
         link=TF + "/laliga/startseite/wettbewerb/ES1",
     ),
-    Competition(
+    TFCompetition(
         name="Ligue 1",
         country="France",
         link=TF + "/ligue-1/startseite/wettbewerb/FR1",
     ),
-    Competition(
+    TFCompetition(
         name="Major League Soccer",
         country="United States",
         link=TF + "/major-league-soccer/startseite/wettbewerb/MLS1",

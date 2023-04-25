@@ -47,6 +47,7 @@ class PollView(view_utils.BaseView):
         self.dropdown.max_values = max_votes
         self.task = asyncio.get_running_loop().create_task(self.destruct())
         self.message: discord.Message
+        self.remove_item(self._stop)
 
     @discord.ui.select(placeholder="Make Your Choice")
     async def dropdown(
@@ -140,7 +141,7 @@ class PollView(view_utils.BaseView):
         edit = interaction.response.edit_message
         return await edit(view=self, embed=embed)
 
-    async def interaction_check(self, /) -> bool:  # type: ignore
+    async def interaction_check(self, _: discord.Interaction) -> bool:
         """Always allow people to vote"""
         return True
 

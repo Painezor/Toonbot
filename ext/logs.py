@@ -584,9 +584,9 @@ def iter_embed(
                 req_tag = flags.require_tag
                 embed.description += f"**Tag Required**: `{req_tag}`\n"
 
-            else:
+            elif value:
                 logger.info("Action %s", entry.action)
-                logger.info("Unhandled Flag Type %s", type(entry.target))
+                logger.info("Unhandled Target Type %s", type(entry.target))
                 logger.info("Flags %s (Type %s)", value, type(value))
 
         elif key == "format_type":

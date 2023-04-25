@@ -35,7 +35,7 @@ MODE_STRINGS = [
     "pve_div2",
     "pve_div3",
     "pve_solo",
-    "pvp",
+    #   "pvp",  PVP is included by default.
     "pvp_div2",
     "pvp_div3",
     "pvp_solo",
@@ -45,7 +45,9 @@ MODE_STRINGS = [
 ]
 
 
-async def fetch_stats(players: list[PartialPlayer]) -> list[PlayerStats]:
+async def fetch_player_stats(
+    players: list[PartialPlayer],
+) -> list[PlayerStats]:
     """Fetch Player Stats from API"""
     ids = ", ".join([str(i.account_id) for i in players][:100])
     parmas = {"application_id": WG_ID, "account_id": ids}
@@ -53,7 +55,6 @@ async def fetch_stats(players: list[PartialPlayer]) -> list[PlayerStats]:
     url = PLAYER_STATS.replace("%%", players[0].region.domain)
 
     modes = MODE_STRINGS.copy()
-    modes.remove("pvp")
     extra = ", ".join(f"statistics.{i}" for i in modes)
     parmas.update({"extra": extra})
 
@@ -68,6 +69,34 @@ async def fetch_stats(players: list[PartialPlayer]) -> list[PlayerStats]:
     return [PlayerStats(**i) for i in data.pop("data").values()]
 
 
+async def fetch_player_ship_stats(
+    player: PartialPlayer, ship: Optional[Ship] = None
+) -> dict[str, PlayerShipStats]:
+    """Get stats for a player in a specific ship"""
+    url = PLAYER_STATS_SHIP.replace("%%", player.region.domain)
+
+    params = {
+        "application_id": WG_ID,
+        "account_id": player.account_id,
+        "extra": ", ".join(MODE_STRINGS),
+    }
+    if ship is not None:
+        params.update({"ship_id": ship.ship_id})
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                logger.error(resp.status, await resp.text())
+            data = await resp.json()
+
+    data = data["data"][str(player.account_id)]
+
+    statistics: dict[str, PlayerShipStats] = {}
+    for i in data:
+        statistics.update({i["ship_id"]: PlayerShipStats(**i)})
+    return statistics
+
+
 class PartialPlayer(BaseModel):
     """A World of Warships player."""
 
@@ -75,26 +104,6 @@ class PartialPlayer(BaseModel):
     nickname: str
 
     clan: Optional[PlayerClanData] = None
-
-    async def fetch_ship_stats(self, ship: Ship) -> PlayerStats:
-        """Get stats for a player in a specific ship"""
-        url = PLAYER_STATS_SHIP.replace("%%", self.region.domain)
-
-        params = {
-            "application_id": WG_ID,
-            "account_id": self.account_id,
-            "ship_id": ship.ship_id,
-            "extra": ", ".join(MODE_STRINGS),
-        }
-
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    raise ConnectionError(resp.status)
-                data = await resp.json()
-
-        statistics = PlayerStats(**data.pop("statistics"))
-        return statistics
 
     @property
     def region(self) -> Region:
@@ -158,7 +167,7 @@ class PlayerModeArmamentStats(BaseModel):
     shots: Optional[int]
 
 
-class ModeStats(BaseModel):
+class ModeBattleStats(BaseModel):
     """Generic Container for all API Data"""
 
     battles: int  # Total Number of Battles
@@ -200,9 +209,7 @@ class ModeStats(BaseModel):
     ships_spotted: Optional[int]
     suppressions_count: Optional[int]
     team_capture_points: Optional[int]  # Team Total Cap Points earned
-    team_dropped_capture_points: Optional[
-        int
-    ]  # Team Total Defence Points Earned
+    team_dropped_capture_points: Optional[int]  # Team Defence Points Earned
     torpedo_agro: Optional[int]
 
     # Garbage
@@ -222,26 +229,57 @@ class ModeStats(BaseModel):
         return (self.art_agro or 0) + (self.torpedo_agro or 0)
 
 
+class PlayerShipStats(BaseModel):
+    """Statistics for a player on a specific ship"""
+
+    account_id: int
+    battles: int
+    distance: int
+    last_battle_time: int
+    ship_id: int
+    updated_at: int
+
+    # Player's private stats.
+    private: None
+
+    # Various mode stats
+    club: Optional[ModeBattleStats]
+    oper_div: Optional[ModeBattleStats]
+    oper_div_hard: Optional[ModeBattleStats]
+    oper_solo: Optional[ModeBattleStats]
+    pve: Optional[ModeBattleStats]
+    pve_div2: Optional[ModeBattleStats]
+    pve_div3: Optional[ModeBattleStats]
+    pve_solo: Optional[ModeBattleStats]
+    pvp: ModeBattleStats
+    pvp_div2: Optional[ModeBattleStats]
+    pvp_div3: Optional[ModeBattleStats]
+    pvp_solo: Optional[ModeBattleStats]
+    rank_solo: Optional[ModeBattleStats]
+    rank_div2: Optional[ModeBattleStats]
+    rank_div3: Optional[ModeBattleStats]
+
+
 class PlayerBattleStatistics(BaseModel):
     """Stats retrieved from the Player Statistics Endpoint"""
 
     distance: int
     battles: int
 
-    oper_div: ModeStats
-    oper_div_hard: ModeStats
-    oper_solo: ModeStats
-    pve: ModeStats
-    pve_div2: ModeStats
-    pve_div3: ModeStats
-    pve_solo: ModeStats
-    pvp: ModeStats
-    pvp_div2: ModeStats
-    pvp_div3: ModeStats
-    pvp_solo: ModeStats
-    rank_div2: ModeStats
-    rank_div3: ModeStats
-    rank_solo: ModeStats
+    oper_div: ModeBattleStats
+    oper_div_hard: ModeBattleStats
+    oper_solo: ModeBattleStats
+    pve: ModeBattleStats
+    pve_div2: ModeBattleStats
+    pve_div3: ModeBattleStats
+    pve_solo: ModeBattleStats
+    pvp: ModeBattleStats
+    pvp_div2: ModeBattleStats
+    pvp_div3: ModeBattleStats
+    pvp_solo: ModeBattleStats
+    rank_div2: ModeBattleStats
+    rank_div3: ModeBattleStats
+    rank_solo: ModeBattleStats
 
 
 class PlayerStats(BaseModel):

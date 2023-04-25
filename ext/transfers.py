@@ -53,7 +53,7 @@ class TransferChannel:
 
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
-        self.leagues: set[tfm.Competition] = set()
+        self.leagues: set[tfm.TFCompetition] = set()
 
     @property
     def id(self) -> int:  # pylint: disable=C0103
@@ -66,7 +66,7 @@ class TransferChannel:
         return self.channel.mention
 
     # Database management
-    async def get_leagues(self) -> set[tfm.Competition]:
+    async def get_leagues(self) -> set[tfm.TFCompetition]:
         """Get the leagues needed for this channel"""
         sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
         async with self.bot.db.acquire(timeout=60) as connection:
@@ -74,7 +74,7 @@ class TransferChannel:
                 records = await connection.fetch(sql, self.channel.id)
 
         self.leagues = set(
-            tfm.Competition(
+            tfm.TFCompetition(
                 name=r["name"], country=[r["country"]], link=r["link"]
             )
             for r in records
@@ -449,7 +449,7 @@ class Transfers(commands.Cog):
         self,
         interaction: Interaction,
         competition: discord.app_commands.Transform[
-            tfm.Competition, TFCompetitionTransformer
+            tfm.TFCompetition, TFCompetitionTransformer
         ],
         channel: Optional[discord.TextChannel],
     ) -> None:

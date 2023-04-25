@@ -43,7 +43,7 @@ class BanView(view_utils.DropdownPaginator):
 
     @discord.ui.select(placeholder="Unban members")
     async def dropdown(
-        self, itr: Interaction, select: discord.ui.Select[BanView]
+        self, itr: Interaction, sel: discord.ui.Select[BanView]
     ) -> None:
         """Perform unbans on the entries passed back from the SelectOption"""
 
@@ -56,7 +56,7 @@ class BanView(view_utils.DropdownPaginator):
         embed_utils.user_to_footer(embed, itr.user)
 
         reason = f"Requested by {itr.user}"
-        for ban in select.values:
+        for ban in sel.values:
             entry = next(i for i in self.bans if str(i.user.id) == ban)
             user = entry.user
             await guild.unban(user, reason=reason)
