@@ -62,6 +62,7 @@ from .player import (
     PlayerStats,
     PlayerShipStats,
     ModeBattleStats,
+    ModeArmamentStats,
     fetch_player_stats,
     fetch_player_ship_stats,
 )
@@ -138,8 +139,9 @@ __all__ = [
     "fetch_modules",
     # player,
     "PartialPlayer",
-    "ModeBattleStats",
     "PlayerStats",
+    "ModeBattleStats",
+    "ModeArmamentStats",
     "PlayerShipStats",
     "fetch_player_ship_stats",
     "fetch_player_stats",

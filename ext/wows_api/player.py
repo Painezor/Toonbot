@@ -157,7 +157,7 @@ class PlayerClanData(BaseModel):
         return await self.clan.fetch_details()
 
 
-class PlayerModeArmamentStats(BaseModel):
+class ModeArmamentStats(BaseModel):
     """A player's stats for a specific armament within a gamemode"""
 
     frags: int
@@ -217,11 +217,11 @@ class ModeBattleStats(BaseModel):
     battles_since_512: Optional[int]
 
     # Subdicts
-    aircraft: Optional[PlayerModeArmamentStats]
-    main_battery: Optional[PlayerModeArmamentStats]
-    ramming: Optional[PlayerModeArmamentStats]
-    second_battery: Optional[PlayerModeArmamentStats]
-    torpedoes: Optional[PlayerModeArmamentStats]
+    aircraft: Optional[ModeArmamentStats]
+    main_battery: Optional[ModeArmamentStats]
+    ramming: Optional[ModeArmamentStats]
+    second_battery: Optional[ModeArmamentStats]
+    torpedoes: Optional[ModeArmamentStats]
     wins_by_tasks: Optional[dict[int, int]]
 
     @property

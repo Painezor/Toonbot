@@ -116,7 +116,7 @@ class StatsView(BaseView):
             embed.description = f"```ini\n{output}```"
         else:
             embed.description = "Could not find stats for this game."
-        embed.title = f"Stats ({self.label})"
+        embed.title = f"Stats ({btn.label})"
         return await interaction.response.edit_message(view=self, embed=embed)
 
     async def handle_buttons(self) -> None:
@@ -143,6 +143,7 @@ class StandingsView(BaseView):
         invoker: User,
         page: Page,
         item: fs.Team | fs.Competition | fs.Fixture,
+        teams: list[fs.Team] = [],
         *,
         parent: Optional[BaseView] = None,
         timeout: float | None = 180,
@@ -150,6 +151,7 @@ class StandingsView(BaseView):
         super().__init__(invoker, parent=parent, timeout=timeout)
         self.page: Page = page
         self.object: fs.Team | fs.Competition | fs.Fixture = item
+        self.teams: list[fs.Team] = teams
         self.remove_item(self.subtable)
 
     @classmethod
@@ -793,7 +795,7 @@ class FSView(view_utils.BaseView):
     async def handle_buttons(self) -> None:
         """Generate our buttons. Returns the next free row number"""
         self.clear_items()
-        self.embed = await self.base_embed()
+        self.embed = await self.object.base_embed()
 
         # While we're here, let's also grab the logo url.
         if isinstance(self.object, (fs.Team, fs.Competition)):
@@ -850,7 +852,7 @@ class FSView(view_utils.BaseView):
         """Get results of recent games for each team in the fixture"""
         if not isinstance(self.object, fs.Fixture):
             raise NotImplementedError
-        await H2HView.start(interaction, self.page, self.obkect, self)
+        await H2HView.start(interaction, self.page, self.object, self)
 
     # Competition, Team
     @discord.ui.button(label="Fixtures", emoji="🗓️")
@@ -858,7 +860,7 @@ class FSView(view_utils.BaseView):
         """Push upcoming competition fixtures to View"""
         if not isinstance(self.object, (fs.Competition, fs.Team)):
             raise NotImplementedError
-        obj = self.obj
+        obj = self.object
         await FXPaginator.start(interaction, self.page, obj, True, self)
 
     # Fixture Only

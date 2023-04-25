@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING, TypeAlias, Optional
+from typing import TYPE_CHECKING, TypeAlias, Optional
 import typing
 
 import discord
@@ -41,16 +41,6 @@ class BaseView(discord.ui.View):
         self.parent = parent
         if parent is None:
             self.remove_item(self.parent_button)
-
-    def __getattribute__(self, __name: str) -> Any:
-        """Store our last used embed if found"""
-        if __name not in ["message", "embed"]:  # Recursion
-            if self.message is not None:
-                try:
-                    self.embed = self.message.embeds[0]
-                except IndexError:
-                    pass
-        return super().__getattribute__(__name)
 
     @discord.ui.button(label="Back", emoji="🔼")
     async def parent_button(self, interaction: Interaction, _) -> None:
