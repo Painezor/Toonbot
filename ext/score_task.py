@@ -12,7 +12,6 @@ from lxml import html, etree
 from playwright.async_api import Page, TimeoutError as PWTimeout
 
 from ext import flashscore as fs
-from ext.utils import embed_utils
 
 if TYPE_CHECKING:
     from core import Bot
@@ -21,11 +20,14 @@ if TYPE_CHECKING:
 
 logger = getLogger("ScoreLoop")
 
+EVT = fs.EventType
 MAX_SCORE_WORKERS = 5
 CURRENT_DATETIME_OFFSET = 2  # Hour difference between us and flashscore
 FXE = "fixture_event"  # Just a string for dispatching events.
 
 
+# TODO: make to_refresh an Asyncio.Queue
+# TODO: Nuke override and just directly replace the time.
 class ScoreLoop(commands.Cog):
     """Fetching of LiveScores"""
 
@@ -65,44 +67,15 @@ class ScoreLoop(commands.Cog):
             self.bot.games.clear()
             self._last_ordinal = ordinal
 
-        need_refresh = await self.fetch_games()
+        need_refresh = await self.parse_games()
         if need_refresh:
             self.bot.loop.create_task(self.bulk_fixtures(need_refresh))
+        self.bot.dispatch("scores_ready", now)
 
-        # Used for ordinal checking,
-        # Discard yesterday's games.
-        comps = set(i.competition for i in self.bot.games if i.competition)
-
-        for comp in comps:
-            embed = await comp.base_embed()
-            embed = embed.copy()
-
-            flt = [i for i in self.bot.games if i.competition == comp]
-            fix = sorted(flt, key=lambda c: c.kickoff or now)
-
-            ls_txt = [i.live_score_text for i in fix]
-            table = f"\n[View Table]({comp.table})" if comp.table else ""
-            embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, table)
-            comp.score_embeds = embeds
-
-        self.bot.dispatch("scores_ready")
-
-    async def fetch_fixture(
-        self, fixture: fs.Fixture, page: Page, force: bool = False
+    async def handle_teams(
+        self, fixture: fs.Fixture, tree: html.HtmlElement
     ) -> None:
-        """Fetch all data for a fixture"""
-        if fixture.url is None:
-            logger.error("url is None on fixture %s", fixture.name)
-            return
-
-        await asyncio.sleep(0)
-        await page.goto(fixture.url)
-        # We are now on the fixture's page. Hooray.
-        loc = page.locator(".duelParticipant")
-        await loc.wait_for(timeout=2500)
-        tree = html.fromstring(await page.content())
-
-        # Handle Teams
+        """Fetch the teams from the fixture and look them up in our cache."""
         home, away = await fs.Team.from_fixture_html(tree)
         try:
             home = next(i for i in self.bot.teams if i.id == home.id)
@@ -116,8 +89,67 @@ class ScoreLoop(commands.Cog):
             pass
 
         fixture.away = away
-
         await self.bot.save_teams([home, away])
+
+    async def fetch_competition(
+        self, page: Page, url: str
+    ) -> fs.Competition | None:
+        """Go to a competition's page and fetch it directly."""
+        await page.goto(url)
+        selector = page.locator(".heading")
+
+        try:
+            await selector.wait_for()
+        except PWTimeout:
+            logger.error("Could not find .heading on %s", url)
+            return
+
+        tree = html.fromstring(await selector.inner_html())
+
+        country = tree.xpath(".//a[@class='breadcrumb__link']")[-1]
+
+        mylg = tree.xpath(".//span[contains(@title, 'Add this')]/@class")[0]
+        mylg = [i for i in mylg.rsplit(maxsplit=1) if "_" in i][-1]
+        comp_id = mylg.rsplit("_", maxsplit=1)[-1]
+
+        src = None
+
+        try:
+            # Name Correction
+            name_loc = page.locator(".heading__name").first
+            logo_url = page.locator(".heading__logo").first
+
+            name = await name_loc.text_content(timeout=1000)
+            if name is None:
+                logger.error("Failed to find name on %s", url)
+                return
+            src = await logo_url.get_attribute("src", timeout=1000)
+        except PWTimeout:
+            logger.error("Timed out heading__logo %s", url)
+            return
+
+        if (comp := self.bot.get_competition(comp_id)) is None:
+            comp = fs.Competition(comp_id, name, country, url)
+
+        if src is not None:
+            comp.logo_url = fs.FLASHSCORE + src
+
+        await self.bot.save_competitions([comp])
+        return comp
+
+    async def fetch_fixture(
+        self, fixture: fs.Fixture, page: Page, force: bool = False
+    ) -> None:
+        """Fetch all data for a fixture"""
+        if fixture.url is None:
+            logger.error("url is None on fixture %s", fixture.name)
+            return
+
+        await asyncio.sleep(0)
+        await page.goto(fixture.url)
+        loc = page.locator(".duelParticipant")
+        await loc.wait_for(timeout=2500)
+        tree = html.fromstring(await page.content())
 
         div = tree.xpath(".//span[@class='tournamentHeader__country']")[0]
 
@@ -154,44 +186,7 @@ class ScoreLoop(commands.Cog):
                 fixture.competition = comp
                 return
 
-        await page.goto(url)
-        selector = page.locator(".heading")
-
-        try:
-            await selector.wait_for()
-        except PWTimeout:
-            logger.error("Could not find .heading on %s", url)
-            return
-
-        tree = html.fromstring(await selector.inner_html())
-
-        mylg = tree.xpath(".//span[contains(@title, 'Add this')]/@class")[0]
-        mylg = [i for i in mylg.rsplit(maxsplit=1) if "_" in i][-1]
-        comp_id = mylg.rsplit("_", maxsplit=1)[-1]
-
-        src = None
-
-        try:
-            # Name Correction
-            name_loc = page.locator(".heading__name").first
-            logo_url = page.locator(".heading__logo").first
-
-            maybe_name = await name_loc.text_content(timeout=1000)
-            if maybe_name is not None:
-                name = maybe_name
-            src = await logo_url.get_attribute("src", timeout=1000)
-        except PWTimeout:
-            logger.error("Timed out heading__logo %s", url)
-            return
-
-        if (comp := self.bot.get_competition(comp_id)) is None:
-            comp = fs.Competition(comp_id, name, country, url)
-
-        if src is not None:
-            comp.logo_url = fs.FLASHSCORE + src
-
-        await self.bot.save_competitions([comp])
-        fixture.competition = comp
+        fixture.competition = await self.fetch_competition(page, url)
 
     async def bulk_fixtures(
         self, fixtures: list[fs.Fixture], recursion: int = 0
@@ -236,11 +231,86 @@ class ScoreLoop(commands.Cog):
         await self.bulk_fixtures(failed, recursion + 1)
 
     # Core Loop
-    async def fetch_games(self) -> list[fs.Fixture]:
-        """
-        Grab current scores from flashscore using aiohttp
-        Returns a list of fixtures that need a full parse
-        """
+    def handle_cards(self, fix: fs.Fixture, tree: html.HtmlElement) -> None:
+        """Handle the Cards of a fixture"""
+        cards = tree.xpath("./img/@class")
+        cards = [i.replace("rcard-", "") for i in cards]
+
+        try:
+            home, away = [int(card) for card in cards]
+        except ValueError:
+            if len(tree.xpath("./text()")) == 2:
+                home, away = int(cards[0]), None
+            else:
+                home, away = None, int(cards[0])
+
+        if home and home != fix.home_cards:
+            evt = EVT.RED_CARD if home > fix.home_cards else EVT.VAR_RED_CARD
+            self.bot.dispatch(FXE, evt, fix, home=True)
+            fix.home_cards = home
+
+        if away and away != fix.away_cards:
+            evt = EVT.RED_CARD if away > fix.away_cards else EVT.VAR_RED_CARD
+            self.bot.dispatch(FXE, evt, fix, home=False)
+            fix.away_cards = away
+
+    def handle_kickoff(
+        self, fix: fs.Fixture, tree: html.HtmlElement, state: str
+    ) -> None:
+        """Set the kickoff of a fixture by parsing data"""
+        time = tree.xpath("./span/text()")[0]
+        if ":" not in time:
+            return
+
+        # We use the parsed data to create a 'cleaner' datetime object, with
+        # no second or microsecond and set the day to today. This unfucks our
+        # Embed Comparisons in the dispatch, since if we have micros, the time
+        # stamp will constantly be changing, making for a fucked embed.
+        now = discord.utils.utcnow()
+        offset = datetime.timedelta(hours=CURRENT_DATETIME_OFFSET)
+        _ = datetime.datetime.strptime(time, "%H:%M") - offset
+        _ = now.replace(hour=_.hour, minute=_.minute, second=0, microsecond=0)
+
+        # If the game appears to be in the past
+        # but has not kicked off yet, add a day.
+        if now.timestamp() > _.timestamp() and state == "sched":
+            _ += datetime.timedelta(days=1)
+        fix.kickoff = _
+        fix.ordinal = _.toordinal()
+
+    def handle_score(
+        self, fix: fs.Fixture, tree: html.HtmlElement
+    ) -> str | None:
+        """Parse Score and return overrides if they exist."""
+        home, away = tree.xpath("string(.//a/text())").split(":")
+
+        override = None
+        if away == "-":
+            return
+
+        override = "".join([i for i in away if not i.isdigit()])
+
+        hsc = int(home)
+        asc = int("".join([i for i in away if i.isdigit()]))
+
+        if fix.home_score != hsc:
+            if fix.home_score is not None:
+                evt = EVT.GOAL if hsc > fix.home_score else EVT.VAR_GOAL
+                self.bot.dispatch(FXE, evt, fix, home=True)
+            fix.home_score = hsc
+
+        if fix.away_score != asc:
+            if fix.away_score is not None:
+                evt = EVT.GOAL if asc > fix.away_score else EVT.VAR_GOAL
+                self.bot.dispatch(FXE, evt, fix, home=False)
+            fix.away_score = asc
+
+        if override:
+            logger.info("Got Override -> %s", override)
+        return override
+
+    async def fetch_games(self) -> list[str]:
+        """Get the raw HTML for our games split into chunks"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             if resp.status != 200:
                 logger.error("%s: %s", resp.status, resp.url)
@@ -249,7 +319,14 @@ class ScoreLoop(commands.Cog):
             tree = html.fromstring(bytes(bt_a))
 
         data = tree.xpath('.//div[@id="score-data"]')[0]
-        chunks = etree.tostring(data).decode("utf8").split("<br/>")
+        return etree.tostring(data).decode("utf8").split("<br/>")
+
+    async def parse_games(self) -> list[fs.Fixture]:
+        """
+        Grab current scores from flashscore using aiohttp
+        Returns a list of fixtures that need a full parse
+        """
+        chunks = await self.fetch_games()
 
         to_fetch: list[fs.Fixture] = []
 
@@ -281,111 +358,30 @@ class ScoreLoop(commands.Cog):
                 old_state = fix.state
 
             # Handling red cards is done relatively simply, do this first.
-            cards = tree.xpath("./img/@class")
-            if cards := [i.replace("rcard-", "") for i in cards]:
-                try:
-                    home_cards, away_cards = [int(card) for card in cards]
-                except ValueError:
-                    if len(tree.xpath("./text()")) == 2:
-                        home_cards, away_cards = int(cards[0]), None
-                    else:
-                        home_cards, away_cards = None, int(cards[0])
+            self.handle_cards(fix, tree)
 
-                if home_cards is not None:
-                    if home_cards != fix.home_cards:
-                        if fix.home_cards is not None:
-                            if home_cards > fix.home_cards:
-                                sub_t = fs.EventType.RED_CARD
-                            else:
-                                sub_t = fs.EventType.VAR_RED_CARD
-                            self.bot.dispatch(FXE, sub_t, fix, home=True)
-                        fix.home_cards = home_cards
-
-                if away_cards is not None:
-                    if away_cards != fix.away_cards:
-                        if fix.away_cards is not None:
-                            if away_cards > fix.away_cards:
-                                sub_t = fs.EventType.RED_CARD
-                            else:
-                                sub_t = fs.EventType.VAR_RED_CARD
-                            self.bot.dispatch(FXE, sub_t, fix, home=False)
-                        fix.away_cards = away_cards
+            override = self.handle_score(fix, tree)
+            # First, we check to see if we need to,
+            # and can update the fixture's kickoff
+            state = "".join(tree.xpath("./a/@class")).strip()
+            if override is None and state in ["sched", "fin"]:
+                override = state
 
             # The time block can be 1 element or 2 elements long.
             # Element 1 is either a time of day HH:MM (e.g. 20:45)
             # or a time of the match (e.g. 41')
 
-            # If Element 2 exists, it is a declaration:
+            # If Element 2 exists, it is a state override:
             # Cancelled, Postponed, Delayed, or similar.
             time = tree.xpath("./span/text()")
 
-            # First, we check to see if we need to,
-            # and can update the fixture's kickoff
-            state = "".join(tree.xpath("./a/@class")).strip()
-            if state in ["sched", "fin"]:
-                override = state
-            else:
-                override = None
-
-            if time and fix.kickoff is None:
-                if ":" in time[0]:
-                    time = time[0]
-
-                    offset = datetime.timedelta(hours=CURRENT_DATETIME_OFFSET)
-                    k_o = datetime.datetime.strptime(time, "%H:%M") - offset
-
-                    # We use the parsed data to create a 'cleaner'
-                    # datetime object, with no second or microsecond
-                    # And set the day to today.
-                    now = discord.utils.utcnow()
-                    k_o = now.replace(
-                        hour=k_o.hour,
-                        minute=k_o.minute,
-                        second=0,
-                        microsecond=0,
-                    )  # Discard micros
-
-                    # If the game appears to be in the past
-                    # but has not kicked off yet, add a day.
-                    if now.timestamp() > k_o.timestamp() and state == "sched":
-                        k_o += datetime.timedelta(days=1)
-                    fix.kickoff = k_o
-                    fix.ordinal = k_o.toordinal()
+            if fix.kickoff is None:
+                self.handle_kickoff(fix, tree, state)
 
             # What we now need to do, is figure out the "state" of the game.
             # Things may then get … more difficult. Often, the score of a
             # fixture contains extra data.
             # So, we update the match score, and parse additional states
-
-            score_line = "".join(tree.xpath(".//a/text()")).split(":")
-            h_s, a_s = score_line
-
-            if a_s != "-":
-                maybe_ovr = "".join([i for i in a_s if not i.isdigit()])
-                if maybe_ovr:
-                    override = maybe_ovr
-
-                h_score: int = int(h_s)
-                a_score: int = int("".join([i for i in a_s if i.isdigit()]))
-
-                if fix.home_score != h_score:
-                    if fix.home_score is not None:
-                        if h_score > fix.home_score:
-                            evt = fs.EventType.GOAL
-                        else:
-                            evt = fs.EventType.VAR_GOAL
-                        self.bot.dispatch(FXE, evt, fix, home=True)
-                    fix.home_score = h_score
-
-                if fix.away_score != a_score:
-                    if fix.away_score is not None:
-                        if a_score > fix.away_score:
-                            evt = fs.EventType.GOAL
-                        else:
-                            evt = fs.EventType.VAR_GOAL
-                        self.bot.dispatch(FXE, evt, fix, home=False)
-                    fix.away_score = a_score
-
             if override:
                 try:
                     fix.time = {
@@ -397,43 +393,36 @@ class ScoreLoop(commands.Cog):
                     }[override.casefold()]
                 except KeyError:
                     logger.error("Unhandled override: %s", override)
-            elif len(time) == 1:
+            else:
                 # From the link of the score, we can gather info about the time
                 # valid states are: sched, live, fin
-                sub_t = time[0]
+                sub_t = time[-1]
                 try:
                     fix.time = {
+                        # 1 Parter
                         "Break Time": fs.GameState.BREAK_TIME,
                         "Extra Time": fs.GameState.EXTRA_TIME,
                         "Half Time": fs.GameState.HALF_TIME,
                         "Live": fs.GameState.FINAL_RESULT_ONLY,
                         "Penalties": fs.GameState.PENALTIES,
-                    }[str(sub_t)]
-                except KeyError:
-                    if "'" not in sub_t and ":" not in sub_t:
-                        logger.error("1 part time unhandled: %s", sub_t)
-                    else:
-                        fix.time = sub_t
-            elif len(time) == 2:
-                sub_t = time[-1]
-
-                try:
-                    fix.time = {
+                        # 2 Parters
                         "Abandoned": fs.GameState.ABANDONED,
                         "Cancelled": fs.GameState.CANCELLED,
                         "Delayed": fs.GameState.DELAYED,
-                        "Extra Time": fs.GameState.EXTRA_TIME,
                         "Interrupted": fs.GameState.INTERRUPTED,
                         "Postponed": fs.GameState.POSTPONED,
-                    }[sub_t]
+                    }[str(sub_t)]
                 except KeyError:
-                    logger.error("2 part time unhandled: %s", time)
+                    for i in time:
+                        if "'" in i or ":" in i:
+                            fix.time = i
+                            break
+                    else:
+                        logger.error("Time Not unhandled: %s", time)
 
-            if old_state is not None:
-                new_state = fix.state
-                e_type = fs.get_event_type(new_state, old_state)
-                if e_type is not None:
-                    self.bot.dispatch("fixture_event", e_type, fix)
+            new_state = fix.state
+            e_type = fs.get_event_type(new_state, old_state)
+            self.bot.dispatch("fixture_event", e_type, fix)
         return to_fetch
 
     @discord.app_commands.command()
