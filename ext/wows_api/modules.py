@@ -1,6 +1,5 @@
 """Data retrieved from the Modules endpoint"""
 import logging
-from typing import Optional
 
 import aiohttp
 from pydantic import BaseModel, ValidationError
@@ -41,7 +40,7 @@ class DiveBomberModuleProfile(BaseModel):
     accuracy: BomberAccuracy
     bomb_burn_probability: float
     cruise_speed: int
-    max_damage: Optional[int]
+    max_damage: int | None
     max_health: int
 
     emoji = DIVE_BOMBER_EMOJI
@@ -58,9 +57,9 @@ class EngineModuleProfile(BaseModel):
 class FighterModuleProfile(BaseModel):
     """A 'Fighter' Module"""
 
-    avg_damage: Optional[int]
+    avg_damage: int | None
     cruise_speed: int
-    max_ammo: Optional[int]
+    max_ammo: int | None
     max_health: int
 
     emoji = ROCKET_PLANE_EMOJII
@@ -70,7 +69,7 @@ class FireControlModuleProfile(BaseModel):
     """A 'Fire Control' Module"""
 
     distance: float
-    distance_increase: Optional[int]
+    distance_increase: int | None
 
     emoji = FIRE_CONTROL_EMOJI
 
@@ -99,7 +98,7 @@ class HullModuleProfile(BaseModel):
     artillery_barrels: int
     atba_barrels: int
     health: int
-    planes_amount: Optional[int]
+    planes_amount: int | None
     torpedoes_barrels: int
     range: HullArmour
 
@@ -110,7 +109,7 @@ class TorpedoBomberModuleProfile(BaseModel):
     """A 'Torpedo Bomber' Module"""
 
     cruise_speed: int
-    distance: Optional[float]
+    distance: float | None
     max_damage: int
     max_health: int
     torpedo_damage: int
@@ -134,15 +133,15 @@ class TorpedoModuleProfile(BaseModel):
 class ModuleProfile(BaseModel):  # Generic
     """Data Not always present"""
 
-    artillery: Optional[ArtilleryModuleProfile]
-    dive_bomber: Optional[DiveBomberModuleProfile]
-    engine: Optional[EngineModuleProfile]
-    fighter: Optional[FighterModuleProfile]
-    fire_control: Optional[FireControlModuleProfile]
-    flight_control: Optional[FlightControlModuleProfile]
-    hull: Optional[HullModuleProfile]
-    torpedo_bomber: Optional[TorpedoBomberModuleProfile]
-    torpedoes: Optional[TorpedoModuleProfile]
+    artillery: ArtilleryModuleProfile | None
+    dive_bomber: DiveBomberModuleProfile | None
+    engine: EngineModuleProfile | None
+    fighter: FighterModuleProfile | None
+    fire_control: FireControlModuleProfile | None
+    flight_control: FlightControlModuleProfile | None
+    hull: HullModuleProfile | None
+    torpedo_bomber: TorpedoBomberModuleProfile | None
+    torpedoes: TorpedoModuleProfile | None
 
     @property
     def emoji(self) -> str:

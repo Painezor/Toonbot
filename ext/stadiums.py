@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, Any, TypeAlias, Optional
+from typing import TYPE_CHECKING, Any, TypeAlias
 from urllib.parse import quote_plus
 
 import discord
@@ -41,7 +41,7 @@ class Stadium:
     current_home: list[str] = dataclasses.field(default_factory=list)
     former_home: list[str] = dataclasses.field(default_factory=list)
 
-    league: Optional[str] = None
+    league: str | None = None
 
     def __init__(self, data: dict[str, Any]):
         for k, val in data.items():

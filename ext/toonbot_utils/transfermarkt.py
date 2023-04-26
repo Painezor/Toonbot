@@ -3,7 +3,7 @@ from __future__ import annotations  # Cyclic Type hinting
 
 import datetime
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 import typing
 
 import aiohttp
@@ -134,7 +134,7 @@ class TFTeam(SearchResult):
     """An object representing a Team from Transfermarkt"""
 
     emoji: str = "👕"
-    league: Optional[TFCompetition] = None
+    league: TFCompetition | None = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -356,10 +356,10 @@ class TFTeam(SearchResult):
 class TFPlayer(SearchResult):
     """An Object representing a player from transfermarkt"""
 
-    age: Optional[int] = None
-    team: Optional[TFTeam] = None
-    position: Optional[str] = None
-    picture: Optional[str] = None
+    age: int | None = None
+    team: TFTeam | None = None
+    position: str | None = None
+    picture: str | None = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -381,7 +381,7 @@ class TFPlayer(SearchResult):
 class Referee(SearchResult):
     """An object representing a referee from transfermarkt"""
 
-    age: Optional[int] = None
+    age: int | None = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -398,10 +398,10 @@ class Referee(SearchResult):
 class Staff(SearchResult):
     """An object representing a Trainer or Manager from Transfermarkt"""
 
-    team: Optional[TFTeam] = None
-    age: Optional[int] = None
-    job: Optional[str] = None
-    picture: Optional[str] = None
+    team: TFTeam | None = None
+    age: int | None = None
+    job: str | None = None
+    picture: str | None = None
 
     def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
         super().__init__(name, link)
@@ -430,7 +430,7 @@ class Transfer:
 
     fee: str
     fee_link: str
-    date: Optional[str] = None
+    date: str | None = None
 
     def __init__(self) -> None:
         pass
@@ -790,7 +790,7 @@ class SearchView(view_utils.DropdownPaginator):
     @classmethod
     async def search(
         cls: typing.Type["T"], query: str, interaction: Interaction
-    ) -> Optional["T"]:
+    ) -> "T" | None:
         """Generate a SearchView from the query"""
         url = TF + "/schnellsuche/ergebnis/schnellsuche"
         # Header names, scrape then compare (don't follow a pattern.)

@@ -30,9 +30,7 @@ class Info(commands.Cog):
     @discord.app_commands.command()
     @discord.app_commands.describe(user="Select a user")
     async def avatar(
-        self,
-        interaction: Interaction,
-        user: typing.Optional[User],
+        self, interaction: Interaction, user: User | None
     ) -> None:
         """Shows a member's avatar"""
         embed = discord.Embed(timestamp=discord.utils.utcnow())

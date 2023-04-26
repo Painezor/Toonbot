@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
+# TODO: Remove Discord from Import Chain
 import discord
 from git import TYPE_CHECKING
 from lxml import html
@@ -29,15 +29,13 @@ class FSObject:
     """A generic object representing the result of a Flashscore search"""
 
     name: str
-    id: Optional[str]  # pylint: disable=C0103
-    url: Optional[str]
+    id: str | None  # pylint: disable=C0103
+    url: str | None
 
-    logo_url: Optional[str] = None
-    embed_colour: Optional[discord.Colour | int] = None
+    logo_url: str | None = None
+    embed_colour: discord.Colour | int | None = None
 
-    def __init__(
-        self, fsid: Optional[str], name: str, url: Optional[str]
-    ) -> None:
+    def __init__(self, fsid: str | None, name: str, url: str | None) -> None:
         self.id = fsid  # pylint: disable=C0103
         self.name = name
         self.url = url
@@ -177,8 +175,8 @@ class FSObject:
         return articles
 
     async def _get_table(
-        self, page: Page, url: str, button: Optional[str] = None
-    ) -> Optional[bytes]:
+        self, page: Page, url: str, button: str | None = None
+    ) -> bytes | None:
         """Get the table from a flashscore page"""
         await page.goto(url, timeout=5000)
 
@@ -203,8 +201,8 @@ class FSObject:
         return await table_div.screenshot(type="png")
 
     async def get_table(
-        self, page: Page, button: Optional[str] = None
-    ) -> Optional[bytes]:
+        self, page: Page, button: str | None = None
+    ) -> bytes | None:
         """Get the table for an object"""
         if self.url is None:
             raise AttributeError("url is None on %s", self.name)
@@ -250,7 +248,7 @@ def parse_scorer(node: html.HtmlElement) -> TopScorer:
     xpath = "./div[1]//@href"
     url = FLASHSCORE + "".join(node.xpath(xpath))
 
-    scorer = TopScorer(FSPlayer(None, name, url))
+    scorer = TopScorer(FSPlayer(forename=None, surname=name, url=url))
     xpath = "./span[1]//text()"
     scorer.rank = int("".join(node.xpath(xpath)).strip("."))
 

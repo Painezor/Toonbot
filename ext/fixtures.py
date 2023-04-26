@@ -19,7 +19,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
-    Optional,
     TypeAlias,
 )
 
@@ -68,7 +67,7 @@ class StatsView(BaseView):
         page: Page,
         fixture: fs.Fixture,
         *,
-        parent: Optional[BaseView] = None,
+        parent: BaseView | None = None,
         timeout: float | None = 180,
     ):
         super().__init__(invoker, parent=parent, timeout=timeout)
@@ -82,7 +81,7 @@ class StatsView(BaseView):
         interaction: Interaction,
         page: Page,
         obj: fs.Fixture,
-        parent: Optional[FSView] = None,
+        parent: FSView | None = None,
     ) -> None:
         """Start a stats view and fetch by fetching the appropraite data"""
         if parent is None:
@@ -145,7 +144,7 @@ class StandingsView(BaseView):
         item: fs.Team | fs.Competition | fs.Fixture,
         teams: list[fs.Team] = [],
         *,
-        parent: Optional[BaseView] = None,
+        parent: BaseView | None = None,
         timeout: float | None = 180,
     ):
         super().__init__(invoker, parent=parent, timeout=timeout)
@@ -160,7 +159,7 @@ class StandingsView(BaseView):
         interaction: Interaction,
         page: Page,
         obj: fs.Team | fs.Competition | fs.Fixture,
-        parent: Optional[BaseView] = None,
+        parent: BaseView | None = None,
     ) -> None:
         """Start a Standings View"""
         embed = await obj.base_embed()
@@ -283,7 +282,7 @@ class SquadView(view_utils.DropdownPaginator):
         interaction: Interaction,
         page: Page,
         team: fs.Team,
-        btn_name: Optional[str] = None,
+        btn_name: str | None = None,
     ) -> SquadView:
         """Generate & Return a squad view"""
         embed = await team.base_embed()
@@ -326,7 +325,7 @@ class FXPaginator(view_utils.DropdownPaginator):
         page: Page,
         embed: Embed,
         fixtures: list[fs.Fixture],
-        parent: Optional[BaseView] = None,
+        parent: BaseView | None = None,
     ) -> None:
         self.page: Page = page
 
@@ -356,7 +355,7 @@ class FXPaginator(view_utils.DropdownPaginator):
         page: Page,
         obj: fs.Competition | fs.Team,
         is_fixtures: bool,
-        parent: Optional[BaseView] = None,
+        parent: BaseView | None = None,
     ) -> None:
         """Generate & return a FixtureBrowser asynchronously"""
         if parent is None:
@@ -407,9 +406,9 @@ class TopScorersView(view_utils.DropdownPaginator):
         page: Page,
         embed: Embed,
         scorers: list[fs.TopScorer],
-        parent: Optional[view_utils.BaseView],
-        nt_flt: Optional[set[str]] = None,
-        tm_flt: Optional[set[fs.Team]] = None,
+        parent: view_utils.BaseView | None,
+        nt_flt: set[str] | None = None,
+        tm_flt: set[fs.Team] | None = None,
     ):
         self.nationality_filter = nt_flt if nt_flt is not None else set()
         self.team_filter = tm_flt if tm_flt is not None else set()
@@ -448,7 +447,7 @@ class TopScorersView(view_utils.DropdownPaginator):
         interaction: Interaction,
         page: Page,
         obj: fs.Fixture | fs.Competition | fs.Team,
-        parent: Optional[BaseView] = None,
+        parent: BaseView | None = None,
     ) -> None:
         """Inttialise the Top Scorers view by fetching data"""
         if parent is None:
@@ -745,7 +744,7 @@ class H2HView(view_utils.BaseView):
         interaction: Interaction,
         page: Page,
         fixture: fs.Fixture,
-        parent: Optional[FSView] = None,
+        parent: FSView | None = None,
     ) -> None:
         """Start a Head to Head View"""
         if parent is None:

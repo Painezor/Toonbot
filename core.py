@@ -6,7 +6,7 @@ import collections
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, cast
 
 import aiohttp
 import asyncpg
@@ -101,7 +101,7 @@ class Bot(commands.AutoShardedBot):
         self.teams: set[fs.Team] = set()
         self.competitions: set[fs.Competition] = set()
         self.score_channels: set[ScoreChannel] = set()
-        self.scores: Optional[asyncio.Task[None]] = None
+        self.scores: asyncio.Task[None] | None = None
 
         # Notifications
         self.notifications_cache: list[asyncpg.Record] = []
@@ -187,7 +187,7 @@ class Bot(commands.AutoShardedBot):
                 await conn.executemany(sql, rows)
         self.teams.update(teams)
 
-    def get_competition(self, value: str) -> Optional[fs.Competition]:
+    def get_competition(self, value: str) -> fs.Competition | None:
         """Retrieve a competition from the ones stored in the bot."""
         for i in self.competitions:
             if i.id == value:
@@ -209,11 +209,11 @@ class Bot(commands.AutoShardedBot):
                     return i
         return None
 
-    def get_team(self, team_id: str) -> Optional[fs.Team]:
+    def get_team(self, team_id: str) -> fs.Team | None:
         """Retrieve a Team from the ones stored in the bot."""
         return next((i for i in self.teams if i.id == team_id), None)
 
-    async def dump_image(self, data: BytesIO) -> Optional[str]:
+    async def dump_image(self, data: BytesIO) -> str | None:
         """Save a stitched image"""
         file = discord.File(fp=data, filename="dumped_image.png")
         channel = self.get_channel(874655045633843240)

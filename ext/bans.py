@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, TypeAlias, Optional, cast
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 import discord
 from discord.ext import commands
@@ -141,7 +141,7 @@ class BanCog(commands.Cog):
     async def bans(
         self,
         interaction: Interaction,
-        name: Optional[str],
+        name: str | None,
     ) -> None:
         """Show the ban list for the server"""
         guild = cast(discord.Guild, interaction.guild)

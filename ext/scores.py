@@ -4,7 +4,7 @@ import datetime
 
 import itertools
 import logging
-from typing import TYPE_CHECKING, Optional, TypeAlias, cast
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 import discord
 from discord import Message, Embed
@@ -22,10 +22,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger("scores")
 
 # Constants.
-NO_GAMES_FOUND = (
+
+NGF = (
     "No games found for your tracked leagues today!\n\nYou can "
     "add more leagues with `/livescores add`"
 )
+NO_GAMES_FOUND = Embed(description=NGF)
+NO_GAMES_FOUND.set_author(name="No Games Found", url=fs.FLASHSCORE)
+
 
 NOPERMS = (
     "\n```yaml\nThis livescores channel will not work currently, "
@@ -39,7 +43,7 @@ class ScoreChannel:
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
         self.messages: list[discord.Message] = []
-        self._current_embeds: dict[Optional[str], Embed] = dict()
+        self._current_embeds: dict[str, Embed] = dict()
         self.leagues: set[fs.Competition] = set()
 
     @property
@@ -82,7 +86,9 @@ class ScoreChannel:
             self.leagues.add(comp)
         return self.leagues
 
-    async def run_scores(self, bot: Bot) -> None:
+    async def run_scores(
+        self, bot: Bot, comps: dict[fs.Competition, list[Embed]]
+    ) -> None:
         """Edit a live-score channel to have the latest scores"""
         # Validatiion / Rate Limit Avoidance Logic.
         if self.channel.is_news():
@@ -93,27 +99,26 @@ class ScoreChannel:
             await self.get_leagues(bot)
 
         embeds: list[Embed] = []
-        for i in self.leagues:
-            embeds += i.score_embeds
+        for k, val in comps.items():
+            if k in self.leagues:
+                embeds += val
 
         _ = self.channel
         if not self.messages and _.permissions_for(_.guild.me).manage_messages:
             await self.purge(bot)
 
         if not embeds:
-            embed = Embed(title="No Games Found")
-            embed.description = NO_GAMES_FOUND
-            embeds = [embed]
+            embeds = [NO_GAMES_FOUND]
 
         # Stack embeds to max size for individual message.
         stacked = embed_utils.stack_embeds(embeds)
 
         # Zip the lists into tuples to simultaneously iterate Limit to 5 max
-        tuples: list[tuple[Optional[Message], Optional[list[Embed]]]]
+        tuples: list[tuple[Message | None, list[Embed] | None]]
         tuples = list(itertools.zip_longest(self.messages, stacked))
 
         def sorter(
-            item: tuple[Optional[Message], Optional[list[Embed]]]
+            item: tuple[Message | None, list[Embed] | None]
         ) -> datetime.datetime:
             message, _ = item
             if message is None:
@@ -125,17 +130,22 @@ class ScoreChannel:
         tuples.sort(key=sorter)
 
         # We have a limit of 5 messages due to ratelimiting
-        count = 0
+        count = 1
         for message, m_embeds in tuples:
             if m_embeds is None:
-                assert message is not None
-                # This message does not need editing.
-                if message.flags.suppress_embeds:
+                if message is None:
                     continue
-            elif message is not None:
+
+                if message.flags.suppress_embeds:
+                    # This message does not need editing.
+                    continue
+            elif message is None:
+                pass
+            else:
                 for embed in m_embeds:
                     try:
-                        old = self._current_embeds[embed.url].description
+                        assert (auth := embed.author.url) is not None
+                        old = self._current_embeds[auth].description
                         new = embed.description
                         if old != new:
                             break  # We're good to go.
@@ -151,16 +161,16 @@ class ScoreChannel:
             except (discord.NotFound, discord.Forbidden):
                 bot.score_channels.discard(self)
 
-            count += 1
             if count > 4:
                 return
+            count += 1
 
     # If we have more than 5 messages, get the 5 oldest, and their index
     # Then map these indexes to the appropriate embeds
     async def send_or_edit(
         self,
-        message: Optional[discord.Message],
-        embeds: Optional[list[Embed]],
+        message: Message | None,
+        embeds: list[Embed] | None,
     ) -> None:
         """Try to send this messagee to a our channel"""
         if message is None and embeds is None:
@@ -168,7 +178,8 @@ class ScoreChannel:
 
         if embeds is not None:
             for i in embeds:
-                self._current_embeds[i.url] = i
+                assert i.author.url is not None
+                self._current_embeds[i.author.url] = i
 
         # Suppress Message's embeds until they're needed again.
         if message is None:
@@ -180,11 +191,10 @@ class ScoreChannel:
             return
 
         if embeds is None:
-            if message.flags.suppress_embeds:
-                return
-            await message.edit(suppress=True)
+            new_msg = await message.edit(suppress=True)
         else:
-            await message.edit(embeds=embeds, suppress=False)
+            new_msg = await message.edit(embeds=embeds, suppress=False)
+        self.messages[self.messages.index(message)] = new_msg
 
     async def reset_leagues(self, interaction: Interaction) -> None:
         """Reset the channel's list of leagues to the defaults"""
@@ -343,13 +353,28 @@ class Scores(commands.Cog):
         self.bot.competitions.clear()
 
     @commands.Cog.listener()
-    async def on_scores_ready(self) -> None:
+    async def on_scores_ready(self, now: datetime.datetime) -> None:
         """When Livescores Fires a "scores ready" event, handle it"""
         if not self.bot.score_channels:
             await self.update_cache()
 
+        comps = set(i.competition for i in self.bot.games if i.competition)
+
+        sc_embeds: dict[fs.Competition, list[Embed]] = {}
+        for comp in comps:
+            embed = await comp.base_embed()
+            embed = embed.copy()
+
+            flt = [i for i in self.bot.games if i.competition == comp]
+            fix = sorted(flt, key=lambda c: c.kickoff or now)
+
+            ls_txt = [i.live_score_text for i in fix]
+            table = f"\n[View Table]({comp.table})" if comp.table else ""
+            embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, table)
+            sc_embeds.update({comp: embeds})
+
         for i in self.bot.score_channels.copy():
-            await i.run_scores(self.bot)
+            await i.run_scores(self.bot, sc_embeds)
 
     # Database load: ScoreChannels
     async def update_cache(self) -> set[ScoreChannel]:
@@ -427,7 +452,7 @@ class Scores(commands.Cog):
     async def manage(
         self,
         interaction: Interaction,
-        channel: Optional[discord.TextChannel],
+        channel: discord.TextChannel | None,
     ) -> None:
         """View or Delete tracked leagues from a live-scores channel."""
         if channel is None:
@@ -522,7 +547,7 @@ class Scores(commands.Cog):
         self,
         interaction: Interaction,
         competition: fs.cmp_tran,
-        channel: Optional[discord.TextChannel],
+        channel: discord.TextChannel | None,
     ) -> None:
         """Add a league to an existing live-scores channel"""
 
@@ -568,7 +593,7 @@ class Scores(commands.Cog):
     async def scores(
         self,
         interaction: Interaction,
-        competition: Optional[fs.live_comp_transf],
+        competition: fs.live_comp_transf | None,
     ) -> None:
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""

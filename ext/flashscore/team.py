@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 from lxml import html
-from typing import Optional, TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
@@ -38,15 +38,13 @@ TFOpts = Literal["All", "Arrivals", "Departures"]
 class Team(FSObject):
     """An object representing a Team from Flashscore"""
 
-    competition: Optional[Competition] = None
-    gender: Optional[str] = None
-    logo_url: Optional[str] = None
+    competition: Competition | None = None
+    gender: str | None = None
+    logo_url: str | None = None
 
     emoji = TEAM_EMOJI
 
-    def __init__(
-        self, fs_id: Optional[str], name: str, url: Optional[str]
-    ) -> None:
+    def __init__(self, fs_id: str | None, name: str, url: str | None) -> None:
         # Example URL:
         # https://www.flashscore.com/team/thailand-stars/jLsL0hAF/
         # https://www.flashscore.com/?r=3:jLsL0hAF
@@ -120,7 +118,7 @@ class Team(FSObject):
         return "".join([i for i in self.name if i.isupper()])
 
     async def get_squad(
-        self, page: Page, btn_name: Optional[str] = None
+        self, page: Page, btn_name: str | None = None
     ) -> list[SquadMember]:
         """Get all squad members for a tournament"""
         url = f"{self.url}/squad"
@@ -183,7 +181,7 @@ class Team(FSObject):
             except ValueError:
                 forename, surname = None, name
 
-            plr = FSPlayer(forename, surname, link)
+            plr = FSPlayer(forename=forename, surname=surname, url=link)
             plr.country = i.xpath('.//span[@class="flag"]/@title')
 
             xpath = './/div[@class="transferTab__season"]/text()'
@@ -216,11 +214,11 @@ def parse_row(row: html.HtmlElement, position: str) -> SquadMember:
     xpath = './/div[contains(@class, "cell--name")]/a/text()'
     name = "".join(row.xpath(xpath)).strip()
     try:  # Name comes in reverse order.
-        surname, forename = name.rsplit(" ", 1)
+        sur, first = name.rsplit(" ", 1)
     except ValueError:
-        forename, surname = None, name
+        first, sur = None, name
 
-    plr = FSPlayer(forename, surname, link)
+    plr = FSPlayer(forename=first, surname=sur, url=link)
     xpath = './/div[contains(@class,"flag")]/@title'
     plr.country = [str(x.strip()) for x in row.xpath(xpath) if x]
     xpath = './/div[contains(@class,"cell--age")]/text()'
@@ -316,7 +314,7 @@ class FSTransfer(BaseModel):
     player: FSPlayer
     type: str
 
-    team: Optional[Team] = None
+    team: Team | None = None
 
     @property
     def emoji(self) -> str:

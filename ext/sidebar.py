@@ -9,7 +9,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Any
 
 import asyncprawcore  # type: ignore
 import discord
@@ -329,8 +329,8 @@ class NUFCSidebar(commands.Cog):
     async def sidebar(
         self,
         interaction: discord.Interaction[Bot],
-        caption: Optional[str],
-        image: Optional[discord.Attachment],
+        caption: str | None,
+        image: discord.Attachment | None,
     ) -> None:
         """Upload an image to the sidebar, or edit the caption."""
         if not caption and not image:

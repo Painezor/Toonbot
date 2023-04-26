@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from lxml import html
-from typing import Optional, TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any
 
 from . import abc
 from .constants import COMPETITION_EMOJI, LOGO_URL, FLASHSCORE
@@ -11,9 +11,7 @@ from .constants import COMPETITION_EMOJI, LOGO_URL, FLASHSCORE
 logger = logging.getLogger("flashscore.competition")
 
 if TYPE_CHECKING:
-    # TODO: Refactor to remove asyncpg/discord from imports.
     import asyncpg
-    import discord
     from playwright.async_api import Page
 
 
@@ -25,10 +23,10 @@ class Competition(abc.FSObject):
 
     def __init__(
         self,
-        fsid: Optional[str],
+        fsid: str | None,
         name: str,
-        country: Optional[str],
-        url: Optional[str],
+        country: str | None,
+        url: str | None,
     ) -> None:
         # Sanitise inputs.
         if country is not None and ":" in country:
@@ -50,12 +48,11 @@ class Competition(abc.FSObject):
 
         super().__init__(fsid, name, url)
 
-        self.logo_url: Optional[str] = None
-        self.country: Optional[str] = country
-        self.score_embeds: list[discord.Embed] = []
+        self.logo_url: str | None = None
+        self.country: str | None = country
 
         # Table Imagee
-        self.table: Optional[str] = None
+        self.table: str | None = None
 
     @classmethod
     def from_record(cls, record: asyncpg.Record) -> Competition:

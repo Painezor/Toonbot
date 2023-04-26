@@ -7,12 +7,12 @@ import json
 import io
 import random
 
-from typing import TYPE_CHECKING, TypeAlias, Optional
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands
 from PIL import Image, ImageDraw, ImageOps, ImageFont
-from pydantic import BaseModel  # pylint: disable=no-name-in-module
+from pydantic import BaseModel
 
 from ext.utils import view_utils
 
@@ -111,11 +111,11 @@ class ImageCache:
     """Cached Images for an ImageView"""
 
     coordinates: list[FacialRecognitionAPIResponse]
-    image: Optional[bytes] = None
-    bob: Optional[io.BytesIO] = None
-    eyes: Optional[io.BytesIO] = None
-    knob: Optional[io.BytesIO] = None
-    ruins: Optional[io.BytesIO] = None
+    image: bytes | None = None
+    bob: io.BytesIO | None = None
+    eyes: io.BytesIO | None = None
+    knob: io.BytesIO | None = None
+    ruins: io.BytesIO | None = None
 
 
 class ImageView(view_utils.BaseView):
@@ -124,9 +124,9 @@ class ImageView(view_utils.BaseView):
     def __init__(
         self,
         interaction: Interaction,
-        user: Optional[User] = None,
-        link: Optional[str] = None,
-        file: Optional[discord.Attachment] = None,
+        user: User | None = None,
+        link: str | None = None,
+        file: discord.Attachment | None = None,
     ) -> None:
         if link is not None:
             self.target_url = link
@@ -404,9 +404,9 @@ class Images(commands.Cog):
     async def eyes(
         self,
         interaction: Interaction,
-        user: Optional[User],
-        link: Optional[str],
-        file: Optional[discord.Attachment],
+        user: User | None,
+        link: str | None,
+        file: discord.Attachment | None,
     ) -> None:
         """Draw Googly eyes on an image using Facial Recognition API."""
         user = interaction.user if not user else user
@@ -424,9 +424,9 @@ class Images(commands.Cog):
     async def ruins(
         self,
         interaction: Interaction,
-        user: Optional[User],
-        link: Optional[str],
-        file: Optional[discord.Attachment],
+        user: User | None,
+        link: str | None,
+        file: discord.Attachment | None,
     ) -> None:
         """Local man ruins everything"""
         user = interaction.user if not user else user
@@ -443,9 +443,9 @@ class Images(commands.Cog):
     async def bob_ross(
         self,
         interaction: Interaction,
-        user: Optional[User],
-        link: Optional[str],
-        file: Optional[discord.Attachment],
+        user: User | None,
+        link: str | None,
+        file: discord.Attachment | None,
     ) -> None:
         """Draw Bob Ross Hair on an image using Facial Recognition API"""
         user = interaction.user if not user else user

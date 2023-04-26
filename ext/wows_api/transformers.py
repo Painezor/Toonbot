@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TypeAlias, TYPE_CHECKING, Optional
+from typing import TypeAlias, TYPE_CHECKING
 
 import aiohttp
 from discord import Locale, Interaction as Itr
@@ -122,7 +122,7 @@ class ClassTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str
-    ) -> Optional[ShipType]:
+    ) -> ShipType | None:
         """Get a shiptype"""
         for i in interaction.client.ships:
             if i.type.name == value:
@@ -193,7 +193,7 @@ class ModeTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> Optional[GameMode]:
+    ) -> GameMode | None:
         """Convert"""
         return next(i for i in interaction.client.modes if i.name == value)
 

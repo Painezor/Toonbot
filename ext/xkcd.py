@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import TYPE_CHECKING, Optional, TypeAlias, Any
+from typing import TYPE_CHECKING, TypeAlias, Any
 import random
 
 import discord
@@ -27,7 +27,7 @@ class XKCDView(view_utils.AsyncPaginator):
     def __init__(
         self,
         invoker: User,
-        index: Optional[int],
+        index: int | None,
         max_page: int,
         embed: discord.Embed,
     ):
@@ -43,7 +43,7 @@ class XKCDView(view_utils.AsyncPaginator):
 
     @classmethod
     async def create(
-        cls, interaction: Interaction, *, start: Optional[int] = -1
+        cls, interaction: Interaction, *, start: int | None = -1
     ) -> XKCDView:
         """Spawn a view asynchronously"""
         url = "https://xkcd.com/info.0.json"

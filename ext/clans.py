@@ -4,7 +4,7 @@ from __future__ import annotations
 import importlib
 import logging
 
-from typing import Optional, TYPE_CHECKING, TypeAlias, Any
+from typing import TYPE_CHECKING, TypeAlias, Any
 
 import discord
 from discord import SelectOption, Embed, Colour
@@ -31,8 +31,8 @@ class Leaderboard(view_utils.DropdownPaginator):
         self,
         invoker: User,
         clans: list[api.ClanLeaderboardStats],
-        season: Optional[api.ClanBattleSeason],
-        region: Optional[api.Region],
+        season: api.ClanBattleSeason | None,
+        region: api.Region | None,
     ) -> None:
         embed = Embed(colour=Colour.purple())
 
@@ -100,7 +100,7 @@ class ClanView(view_utils.BaseView):
         super().__init__(invoker, **kwargs)
         self.clan: api.Clan = clan
 
-        self._clan_vortex: Optional[api.ClanVortexData] = None
+        self._clan_vortex: api.ClanVortexData | None = None
         self._member_vortex: list[api.ClanMemberVortexData] = []
 
     async def clan_vortex(self) -> api.ClanVortexData:
@@ -433,7 +433,7 @@ class Clans(commands.Cog):
         self,
         interaction: Interaction,
         region: api.region_transform,
-        season: Optional[discord.app_commands.Range[int, 1, 20]] = None,
+        season: discord.app_commands.Range[int, 1, 20] | None = None,
     ) -> None:
         """Get the Season Clan Battle Leaderboard"""
         clans = await api.get_cb_leaderboard(region=region, season=season)

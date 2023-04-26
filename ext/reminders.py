@@ -68,11 +68,9 @@ class RemindModal(discord.ui.Modal):
         style=discord.TextStyle.paragraph,
     )
 
-    def __init__(
-        self, title: str, message: typing.Optional[discord.Message] = None
-    ):
+    def __init__(self, title: str, message: discord.Message | None = None):
         super().__init__(title=title)
-        self.message: typing.Optional[discord.Message] = message
+        self.message: discord.Message | None = message
 
     async def on_submit(  # type: ignore
         self, interaction: Interaction, /

@@ -281,6 +281,7 @@ class NUFC(commands.Cog):
     @discord.app_commands.guilds(332159889587699712)
     async def downhowe(self, interaction: Interaction) -> None:
         """Adds a downvote reaction to the last 10 messages"""
+        await interaction.response.defer(thinking=True)
         channel = typing.cast(discord.TextChannel, interaction.channel)
         try:
             async for message in channel.history(limit=10):
@@ -290,12 +291,14 @@ class NUFC(commands.Cog):
             embed.description = "❌ I can't react in this channel"
             await interaction.response.send_message(embed=embed)
             return
-        await interaction.response.send_message(":downvote:332196251959427073")
+        txt = ":downvote:332196251959427073"
+        await interaction.edit_original_response(content=txt)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
     async def uphowe(self, interaction: Interaction) -> None:
         """Adds an upvote reaction to the last 10 messages"""
+        await interaction.response.defer(thinking=True)
         channel = typing.cast(discord.TextChannel, interaction.channel)
         try:
             async for message in channel.history(limit=10):
@@ -305,7 +308,8 @@ class NUFC(commands.Cog):
             embed.description = "❌ I can't react in this channel"
             await interaction.response.send_message(embed=embed)
             return
-        await interaction.response.send_message(":upvote:332196220460072970")
+        txt = ":upvote:332196220460072970"
+        await interaction.edit_original_response(content=txt)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
-from typing import TYPE_CHECKING, cast, Any, Optional
+from typing import TYPE_CHECKING, cast, Any
 
 import asyncpg
 import discord
@@ -46,21 +46,21 @@ class MatchThread:
         # Caching
         self._old_markdown = ""
 
-        self.offset: Optional[int] = self.settings["pre_match_offset"]
+        self.offset: int | None = self.settings["pre_match_offset"]
         self.srd_string: str = self.settings["subreddit"]
 
         # Notification Channel
         chn = self.bot.get_channel(self.settings["notify_channel"])
         chn = cast(discord.TextChannel, chn)
-        self.channel: Optional[discord.TextChannel] = chn
+        self.channel: discord.TextChannel | None = chn
 
         # Pre/Match/Post
         self.pre: Any = None
         self.match: Any = None
         self.post: Any = None
-        self._pre_url: Optional[str] = None
-        self._mt_url: Optional[str] = None
-        self._post_url: Optional[str] = None
+        self._pre_url: str | None = None
+        self._mt_url: str | None = None
+        self._post_url: str | None = None
 
         # Browser Page
         self.page: Page = page

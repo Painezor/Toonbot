@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import random
-from typing import Optional, TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING, TypeAlias
 
 import asyncpg
 import discord
@@ -148,7 +148,7 @@ class QuotesView(view_utils.AsyncPaginator):
         super().__init__(interaction.user, len(recs))
 
         self.quotes = recs
-        self.qtjmp: Optional[discord.ui.Button[QuotesView]] = None
+        self.qtjmp: discord.ui.Button[QuotesView] | None = None
 
     @discord.ui.button(row=0, emoji="🎲")
     async def random(
@@ -412,7 +412,7 @@ class QuoteDB(commands.Cog):
         self,
         interaction: Interaction,
         text: discord.app_commands.Transform[asyncpg.Record, QuoteTransformer],
-        user: Optional[discord.Member] = None,
+        user: discord.Member | None = None,
     ) -> None:
         """Search for a quote by quote text"""
         if interaction.user.id in self.bot.quote_blacklist:

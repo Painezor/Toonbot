@@ -7,16 +7,16 @@ import logging
 import typing
 
 import aiohttp
-import discord
+from discord import Embed, User as Usr, Member, Colour
 from PIL import Image
 
 logger = logging.getLogger("embed_utils")
 
 T = typing.TypeVar("T")
-User: typing.TypeAlias = discord.User | discord.Member
+User: typing.TypeAlias = Usr | Member
 
 
-def user_to_author(embed: discord.Embed, user: User) -> discord.Embed:
+def user_to_author(embed: Embed, user: User) -> Embed:
     """Add a user's name, id, and profile picture to the author field"""
     name = f"{user} ({user.id})"
     embed.set_author(name=name, icon_url=user.display_avatar.url)
@@ -24,10 +24,8 @@ def user_to_author(embed: discord.Embed, user: User) -> discord.Embed:
 
 
 def user_to_footer(
-    embed: discord.Embed,
-    user: User,
-    reason: typing.Optional[str] = None,
-) -> discord.Embed:
+    embed: Embed, user: User, reason: str | None = None
+) -> Embed:
     """Add the user's name, id, avatar, and an optional reason to the footer of
     an embed"""
     icon = user.display_avatar.url
@@ -40,10 +38,10 @@ def user_to_footer(
     return embed
 
 
-async def get_colour(url: typing.Optional[str]) -> discord.Colour | int:
+async def get_colour(url: str | None) -> Colour | int:
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None:
-        return discord.Colour.og_blurple()
+        return Colour.og_blurple()
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             raw = await resp.read()
@@ -59,7 +57,7 @@ async def get_colour(url: typing.Optional[str]) -> discord.Colour | int:
             img.close()
 
     colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
-    return discord.Colour.from_rgb(*colour)
+    return Colour.from_rgb(*colour)
 
 
 def paginate(items: list[T], num: int = 25) -> list[list[T]]:
@@ -68,18 +66,18 @@ def paginate(items: list[T], num: int = 25) -> list[list[T]]:
 
 
 def rows_to_embeds(
-    embed: discord.Embed,
+    embed: Embed,
     items: list[str],
     rows: int = 10,
     footer: str = "",
     max_length: int = 4096,
-) -> list[discord.Embed]:
+) -> list[Embed]:
     """Create evenly distributed rows of text from a list of data"""
 
     desc = embed.description + "\n" if embed.description else ""
 
     count: int = 0
-    embeds: list[discord.Embed] = []
+    embeds: list[Embed] = []
 
     current = embed.copy()
     for row in items:
@@ -103,10 +101,10 @@ def rows_to_embeds(
     return embeds
 
 
-def stack_embeds(embeds: list[discord.Embed]) -> list[list[discord.Embed]]:
+def stack_embeds(embeds: list[Embed]) -> list[list[Embed]]:
     """Paginate a list of embeds up to the maximum size for a Message"""
-    this_iter: list[discord.Embed] = []
-    output: list[list[discord.Embed]] = []
+    this_iter: list[Embed] = []
+    output: list[list[Embed]] = []
     length: int = 0
 
     for i in embeds:

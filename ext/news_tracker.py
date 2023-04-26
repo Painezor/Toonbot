@@ -37,20 +37,20 @@ class Article:
         self.bot = bot
         # Partial is the trailing part of the URL.
         self.partial: str = partial
-        self.link: typing.Optional[str] = None
+        self.link: str | None = None
 
         # Stored Data
-        self.title: typing.Optional[str] = None
-        self.category: typing.Optional[str] = None
-        self.description: typing.Optional[str] = None
-        self.image: typing.Optional[str] = None
+        self.title: str | None = None
+        self.category: str | None = None
+        self.description: str | None = None
+        self.image: str | None = None
 
         # A flag for each region the article has been found in.
         self.eu: bool = False  # pylint: disable=C0103
         self.na: bool = False  # pylint: disable=C0103
         self.sea: bool = False  # pylint: disable=C0103
 
-        self.date: typing.Optional[datetime.datetime] = None
+        self.date: datetime.datetime | None = None
 
     # TODO: Move this to a method of bot, move to end of file.
     async def save(self, bot: PBot) -> None:
@@ -170,7 +170,7 @@ class NewsChannel:
 
     async def dispatch(
         self, region: api.Region, article: Article
-    ) -> typing.Optional[discord.Message]:
+    ) -> discord.Message | None:
         """
 
         Check if the article has already been submitted to the channel,
@@ -450,7 +450,7 @@ class NewsTracker(commands.Cog):
     async def news_tracker(
         self,
         interaction: Interaction,
-        channel: typing.Optional[discord.TextChannel] = None,
+        channel: discord.TextChannel | None = None,
     ) -> None:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""

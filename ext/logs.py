@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime
 import logging
 import typing
-from typing import TYPE_CHECKING, TypeAlias, Optional
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord import Emoji, Message, Embed
@@ -620,7 +620,7 @@ def iter_embed(
 
         elif key == "inviter":
             # User who created the invite
-            inviter: typing.Optional[discord.Member] = value
+            inviter: discord.Member | None = value
             if inviter:
                 embed.description += f"**inviter**: `{inviter.mention}`\n"
 
@@ -795,7 +795,7 @@ def iter_embed(
 
         elif key == "timed_out_until":
             # Member Timeout
-            to_end: typing.Optional[datetime.datetime] = value
+            to_end: datetime.datetime | None = value
 
             if to_end:
                 text = f"{timed_events.Timestamp(to_end).relative}"
@@ -956,7 +956,7 @@ class LogsConfig(view_utils.BaseView):
         self.channel: discord.TextChannel = channel
 
     async def update(
-        self, interaction: Interaction, content: typing.Optional[str] = None
+        self, interaction: Interaction, content: str | None = None
     ) -> None:
         """Regenerate view and push to message"""
         self.clear_items()
@@ -1310,7 +1310,7 @@ class AuditLogs(commands.Cog):
 
         # Find if it was addition or removal.
 
-        def parse_emoji(emoji: Emoji, added: Optional[bool] = None) -> Embed:
+        def parse_emoji(emoji: Emoji, added: bool | None = None) -> Embed:
             new_embed = embed.copy()
             if emoji.roles:
                 role = min(emoji.roles, key=lambda i: i.position).mention
@@ -1556,7 +1556,7 @@ class AuditLogs(commands.Cog):
     async def logs(
         self,
         interaction: Interaction,
-        channel: typing.Optional[discord.TextChannel] = None,
+        channel: discord.TextChannel | None = None,
     ) -> None:
         """Create moderator logs in this channel."""
 

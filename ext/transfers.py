@@ -6,7 +6,7 @@ from importlib import reload
 
 import logging
 import typing
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 import discord
 from discord.ext import commands, tasks
@@ -42,7 +42,7 @@ class TFCompetitionTransformer(discord.app_commands.Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> Optional[tfm.CompetitionSearch]:
+    ) -> tfm.CompetitionSearch | None:
         return await tfm.CompetitionSearch.search(value, interaction)
 
 
@@ -280,7 +280,7 @@ class Transfers(commands.Cog):
         self,
         interaction: Interaction,
         channel: discord.TextChannel,
-    ) -> Optional[TransferChannel]:
+    ) -> TransferChannel | None:
         """Create a ticker for the channel"""
 
         chan = channel.mention
@@ -424,7 +424,7 @@ class Transfers(commands.Cog):
     async def manage(
         self,
         interaction: Interaction,
-        channel: Optional[discord.TextChannel],
+        channel: discord.TextChannel | None,
     ) -> None:
         """View the config of this channel's transfer ticker"""
         if channel is None:
@@ -451,7 +451,7 @@ class Transfers(commands.Cog):
         competition: discord.app_commands.Transform[
             tfm.TFCompetition, TFCompetitionTransformer
         ],
-        channel: Optional[discord.TextChannel],
+        channel: discord.TextChannel | None,
     ) -> None:
         """Add a league to your transfer ticker channel(s)"""
         if channel is None:

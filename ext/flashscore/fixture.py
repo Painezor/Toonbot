@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
+# TODO: Remove Discord from import Chain.
 import discord
 from lxml import html
 from playwright.async_api import TimeoutError as PWTimeout
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
     from .competitions import Competition
     from .team import Team
-    from .matchevents import MatchEvent
+    from .matchevents import MatchIncident
 
 logger = logging.getLogger("flashscore.fixture")
 
@@ -49,7 +50,7 @@ class Fixture(FSObject):
     emoji = GOAL_EMOJI
 
     def __init__(
-        self, home: Team, away: Team, fs_id: Optional[str], url: Optional[str]
+        self, home: Team, away: Team, fs_id: str | None, url: str | None
     ) -> None:
         if fs_id and not url:
             url = f"https://www.flashscore.com/?r=5:{fs_id}"
@@ -60,33 +61,33 @@ class Fixture(FSObject):
         super().__init__(fs_id, f"{home.name}:{away.name}", url)
 
         self.away: Team = away
-        self.away_cards: Optional[int] = None
-        self.away_score: Optional[int] = None
-        self.penalties_away: Optional[int] = None
+        self.away_cards: int = 0
+        self.away_score: int | None = None
+        self.penalties_away: int | None = None
 
         self.home: Team = home
-        self.home_cards: Optional[int] = None
-        self.home_score: Optional[int] = None
-        self.penalties_home: Optional[int] = None
+        self.home_cards: int = 0
+        self.home_score: int | None = None
+        self.penalties_home: int | None = None
 
-        self.time: Optional[str | GS] = None
-        self.kickoff: Optional[datetime.datetime] = None
-        self.ordinal: Optional[int] = None
+        self.time: str | GS | None = None
+        self.kickoff: datetime.datetime | None = None
+        self.ordinal: int | None = None
 
-        self.attendance: Optional[int] = None
-        self.competition: Optional[Competition] = None
-        self.events: list[MatchEvent] = []
-        self.infobox: Optional[str] = None
-        self.images: Optional[list[str]] = None
+        self.attendance: int | None = None
+        self.competition: Competition | None = None
+        self.events: list[MatchIncident] = []
+        self.infobox: str | None = None
+        self.images: list[str] | None = None
 
-        self.referee: Optional[str] = None
-        self.stadium: Optional[str] = None
+        self.referee: str | None = None
+        self.stadium: str | None = None
 
         # Hacky but works for results
-        self.win: Optional[str] = None
+        self.win: str | None = None
 
     @classmethod
-    def from_mobi(cls, node: html.HtmlElement, id_: str) -> Optional[Fixture]:
+    def from_mobi(cls, node: html.HtmlElement, id_: str) -> Fixture | None:
         # TODO: Nuke Circular
         from .team import Team
 
@@ -221,7 +222,7 @@ class Fixture(FSObject):
         if self.away_score > self.home_score:
             away = f"**{away}**"
 
-        def parse_cards(cards: Optional[int]) -> str:
+        def parse_cards(cards: int | None) -> str:
             """Get a number of icons matching number of cards"""
             if not cards:
                 return ""
@@ -299,6 +300,12 @@ class Fixture(FSObject):
         """Return "X - Y", or 'vs' if scores are None"""
         if self.home_score is None:
             return "vs"
+
+        if self.penalties_home:
+            ph = self.penalties_home
+            pa = self.penalties_away
+            return f"({self.home_score}) ({ph}) - ({pa}) {self.away_score}"
+
         return f"{self.home_score} - {self.away_score}"
 
     @property
@@ -334,13 +341,13 @@ class Fixture(FSObject):
             embed.description = "This match has been postponed."
 
         if self.competition:
-            embed.set_footer(text=f"{self.time} - {self.competition.title}")
+            embed.set_footer(text=f"{self.time} | {self.competition.title}")
         else:
             embed.set_footer(text=self.time)
         return embed
 
     async def get_head_to_head(
-        self, page: Page, btn: Optional[str] = None
+        self, page: Page, btn: str | None = None
     ) -> list[str]:
         """Return a list of Fixtures matching head to head criteria"""
         url = f"{self.url}/#/h2h"
@@ -400,7 +407,7 @@ class Fixture(FSObject):
         return photos
 
     async def get_stats(
-        self, page: Page, btn: Optional[str] = None
+        self, page: Page, btn: str | None = None
     ) -> list[MatchStat]:
         """Get the statistics for a match"""
         url = f"{self.url}#/match-summary/match-statistics/"
@@ -425,8 +432,8 @@ class Fixture(FSObject):
         return stats
 
     async def get_table(
-        self, page: Page, button: Optional[str] = None
-    ) -> Optional[bytes]:
+        self, page: Page, button: str | None = None
+    ) -> bytes | None:
         """Get table from fixture"""
         if self.url is None:
             raise AttributeError("Fixture has no URL for get_table")

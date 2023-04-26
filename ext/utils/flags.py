@@ -3,7 +3,6 @@ import logging
 import unicodedata
 
 from pycountry import countries  # type: ignore
-from typing import Optional
 
 logger = logging.getLogger("flags")
 
@@ -109,7 +108,7 @@ def get_flags(strings: list[str]) -> list[str]:
     return [get_flag(i) for i in strings]
 
 
-def get_flag(string: Optional[str]) -> str:
+def get_flag(string: str | None) -> str:
     """Get a flag emoji from a string representing a country"""
     # Try pycountry
     if string is None:

@@ -54,7 +54,7 @@ class Admin(commands.Cog):
     @commands.is_owner()
     @commands.command(name="sync")
     async def sync(
-        self, ctx: commands.Context[Bot], guild_id: typing.Optional[int] = None
+        self, ctx: commands.Context[Bot], guild_id: int | None = None
     ) -> discord.Message:
         """Sync the command tree with discord"""
         try:

@@ -94,7 +94,7 @@ class Mod(commands.Cog):
     async def embed(
         self,
         interaction: Interaction,
-        destination: typing.Optional[discord.TextChannel],
+        destination: discord.TextChannel | None,
         colour: str = "random",
     ) -> None:
         """Send an embedded announcement as the bot in a specified channel"""
@@ -116,7 +116,7 @@ class Mod(commands.Cog):
         self,
         interaction: Interaction,
         message: str,
-        destination: typing.Optional[discord.TextChannel] = None,
+        destination: discord.TextChannel | None = None,
     ) -> None:
         """Say something as the bot in specified channel"""
         if destination is None:

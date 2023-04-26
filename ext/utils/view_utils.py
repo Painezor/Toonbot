@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, TypeAlias, Optional
+from typing import TYPE_CHECKING, TypeAlias
 import typing
 
 import discord
@@ -23,15 +23,15 @@ logger = logging.getLogger("view_utils")
 class BaseView(discord.ui.View):
     """Error Handler."""
 
-    message: Optional[discord.Message] = None
-    embed: Optional[discord.Embed] = None
+    message: discord.Message | None = None
+    embed: discord.Embed | None = None
 
     def __init__(
         self,
         invoker: User,
         *,
-        parent: typing.Optional[BaseView] = None,
-        timeout: typing.Optional[float] = 180,
+        parent: BaseView | None = None,
+        timeout: float | None = 180,
     ):
         # User ID of the person who invoked the command.
         super().__init__(timeout=timeout)
@@ -49,10 +49,10 @@ class BaseView(discord.ui.View):
         assert self.parent is not None
         view = self.parent
         edit = interaction.response.edit_message
-        await edit(view=view, embed=view.embed, attachments=[])
+        await edit(view=view, attachments=[])
 
     @discord.ui.button(emoji="🚯", row=0, style=discord.ButtonStyle.red)
-    async def _stop(self, interaction: discord.Interaction, _) -> None:
+    async def _stop(self, interaction: Interaction, _) -> None:
         """Delete this message."""
         await interaction.response.defer()
         try:
@@ -149,8 +149,6 @@ class JumpModal(discord.ui.Modal):
 
 
 # TODO: Deperecate rows_to_embeds
-
-
 class Paginator(BaseView):
     """A Paginator takes a list of Embeds and an Optional list of
     lists of SelectOptions. When a button is clicked, the page is changed
@@ -163,14 +161,14 @@ class Paginator(BaseView):
         embeds: list[discord.Embed],
         *,
         index: int = 0,
-        parent: typing.Optional[BaseView] = None,
-        timeout: typing.Optional[float] = None,
+        parent: BaseView | None = None,
+        timeout: float | None = None,
     ) -> None:
         super().__init__(invoker, parent=parent, timeout=timeout)
 
         self.pages = embeds
-
         self.index = index
+        self.update_buttons()
 
     def update_buttons(self) -> None:
         """Refresh labels & Availability of buttons"""
@@ -237,8 +235,8 @@ class DropdownPaginator(Paginator):
         footer: str = "",
         *,
         multi: bool = False,
-        parent: typing.Optional[BaseView] = None,
-        timeout: typing.Optional[float] = None,
+        parent: BaseView | None = None,
+        timeout: float | None = None,
     ) -> None:
         embeds = embed_utils.rows_to_embeds(embed, rows, length, footer)
         self.dropdowns = embed_utils.paginate(options, length)
@@ -329,16 +327,16 @@ class Funcable:
         self,
         label: str,
         function: typing.Callable[..., typing.Any],
-        args: typing.Optional[list[typing.Any]] = None,
-        keywords: typing.Optional[dict[str, typing.Any]] = None,
-        emoji: typing.Optional[str] = "🔘",
-        description: typing.Optional[str] = None,
+        args: list[typing.Any] | None = None,
+        keywords: dict[str, typing.Any] | None = None,
+        emoji: str | None = "🔘",
+        description: str | None = None,
         style: discord.ButtonStyle = discord.ButtonStyle.gray,
         disabled: bool = False,
     ):
         self.label: str = label
-        self.emoji: typing.Optional[str] = emoji
-        self.description: typing.Optional[str] = description
+        self.emoji: str | None = emoji
+        self.description: str | None = description
         self.style: discord.ButtonStyle = style
         self.disabled: bool = disabled
 
@@ -355,7 +353,7 @@ class FuncSelect(discord.ui.Select[BaseView]):
         self,
         items: list[Funcable],
         row: int,
-        placeholder: typing.Optional[str] = None,
+        placeholder: str | None = None,
     ):
         self.items: dict[str, Funcable] = {}
 
@@ -385,8 +383,8 @@ class FuncButton(discord.ui.Button[BaseView]):
     def __init__(
         self,
         function: typing.Callable[..., typing.Awaitable[typing.Any]],
-        args: typing.Optional[list[typing.Any]] = None,
-        kw: typing.Optional[dict[str, typing.Any]] = None,
+        args: list[typing.Any] | None = None,
+        kw: dict[str, typing.Any] | None = None,
         **kwargs: typing.Any,
     ) -> None:
         super().__init__(**kwargs)

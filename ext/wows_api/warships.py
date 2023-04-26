@@ -3,13 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
-from pydantic import (  # pylint: disable=no-name-in-module
-    BaseModel,
-    ValidationError,
-)
+from pydantic import BaseModel, ValidationError
 
 from ext.wows_api.modules import Module
 
@@ -169,8 +166,8 @@ class TreeModule(BaseModel):
     price_xp: int
     type: str
 
-    next_modules: Optional[list[int]]
-    next_ships: Optional[list[int]]
+    next_modules: list[int] | None
+    next_ships: list[int] | None
 
 
 class Ship(BaseModel):

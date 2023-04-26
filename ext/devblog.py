@@ -75,12 +75,12 @@ class Blog:
     def __init__(
         self,
         _id: int,
-        title: typing.Optional[str] = None,
-        text: typing.Optional[str] = None,
+        title: str | None = None,
+        text: str | None = None,
     ):
         self.id: int = _id  # pylint: disable=C0103
-        self.title: typing.Optional[str] = title
-        self.text: typing.Optional[str] = text
+        self.title: str | None = title
+        self.text: str | None = text
 
     @property
     def ac_row(self) -> str:
@@ -237,6 +237,9 @@ class Blog:
 
             elif node.tag == "br":
                 out.append("\n")
+
+            elif node.tag == "u":
+                out.append(f"__{txt}__")
 
             else:
                 if node.text:

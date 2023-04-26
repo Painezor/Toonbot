@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from ext.utils import flags
 
@@ -15,24 +15,13 @@ if TYPE_CHECKING:
 class FSPlayer(BaseModel):
     """An object representing a player from flashscore."""
 
-    forename: Optional[str]
+    forename: str | None
     surname: str
-    url: Optional[str]
+    url: str | None
 
     country: list[str] = []
-    age: Optional[int] = None
-    team: Optional[Team] = None
-
-    def __init__(
-        self,
-        forename: Optional[str],
-        surname: str,
-        url: Optional[str],
-    ) -> None:
-        # Main. Forename will not always be present.
-        self.forename: Optional[str] = forename
-        self.surname: str = surname
-        self.url: Optional[str] = url
+    age: int | None = None
+    team: Team | None = None
 
     @property
     def name(self) -> str:
@@ -58,7 +47,7 @@ class TopScorer(BaseModel):
     """A Top Scorer object fetched from a Flashscore Item"""
 
     player: FSPlayer
-    team: Optional[Team] = None
+    team: Team | None = None
     goals: int = 0
     rank: int = 0
     assists: int = 0

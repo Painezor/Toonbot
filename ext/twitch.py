@@ -124,10 +124,10 @@ class Stream:
     ) -> None:
         self.language: str = language
         self.viewers: int = viewers
-        self.user: typing.Optional[str] = user.name
+        self.user: str | None = user.name
         self.title: str = title
         self.timestamp: timed_events.Timestamp = timestamp
-        self.contributor: typing.Optional[bool] = None
+        self.contributor: bool | None = None
 
     @property
     def flag(self) -> str:
@@ -404,7 +404,7 @@ class TwitchTracker(commands.Cog):
 
     async def create(
         self, interaction: Interaction, channel: discord.TextChannel
-    ) -> typing.Optional[TrackerChannel]:
+    ) -> TrackerChannel | None:
         """Send a dialogue to create a new tracker."""
         view = view_utils.Confirmation(interaction.user, "Create", "Cancel")
         view.true.style = discord.ButtonStyle.green
@@ -569,7 +569,7 @@ class TwitchTracker(commands.Cog):
     async def streams(
         self,
         interaction: Interaction,
-        contributor: typing.Optional[bool] = None,
+        contributor: bool | None = None,
     ) -> None:
         """Get a list of current World of Warships streams on Twitch"""
 
@@ -641,9 +641,9 @@ class TwitchTracker(commands.Cog):
     async def contributor(
         self,
         interaction: Interaction,
-        search: typing.Optional[str] = None,
-        region: typing.Optional[REGIONS] = None,
-        language: typing.Optional[str] = None,
+        search: str | None = None,
+        region: REGIONS | None = None,
+        language: str | None = None,
     ) -> None:
         """Fetch The List of all CCs"""
         ccs = contributors
@@ -691,7 +691,7 @@ class TwitchTracker(commands.Cog):
         self,
         interaction: Interaction,
         role: discord.Role,
-        channel: typing.Optional[discord.TextChannel] = None,
+        channel: discord.TextChannel | None = None,
     ) -> None:
         """Add a role of this discord to the twitch tracker."""
 
@@ -727,7 +727,7 @@ class TwitchTracker(commands.Cog):
     async def manage(
         self,
         interaction: Interaction,
-        channel: typing.Optional[discord.TextChannel] = None,
+        channel: discord.TextChannel | None = None,
     ) -> None:
         """View or remove tracked twitch go live roles"""
         if channel is None:

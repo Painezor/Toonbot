@@ -114,9 +114,7 @@ class Tv(commands.Cog):
     @discord.app_commands.command(name="tv")
     @discord.app_commands.describe(team="Search for a team")
     @discord.app_commands.autocomplete(team=tv_ac)
-    async def tv_cmd(
-        self, interaction: Interaction, team: typing.Optional[str]
-    ) -> None:
+    async def tv_cmd(self, interaction: Interaction, team: str | None) -> None:
         """Lookup next televised games for a team"""
         embed = discord.Embed(colour=0x034F76)
         embed.set_author(name="LiveSoccerTV.com")

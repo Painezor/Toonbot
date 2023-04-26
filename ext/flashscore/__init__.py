@@ -18,7 +18,7 @@ from .constants import (
 )
 from .fixture import Fixture
 from .gamestate import GameState, get_event_type
-from .matchevents import EventType, MatchEvent, Penalty, Substitution
+from .matchevents import EventType, MatchIncident, Penalty, Substitution
 from .players import FSPlayer, TopScorer
 from .team import Team, FSTransfer, SquadMember
 from .transformers import (
@@ -53,7 +53,7 @@ __all__ = [
     "get_event_type",
     # match events
     "EventType",
-    "MatchEvent",
+    "MatchIncident",
     "Penalty",
     "Substitution",
     # players

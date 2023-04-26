@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Optional
 
 import aiohttp
-from pydantic import BaseModel  # pylint: disable = no-name-in-module
+from pydantic import BaseModel
 from .wg_id import WG_ID
 from .enums import Region
 from .clan import Clan, PartialClan
@@ -70,7 +69,7 @@ async def fetch_player_stats(
 
 
 async def fetch_player_ship_stats(
-    player: PartialPlayer, ship: Optional[Ship] = None
+    player: PartialPlayer, ship: Ship | None = None
 ) -> dict[str, PlayerShipStats]:
     """Get stats for a player in a specific ship"""
     url = PLAYER_STATS_SHIP.replace("%%", player.region.domain)
@@ -103,7 +102,7 @@ class PartialPlayer(BaseModel):
     account_id: int
     nickname: str
 
-    clan: Optional[PlayerClanData] = None
+    clan: PlayerClanData | None = None
 
     @property
     def region(self) -> Region:
@@ -161,10 +160,10 @@ class ModeArmamentStats(BaseModel):
     """A player's stats for a specific armament within a gamemode"""
 
     frags: int
-    hits: Optional[int]
-    max_frags_battle: Optional[int]
-    max_frags_ship_id: Optional[int]
-    shots: Optional[int]
+    hits: int | None
+    max_frags_battle: int | None
+    max_frags_ship_id: int | None
+    shots: int | None
 
 
 class ModeBattleStats(BaseModel):
@@ -176,53 +175,53 @@ class ModeBattleStats(BaseModel):
     wins: int
     xp: int  # pylint: disable=C0103
 
-    art_agro: Optional[int]  # Potential Damage
-    capture_points: Optional[int]  # Sum of Below x2
-    control_captured_points: Optional[int]  # Same
-    control_dropped_points: Optional[int]  # Defended
-    damage_dealt: Optional[int]
-    damage_scouting: Optional[int]  # Spotting Damage
-    damage_to_buildings: Optional[int]  # Dead
-    draws: Optional[int]  # Draws
-    dropped_capture_points: Optional[int]  # ????
-    frags: Optional[int]  # Kills
+    art_agro: int | None  # Potential Damage
+    capture_points: int | None  # Sum of Below x2
+    control_captured_points: int | None  # Same
+    control_dropped_points: int | None  # Defended
+    damage_dealt: int | None
+    damage_scouting: int | None  # Spotting Damage
+    damage_to_buildings: int | None  # Dead
+    draws: int | None  # Draws
+    dropped_capture_points: int | None  # ????
+    frags: int | None  # Kills
     losses: int  # Losses
-    max_damage_dealt: Optional[int]
-    max_damage_dealt_ship_id: Optional[int]
-    max_damage_dealt_to_buildings: Optional[int]
-    max_damage_dealt_to_buildings_ship_id: Optional[int]
-    max_damage_scouting: Optional[int]
-    max_frags_battle: Optional[int]
-    max_frags_ship_id: Optional[int]
-    max_planes_killed: Optional[int]
-    max_planes_killed_ship_id: Optional[int]
-    max_scouting_damage_ship_id: Optional[int]
-    max_ships_spotted: Optional[int]
-    max_ships_spotted_ship_id: Optional[int]
-    max_suppressions_count: Optional[int]
-    max_suppressions_ship_id: Optional[int]
-    max_total_agro: Optional[int]  # Potential Damage
-    max_total_agro_ship_id: Optional[int]
-    max_xp: Optional[int]
-    max_xp_ship_id: Optional[int]
-    planes_killed: Optional[int]
-    ships_spotted: Optional[int]
-    suppressions_count: Optional[int]
-    team_capture_points: Optional[int]  # Team Total Cap Points earned
-    team_dropped_capture_points: Optional[int]  # Team Defence Points Earned
-    torpedo_agro: Optional[int]
+    max_damage_dealt: int | None
+    max_damage_dealt_ship_id: int | None
+    max_damage_dealt_to_buildings: int | None
+    max_damage_dealt_to_buildings_ship_id: int | None
+    max_damage_scouting: int | None
+    max_frags_battle: int | None
+    max_frags_ship_id: int | None
+    max_planes_killed: int | None
+    max_planes_killed_ship_id: int | None
+    max_scouting_damage_ship_id: int | None
+    max_ships_spotted: int | None
+    max_ships_spotted_ship_id: int | None
+    max_suppressions_count: int | None
+    max_suppressions_ship_id: int | None
+    max_total_agro: int | None  # Potential Damage
+    max_total_agro_ship_id: int | None
+    max_xp: int | None
+    max_xp_ship_id: int | None
+    planes_killed: int | None
+    ships_spotted: int | None
+    suppressions_count: int | None
+    team_capture_points: int | None  # Team Total Cap Points earned
+    team_dropped_capture_points: int | None  # Team Defence Points Earned
+    torpedo_agro: int | None
 
     # Garbage
-    battles_since_510: Optional[int]
-    battles_since_512: Optional[int]
+    battles_since_510: int | None
+    battles_since_512: int | None
 
     # Subdicts
-    aircraft: Optional[ModeArmamentStats]
-    main_battery: Optional[ModeArmamentStats]
-    ramming: Optional[ModeArmamentStats]
-    second_battery: Optional[ModeArmamentStats]
-    torpedoes: Optional[ModeArmamentStats]
-    wins_by_tasks: Optional[dict[int, int]]
+    aircraft: ModeArmamentStats | None
+    main_battery: ModeArmamentStats | None
+    ramming: ModeArmamentStats | None
+    second_battery: ModeArmamentStats | None
+    torpedoes: ModeArmamentStats | None
+    wins_by_tasks: dict[int, int] | None
 
     @property
     def potential_damage(self) -> int:
@@ -243,21 +242,21 @@ class PlayerShipStats(BaseModel):
     private: None
 
     # Various mode stats
-    club: Optional[ModeBattleStats]
-    oper_div: Optional[ModeBattleStats]
-    oper_div_hard: Optional[ModeBattleStats]
-    oper_solo: Optional[ModeBattleStats]
-    pve: Optional[ModeBattleStats]
-    pve_div2: Optional[ModeBattleStats]
-    pve_div3: Optional[ModeBattleStats]
-    pve_solo: Optional[ModeBattleStats]
+    club: ModeBattleStats | None
+    oper_div: ModeBattleStats | None
+    oper_div_hard: ModeBattleStats | None
+    oper_solo: ModeBattleStats | None
+    pve: ModeBattleStats | None
+    pve_div2: ModeBattleStats | None
+    pve_div3: ModeBattleStats | None
+    pve_solo: ModeBattleStats | None
     pvp: ModeBattleStats
-    pvp_div2: Optional[ModeBattleStats]
-    pvp_div3: Optional[ModeBattleStats]
-    pvp_solo: Optional[ModeBattleStats]
-    rank_solo: Optional[ModeBattleStats]
-    rank_div2: Optional[ModeBattleStats]
-    rank_div3: Optional[ModeBattleStats]
+    pvp_div2: ModeBattleStats | None
+    pvp_div3: ModeBattleStats | None
+    pvp_solo: ModeBattleStats | None
+    rank_solo: ModeBattleStats | None
+    rank_div2: ModeBattleStats | None
+    rank_div3: ModeBattleStats | None
 
 
 class PlayerBattleStatistics(BaseModel):

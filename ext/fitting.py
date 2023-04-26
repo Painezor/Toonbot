@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import random
-from typing import TYPE_CHECKING, Any, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import discord
 from discord.ext import commands
@@ -240,23 +240,23 @@ class OverviewEmbed(ShipEmbed):
         slots = ship.mod_slots
 
         # Check for bonus Slots (Arkansas Beta, Z-35, …)
-        if tier:
-            if tier < 3:
-                slts = 1
-            elif tier < 5:
-                slts = 2
-            elif tier < 6:
-                slts = 3
-            elif tier < 7:
-                slts = 4
-            elif tier < 8:
-                slts = 5
-            else:
-                slts = 6
+        slts = {
+            1: 1,
+            2: 1,
+            3: 1,
+            4: 2,
+            5: 3,
+            6: 4,
+            7: 4,
+            8: 5,
+            9: 6,
+            10: 6,
+            11: 6,
+        }[tier]
 
-            if slots != slts:
-                text = f"This ship has {slots} upgrades instead of {slts}"
-                self.add_field(name="Special Upgrade Slots", value=text)
+        if slots != slts:
+            text = f"This ship has {slots} upgrades instead of {slts}"
+            self.add_field(name="Special Upgrade Slots", value=text)
 
         if ship.images:
             self.set_image(url=fitting.ship.images.large)
@@ -550,9 +550,9 @@ class Fittings(commands.Cog):
     async def random_ship(
         self,
         interaction: Interaction,
-        tier: Optional[discord.app_commands.Range[int, 1, 11]],
-        class_: Optional[api.class_transform],
-        nation: Optional[api.Nation],
+        tier: discord.app_commands.Range[int, 1, 11] | None,
+        class_: api.class_transform | None,
+        nation: api.Nation | None,
     ) -> None:
         """Get a random ship"""
         ships = interaction.client.ships

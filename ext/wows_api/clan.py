@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import Any, Optional
+from typing import Any
 
 import aiohttp
-from pydantic import BaseModel  # pylint: disable=no-name-in-module
+from pydantic import BaseModel
 from .enums import Region
 from .wg_id import WG_ID
 
@@ -68,7 +68,7 @@ async def get_member_vortex(
 
 
 async def get_cb_leaderboard(
-    season: Optional[int] = None, region: Optional[Region] = None
+    season: int | None = None, region: Region | None = None
 ) -> list[ClanLeaderboardStats]:
     """Get the leaderboard for a clan battle season"""
     params: dict[str, Any] = dict()
@@ -272,10 +272,10 @@ class ClanMemberVortexData(BaseModel):
 
     abnormal_results: bool
     # accumulative_clan_resource: None
-    battles_count: Optional[int]
+    battles_count: int | None
     days_in_clan: int
-    exp_per_battle: Optional[float]
-    frags_per_battle: Optional[float]
+    exp_per_battle: float | None
+    frags_per_battle: float | None
     is_banned: bool
     # is_bonus_activated: None
     is_hidden_statistics: bool
@@ -285,16 +285,16 @@ class ClanMemberVortexData(BaseModel):
     online_status: bool
     profile_link: str
     last_battle_time: int
-    damage_per_battle: Optional[float]
+    damage_per_battle: float | None
     id: int  # pylint: disable= C0103
     rank: int
     role: str
     # season_rank: None
     season_id: int
-    wins_percentage: Optional[float]
+    wins_percentage: float | None
 
     # Data is not always present for this value
-    battles_per_day: Optional[float] = None
+    battles_per_day: float | None = None
 
 
 class ClanMember(BaseModel):
@@ -487,8 +487,8 @@ class ClanVortexData(BaseModel):
     is_best_season_rating: bool
     is_disbanded: bool
     is_qualified: bool
-    last_battle_at: Optional[datetime.datetime]
-    last_win_at: Optional[datetime.datetime]
+    last_battle_at: datetime.datetime | None
+    last_win_at: datetime.datetime | None
     leading_team_number: int
     league: int
     longest_winning_streak: int
@@ -498,8 +498,8 @@ class ClanVortexData(BaseModel):
     max_public_rating: int
     # max_winning_streak: int
     members_count: int
-    planned_prime_time: Optional[int]  # This value is weird, highest seen is 9
-    prime_time: Optional[int]
+    planned_prime_time: int | None  # This value is weird, highest seen is 9
+    prime_time: int | None
     public_rating: int
     ratings: list[ClanSeasonStats]
     rating_realm: None

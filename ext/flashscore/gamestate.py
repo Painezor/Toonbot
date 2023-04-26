@@ -1,12 +1,8 @@
 """Flashscore GameState Objects and ticker dispatching"""
 from __future__ import annotations
-from dataclasses import MISSING
 
 import enum
 import logging
-from typing import Optional
-
-import discord
 
 from .matchevents import EventType
 
@@ -21,12 +17,10 @@ class GameState(enum.Enum):
         obj._value_ = args[0]
         return obj
 
-    def __init__(
-        self, shorthand: str, emote: str, colour: discord.Colour
-    ) -> None:
+    def __init__(self, shorthand: str, emote: str, colour: int) -> None:
         self.shorthand: str = shorthand
         self.emote: str = emote
-        self.colour: discord.Colour = colour
+        self.colour: int = colour
 
     # Black
     SCHEDULED = ("sched", "⚫", 0x010101)
@@ -67,69 +61,57 @@ class GameState(enum.Enum):
 
 
 def get_event_type(
-    new: Optional[GameState], old: Optional[GameState]
-) -> Optional[EventType]:
-    """Dispatch events to the ticker"""
-
-    if old == new or old is None:
+    new: GameState | None, old: GameState | None
+) -> EventType | None:
+    """Conver a new / old difference to an EventType"""
+    if old == new or old is None or new is None:
         return
 
-    evt = MISSING
+    # I'm pretty sure this is a fucking warcrime.
+    try:
+        return {
+            GameState.ABANDONED: EventType.ABANDONED,
+            GameState.AFTER_EXTRA_TIME: EventType.SCORE_AFTER_EXTRA_TIME,
+            GameState.AFTER_PENS: EventType.PENALTY_RESULTS,
+            GameState.BREAK_TIME: EventType.EXTRA_TIME_END
+            if old == GameState.EXTRA_TIME
+            else EventType.NORMAL_TIME_END,
+            GameState.CANCELLED: EventType.CANCELLED,
+            GameState.DELAYED: EventType.DELAYED,
+            GameState.EXTRA_TIME: EventType.ET_HT_END
+            if old == GameState.HALF_TIME
+            else EventType.EXTRA_TIME_BEGIN,
+            GameState.HALF_TIME: EventType.ET_HT_BEGIN
+            if old == GameState.EXTRA_TIME
+            else EventType.HALF_TIME,
+            GameState.INTERRUPTED: EventType.INTERRUPTED,
+            GameState.PENALTIES: EventType.PENALTIES_BEGIN,
+            GameState.POSTPONED: EventType.POSTPONED,
+            GameState.STOPPAGE_TIME: None,
+            GameState.LIVE: {
+                GameState.SCHEDULED: EventType.KICK_OFF,
+                GameState.DELAYED: EventType.KICK_OFF,
+                GameState.INTERRUPTED: EventType.RESUMED,
+                GameState.HALF_TIME: EventType.SECOND_HALF_BEGIN,
+                GameState.BREAK_TIME: EventType.PERIOD_BEGIN,
+            }[old],
+        }[new]
+    except KeyError:
+        pass
 
-    if new == GameState.ABANDONED:
-        evt = EventType.ABANDONED
-    elif new == GameState.AFTER_EXTRA_TIME:
-        evt = EventType.SCORE_AFTER_EXTRA_TIME
-    elif new == GameState.AFTER_PENS:
-        evt = EventType.PENALTY_RESULTS
-    elif new == GameState.CANCELLED:
-        evt = EventType.CANCELLED
-    elif new == GameState.DELAYED:
-        evt = EventType.DELAYED
-    elif new == GameState.INTERRUPTED:
-        evt = EventType.INTERRUPTED
-    elif new == GameState.BREAK_TIME:
-        if old == GameState.EXTRA_TIME:
-            # Break Time = after regular time & before penalties
-            evt = EventType.EXTRA_TIME_END
-        else:
-            evt = EventType.NORMAL_TIME_END
-    elif new == GameState.EXTRA_TIME:
-        if old == GameState.HALF_TIME:
-            evt = EventType.HALF_TIME_ET_END
-        else:
-            evt = EventType.EXTRA_TIME_BEGIN
-    elif new == GameState.FULL_TIME:
-        if old == GameState.EXTRA_TIME:
-            evt = EventType.SCORE_AFTER_EXTRA_TIME
-        elif old in [GameState.SCHEDULED, GameState.HALF_TIME]:
-            evt = EventType.FINAL_RESULT_ONLY
-        else:
-            evt = EventType.FULL_TIME
-    elif new == GameState.HALF_TIME:
-        # Half Time is fired at regular Half time & ET Half time.
-        if old == GameState.EXTRA_TIME:
-            evt = EventType.HALF_TIME_ET_BEGIN
-        else:
-            evt = EventType.HALF_TIME
-    elif new == GameState.LIVE:
-        if old in [GameState.SCHEDULED, GameState.DELAYED]:
-            evt = EventType.KICK_OFF
-        elif old == GameState.INTERRUPTED:
-            evt = EventType.RESUMED
-        elif old == GameState.HALF_TIME:
-            evt = EventType.SECOND_HALF_BEGIN
-        elif old == GameState.BREAK_TIME:
-            evt = EventType.PERIOD_BEGIN
-    elif new == GameState.PENALTIES:
-        evt = EventType.PENALTIES_BEGIN
-    elif new == GameState.POSTPONED:
-        evt = EventType.POSTPONED
-    elif new == GameState.STOPPAGE_TIME:
-        return None
+    evt = None
 
-    if evt is MISSING:
+    if new == GameState.FULL_TIME:
+        try:
+            return {
+                GameState.EXTRA_TIME: EventType.SCORE_AFTER_EXTRA_TIME,
+                GameState.SCHEDULED: EventType.FINAL_RESULT_ONLY,
+                GameState.HALF_TIME: EventType.FINAL_RESULT_ONLY,
+            }[old]
+        except KeyError:
+            return EventType.FULL_TIME
+
+    if evt is None:
         logger.error("State Change Not Handled: %s -> %s", old, new)
-        evt = None
 
     return evt

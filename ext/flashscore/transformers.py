@@ -9,7 +9,6 @@ from typing import (
     TypeAlias,
     Literal,
     overload,
-    Optional,
 )
 from urllib.parse import quote
 
@@ -113,7 +112,7 @@ async def search(
 
 def parse_competition(
     i: dict[str, Any], interaction: Interaction
-) -> Optional[Competition]:
+) -> Competition | None:
     """Parse a competition object"""
     if i["type"]["name"] == "TournamentTemplate":
         id_ = i["id"]
@@ -392,7 +391,7 @@ class TeamTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> Optional[Team]:
+    ) -> Team | None:
         if fsr := interaction.client.get_team(value):
             return fsr
 
@@ -442,7 +441,7 @@ class FixtureTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> Optional[Fixture]:
+    ) -> Fixture | None:
         """Try to convert input to a fixture"""
         games = interaction.client.games
         if fix := next((i for i in games if i.id == value), None):
@@ -503,7 +502,7 @@ class TFCompetitionTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> Optional[Competition]:
+    ) -> Competition | None:
         if fsr := interaction.client.get_competition(value):
             return fsr
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 import aiohttp
-from pydantic import BaseModel  # pylint: disable=no-name-in-module
+from pydantic import BaseModel
 
 from .wg_id import WG_ID
 

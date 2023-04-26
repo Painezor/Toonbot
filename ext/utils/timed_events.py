@@ -1,12 +1,11 @@
 """Utilities for working with future events"""
 import datetime
-import typing
 
 
 class Timestamp:
     """A Utility class for quick timezone conversion"""
 
-    def __init__(self, time: typing.Optional[datetime.datetime | int] = None):
+    def __init__(self, time: datetime.datetime | int | None = None):
         if time is None:
             time = datetime.datetime.now(tz=datetime.timezone.utc)
 

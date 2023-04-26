@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 import discord
 from discord.ui import Button, Select
@@ -44,7 +44,7 @@ class StatsView(view_utils.BaseView):
         interaction: Interaction,
         player: api.PartialPlayer,
         mode: api.GameMode,
-        ship: Optional[api.warships.Ship] = None,
+        ship: api.warships.Ship | None = None,
         div_size: int = 0,
         **kwargs: Any,
     ) -> None:
@@ -52,12 +52,12 @@ class StatsView(view_utils.BaseView):
 
         # Passed
         self.player: api.PartialPlayer = player
-        self.ship: Optional[api.warships.Ship] = ship
+        self.ship: api.warships.Ship | None = ship
         self.mode: api.GameMode = mode
         self.div_size: int = div_size
 
         # Fetched
-        self.api_stats: Optional[api.PlayerStats | api.PlayerShipStats] = None
+        self.api_stats: api.PlayerStats | api.PlayerShipStats | None = None
 
     def handle_buttons(self, interaction: Interaction) -> None:
         """Repopulate the dropdown's options"""
@@ -390,9 +390,9 @@ class WowsStats(commands.Cog):
         interaction: Interaction,
         region: api.region_transform,
         player: api.player_transform,
-        ship: Optional[api.ship_transform] = None,
-        mode: Optional[api.mode_transform] = None,
-        division: Optional[discord.app_commands.Range[int, 0, 3]] = None,
+        ship: api.ship_transform | None = None,
+        mode: api.mode_transform | None = None,
+        division: discord.app_commands.Range[int, 0, 3] | None = None,
     ) -> None:
         """Search for a player's Stats"""
         del region  # Shut up linter.
