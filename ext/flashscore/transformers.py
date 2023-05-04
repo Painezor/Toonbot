@@ -110,42 +110,6 @@ async def search(
     ...
 
 
-def parse_competition(
-    i: dict[str, Any], interaction: Interaction
-) -> Competition | None:
-    """Parse a competition object"""
-    if i["type"]["name"] == "TournamentTemplate":
-        id_ = i["id"]
-        name = i["name"]
-        ctry = i["defaultCountry"]["name"]
-        url = i["url"]
-
-        comp = interaction.client.get_competition(id_)
-
-        if comp is None:
-            comp = Competition(id_, name, ctry, url)
-
-        if i["images"]:
-            logo_url = i["images"][0]["path"]
-            comp.logo_url = logo_url
-
-        return comp
-    else:
-        types = i["participantTypes"]
-        logging.info("unhandled particpant types %s", types)
-
-
-def parse_team(i: dict[str, Any], interaction: Interaction) -> Team:
-    if (team := interaction.client.get_team(i["id"])) is None:
-        team = Team(i["id"], i["name"], i["url"])
-    try:
-        team.logo_url = i["images"][0]["path"]
-    except IndexError:
-        pass
-    team.gender = i["gender"]["name"]
-    return team
-
-
 async def search(
     query: str,
     mode: Literal["comp", "team"],
@@ -169,30 +133,73 @@ async def search(
             logger.error("%s %s: %s", resp.status, rsn, resp.url)
         res = await resp.json()
 
-    teams: list[Team] = []
-    comps: list[Competition] = []
-    for i in res:
-        if i["participantTypes"] is None:
-            if comp := parse_competition(i, interaction):
-                comps.append(comp)
-        else:
-            for type_ in i["participantTypes"]:
-                t_name = type_["name"]
-                if t_name in ["National", "Team"]:
-                    if team := parse_team(i, interaction):
-                        teams.append(team)
-                elif t_name == "TournamentTemplate":
-                    if comp := parse_competition(i, interaction):
-                        comps.append(comp)
-                else:
-                    continue  # This is a player, we don't want those.
+    parser = FSParser(res, interaction)
 
+    comps = parser.comps
+    teams = parser.teams
     if lang_id == 1:
-        await interaction.client.save_competitions(comps)
-        await interaction.client.save_teams(teams)
+        interaction.extras["comps"] = comps
+        interaction.extras["teams"] = teams
     if mode == "comp":
         return comps
     return teams
+
+
+class FSParser:
+    """Parse FS Objects"""
+
+    def __init__(
+        self, data: list[dict[str, Any]], interaction: Interaction
+    ) -> None:
+        self.comps: list[Competition] = []
+        self.teams: list[Team] = []
+        self.interaction: Interaction = interaction
+        self.parse(data)
+
+    def parse(self, res: list[dict[str, Any]]) -> None:
+        for i in res:
+            if i["participantTypes"] is None:
+                self.parse_competition(i)
+            else:
+                for type_ in i["participantTypes"]:
+                    t_name = type_["name"]
+                    if t_name in ["National", "Team"]:
+                        self.parse_team(i)
+                    elif t_name == "TournamentTemplate":
+                        self.parse_competition(i)
+
+    def parse_competition(self, i: dict[str, Any]) -> Competition | None:
+        """Parse a competition object"""
+        if i["type"]["name"] == "TournamentTemplate":
+            id_ = i["id"]
+            name = i["name"]
+            ctry = i["defaultCountry"]["name"]
+            url = i["url"]
+
+            comp = self.interaction.client.flashscore.get_competition(id_)
+
+            if comp is None:
+                comp = Competition(id=id_, name=name, country=ctry, url=url)
+
+            if i["images"]:
+                logo_url = i["images"][0]["path"]
+                comp.logo_url = logo_url
+
+            self.comps.append(comp)
+        else:
+            types = i["participantTypes"]
+            logging.info("unhandled particpant types %s", types)
+
+    def parse_team(self, i: dict[str, Any]) -> None:
+        team = self.interaction.client.flashscore.get_team(i["id"])
+        if team is None:
+            team = Team.parse_obj(i)
+        try:
+            team.logo_url = i["images"][0]["path"]
+        except IndexError:
+            pass
+        team.gender = i["gender"]["name"]
+        self.teams.append(team)
 
 
 async def set_default(
@@ -204,7 +211,15 @@ async def set_default(
         interaction.extras["default"] = None
         return
 
-    records = interaction.client.fixture_defaults
+    if (fxcog := interaction.client.get_cog("FixturesCog")) is None:
+        return
+
+    from ext.fixtures import FixturesCog
+
+    assert isinstance(fxcog, FixturesCog)
+    del FixturesCog
+
+    records = fxcog.fixture_defaults
     gid = interaction.guild.id
     record = next((i for i in records if i["guild_id"] == gid), None)
 
@@ -213,9 +228,9 @@ async def set_default(
         return
 
     if param == "default_team":
-        default = interaction.client.get_team(record[param])
+        default = interaction.client.flashscore.get_team(record[param])
     else:
-        default = interaction.client.get_competition(record[param])
+        default = interaction.client.flashscore.get_competition(record[param])
 
     if default is None:
         interaction.extras["default"] = None
@@ -228,7 +243,6 @@ async def set_default(
     name = f"⭐ Server default: {default.name}"[:100]
     default = Choice(name=name, value=def_id)
     interaction.extras["default"] = default
-    return
 
 
 class TeamSelect(view_utils.DropdownPaginator):
@@ -244,7 +258,7 @@ class TeamSelect(view_utils.DropdownPaginator):
             if team.id is None:
                 continue
 
-            opt = SelectOption(label=team.name, value=team.id)
+            opt = SelectOption(label=team.title, value=team.id)
             opt.description = f"{team.id}: {team.url}"
             opt.emoji = team.emoji
             options.append(opt)
@@ -357,8 +371,8 @@ class TeamTransformer(Transformer):
         self, interaction: Interaction, current: str, /
     ) -> list[Choice[str]]:
         """Autocomplete from list of stored teams"""
-        teams = list(interaction.client.teams)
-        teams.sort(key=lambda x: x.name)
+        teams = list(interaction.client.flashscore.teams)
+        teams.sort(key=lambda x: x.title)
 
         # Run Once - Set Default for interaction.
         if "default" not in interaction.extras:
@@ -374,7 +388,7 @@ class TeamTransformer(Transformer):
             if curr not in i.title.casefold():
                 continue
 
-            choice = Choice(name=i.name[:100], value=i.id)
+            choice = Choice(name=i.title[:100], value=i.id)
             choices.append(choice)
 
             if len(choices) == 25:
@@ -392,7 +406,7 @@ class TeamTransformer(Transformer):
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> Team | None:
-        if fsr := interaction.client.get_team(value):
+        if fsr := interaction.client.flashscore.get_team(value):
             return fsr
 
         teams = await search(value, "team", interaction)
@@ -417,7 +431,7 @@ class FixtureTransformer(Transformer):
         cur = current.casefold()
 
         choices: list[Choice[str]] = []
-        for i in interaction.client.games:
+        for i in interaction.client.flashscore.games:
             ac_row = i.ac_row.casefold()
             if cur and cur not in ac_row:
                 continue
@@ -443,11 +457,11 @@ class FixtureTransformer(Transformer):
         self, interaction: Interaction, value: str, /
     ) -> Fixture | None:
         """Try to convert input to a fixture"""
-        games = interaction.client.games
+        games = interaction.client.flashscore.games
         if fix := next((i for i in games if i.id == value), None):
             return fix
 
-        if fsr := interaction.client.get_team(value):
+        if fsr := interaction.client.flashscore.get_team(value):
             return await choose_recent_fixture(interaction, fsr)
 
         teams = await search(value, "team", interaction)
@@ -471,7 +485,9 @@ class TFCompetitionTransformer(Transformer):
         self, interaction: Interaction, current: str, /
     ) -> list[Choice[str]]:
         """Autocomplete from list of stored competitions"""
-        lgs = sorted(interaction.client.competitions, key=lambda x: x.title)
+
+        comps = interaction.client.flashscore.competitions
+        lgs = sorted(comps, key=lambda x: x.title)
 
         if "default" not in interaction.extras:
             await set_default(interaction, "default_league")
@@ -503,7 +519,7 @@ class TFCompetitionTransformer(Transformer):
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> Competition | None:
-        if fsr := interaction.client.get_competition(value):
+        if fsr := interaction.client.flashscore.get_competition(value):
             return fsr
 
         if "http" in value:
@@ -530,7 +546,10 @@ class LiveCompTransformer(TFCompetitionTransformer):
         self, interaction: Interaction, current: str, /
     ) -> list[Choice[str]]:
         """Autocomplete from list of stored competitions"""
-        leagues = set(i.competition for i in interaction.client.games)
+
+        leagues = set(
+            i.competition for i in interaction.client.flashscore.games
+        )
         leagues = [i for i in leagues if i is not None]
         leagues.sort(key=lambda i: i.name)
         curr = current.casefold()
@@ -569,7 +588,7 @@ class UniversalTransformer(Transformer):
         cur = value.casefold()
         opts: list[Choice[str]] = []
 
-        cln = interaction.client
+        cln = interaction.client.flashscore
 
         pool = None
         if interaction.command is None:
@@ -577,14 +596,14 @@ class UniversalTransformer(Transformer):
         elif interaction.command.name in fixture_only:
             pool = cln.games
         elif interaction.command.name in team_or_comp:
-            pool = cln.teams | cln.competitions
+            pool = cln.teams + cln.competitions
         elif interaction.command.name in team_or_fixture:
-            pool = cln.teams | cln.games
+            pool = cln.teams + cln.games
 
         if pool is None:
-            pool = cln.games | cln.teams | cln.competitions
+            pool = cln.games + cln.teams + cln.competitions
 
-        for i in pool:
+        for i in sorted(pool, key=lambda i: (i.emoji, i.title)):
             if cur not in i.ac_row.casefold() or i.id is None:
                 continue
 
@@ -595,8 +614,8 @@ class UniversalTransformer(Transformer):
         self, interaction: Interaction, value: str
     ) -> Any:
         """Return the first Fixture, Competition, or Team Found"""
-        cln = interaction.client
-        pool = cln.teams | cln.competitions | cln.games
+        cln = interaction.client.flashscore
+        pool = cln.teams + cln.competitions + cln.games
 
         # TODO: Fallback Search
         return next((i for i in pool if i.id == value), None)

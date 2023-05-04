@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING, cast, Any
 
 import asyncpg
+import asyncpraw
 import discord
 from discord.ext import commands, tasks
 from lxml import html
@@ -55,12 +56,9 @@ class MatchThread:
         self.channel: discord.TextChannel | None = chn
 
         # Pre/Match/Post
-        self.pre: Any = None
-        self.match: Any = None
-        self.post: Any = None
-        self._pre_url: str | None = None
-        self._mt_url: str | None = None
-        self._post_url: str | None = None
+        self.pre = None
+        self.match = None
+        self.post: asyncpraw.models.Submission = None
 
         # Browser Page
         self.page: Page = page
@@ -88,8 +86,7 @@ class MatchThread:
         # Post Pre-Match Thread if required
         title, markdown = await self.pre_match()
 
-        sub: Any = await self.bot.reddit.subreddit(self.srd_string, fetch=True)
-        subreddit = sub
+        subreddit = await self.reddit.subreddit(self.srd_string, fetch=True)
 
         k_o = self.fixture.kickoff
         if k_o is None:
@@ -105,7 +102,6 @@ class MatchThread:
             await discord.utils.sleep_until(target_time)
 
             self.pre = await subreddit.submit(selftext=markdown, title=title)
-            await self.pre.load()
 
             async with self.bot.db.acquire(timeout=60) as connection:
                 async with connection.transaction():
@@ -118,11 +114,10 @@ class MatchThread:
                         self.fixture.url,
                     )
         else:
-            self.pre = await self.bot.reddit.submission(
+            self.pre = await self.reddit.submission(
                 url=self.mtb_history["pre_match_url"]
             )
             await self.pre.edit(markdown)
-            self._pre_url = self.pre.url
 
         if self.channel:
             embed = self.base_embed
@@ -143,7 +138,7 @@ class MatchThread:
         title, markdown = await self.write_markdown()
 
         # Post initial thread or resume existing thread.
-        if self._mt_url is None:
+        if self.match is None:
             self.match = await subreddit.submit(selftext=markdown, title=title)
             await self.match.load()
             if self.channel:
@@ -168,8 +163,8 @@ class MatchThread:
                     self.mtb_history = rec
         else:
             mt_url = self.mtb_history["match_thread_url"]
-            self.match = await self.bot.reddit.submission(url=mt_url)
-            await self.match.edit(markdown)
+            self.match = await self.reddit.submission(url=mt_url)
+        await self.match.edit(markdown)
 
         for _ in range(300):  # Maximum number of loops.
             if self.stop:
@@ -214,7 +209,7 @@ class MatchThread:
 
         else:
             post_url = self._post_url
-            self.post = await self.bot.reddit.submission(url=post_url)
+            self.post = await self.reddit.submission(url=post_url)
 
         # Re-write post with actual link in it.
         title, markdown = await self.write_markdown(post_match=True)
@@ -223,7 +218,7 @@ class MatchThread:
         # Edit match markdown to include the post-match link.
         _, markdown = await self.write_markdown()
         mt_url = self.mtb_history["match_thread_url"]
-        self.match = await self.bot.reddit.submission(url=mt_url)
+        self.match = await self.reddit.submission(url=mt_url)
         await self.match.edit(markdown)
 
         # Then edit the pre-match thread with both links too.
@@ -242,12 +237,12 @@ class MatchThread:
     async def pre_match(self):
         """Create a pre-match thread"""
         # Alias for easy replacing.
-        home = self.fixture.home.name
-        away = self.fixture.away.name
+        home = self.fixture.home.team.name
+        away = self.fixture.away.team.name
 
         # Grab DB data
         try:
-            _ = [i for i in self.bot.reddit_teams if i["name"] == home][0]
+            _ = [i for i in self.reddit_teams if i["name"] == home][0]
             home_icon = _["icon"]
             home_link = _["subreddit"]
         except IndexError:
@@ -255,7 +250,7 @@ class MatchThread:
             home_link = ""
 
         try:
-            _ = [i for i in self.bot.reddit_teams if i["name"] == away][0]
+            _ = [i for i in self.reddit_teams if i["name"] == away][0]
             away_icon = _["icon"]
             away_link = _["subreddit"]
         except IndexError:
@@ -287,7 +282,7 @@ class MatchThread:
 
         tv: dict[str, str] = {}
         for i in tree.xpath(".//tr//a"):
-            if self.fixture.home.name in "".join(i.xpath(".//text()")):
+            if self.fixture.home.team.name in "".join(i.xpath(".//text()")):
                 lnk = i.xpath(".//@href")
                 tv.update({"link": f"http://www.livesoccertv.com{lnk}"})
                 break
@@ -341,8 +336,8 @@ class MatchThread:
         await self.fixture.refresh(self.page)
 
         # Alias for easy replacing.
-        home = self.fixture.home.name
-        away = self.fixture.away
+        home = self.fixture.home.team.name
+        away = self.fixture.away.team.name
         score = self.fixture.score
 
         if self.fixture.kickoff is not None:
@@ -371,9 +366,7 @@ class MatchThread:
             home_link = None
 
         try:
-            away_team = [
-                i for i in self.bot.reddit_teams if i["name"] == away
-            ][0]
+            away_team = [i for i in self.reddit_teams if i["name"] == away][0]
             away_icon = away_team["icon"]
             away_link = away_team["subreddit"]
         except IndexError:
@@ -382,7 +375,7 @@ class MatchThread:
 
         # Title, title bar, & penalty shoot-out bar.
         try:
-            p_h, p_a = self.fixture.penalties_home, self.fixture.penalties_away
+            p_h, p_a = self.fixture.home.pens, self.fixture.away.pens
             pens = f" (p. {p_h} - {p_a}) "
 
             h_md = f"{home_icon} {home_link}"

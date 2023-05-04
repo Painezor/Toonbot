@@ -15,12 +15,8 @@ import asyncio
 import copy
 import io
 import logging
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Literal,
-    TypeAlias,
-)
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias, overload
+import asyncpg
 
 import discord
 from discord import Embed, File
@@ -30,7 +26,7 @@ from lxml import html
 from playwright.async_api import Page
 
 import ext.flashscore as fs
-from ext.utils import embed_utils, flags, image_utils, view_utils
+from ext.utils import embed_utils, flags, image_utils, view_utils, timed_events
 from ext.utils.view_utils import BaseView
 
 if TYPE_CHECKING:
@@ -58,6 +54,110 @@ sqd_filter_opts = [
     ("Sort by Age", "age", None),
     ("Show only injured", "injury", fs.INJURY_EMOJI),
 ]
+
+
+class FSEmbed(Embed):
+    def __init__(self, obj: fs.Fixture | fs.Team | fs.Competition) -> None:
+        super().__init__()
+
+        self.obj = obj
+        # Handling of logourl
+        if obj.logo_url is None:
+            logo = None
+
+        elif fs.FLASHSCORE in obj.logo_url:
+            logo = obj.logo_url
+
+        else:
+            shrt = fs.FLASHSCORE + "/res/image/data/"
+            logo = shrt + obj.logo_url.replace("'", "")  # Extraneous
+
+        self.set_thumbnail(url=logo)
+        self.set_author(name=obj.title, url=obj.url, icon_url=logo)
+
+    async def set_colour(self) -> None:
+        """Get and set the colour of the embed based on current logo"""
+        self.color = getattr(self.obj, "colour", None)
+
+        if self.color is None and self.thumbnail.url:
+            self.color = await embed_utils.get_colour(self.thumbnail.url)
+            setattr(self.obj, "colour", self.color)
+
+    @overload
+    @classmethod
+    async def create(cls, obj: fs.Fixture) -> FixtureEmbed:
+        ...
+
+    @overload
+    @classmethod
+    async def create(cls, obj: fs.Team) -> TeamEmbed:
+        ...
+
+    @overload
+    @classmethod
+    async def create(cls, obj: fs.Competition) -> CompetitionEmbed:
+        ...
+
+    @classmethod
+    async def create(cls, obj: ...) -> Embed:
+        """Create an embed based upon what type of fsobject is passed"""
+
+        embed = cls(obj)
+        await embed.set_colour()
+
+        _class = {
+            fs.Fixture: FixtureEmbed,
+            fs.Team: TeamEmbed,
+            fs.Competition: CompetitionEmbed,
+        }[type(obj)]
+        return await _class.extend(obj, embed)
+
+
+class TeamEmbed(Embed):
+    @classmethod
+    async def extend(cls, team: fs.Team, embed: Embed) -> Embed:
+        return embed
+
+
+class CompetitionEmbed(Embed):
+    @classmethod
+    async def extend(cls, competition: fs.Competition, embed: Embed) -> Embed:
+        return embed
+
+
+class FixtureEmbed(Embed):
+    @classmethod
+    async def extend(cls, fixture: fs.Fixture, embed: Embed) -> Embed:
+        """Return a discord embed for a generic Fixture"""
+        if fixture.competition:
+            embed = FSEmbed(fixture.competition)
+
+        embed.url = fixture.url
+        if fixture.state:
+            embed.colour = fixture.state.colour
+        embed.set_author(name=fixture.score_line)
+        embed.timestamp = fixture.kickoff
+        embed.description = ""
+
+        if fixture.infobox is not None:
+            embed.add_field(name="Match Info", value=fixture.infobox)
+
+        if fixture.time is None:
+            return embed
+
+        elif fixture.time == fs.GameState.SCHEDULED:
+            time = timed_events.Timestamp(fixture.kickoff).time_relative
+            embed.description = f"Kickoff: {time}"
+        elif fixture.time == fs.GameState.POSTPONED:
+            embed.description = "This match has been postponed."
+
+        if fixture.competition:
+            embed.set_footer(
+                text=f"{fixture.time} | {fixture.competition.title}"
+            )
+        else:
+            embed.set_footer(text=fixture.time)
+        return embed
 
 
 class StatsView(BaseView):
@@ -89,7 +189,7 @@ class StatsView(BaseView):
             await parent.handle_buttons()
 
         stats = await obj.get_stats(page)
-        embed = await obj.base_embed()
+        embed = await FSEmbed.create(obj)
         embed.title = "Stats"
         view = cls(interaction.user, page, obj, parent=parent)
         await view.handle_buttons()
@@ -110,7 +210,7 @@ class StatsView(BaseView):
     ) -> None:
         """A button that requests a subpage"""
         stats = await self.fixture.get_stats(self.page, btn.label)
-        embed = await self.fixture.base_embed()
+        embed = await FSEmbed.create(self.fixture)
         if output := "\n".join(str(i) for i in stats):
             embed.description = f"```ini\n{output}```"
         else:
@@ -162,7 +262,7 @@ class StandingsView(BaseView):
         parent: BaseView | None = None,
     ) -> None:
         """Start a Standings View"""
-        embed = await obj.base_embed()
+        embed = await FSEmbed.create(obj)
         embed.title = "Standings"
 
         image = await obj.get_table(page)
@@ -195,7 +295,7 @@ class StandingsView(BaseView):
         self, interaction: Interaction, btn: Button[StandingsView]
     ) -> None:
         image = await self.object.get_table(self.page, btn.label)
-        embed = await self.object.base_embed()
+        embed = await FSEmbed.create(self.object)
         embed.title = f"Standings ({btn.label})"
         if image is not None:
             file = File(fp=io.BytesIO(image), filename="standings.png")
@@ -219,7 +319,7 @@ class StandingsView(BaseView):
         """Go to a team's view."""
         team: fs.Team = next(i for i in self.teams if i.id in sel.values)
         view = FSView(interaction.user, self.page, team, parent=self)
-        embed = await team.base_embed()
+        embed = await FSEmbed.create(team)
         return await interaction.response.edit_message(view=view, embed=embed)
 
 
@@ -254,9 +354,7 @@ class SquadView(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options, 40, **kwargs)
 
     @discord.ui.select(row=1, placeholder="View Player", disabled=True)
-    async def dropdown(
-        self, itr: Interaction, select: Select[SquadView]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: Select[SquadView]) -> None:
         """Go to specified player"""
         raise NotImplementedError
         # player = next(i for i in self.players if i.player.name in sel.values)
@@ -269,7 +367,7 @@ class SquadView(view_utils.DropdownPaginator):
         attr = sel.values[0]
         reverse = attr in ["goals", "yellows", "reds"]
         self.players.sort(key=lambda i: getattr(i, attr), reverse=reverse)
-        emb = await self.team.base_embed()
+        emb = await FSEmbed.create(self.team)
         emb.set_footer(text=f"Sorted by {attr.replace('_', ' ').title()}")
         par = self.parent
         plr = self.players
@@ -285,7 +383,7 @@ class SquadView(view_utils.DropdownPaginator):
         btn_name: str | None = None,
     ) -> SquadView:
         """Generate & Return a squad view"""
-        embed = await team.base_embed()
+        embed = await FSEmbed.create(team)
         embed.title = "Squad"
         players = await team.get_squad(page, btn_name)
 
@@ -367,7 +465,7 @@ class FXPaginator(view_utils.DropdownPaginator):
         else:
             games = await obj.results(page)
 
-        embed = await obj.base_embed()
+        embed = await FSEmbed.create(obj)
         view = FXPaginator(interaction.user, page, embed, games, parent)
         if interaction.response.is_done():
             edit = interaction.edit_original_response
@@ -446,7 +544,7 @@ class TopScorersView(view_utils.DropdownPaginator):
         cls,
         interaction: Interaction,
         page: Page,
-        obj: fs.Fixture | fs.Competition | fs.Team,
+        obj: fs.Competition | fs.Team,
         parent: BaseView | None = None,
     ) -> None:
         """Inttialise the Top Scorers view by fetching data"""
@@ -454,7 +552,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             parent = FSView(interaction.user, page, obj)
             await parent.handle_buttons()
 
-        embed = await obj.base_embed()
+        embed = await FSEmbed.create(obj)
         players = await obj.get_scorers(page)
 
         embed.url = page.url
@@ -517,11 +615,11 @@ class TopScorersView(view_utils.DropdownPaginator):
         teams = set(i.team for i in self.scorers if i.team in self.team_filter)
 
         opts: list[discord.SelectOption] = []
-        for i in sorted(teams, key=lambda i: i.name):
+        for i in sorted(teams, key=lambda i: i.title):
             if i.url is None:
                 continue
 
-            opt = discord.SelectOption(label=i.name, value=i.url)
+            opt = discord.SelectOption(label=i.title, value=i.url)
             opt.emoji = fs.TEAM_EMOJI
             opts.append(opt)
 
@@ -578,7 +676,7 @@ class TransfersView(view_utils.DropdownPaginator):
         for j in teams:
             assert j.url is not None
             emo = fs.TEAM_EMOJI
-            opt = discord.SelectOption(label=j.name, value=j.url, emoji=emo)
+            opt = discord.SelectOption(label=j.title, value=j.url, emoji=emo)
             team_sel.append(opt)
         self.tm_dropdown.options = team_sel
 
@@ -610,9 +708,9 @@ class TransfersView(view_utils.DropdownPaginator):
     @discord.ui.button(label="All", row=3)
     async def _all(self, interaction: Interaction, _) -> None:
         """Get all transfers for the team."""
-        cache = interaction.client.teams
+        cache = interaction.client.flashscore
         transfers = await self.team.get_transfers(self.page, "All", cache)
-        embed = await self.team.base_embed()
+        embed = await FSEmbed.create(self.team)
         embed.title = "Transfers (All)"
         embed.url = self.page.url
 
@@ -628,8 +726,8 @@ class TransfersView(view_utils.DropdownPaginator):
         cls, interaction: Interaction, page: Page, team: fs.Team
     ) -> TransfersView:
         """Generate a TransfersView"""
-        embed: Embed = await team.base_embed()
-        cache = interaction.client.teams
+        embed: Embed = await FSEmbed.create(team)
+        cache = interaction.client.flashscore
         transfers = await team.get_transfers(page, "All", cache)
         view = TransfersView(interaction.user, page, team, embed, transfers)
         return view
@@ -658,7 +756,7 @@ class ArchiveSelect(view_utils.DropdownPaginator):
     ) -> ArchiveSelect:
         """Generate an ArchiveSelect asynchronously"""
         await page.goto(f"{obj.url}/archive/")
-        embed = await obj.base_embed()
+        embed = await FSEmbed.create(obj)
         embed.url = page.url
         sel = page.locator("#tournament-page-archiv")
         await sel.wait_for(timeout=5000)
@@ -676,7 +774,7 @@ class ArchiveSelect(view_utils.DropdownPaginator):
             c_link = fs.FLASHSCORE + "/" + c_link.strip("/")
 
             country = obj.country
-            season = fs.Competition(None, c_name, country, c_link)
+            season = fs.Competition(name=c_name, country=country, url=c_link)
             seasons.append(season)
             rows.append(season.markdown)
 
@@ -698,7 +796,7 @@ class ArchiveSelect(view_utils.DropdownPaginator):
     ) -> None:
         """Spawn a new View for the Selected Season"""
         comp = next(i for i in self.archives if i.url == sel.options[0])
-        embed = await comp.base_embed()
+        embed = await FSEmbed.create(comp)
         view = FSView(itr.user, self.page, comp, parent=self)
         await itr.response.edit_message(view=self, embed=embed)
         view.message = await itr.original_response()
@@ -722,7 +820,7 @@ class H2HView(view_utils.BaseView):
     async def btn(self, interaction: Interaction, _: Button[H2HView]) -> None:
         """A button to go to a subpage of a HeadToHeadView"""
         rows = await self.fixture.get_head_to_head(self.page, _.label)
-        embed = await self.fixture.base_embed()
+        embed = await FSEmbed.create(self.fixture)
         embed.title = f"Head to Head ({_.label})"
         embed.description = "\n".join(rows)
         await interaction.response.edit_message(view=self, embed=embed)
@@ -760,7 +858,7 @@ class H2HView(view_utils.BaseView):
             edit = interaction.response.edit_message
 
         rows = await fixture.get_head_to_head(page)
-        embed = await fixture.base_embed()
+        embed = await FSEmbed.create(fixture)
         embed.title = "Head to Head"
         embed.description = "\n".join(rows)
         await edit(view=view, embed=embed)
@@ -794,7 +892,7 @@ class FSView(view_utils.BaseView):
     async def handle_buttons(self) -> None:
         """Generate our buttons. Returns the next free row number"""
         self.clear_items()
-        self.embed = await self.object.base_embed()
+        self.embed = await FSEmbed.create(self.object)
 
         # While we're here, let's also grab the logo url.
         if isinstance(self.object, (fs.Team, fs.Competition)):
@@ -869,7 +967,7 @@ class FSView(view_utils.BaseView):
         if not isinstance(self.object, fs.Fixture):
             raise NotImplementedError
 
-        embed = await self.object.base_embed()
+        embed = await FSEmbed.create(self.object)
         embed.title = "Lineups and Formations"
 
         embed.url = f"{self.object.url}#/match-summary/lineups"
@@ -903,7 +1001,7 @@ class FSView(view_utils.BaseView):
         if not isinstance(self.object, fs.Fixture):
             raise NotImplementedError
 
-        embed = await self.object.base_embed()
+        embed = await FSEmbed.create(self.object)
         embed.title = "Photos"
 
         photos = await self.object.get_photos(self.page)
@@ -925,7 +1023,7 @@ class FSView(view_utils.BaseView):
             raise NotImplementedError
 
         articles = await self.object.get_news(self.page)
-        base_embed = await self.object.base_embed()
+        base_embed = await FSEmbed.create(self.object)
 
         embeds: list[Embed] = []
         for i in articles:
@@ -955,7 +1053,7 @@ class FSView(view_utils.BaseView):
         if not isinstance(self.object, fs.Fixture):
             raise NotImplementedError
 
-        embed = await self.object.base_embed()
+        embed = await FSEmbed.create(self.object)
 
         embed.url = f"{self.object.url}#/report/"
         await self.page.goto(embed.url, timeout=5000)
@@ -1047,11 +1145,11 @@ class FSView(view_utils.BaseView):
         assert self.object.competition is not None
         if self.object.competition.url is None:
             id_ = self.object.competition.id
-            comps = interaction.client.competitions
+            comps = interaction.client.flashscore.competitions
             cmp = next(i for i in comps if i.id == id_)
             self.object.competition = cmp
 
-        embed = await self.object.base_embed()
+        embed = await FSEmbed.create(self.object)
 
         embed.description = "\n".join(str(i) for i in self.object.events)
         if self.object.referee:
@@ -1097,11 +1195,12 @@ class FSView(view_utils.BaseView):
         return await edit(content=url, embed=None, attachments=[], view=self)
 
 
-class Fixtures(commands.Cog):
+class FixturesCog(commands.Cog):
     """Lookups for past, present and future football matches."""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
+        self.fixture_defaults: list[asyncpg.Record] = []
 
     async def cog_load(self) -> None:
         """When cog loads, load up our defaults cache"""
@@ -1110,11 +1209,7 @@ class Fixtures(commands.Cog):
     async def update_cache(self) -> None:
         """Cache our fixture defaults."""
         sql = """SELECT * FROM FIXTURES_DEFAULTS"""
-        async with self.bot.db.acquire(timeout=10) as connection:
-            async with connection.transaction():
-                rows = await connection.fetch(sql)
-
-        self.bot.fixture_defaults = rows
+        self.fixture_defaults = await self.bot.db.fetch(sql, timeout=10)
 
     # Group Commands for those with multiple available subcommands.
     default = discord.app_commands.Group(
@@ -1132,7 +1227,7 @@ class Fixtures(commands.Cog):
         team: fs.tm_tran,
     ) -> None:
         """Set the default team for your flashscore lookups"""
-        embed = await team.base_embed()
+        embed = await FSEmbed.create(team)
         embed.description = f"Commands will use  default team {team.markdown}"
 
         if interaction.guild is None:
@@ -1140,17 +1235,13 @@ class Fixtures(commands.Cog):
 
         await interaction.response.send_message(embed=embed)
 
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = """INSERT INTO guild_settings (guild_id)
-                         VALUES ($1) ON CONFLICT DO NOTHING"""
-                await connection.execute(sql, interaction.guild.id)
-
-                sql = """INSERT INTO fixtures_defaults (guild_id, default_team)
-                       VALUES ($1,$2) ON CONFLICT (guild_id)
-                       DO UPDATE SET default_team = $2
-                       WHERE excluded.guild_id = $1"""
-                await connection.execute(sql, interaction.guild.id, team.id)
+        sql = """INSERT INTO guild_settings (guild_id)
+                 VALUES ($1) ON CONFLICT DO NOTHING"""
+        await self.bot.db.execute(sql, interaction.guild.id, timeout=10)
+        sql = """INSERT INTO fixtures_defaults (guild_id, default_team)
+                VALUES ($1,$2) ON CONFLICT (guild_id)
+                DO UPDATE SET default_team = $2 WHERE excluded.guild_id = $1"""
+        await self.bot.db.execute(sql, interaction.guild.id, team.id)
 
     @default.command(name="competition")
     @discord.app_commands.describe(competition=COMPETITION)
@@ -1159,21 +1250,22 @@ class Fixtures(commands.Cog):
     ) -> None:
         """Set the default competition for your flashscore lookups"""
 
-        embed = await competition.base_embed()
+        embed = await FSEmbed.create(competition)
         embed.description = "Default Competition set"
         await interaction.edit_original_response(embed=embed)
 
         if interaction.guild is None:
             raise commands.NoPrivateMessage
-        sql = """INSERT INTO fixtures_defaults (guild_id, default_league)
-                VALUES ($1,$2) ON CONFLICT (guild_id)
-                DO UPDATE SET default_league = $2
-                WHERE excluded.guild_id = $1"""
 
-        cid = competition.id
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.execute(sql, interaction.guild.id, cid)
+        gid = interaction.guild.id
+        sql = """INSERT INTO guild_settings (guild_id)
+                 VALUES ($1) ON CONFLICT DO NOTHING"""
+        await self.bot.db.execute(sql, gid, timeout=10)
+
+        sql = """INSERT INTO fixtures_defaults (guild_id, default_league)
+                VALUES ($1,$2) ON CONFLICT (guild_id) DO UPDATE SET
+                default_league = $2 WHERE excluded.guild_id = $1"""
+        await self.bot.db.execute(sql, gid, competition.id, timeout=60)
 
     # UNIVERAL commands.
     @discord.app_commands.command()
@@ -1205,7 +1297,6 @@ class Fixtures(commands.Cog):
         page = await self.bot.browser.new_page()
         await FXPaginator.start(interaction, page, obj, False)
 
-    # TODO: Edit universal, News = Fixture or Team
     @discord.app_commands.command()
     @discord.app_commands.describe(obj="Team or Fixture")
     @discord.app_commands.rename(obj="search")
@@ -1269,4 +1360,4 @@ class Fixtures(commands.Cog):
 
 async def setup(bot: Bot):
     """Load the fixtures Cog into the bot"""
-    await bot.add_cog(Fixtures(bot))
+    await bot.add_cog(FixturesCog(bot))

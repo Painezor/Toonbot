@@ -1,6 +1,7 @@
 """Allow guilds to add a list of their own streams to keep track of events."""
 from __future__ import annotations
 
+import collections
 import typing
 
 import discord
@@ -37,7 +38,9 @@ async def st_ac(
     if interaction.guild is None:
         return []
 
-    strms = interaction.client.streams[interaction.guild.id]
+    cog = interaction.client.get_cog("GuildStreams")
+    assert isinstance(cog, GuildStreams)
+    strms = cog.streams[interaction.guild.id]
     cur = current.casefold()
     matches = [i.name[:100] for i in strms if cur in i.ac_row]
 
@@ -56,21 +59,22 @@ class GuildStreams(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
+        self.streams: dict[int, list[Stream]] = collections.defaultdict(list)
 
-    streams = discord.app_commands.Group(
+    strmcmd = discord.app_commands.Group(
         name="streams",
         description="Stream list for your server",
         guild_only=True,
         default_permissions=discord.Permissions(manage_messages=True),
     )
 
-    @streams.command()
+    @strmcmd.command()
     async def list(self, interaction: Interaction) -> None:
         """List all streams for the match added by users."""
         if interaction.guild is None:
             raise commands.NoPrivateMessage
 
-        if not (strms := self.bot.streams[interaction.guild.id]):
+        if not (strms := self.streams[interaction.guild.id]):
             err = "Nobody has added any streams yet."
             embed = discord.Embed()
             embed.description = "🚫 " + err
@@ -81,15 +85,15 @@ class GuildStreams(commands.Cog):
         embed.description = "\n".join([str(i) for i in strms])
         return await interaction.response.send_message(embed=embed)
 
-    @streams.command(name="add")
+    @strmcmd.command(name="add")
     @discord.app_commands.describe(name="Stream Name", link="Stream Link")
     async def add_stream(self, interaction: Interaction, link: str, name: str):
         """Add a stream to the stream list."""
         if interaction.guild is None:
             raise commands.NoPrivateMessage
 
-        if not (guild_streams := self.bot.streams[interaction.guild.id]):
-            self.bot.streams[interaction.guild.id] = []
+        if not (guild_streams := self.streams[interaction.guild.id]):
+            self.streams[interaction.guild.id] = []
 
         if link in [i.link for i in guild_streams]:
             embed = discord.Embed()
@@ -98,7 +102,7 @@ class GuildStreams(commands.Cog):
             return await reply(embed=embed, ephemeral=True)
 
         stream = Stream(name=name, link=link, added_by=interaction.user)
-        self.bot.streams[interaction.guild.id].append(stream)
+        self.streams[interaction.guild.id].append(stream)
 
         embed = discord.Embed(title="Streams")
         embed.description = "\n".join([str(i) for i in guild_streams])
@@ -108,17 +112,17 @@ class GuildStreams(commands.Cog):
             content=msg, embed=embed
         )
 
-    @streams.command(name="clear")
+    @strmcmd.command(name="clear")
     async def clear_streams(self, interaction: Interaction) -> None:
         """Remove all streams from guild stream list"""
         if interaction.guild is None:
             raise commands.NoPrivateMessage
 
-        self.bot.streams[interaction.guild.id] = []
+        self.streams[interaction.guild.id] = []
         msg = f"{interaction.guild.name} stream list cleared."
         return await interaction.response.send_message(content=msg)
 
-    @streams.command(name="delete")
+    @strmcmd.command(name="delete")
     @discord.app_commands.autocomplete(stream=st_ac)
     async def delete_stream(
         self, interaction: Interaction, stream: str
@@ -127,7 +131,7 @@ class GuildStreams(commands.Cog):
         if interaction.guild is None or interaction.channel is None:
             raise commands.NoPrivateMessage
 
-        strms = interaction.client.streams[interaction.guild.id]
+        strms = self.streams[interaction.guild.id]
 
         name = stream.casefold()
 
@@ -150,10 +154,10 @@ class GuildStreams(commands.Cog):
                 reply = interaction.response.send_message
                 return await reply(embed=embed, ephemeral=True)
 
-        g_streams = self.bot.streams.get(interaction.guild.id, {})
+        g_streams = self.streams.get(interaction.guild.id, {})
 
         new = [i for i in g_streams if i not in matches]
-        self.bot.streams[interaction.guild.id] = new
+        self.streams[interaction.guild.id] = new
 
         txt = "\n".join([f"<{i.link}>" for i in matches])
         msg = f"Removed {txt} from {interaction.guild.name} stream list"

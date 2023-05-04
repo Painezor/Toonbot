@@ -7,7 +7,7 @@ import typing
 from typing import TYPE_CHECKING, TypeAlias
 
 import discord
-from discord import Emoji, Message, Embed
+from discord import Emoji, Message, Embed, AuditLogEntry
 from discord.abc import Messageable
 from discord.ext import commands
 
@@ -47,14 +47,6 @@ class LogChannel:
 # We don't need to db call every single time an event happens, just when
 # config is updated So we cache everything and store it in memory
 # instead for performance and sanity reasons.
-async def update_cache(bot: Bot | PBot) -> None:
-    """Get the latest database information and load it into memory"""
-    sql = """SELECT * FROM notifications_channels LEFT OUTER JOIN
-        notifications_settings ON notifications_channels.channel_id
-        = notifications_settings.channel_id"""
-    async with bot.db.acquire(timeout=60) as connection:
-        async with connection.transaction():
-            bot.notifications_cache = await connection.fetch(sql)
 
 
 def stringify_minutes(value: int) -> str:
@@ -163,6 +155,79 @@ def stringify_verification(value: discord.VerificationLevel) -> str:
         return value.name
 
 
+def app_command_permission_update(entry: AuditLogEntry) -> str:
+    app_extra = typing.cast(discord.Object, entry.extra)
+    desc = f"Application ID #{app_extra.id}"
+    if isinstance(entry.extra, discord.PartialIntegration):
+        ex = entry.extra
+        txt = f"{ex.name} ({ex.type} / {ex.id}) {ex.account.name}\n"
+        desc += txt
+    return desc
+
+
+def automod_action(entry: AuditLogEntry) -> str:
+    name = getattr(entry.extra, "automod_rule_name")
+    trigger = getattr(entry.extra, "automod_rule_trigger")
+    trigger = typing.cast(discord.AutoModRuleTriggerType, trigger)
+    channel = getattr(entry.extra, "channel")
+    channel = typing.cast(discord.TextChannel, channel)
+    text = f"{name} ({trigger.name}) in <#{channel.id}>\n"
+    return text
+
+
+def member_disconnect(entry: AuditLogEntry) -> str:
+    return f"{getattr(entry.extra, 'count')} users disconnected\n"
+
+
+def member_move(entry: AuditLogEntry) -> str:
+    chan: discord.TextChannel = getattr(entry.extra, "channel")
+    return f"{getattr(entry.extra, 'count')} users moved to <#{chan.id}>\n"
+
+
+def member_prune(entry: AuditLogEntry) -> str:
+    # Extra is a proxy with two attributes
+    # Fuck you we'll do it the really fucking ugly way
+    days: int = getattr(entry.extra, "delete_member_days")
+    removed: int = getattr(entry.extra, "members_removed")
+    text = f"{removed} Members kicked for {days} Day Inactivity\n\n"
+    return text
+
+
+def message_delete(entry: AuditLogEntry) -> str:
+    chn: discord.TextChannel = getattr(entry.extra, "channel")
+    return f"{getattr(entry.extra, 'count')} messages deleted in <#{chn.id}>\n"
+
+
+def message_bulk_delete(entry: AuditLogEntry) -> str:
+    return f"{getattr(entry.extra, 'count')} messages deleted\n"
+
+
+def message_pin(entry: AuditLogEntry) -> str:
+    chan: discord.TextChannel = getattr(entry.extra, "channel")
+    _id: int = getattr(entry.extra, "message_id")
+    g_id: int = entry.guild.id
+
+    # Build your own Jump URL.
+    lnk = f"https://discord.com/{g_id}/{chan.id}/{_id}"
+    return f"<#{chan.id}> [Message Pinned]({lnk})\n"
+
+
+action = discord.AuditLogAction
+action_desc = {
+    action.app_command_permission_update: app_command_permission_update,
+    action.member_disconnect: member_disconnect,
+    action.member_move: member_move,
+    action.member_prune: member_prune,
+    action.message_delete: message_delete,
+    action.message_bulk_delete: message_bulk_delete,
+    action.message_pin: message_pin,
+    action.message_unpin: message_pin,
+    action.automod_block_message: automod_action,
+    action.automod_flag_message: automod_action,
+    action.automod_timeout_member: automod_action,
+}
+
+
 def iter_embed(
     entry: discord.AuditLogEntry,
     diff: discord.AuditLogDiff,
@@ -179,7 +244,6 @@ def iter_embed(
     extra = entry.extra
 
     # Shorten
-    action = discord.AuditLogAction
 
     # Build our Header Embed
     if main:
@@ -253,84 +317,25 @@ def iter_embed(
                 embed_utils.user_to_footer(embed, target.creator)
             embed.description = f"{target.name} ({target.id})\n\n"
 
-        if entry.action == action.member_prune:
-            # Extra is a proxy with two attributes
-            # Fuck you we'll do it the really fucking ugly way
-            days: int = getattr(extra, "delete_member_days")
-            removed: int = getattr(extra, "members_removed")
-            text = f"{removed} Members kicked for {days} Day Inactivity\n\n"
-            embed.description += text
+        try:
+            embed.description += action_desc[entry.action](entry)
+        except KeyError:
+            pass
 
-        elif entry.action == action.member_move:
-            # This might also be an object, but we only want the ID
-            chan: discord.TextChannel = getattr(extra, "channel")
-            count: int = getattr(extra, "count")
-            embed.description += f"{count} users moved to <#{chan.id}>\n"
+        # Extra Handling.
+        role_override = False
+        user_override = False
+        if extra is not None and hasattr(extra, "type"):
+            role_override = isinstance(extra, discord.Role)
+            user_override = isinstance(extra, discord.User)
 
-        elif entry.action == action.member_disconnect:
-            count: int = getattr(extra, "count")
-            embed.description += f"{count} users disconnected\n"
+        if role_override:
+            role = typing.cast(discord.Role, extra)
+            embed.description += f"<@&{role.id}>\n"
 
-        elif entry.action == action.message_delete:
-            chan: discord.TextChannel = getattr(extra, "channel")
-            count: int = getattr(extra, "count")
-            embed.description += f"{count} messages deleted in <#{chan.id}>\n"
-
-        elif entry.action == action.message_bulk_delete:
-            count: int = getattr(extra, "count")
-            embed.description += f"{count} messages deleted\n"
-
-        elif entry.action in (
-            action.message_pin,
-            action.message_unpin,
-        ):
-            chan: discord.TextChannel = getattr(extra, "channel")
-            _id: int = getattr(extra, "message_id")
-            g_id: int = entry.guild.id
-
-            # Build your own Jump URL.
-            lnk = f"https://discord.com/{g_id}/{chan.id}/{_id}"
-            embed.description += f"<#{chan.id}> [Message Pinned]({lnk})\n"
-
-        elif entry.action == action.app_command_permission_update:
-            # Yike. Fuck. Shit
-
-            app_extra = typing.cast(discord.Object, entry.extra)
-            embed.description += f"Application ID #{app_extra.id}"
-            if isinstance(extra, discord.PartialIntegration):
-                ex = extra
-                txt = f"{ex.name} ({ex.type} / {ex.id}) {ex.account.name}\n"
-                embed.description += txt
-
-        elif entry.action in [
-            action.automod_block_message,
-            action.automod_flag_message,
-            action.automod_timeout_member,
-        ]:
-            name = getattr(entry, "automod_rule_name")
-            trigger = getattr(entry, "automod_rule_trigger")
-            trigger = typing.cast(discord.AutoModRuleTriggerType, trigger)
-            channel = getattr(entry, "channel")
-            channel = typing.cast(discord.TextChannel, channel)
-
-            text = f"{name} ({trigger.name}) in <#{channel.id}>\n"
-            embed.description += text
-
-        else:
-            # Extra Handling.
-            role_override = False
-            user_override = False
-            if extra is not None and hasattr(extra, "type"):
-                role_override = isinstance(extra, discord.Role)
-                user_override = isinstance(extra, discord.User)
-
-            if role_override:
-                role = typing.cast(discord.Role, extra)
-                embed.description += f"<@&{role.id}>\n"
-
-            if user_override:
-                usr = typing.cast(discord.Member, extra)
-                embed.description += f"<@{usr.id}>\n"
+        if user_override:
+            usr = typing.cast(discord.Member, extra)
+            embed.description += f"<@{usr.id}>\n"
 
     for key, value in diff:
         if key == "actions":
@@ -865,37 +870,25 @@ def iter_embed(
             embed.description += f"**Type**: {text}\n"
 
         elif key == "user_limit":
-            # Role Icon
-            limit: int = value
-            embed.description += f"**User Limit**: {limit}\n"
+            embed.description += f"**User Limit**: {value}\n"  # int
 
         elif key == "unicode_emoji":
-            # Role Icon
-            emoji: str = value
-            embed.description += f"**Emoji**: {emoji}\n"
+            embed.description += f"**Emoji**: {value}\n"  # Role Icon (str)
 
         elif key == "uses":
-            # Invite Uses
-            uses: int = value
-            embed.description += f"**Uses**: {uses}\n"
+            embed.description += f"**Uses**: {value}\n"  # (int)
 
         elif key == "vanity_url_code":
-            # Server Custom invite
-            vanity: str = value
-            embed.description += f"**Vanity URL**: {vanity}\n"
+            embed.description += f"**Vanity URL**: {value}\n"  # str
 
         elif key == "verification_level":
-            # Server Vericaition Level
-            verify: discord.VerificationLevel = value
-            txt = stringify_verification(verify)
+            txt = stringify_verification(value)  # discord.VerificationLevel
             embed.description += f"**Verification Level**: {txt}\n"
 
         elif key == "video_quality_mode":
-            # VC Video Quality
-            v_q: discord.VideoQualityMode = value
-            if v_q:
-                text = v_q.name.title()
-                embed.description += f"**Videeo Quality**: {text}\n"
+            if value:
+                text = value.name.title()  # discord.VideoQualityMode
+                embed.description += f"**Video Quality**: {text}\n"
 
         elif key == "widget_channel":
             widge: discord.TextChannel | discord.Object = value
@@ -943,7 +936,9 @@ class ToggleButton(discord.ui.Button["LogsConfig"]):
                 chan_id = self.view.channel.id
                 await connection.execute(sql, not self.value, chan_id)
 
-        await update_cache(interaction.client)
+        cog = interaction.client.get_cog("AuditLogs")
+        if isinstance(cog, AuditLogs):
+            await cog.update_cache()
         return await self.view.update(interaction)
 
 
@@ -1002,16 +997,25 @@ class AuditLogs(commands.Cog):
     def __init__(self, bot: Bot | PBot) -> None:
         self.bot = bot
 
+    async def update_cache(self) -> None:
+        """Get the latest database information and load it into memory"""
+        sql = """SELECT * FROM notifications_channels LEFT OUTER JOIN
+            notifications_settings ON notifications_channels.channel_id
+            = notifications_settings.channel_id"""
+        async with self.bot.db.acquire(timeout=60) as connection:
+            async with connection.transaction():
+                self.notifications_cache = await connection.fetch(sql)
+
     async def cog_load(self) -> None:
         """When the cog loads"""
-        await update_cache(self.bot)
+        await self.update_cache()
 
     async def get_channels(
         self, entry: discord.AuditLogEntry
     ) -> list[discord.TextChannel]:
         """Get a list of TextChannels that require a notification for this"""
 
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
 
         channels = [i for i in cache if i["guild_id"] == entry.guild.id]
         if not channels:
@@ -1022,105 +1026,61 @@ class AuditLogs(commands.Cog):
                 if entry.target.bot:
                     return []
 
-        match entry.action:
-            # Kicks, Bans, Moderation
-            case Action.ban | Action.unban:
-                field = ["bans"]
-            case Action.kick:
-                field = ["kicks"]
-            case (
-                Action.member_disconnect
-                | Action.member_move
-                | Action.member_update
-                | Action.automod_flag_message
-                | Action.automod_block_message
-                | Action.automod_timeout_member
-            ):
-                field = ["moderation"]
-            case Action.message_bulk_delete | Action.message_delete:
-                field = ["deleted_messages"]
-
-            # Bots, Integrations, and Webhooks
-            case (
-                Action.app_command_permission_update
-                | Action.bot_add
-                | Action.integration_create
-                | Action.integration_update
-                | Action.integration_delete
-                | Action.webhook_create
-                | Action.webhook_update
-                | Action.webhook_delete
-                | Action.automod_rule_create
-                | Action.automod_rule_update
-                | Action.automod_rule_delete
-            ):
-                field = ["bot_management"]
-
-            # Emotes and stickers
-            case (
-                Action.emoji_create
-                | Action.emoji_update
-                | Action.emoji_delete
-                | Action.sticker_create
-                | Action.sticker_update
-                | Action.sticker_delete
-            ):
-                field = ["emote_and_sticker"]
-
-            # Server, Channels and Threads
-            case Action.guild_update:
-                field = ["server"]
-            case (
-                Action.channel_create
-                | Action.channel_update
-                | Action.channel_delete
-                | Action.message_pin
-                | Action.message_unpin
-                | Action.overwrite_create
-                | Action.overwrite_update
-                | Action.overwrite_delete
-                | Action.stage_instance_create
-                | Action.stage_instance_update
-                | Action.stage_instance_delete
-            ):
-                field = ["channels"]
-
-            # Threads
-            case (
-                Action.thread_create
-                | Action.thread_update
-                | Action.thread_delete
-            ):
-                field = ["threads"]
-            # Events
-            case (
-                Action.scheduled_event_create
-                | Action.scheduled_event_update
-                | Action.scheduled_event_delete
-            ):
-                field = ["events"]
-
-            # Invites
-            case (
-                Action.invite_create
-                | Action.invite_update
-                | Action.invite_delete
-            ):
-                field = ["invites"]
-
-            # Roles
-            case (
-                Action.role_create | Action.role_update | Action.role_delete
-            ):
-                field = ["role_edits"]
-
-            case Action.member_role_update:
-                field = ["user_roles"]
-            case _:
-                logger.info("Unhandled Audit Log Action Type %s", entry.action)
-                field = []
-
-        for setting in field:
+        for setting in {
+            Action.ban: ["bans"],
+            Action.unban: ["bans"],
+            Action.kick: ["kicks"],
+            Action.member_disconnect: ["moderation"],
+            Action.member_move: ["moderation"],
+            Action.member_update: ["moderation"],
+            Action.automod_flag_message: ["moderation"],
+            Action.automod_block_message: ["moderation"],
+            Action.automod_timeout_member: ["moderation"],
+            Action.message_bulk_delete: ["deleted_messages"],
+            Action.message_delete: ["deleted_messages"],
+            Action.app_command_permission_update: ["bot_management"],
+            Action.bot_add: ["bot_management"],
+            Action.integration_create: ["bot_management"],
+            Action.integration_update: ["bot_management"],
+            Action.integration_delete: ["bot_management"],
+            Action.webhook_create: ["bot_management"],
+            Action.webhook_update: ["bot_management"],
+            Action.webhook_delete: ["bot_management"],
+            Action.automod_rule_create: ["bot_management"],
+            Action.automod_rule_update: ["bot_management"],
+            Action.automod_rule_delete: ["bot_management"],
+            Action.emoji_create: ["emote_and_sticker"],
+            Action.emoji_update: ["emote_and_sticker"],
+            Action.emoji_delete: ["emote_and_sticker"],
+            Action.sticker_create: ["emote_and_sticker"],
+            Action.sticker_update: ["emote_and_sticker"],
+            Action.sticker_delete: ["emote_and_sticker"],
+            Action.guild_update: ["server"],
+            Action.channel_create: ["channels"],
+            Action.channel_update: ["channels"],
+            Action.channel_delete: ["channels"],
+            Action.message_pin: ["channels"],
+            Action.message_unpin: ["channels"],
+            Action.overwrite_create: ["channels"],
+            Action.overwrite_update: ["channels"],
+            Action.overwrite_delete: ["channels"],
+            Action.stage_instance_create: ["channels"],
+            Action.stage_instance_update: ["channels"],
+            Action.stage_instance_delete: ["channels"],
+            Action.thread_create: ["threads"],
+            Action.thread_update: ["threads"],
+            Action.thread_delete: ["threads"],
+            Action.scheduled_event_create: ["events"],
+            Action.scheduled_event_update: ["events"],
+            Action.scheduled_event_delete: ["events"],
+            Action.invite_create: ["invites"],
+            Action.invite_update: ["invites"],
+            Action.invite_delete: ["invites"],
+            Action.role_create: ["role_edits"],
+            Action.role_update: ["role_edits"],
+            Action.role_delete: ["role_edits"],
+            Action.member_role_update: ["user_roles"],
+        }[entry.action]:
             channels = [i for i in channels if i[setting]]
 
         channels = [self.bot.get_channel(i["channel_id"]) for i in channels]
@@ -1133,7 +1093,7 @@ class AuditLogs(commands.Cog):
     ) -> None:
         channels = await self.get_channels(entry)
 
-        if entry.category == discord.AuditLogActionCategory.create:
+        if entry.category is discord.AuditLogActionCategory.create:
             before = None
             after = Embed()
             after.timestamp = entry.created_at
@@ -1141,7 +1101,7 @@ class AuditLogs(commands.Cog):
             after = iter_embed(
                 entry, entry.changes.after, main=True, last=True
             )
-        elif entry.category == discord.AuditLogActionCategory.delete:
+        elif entry.category is discord.AuditLogActionCategory.delete:
             before = Embed()
             before.timestamp = entry.created_at
 
@@ -1149,22 +1109,14 @@ class AuditLogs(commands.Cog):
                 entry, entry.changes.before, main=True, last=True
             )
             after = None
-        elif entry.category == discord.AuditLogActionCategory.update:
+        else:
             after = iter_embed(entry, entry.changes.after, last=True)
             before = iter_embed(entry, entry.changes.before, main=True)
-        else:
-            before = after = None
-
-        # Handle View Creation
-        view = None
 
         embeds = [i for i in [before, after] if i]
         for i in channels:
             try:
-                if view:
-                    await i.send(embeds=embeds, view=view)
-                else:
-                    await i.send(embeds=embeds)
+                await i.send(embeds=embeds)
             except discord.HTTPException:
                 continue
 
@@ -1174,7 +1126,7 @@ class AuditLogs(commands.Cog):
         """Event handler to Dispatch new member information
         for servers that request it"""
 
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
         channels: list[Messageable] = []
         for i in cache:
             if i["joins"] and i["guild_id"] == member.guild.id:
@@ -1189,62 +1141,18 @@ class AuditLogs(commands.Cog):
         embed = Embed(colour=0x7289DA, title="Member Joined")
         embed_utils.user_to_author(embed, member)
 
-        def onboard() -> str:
-            """Get the member's onboarding status"""
-            if member.flags.completed_onboarding:
-                return "Completed"
-            elif member.flags.started_onboarding:
-                return "Started"
-            else:
-                return "Not Started"
-
         time = timed_events.Timestamp(member.created_at).date_relative
         embed.description = (
             f"{member.mention}\n"
             f"**Shared Servers**: {len(member.mutual_guilds)}\n"
             f"**Account Created**: {time}\n"
-            f"**Onboarding Status**?: {onboard()}"
         )
 
-        flags: list[str] = []
-        pub_flags = member.public_flags
-        if pub_flags.verified_bot:
-            flags.append("🤖 Verified Bot")
-        elif member.bot:
-            flags.append("🤖 Bot")
-        if member.flags.did_rejoin:
-            flags.append("Rejoined Server")
-        if member.flags.bypasses_verification:
-            flags.append("Bypassed Verification")
-        if pub_flags.active_developer:
-            flags.append("Active Developer")
-        if pub_flags.staff:
-            flags.append("Discord Staff")
-        if pub_flags.partner:
-            flags.append("Discord Partner")
-        if pub_flags.hypesquad_balance:
-            flags.append("Hypesquad Balance")
-        if pub_flags.hypesquad_bravery:
-            flags.append("Hypesquad Bravery")
-        if pub_flags.hypesquad_brilliance:
-            flags.append("Hypesquad Brilliance")
-        if pub_flags.bug_hunter_level_2:
-            flags.append("Bug Hunter Level 2")
-        elif pub_flags.bug_hunter:
-            flags.append("Bug Hunter")
-        if pub_flags.early_supporter:
-            flags.append("Early Supporter")
-        if pub_flags.system:
-            flags.append("Official Discord Representative")
-        if pub_flags.verified_bot_developer:
-            flags.append("Verified Bot Developer")
-        if pub_flags.discord_certified_moderator:
-            flags.append("Discord Certified Moderator")
-        if pub_flags.spammer:
-            flags.append("**Known Spammer**")
-
-        if flags:
+        if flags := [k for k, val in member.flags if val]:
             embed.add_field(name="Flags", value=", ".join(flags))
+
+        if flags := [k for k, val in member.public_flags if val]:
+            embed.add_field(name="Public Flags", value=", ".join(flags))
 
         for channel in channels:
             try:
@@ -1262,7 +1170,7 @@ class AuditLogs(commands.Cog):
         """Event handler for outputting information about member kick, ban
         or other departures"""
         # Check if in mod action log and override to specific channels.
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
         channels: list[Messageable] = []
         for i in cache:
             if i["joins"] and i["guild_id"] == payload.guild_id:
@@ -1294,7 +1202,7 @@ class AuditLogs(commands.Cog):
         after: list[Emoji],
     ) -> None:
         """Event listener for outputting information about updated emojis"""
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
         channels: list[Messageable] = []
         for i in cache:
             if i["emote_and_sticker"] and i["guild_id"] == guild.id:
@@ -1356,7 +1264,7 @@ class AuditLogs(commands.Cog):
         if message.author.bot:
             return  # Ignore bots to avoid chain reaction
 
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
         channels: list[Messageable] = []
         for i in cache:
             if i["deleted_messages"] and i["guild_id"] == message.guild.id:
@@ -1404,7 +1312,7 @@ class AuditLogs(commands.Cog):
         if guild is None:
             return
 
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
         channels: list[Messageable] = []
         for i in cache:
             if i["deleted_messages"] and i["guild_id"] == guild.id:
@@ -1431,7 +1339,7 @@ class AuditLogs(commands.Cog):
         if before.author.bot:
             return
 
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
         channels: list[Messageable] = []
         for i in cache:
             if i["edited_messages"] and i["guild_id"] == before.guild.id:
@@ -1511,7 +1419,7 @@ class AuditLogs(commands.Cog):
         """Triggered when a user updates their profile"""
         guilds = [i.id for i in self.bot.guilds if i.get_member(after.id)]
 
-        cache = self.bot.notifications_cache
+        cache = self.notifications_cache
         channels: list[Messageable] = []
         for i in cache:
             if i["users"] and i["guild_id"] in guilds:

@@ -531,9 +531,7 @@ class Fittings(commands.Cog):
     @discord.app_commands.command()
     @discord.app_commands.describe(ship="Search for a ship by it's name")
     async def ship(
-        self,
-        interaction: Interaction,
-        ship: api.ship_transform,
+        self, interaction: Interaction, ship: api.ship_transform
     ) -> None:
         """Search for a ship in the World of Warships API"""
         await get_modules(interaction, ship)

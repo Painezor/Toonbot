@@ -84,24 +84,26 @@ class CoinView(view_utils.BaseView):
 
     def __init__(self, invoker: User, count: int = 1) -> None:
         super().__init__(invoker)
-
         self.flip_results = [random.choice(["H", "T"]) for _ in range(count)]
+        self.embed = self.count()
 
-        embed = discord.Embed(title=self.flip_results[-1])
-        embed.colour = discord.Colour.og_blurple()
+    def count(self) -> discord.Embed:
+        counter = collections.Counter(self.flip_results)
+        embed = discord.Embed(colour=discord.Colour.og_blurple())
         embed.set_thumbnail(url=COIN)
         embed.set_author(name="Coin Flip")
-        self.embed: discord.Embed = embed
-
-    async def update(self, interaction: Interaction) -> None:
-        """Update embed and push to view"""
-        counter = collections.Counter(self.flip_results)
-
-        embed = self.embed
-        embed.description = f"*{self.flip_results[-50:]}*"
+        embed.title = counter.most_common(1)[0][0]
+        embed.description = f"*{''.join(self.flip_results[-250:])}*"
         for item in counter.most_common():
             embed.description += f"\n**Total {item[0]}**: {item[1]}"
 
+        if len(self.flip_results) > 250:
+            embed.set_footer(text="Last 250 results shown.")
+        return embed
+
+    async def update(self, interaction: Interaction) -> None:
+        """Update embed and push to view"""
+        embed = self.count()
         return await interaction.response.edit_message(view=self, embed=embed)
 
 
@@ -117,9 +119,8 @@ class FlipButton(discord.ui.Button["CoinView"]):
     async def callback(self, interaction: Interaction) -> None:  # type: ignore
         """When clicked roll"""
         assert self.view is not None
-        await interaction.response.defer()
         results = [random.choice(["H", "T"]) for _ in range(self.count)]
-        self.view.flip_results = results
+        self.view.flip_results += results
         return await self.view.update(interaction)
 
 
@@ -186,9 +187,9 @@ class Random(commands.Cog):
         view = CoinView(interaction.user, count)
         view.add_item(FlipButton())
 
-        for _ in [5, 10, 100, 1000]:
+        for _ in [10, 100, 1000]:
             view.add_item(FlipButton(label=f"Flip {_}", count=_))
-        embed = view.embed
+        embed = view.count()
         await interaction.response.send_message(view=view, embed=embed)
         view.message = await interaction.original_response()
 
@@ -320,11 +321,11 @@ class Random(commands.Cog):
             roll_info = ""
             curr_rolls: list[str] = []
             for i in range(die):
-                first_roll = random.randrange(1, 1 + sides)
+                first_roll = random.randint(1, 1 + sides)
                 roll_outcome = first_roll
 
                 if dice in ["adv", "dis"]:
-                    second_roll = random.randrange(1, 1 + sides)
+                    second_roll = random.randint(1, 1 + sides)
 
                     bool_a = advantage and second_roll > first_roll
                     bool_b = disadvantage and second_roll < first_roll

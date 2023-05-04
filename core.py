@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import collections
 import datetime
 import json
 import logging
@@ -10,23 +9,17 @@ from typing import TYPE_CHECKING, cast
 
 import aiohttp
 import asyncpg
-import asyncpraw  # type: ignore
 
 import discord
 from discord.ext import commands
+
+import ext.flashscore as fs
 
 from ext.utils.playwright_browser import make_browser
 
 if TYPE_CHECKING:
     from io import BytesIO
-
     from playwright.async_api import BrowserContext
-
-    import ext.flashscore as fs
-    from ext.scores import ScoreChannel
-    from ext.streams import Stream
-    from ext.ticker import TickerChannel
-    from ext.transfers import TransferChannel
 
 
 with open("credentials.json", mode="r", encoding="utf-8") as fun:
@@ -56,7 +49,6 @@ COGS = [
     "ext.streams",
     "ext.ticker",
     "ext.transfers",
-    "ext.tv",
     "ext.translations",
     "ext.urbandictionary",
     "ext.xkcd",
@@ -94,17 +86,7 @@ class Bot(commands.AutoShardedBot):
         self.invite: str = INVITE_URL
 
         # Fixtures
-        self.fixture_defaults: list[asyncpg.Record] = []
-
-        # Livescores
-        self.games: set[fs.Fixture] = set()
-        self.teams: set[fs.Team] = set()
-        self.competitions: set[fs.Competition] = set()
-        self.score_channels: set[ScoreChannel] = set()
-        self.scores: asyncio.Task[None] | None = None
-
-        # Notifications
-        self.notifications_cache: list[asyncpg.Record] = []
+        self.flashscore = fs.FlashscoreCache(datab)
 
         # Polls
         self.active_polls: set[asyncio.Task[None]] = set()
@@ -119,22 +101,6 @@ class Bot(commands.AutoShardedBot):
         # Session // Scraping
         self.browser: BrowserContext
         self.session: aiohttp.ClientSession
-
-        # Sidebar
-        self.reddit_teams: list[asyncpg.Record] = []
-        self.sidebar: asyncio.Task[None]
-        self.reddit = asyncpraw.Reddit(**_credentials["Reddit"])
-
-        # Streams
-        self.streams: dict[int, list[Stream]] = collections.defaultdict(list)
-
-        # Ticker
-        self.ticker_channels: list[TickerChannel] = []
-
-        # Transfers
-        self.transfer_channels: list[TransferChannel] = []
-        self.transfers: asyncio.Task[None]
-        self.parsed_transfers: list[str] = []
 
         # Announce aliveness
         started = self.initialised_at.strftime("%d-%m-%Y %H:%M:%S")
@@ -157,61 +123,6 @@ class Bot(commands.AutoShardedBot):
                 logger.info("Loaded %s", i)
             except commands.ExtensionError:
                 logger.error("Failed to load cog %s", i, exc_info=True)
-        return
-
-    async def save_competitions(self, cmp: list[fs.Competition]) -> None:
-        """Save the competition to the bot database"""
-        sql = """INSERT INTO fs_competitions (id, country, name, logo_url, url)
-            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO UPDATE SET
-            (country, name, logo_url, url) =
-            (EXCLUDED.country, EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
-            """
-
-        rows = [(i.id, i.country, i.name, i.logo_url, i.url) for i in cmp]
-
-        async with self.db.acquire(timeout=60) as conn:
-            async with conn.transaction():
-                await conn.executemany(sql, rows)
-        self.competitions.update(cmp)
-
-    async def save_teams(self, teams: list[fs.Team]) -> None:
-        """Save the Team to the Bot Database"""
-        sql = """INSERT INTO fs_teams (id, name, logo_url, url)
-                VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET
-                (name, logo_url, url)
-                = (EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
-                """
-        rows = [(i.id, i.name, i.logo_url, i.url) for i in teams]
-        async with self.db.acquire(timeout=60) as conn:
-            async with conn.transaction():
-                await conn.executemany(sql, rows)
-        self.teams.update(teams)
-
-    def get_competition(self, value: str) -> fs.Competition | None:
-        """Retrieve a competition from the ones stored in the bot."""
-        for i in self.competitions:
-            if i.id == value:
-                return i
-
-            if i.title.casefold() == value.casefold():
-                return i
-
-            if i.url is not None:
-                if i.url.rstrip("/") == value.rstrip("/"):
-                    return i
-
-        # Fallback - Get First Partial match.
-        for i in self.competitions:
-            if i.url is not None and "http" in value:
-                if value in i.url:
-                    ttl = i.title
-                    logger.info("Partial url: %s to %s (%s)", value, i.id, ttl)
-                    return i
-        return None
-
-    def get_team(self, team_id: str) -> fs.Team | None:
-        """Retrieve a Team from the ones stored in the bot."""
-        return next((i for i in self.teams if i.id == team_id), None)
 
     async def dump_image(self, data: BytesIO) -> str | None:
         """Save a stitched image"""

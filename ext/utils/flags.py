@@ -72,7 +72,8 @@ backup_dict = {
     "scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
     "wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
     "uk": "🇬🇧",
-    # World
+    # World#
+    "europe": "🇪🇺",
     "other": "🌍",
     "world": "🌍",
     # Language Code Hacky ISOs
@@ -85,13 +86,6 @@ backup_dict = {
     "retired": "❌",
     "without club": "❌",
     "n/a": "❌",
-    # Warships
-    "commonwealth": "<:Commonwealth:991329664591212554>",
-    "europe": "🇪🇺",
-    "pan_america": "<:PanAmerica:991330048390991933>",
-    "pan_asia": "<:pan_asia:1098389406450188349>",
-    "usa": "🇺🇸",
-    "ussr": "<:USSR:991330483445186580>",
 }
 
 
@@ -113,20 +107,17 @@ def get_flag(string: str | None) -> str:
     # Try pycountry
     if string is None:
         return ""
+
     try:
-        retrieved = to_indicators(country_dict[string])
-        return retrieved
+        return to_indicators(country_dict[string])
     except KeyError:
         pass
 
     string = string.casefold()
 
-    try:
-        retrieved = countries.get(name=string)  # type: ignore
-        if retrieved is not None:
-            return to_indicators(retrieved.alpha_2)  # type: ignore
-    except (KeyError, AttributeError):
-        pass
+    retrieved = countries.get(name=string)  # type: ignore
+    if retrieved is not None:
+        return to_indicators(retrieved.alpha_2)  # type: ignore
 
     try:
         retrieved = countries.lookup(string)  # type: ignore
@@ -136,7 +127,7 @@ def get_flag(string: str | None) -> str:
 
     # Use manual fallbacks
     try:
-        retrieved = backup_dict[string.casefold()]
+        retrieved = backup_dict[string]
         return retrieved
     except KeyError:
         logger.error("No country found for '%s'", string)

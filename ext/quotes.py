@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import asyncpg
 import discord
+from discord.app_commands import Choice
 from discord.ext import commands
 
 from ext.utils import view_utils, embed_utils
@@ -41,7 +42,7 @@ class QuoteTransformer(discord.app_commands.Transformer):
 
     async def autocomplete(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> list[discord.app_commands.Choice[str]]:
+    ) -> list[Choice[str]]:
         """Autocomplete from guild quotes"""
         quotes = interaction.client.quotes
         cur = value.casefold()
@@ -75,10 +76,22 @@ class QuoteTransformer(discord.app_commands.Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> asyncpg.Record:
+    ) -> asyncpg.Record | None:
         """Get Quote from selection"""
         quotes = interaction.client.quotes
-        return next(i for i in quotes if i["quote_id"] == value)
+        try:
+            return next(i for i in quotes if i["quote_id"] == value)
+        except StopIteration:
+            pass
+
+        try:
+            return next(i for i in quotes if value in i["message_content"])
+        except StopIteration:
+            pass
+
+        embed = discord.Embed(title="Quote not Found")
+        embed.description = f"Could not find quote matching {value}"
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
 class QuoteEmbed(discord.Embed):
@@ -118,14 +131,6 @@ class QuoteEmbed(discord.Embed):
             embed_utils.user_to_author(self, author)
 
         self.description = quote["message_content"]
-
-
-async def cache_quotes(bot: Bot) -> None:
-    """Cache the QuoteDB"""
-    async with bot.db.acquire(timeout=60) as connection:
-        async with connection.transaction():
-            sql = """SELECT * FROM quotes"""
-            bot.quotes = await connection.fetch(sql)
 
 
 class QuotesView(view_utils.AsyncPaginator):
@@ -247,10 +252,8 @@ class QuotesView(view_utils.AsyncPaginator):
 
         if view.value:  # Bool is True
             qid = quote["quote_id"]
-            async with interaction.client.db.acquire(timeout=60) as connection:
-                async with connection.transaction():
-                    sql = "DELETE FROM quotes WHERE quote_id = $1"
-                    await connection.execute(sql, qid)
+            sql = "DELETE FROM quotes WHERE quote_id = $1"
+            await interaction.client.db.execute(sql, qid, timeout=60)
 
             all_quotes = self.all_quotes
             guild_quotes = self.guild_quotes
@@ -321,28 +324,28 @@ async def quote_add(
     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *"""
 
     guild = message.guild.id if message.guild else None
-    async with interaction.client.db.acquire(timeout=60) as connection:
-        async with connection.transaction():
-            try:
-                await connection.execute(
-                    sql,
-                    message.channel.id,
-                    guild,
-                    message.id,
-                    message.author.id,
-                    interaction.user.id,
-                    message.content,
-                    message.created_at,
-                )
-            except asyncpg.UniqueViolationError:
-                embed = discord.Embed(colour=discord.Colour.red())
-                embed.description = "❌ That quote is already in the database"
-                return await interaction.response.send_message(embed=embed)
+    try:
+        await interaction.client.db.execute(
+            sql,
+            message.channel.id,
+            guild,
+            message.id,
+            message.author.id,
+            interaction.user.id,
+            message.content,
+            message.created_at,
+        )
+    except asyncpg.UniqueViolationError:
+        embed = discord.Embed(colour=discord.Colour.red())
+        embed.description = "❌ That quote is already in the database"
+        return await interaction.response.send_message(embed=embed)
 
-        embed = discord.Embed(colour=discord.Colour.green())
-        embed.description = "Added to quote database"
-        await interaction.response.send_message(embed=embed)
-        await cache_quotes(interaction.client)
+    embed = discord.Embed(colour=discord.Colour.green())
+    embed.description = "Added to quote database"
+    await interaction.response.send_message(embed=embed)
+
+    bot = interaction.client
+    bot.quotes = await bot.db.fetch("""SELECT * FROM quotes""")
 
 
 class QuoteDB(commands.Cog):
@@ -354,19 +357,13 @@ class QuoteDB(commands.Cog):
 
     async def cog_load(self) -> None:
         """When the cog loads…"""
-        await self.opt_outs()
-        await cache_quotes(self.bot)
+        await self.cache_opt_outs()
+        self.bot.quotes = await self.bot.db.fetch("""SELECT * FROM quotes""")
 
-    async def opt_outs(self) -> list[int]:
+    async def cache_opt_outs(self) -> None:
         """Cache the list of users who have opted out of the quote DB"""
-
-        sql = """SELECT * FROM quotes_optout"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records = await connection.fetch(sql)
-
+        records = await self.bot.db.fetch("""SELECT * FROM quotes_optout""")
         self.bot.quote_blacklist = [r["userid"] for r in records]
-        return self.bot.quote_blacklist
 
     quotes = discord.app_commands.Group(
         name="quote", description="Get from or add to the quote database"
@@ -448,11 +445,7 @@ class QuoteDB(commands.Cog):
             return await interaction.response.send_message(embed=embed)
 
         sql = """SELECT * FROM quotes WHERE author_user_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records = await connection.fetch(sql, member.id)
-
-        if not records:
+        if not (records := await self.bot.db.fetch(sql, member.id)):
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = f"🚫 {member.mention} has no quotes."
             return await interaction.response.send_message(embed=embed)
@@ -481,9 +474,7 @@ class QuoteDB(commands.Cog):
             return await interaction.response.send_message(embed=embed)
 
         guild_id = interaction.guild.id if interaction.guild else None
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                rec = await connection.fetchrow(QT_SQL, member.id, guild_id)
+        rec = await self.bot.db.fetchrow(QT_SQL, member.id, guild_id)
 
         embed = discord.Embed(color=discord.Colour.og_blurple())
         embed.title = "Quote Stats"
@@ -506,13 +497,11 @@ class QuoteDB(commands.Cog):
         """Remove all quotes about, or added by you, and prevent
         future quotes being added."""
         guild_id = interaction.guild.id if interaction.guild else None
-        user_id = interaction.user.id
+        user = interaction.user
 
-        if user_id in self.bot.quote_blacklist:
+        if user.id in self.bot.quote_blacklist:
             #   Opt Back In confirmation Dialogue
-            view = view_utils.Confirmation(
-                interaction.user, "Opt In", "Cancel"
-            )
+            view = view_utils.Confirmation(user, "Opt In", "Cancel")
             view.true.style = discord.ButtonStyle.green
 
             await interaction.response.send_message(content=OPT_IN, view=view)
@@ -521,21 +510,17 @@ class QuoteDB(commands.Cog):
             if view.value:
                 # User has chosen to opt in.
                 sql = """DELETE FROM quotes_optout WHERE userid = $1"""
-                async with self.bot.db.acquire(timeout=60) as connection:
-                    await connection.execute(sql, user_id)
-
+                await self.bot.db.execute(sql, user.id, timeout=10)
                 msg = "You have opted back into the Quotes Database."
             else:
                 msg = "Opt in cancelled, quotes cannot be added about you."
 
-            _ = view.interaction.response.edit_message
-            return await _(content=msg, view=None)
+            resp = view.interaction.response
+            await resp.edit_message(content=msg, view=None)
+            return
 
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                rec = await connection.fetchrow(QT_SQL, user_id, guild_id)
-
-        view = view_utils.Confirmation(interaction.user, "Opt Out", "Cancel")
+        rec = await self.bot.db.fetchrow(QT_SQL, user.id, guild_id)
+        view = view_utils.Confirmation(user, "Opt Out", "Cancel")
         view.true.style = discord.ButtonStyle.red
 
         # Warn about quotes that will be deleted.
@@ -574,15 +559,11 @@ class QuoteDB(commands.Cog):
 
         sql = """DELETE FROM quotes WHERE author_user_id = $1
                  OR submitter_user_id = $2"""
-
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                rec = await connection.execute(sql, user_id, user_id)
+        rec = await self.bot.db.execute(sql, user.id, user.id)
 
         _ = rec.rsplit(" ", maxsplit=1)[-1] + " quotes were deleted."
         txt = f"You were removed from the Quote Database. {_}"
         await view.interaction.response.edit_message(content=txt, view=None)
-        return
 
 
 async def setup(bot: Bot):

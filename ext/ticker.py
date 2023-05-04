@@ -32,40 +32,41 @@ NOPERMS = (
 )
 
 # Number of permanent instances to fetch tables.
+EVT = fs.EventType
 WORKER_COUNT = 2
 
 # Colour for embed for EventTypes
 EMBED_COLOURS = {
     # Goals
-    fs.EventType.GOAL: Colour.green(),
-    fs.EventType.VAR_GOAL: Colour.dark_green(),
+    EVT.GOAL: Colour.green(),
+    EVT.VAR_GOAL: Colour.dark_green(),
     # Red Cards
-    fs.EventType.RED_CARD: Colour.red(),
-    fs.EventType.VAR_RED_CARD: Colour.dark_red(),
+    EVT.RED_CARD: Colour.red(),
+    EVT.VAR_RED_CARD: Colour.dark_red(),
     # Start/Stop Game
-    fs.EventType.KICK_OFF: Colour.light_embed(),
-    fs.EventType.HALF_TIME: Colour.dark_teal(),
-    fs.EventType.SECOND_HALF_BEGIN: Colour.light_gray(),
-    fs.EventType.FULL_TIME: Colour.teal(),
-    fs.EventType.FINAL_RESULT_ONLY: Colour.teal(),
-    fs.EventType.SCORE_AFTER_EXTRA_TIME: Colour.teal(),
-    fs.EventType.PERIOD_BEGIN: Colour.light_gray(),
-    fs.EventType.PERIOD_END: Colour.dark_teal(),
-    fs.EventType.NORMAL_TIME_END: Colour.dark_magenta(),
-    fs.EventType.EXTRA_TIME_BEGIN: Colour.magenta(),
-    fs.EventType.ET_HT_BEGIN: Colour.dark_magenta(),
-    fs.EventType.ET_HT_END: Colour.dark_purple(),
-    fs.EventType.EXTRA_TIME_END: Colour.purple(),
+    EVT.KICK_OFF: Colour.light_embed(),
+    EVT.HALF_TIME: Colour.dark_teal(),
+    EVT.SECOND_HALF_BEGIN: Colour.light_gray(),
+    EVT.FULL_TIME: Colour.teal(),
+    EVT.FINAL_RESULT_ONLY: Colour.teal(),
+    EVT.SCORE_AFTER_EXTRA_TIME: Colour.teal(),
+    EVT.PERIOD_BEGIN: Colour.light_gray(),
+    EVT.PERIOD_END: Colour.dark_teal(),
+    EVT.NORMAL_TIME_END: Colour.dark_magenta(),
+    EVT.EXTRA_TIME_BEGIN: Colour.magenta(),
+    EVT.ET_HT_BEGIN: Colour.dark_magenta(),
+    EVT.ET_HT_END: Colour.dark_purple(),
+    EVT.EXTRA_TIME_END: Colour.purple(),
     # Interruptions
-    fs.EventType.ABANDONED: Colour.orange(),
-    fs.EventType.CANCELLED: Colour.orange(),
-    fs.EventType.DELAYED: Colour.orange(),
-    fs.EventType.INTERRUPTED: Colour.dark_orange(),
-    fs.EventType.POSTPONED: Colour.dark_orange(),
-    fs.EventType.RESUMED: Colour.light_gray(),
+    EVT.ABANDONED: Colour.orange(),
+    EVT.CANCELLED: Colour.orange(),
+    EVT.DELAYED: Colour.orange(),
+    EVT.INTERRUPTED: Colour.dark_orange(),
+    EVT.POSTPONED: Colour.dark_orange(),
+    EVT.RESUMED: Colour.light_gray(),
     # Penalties
-    fs.EventType.PENALTIES_BEGIN: Colour.gold(),
-    fs.EventType.PENALTY_RESULTS: Colour.dark_gold(),
+    EVT.PENALTIES_BEGIN: Colour.gold(),
+    EVT.PENALTY_RESULTS: Colour.dark_gold(),
 }
 
 
@@ -75,12 +76,12 @@ class TickerEvent:
     def __init__(
         self,
         fixture: fs.Fixture,
-        event_type: fs.EventType,
+        event_type: EVT,
         channels: list[TickerChannel],
         home: bool | None = None,
     ) -> None:
         self.fixture: fs.Fixture = fixture
-        self.event_type: fs.EventType = event_type
+        self.event_type: EVT = event_type
         self.channels: list[TickerChannel] = channels
         self.home: bool | None = home
 
@@ -110,11 +111,11 @@ class TickerEvent:
             if self.event.description:
                 embed.description += f"\n\n> {self.event.description}"
             if self.home is True:
-                embed.set_thumbnail(url=self.fixture.home.logo_url)
-                name = f"{name} ({self.fixture.home.name})"
+                embed.set_thumbnail(url=self.fixture.home.team.logo_url)
+                name = f"{name} ({self.fixture.home.team.name})"
             elif self.home is False:
-                embed.set_thumbnail(url=self.fixture.away.logo_url)
-                name = f"{name} ({self.fixture.away.name})"
+                embed.set_thumbnail(url=self.fixture.away.team.logo_url)
+                name = f"{name} ({self.fixture.away.team.name})"
         embed.set_author(name=name)
 
         comp = self.fixture.competition
@@ -126,7 +127,7 @@ class TickerEvent:
         else:
             embed.set_footer(text=f"{self.fixture.time}{c_name}")
 
-        if self.event_type == fs.EventType.PENALTY_RESULTS:
+        if self.event_type == EVT.PENALTY_RESULTS:
             self.handle_pens(embed)
 
         if (info := self.fixture.infobox) is not None:
@@ -174,10 +175,7 @@ class TickerEvent:
 
     async def event_loop(self) -> None:
         """The Fixture event's internal loop"""
-        if not self.channels:
-            return  # This should never happen.
-
-        if self.event_type == fs.EventType.KICK_OFF:
+        if self.event_type == EVT.KICK_OFF:
             return await self.dispatch()
 
         # Handle Match Events with no game events.
@@ -192,22 +190,15 @@ class TickerEvent:
             # Figure out which event we're supposed to be using
             # (Either newest event, or Stored if refresh)
             if index is None:
-                team = {
+                participant = {
                     None: None,
                     True: self.fixture.home,
                     False: self.fixture.away,
                 }[self.home]
 
                 events = self.fixture.events
-                teamed: list[fs.MatchIncident] = []
-                if team is not None:
-                    for i in events:
-                        if not i.team:
-                            continue
-
-                        if team.name == i.team.name:
-                            teamed.append(i)
-                    events = teamed
+                if participant is not None:
+                    events = [i for i in events if i.team == participant.team]
 
                 valid = self.event_type.valid_events
                 if valid and events:
@@ -284,21 +275,30 @@ class TickerChannel:
         try:
             if all(
                 {
-                    fs.EventType.KICK_OFF: [],
-                    fs.EventType.GOAL: [self.goals],
-                    fs.EventType.VAR_GOAL: [self.goals, self.vars],
-                    fs.EventType.HALF_TIME: [self.half_times],
-                    fs.EventType.SECOND_HALF_BEGIN: [self.second_halfs],
-                    fs.EventType.FULL_TIME: [self.full_times],
-                    fs.EventType.FINAL_RESULT_ONLY: [self.final_results],
-                    fs.EventType.PENALTY_RESULTS: [self.penalties],
+                    EVT.KICK_OFF: [self.kick_offs],
+                    EVT.GOAL: [self.goals],
+                    EVT.VAR_GOAL: [self.goals, self.vars],
+                    EVT.RED_CARD: [self.red_cards],
+                    EVT.VAR_RED_CARD: [self.red_cards, self.vars],
+                    EVT.HALF_TIME: [self.half_times],
+                    EVT.SECOND_HALF_BEGIN: [self.second_halfs],
+                    EVT.FULL_TIME: [self.full_times],
+                    EVT.NORMAL_TIME_END: [self.full_times],
+                    EVT.SCORE_AFTER_EXTRA_TIME: [self.full_times],
+                    EVT.EXTRA_TIME_BEGIN: [self.extra_times],
+                    EVT.EXTRA_TIME_END: [self.extra_times],
+                    EVT.ET_HT_BEGIN: [self.extra_times, self.half_times],
+                    EVT.ET_HT_END: [self.extra_times, self.second_halfs],
+                    EVT.PENALTIES_BEGIN: [self.penalties],
+                    EVT.PENALTY_RESULTS: [self.penalties],
+                    EVT.FINAL_RESULT_ONLY: [self.final_results],
                 }[event.event_type]
             ):
                 embed = event.full
             else:
                 embed = event.short
         except KeyError:
-            logger.error("%s missing from weird all dict", event.event_type)
+            logger.error("%s missing in output", event.event_type)
             embed = event.short
 
         try:
@@ -312,7 +312,9 @@ class TickerChannel:
             except KeyError:
                 message = await self.channel.send(embed=embed)
         except discord.HTTPException:
-            self.bot.ticker_channels.remove(self)
+            cog = self.bot.get_cog("Ticker")
+            assert isinstance(cog, TickerCog)
+            cog.ticker_channels.remove(self)
             return
 
         self.dispatched[event] = message
@@ -334,7 +336,9 @@ class TickerChannel:
                 setattr(self, k, value)
 
         for record in leagues:
-            if comp := self.bot.get_competition(record["url"].rstrip("/")):
+            if comp := self.bot.flashscore.get_competition(
+                record["url"].rstrip("/")
+            ):
                 self.leagues.add(comp)
             else:
                 logger.error("Could not find comp %s", record)
@@ -528,7 +532,9 @@ class TickerConfig(view_utils.DropdownPaginator):
 
         self.channel.leagues.clear()
         for i in fs.DEFAULT_LEAGUES:
-            if (comp := interaction.client.get_competition(i)) is None:
+            if (
+                comp := interaction.client.flashscore.get_competition(i)
+            ) is None:
                 logger.info("Reset: Could not add default league %s", comp)
                 continue
             self.channel.leagues.add(comp)
@@ -563,7 +569,9 @@ class TickerConfig(view_utils.DropdownPaginator):
             await view_itr.response.edit_message(embed=embed, view=self)
             return
 
-        interaction.client.ticker_channels.remove(self.channel)
+        cog = interaction.client.get_cog("Ticker")
+        assert isinstance(cog, TickerCog)
+        cog.ticker_channels.remove(self.channel)
 
         embed = discord.Embed(colour=discord.Colour.red())
         embed.description = f"The Ticker for {ment} was deleted."
@@ -576,13 +584,14 @@ class TickerConfig(view_utils.DropdownPaginator):
                 await connection.execute(sql, self.channel.id)
 
 
-class Ticker(commands.Cog):
+class TickerCog(commands.Cog):
     """Get updates whenever match events occur"""
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         TickerChannel.bot = bot
         self.workers: asyncio.Queue[Page] = asyncio.Queue(5)
+        self.ticker_channels: list[TickerChannel] = []
 
     async def cog_load(self) -> None:
         """Reset the cache on load."""
@@ -657,12 +666,12 @@ class Ticker(commands.Cog):
 
         chan = TickerChannel(channel)
         await chan.configure_channel()
-        self.bot.ticker_channels.append(chan)
+        self.ticker_channels.append(chan)
         return chan
 
     async def update_cache(self) -> list[TickerChannel]:
         """Store a list of all Ticker Channels into the bot"""
-        self.bot.ticker_channels.clear()
+        self.ticker_channels.clear()
         sql = """SELECT DISTINCT channel_id FROM ticker_channels"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -679,112 +688,80 @@ class Ticker(commands.Cog):
 
             tkrchan = TickerChannel(chan)
             await tkrchan.configure_channel()
-            self.bot.ticker_channels.append(tkrchan)
+            self.ticker_channels.append(tkrchan)
 
         sql = """DELETE FROM ticker_channels WHERE channel_id = $1"""
-        if self.bot.ticker_channels:
+        if self.ticker_channels:
             async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
                     for _id in bad:
                         await connection.execute(sql, _id)
             logger.info("Deleted %s bad Ticker channels", len(bad))
-        return self.bot.ticker_channels
+        return self.ticker_channels
 
-    async def refresh_table(self, obj: fs.Fixture) -> None:
+    async def refresh_table(self, competition: fs.Competition) -> None:
         """Refresh table for object"""
-        if obj.competition is None:
-            return
-
         page = await self.workers.get()
         try:
-            image = await obj.get_table(page)
+            image = await competition.get_table(page)
             if image is not None:
                 table = io.BytesIO(image)
                 url = await self.bot.dump_image(table)
-                obj.competition.table = url
+                competition.table = url
         finally:
             await self.workers.put(page)
 
     @commands.Cog.listener()
     async def on_fixture_event(
         self,
-        event_type: fs.EventType,
+        event_type: EVT,
         fixture: fs.Fixture,
         home: bool | None = None,
     ) -> TickerEvent | None:
         """Event handler for when something occurs during a fixture."""
         # Update the competition's Table on certain events.
-
-        if not fixture.competition:
-            return
-
-        url = fixture.competition.url
-
-        if url is None:
-            return
-
         channels: list[TickerChannel] = []
-        for i in self.bot.ticker_channels:
+        for i in self.ticker_channels:
             if fixture.competition in i.leagues:
                 channels.append(i)
 
-        evt = fs.EventType
+        evt = EVT
 
         # TODO: Figure out how to turn this into a dict.
-        if event_type == evt.KICK_OFF:
-            channels = [i for i in channels if i.kick_offs is not None]
-
-        elif event_type == evt.GOAL:
-            channels = [i for i in channels if i.goals is not None]
-            if channels:
-                await self.refresh_table(fixture)
-
-        elif event_type == evt.VAR_GOAL:
-            channels = [i for i in channels if i.goals is not None]
-            channels = [i for i in channels if i.vars is not None]
-
-        elif event_type == evt.RED_CARD:
-            channels = [i for i in channels if i.red_cards is not None]
-
-        elif event_type == evt.VAR_RED_CARD:
-            channels = [i for i in channels if i.red_cards is not None]
-            channels = [i for i in channels if i.vars is not None]
-
-        elif event_type == evt.HALF_TIME:
-            channels = [i for i in channels if i.half_times is not None]
-
-        elif event_type == evt.SECOND_HALF_BEGIN:
-            channels = [i for i in channels if i.second_halfs is not None]
-
-        elif event_type in [
-            evt.FULL_TIME,
-            evt.NORMAL_TIME_END,
-            evt.SCORE_AFTER_EXTRA_TIME,
-        ]:
-            channels = [i for i in channels if i.full_times is not None]
-
-        elif event_type in [evt.EXTRA_TIME_BEGIN, evt.EXTRA_TIME_END]:
-            channels = [i for i in channels if i.extra_times is not None]
-
-        elif event_type == evt.ET_HT_BEGIN:
-            channels = [i for i in channels if i.extra_times is not None]
-            channels = [i for i in channels if i.half_times is not None]
-
-        elif event_type == evt.ET_HT_END:
-            channels = [i for i in channels if i.extra_times is not None]
-            channels = [i for i in channels if i.second_halfs is not None]
-
-        elif event_type in [evt.PENALTIES_BEGIN, evt.PENALTY_RESULTS]:
-            channels = [i for i in channels if i.penalties is not None]
-
-        elif event_type == evt.FINAL_RESULT_ONLY:
-            channels = [i for i in channels if i.final_results is not None]
-
-        else:
-            logger.info("Ticker -- Unhandled Event Type %s", event_type)
+        for i in channels.copy():
+            try:
+                if (
+                    None
+                    in {
+                        evt.KICK_OFF: [i.kick_offs],
+                        evt.GOAL: [i.goals],
+                        evt.VAR_GOAL: [i.goals, i.vars],
+                        evt.RED_CARD: [i.red_cards],
+                        evt.VAR_RED_CARD: [i.red_cards, i.vars],
+                        evt.HALF_TIME: [i.half_times],
+                        evt.SECOND_HALF_BEGIN: [i.second_halfs],
+                        evt.FULL_TIME: [i.full_times],
+                        evt.NORMAL_TIME_END: [i.full_times],
+                        evt.SCORE_AFTER_EXTRA_TIME: [i.full_times],
+                        evt.EXTRA_TIME_BEGIN: [i.extra_times],
+                        evt.EXTRA_TIME_END: [i.extra_times],
+                        evt.ET_HT_BEGIN: [i.extra_times, i.half_times],
+                        evt.ET_HT_END: [i.extra_times, i.second_halfs],
+                        evt.PENALTIES_BEGIN: [i.penalties],
+                        evt.PENALTY_RESULTS: [i.penalties],
+                        evt.FINAL_RESULT_ONLY: [i.final_results],
+                    }[event_type]
+                ):
+                    channels.remove(i)
+            except KeyError:
+                logger.info("Unhandled Event Type %s", event_type)
 
         if not channels:
             return
+
+        if event_type == evt.GOAL and fixture.competition:
+            await self.refresh_table(fixture.competition)
+
         return TickerEvent(fixture, event_type, channels, home)
 
     ticker = discord.app_commands.Group(
@@ -802,7 +779,7 @@ class Ticker(commands.Cog):
         channel: discord.TextChannel | None,
     ) -> None:
         """View the config of this channel's Match Event Ticker"""
-        if not self.bot.ticker_channels:
+        if not self.ticker_channels:
             await self.update_cache()
 
         if channel is None:
@@ -810,7 +787,7 @@ class Ticker(commands.Cog):
 
         # Validate channel is a ticker channel.
         try:
-            tkrs = self.bot.ticker_channels
+            tkrs = self.ticker_channels
             chan = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
             chan = await self.create(interaction, channel)
@@ -849,7 +826,7 @@ class Ticker(commands.Cog):
         if channel is None:
             channel = cast(discord.TextChannel, interaction.channel)
 
-        tickers = self.bot.ticker_channels
+        tickers = self.ticker_channels
         try:
             tkr_chan = next(i for i in tickers if i.channel.id == channel.id)
         except StopIteration:
@@ -880,11 +857,11 @@ class Ticker(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, channel.id)
 
-        for i in self.bot.ticker_channels.copy():
+        for i in self.ticker_channels.copy():
             if i.channel.id == channel.id:
-                self.bot.ticker_channels.remove(i)
+                self.ticker_channels.remove(i)
 
 
 async def setup(bot: Bot):
     """Load the goal tracker cog into the bot."""
-    await bot.add_cog(Ticker(bot))
+    await bot.add_cog(TickerCog(bot))

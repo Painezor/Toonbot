@@ -17,7 +17,6 @@ from ext.utils.playwright_browser import make_browser
 if TYPE_CHECKING:
     from playwright.async_api import BrowserContext
 
-    from ext.devblog import Blog
     from ext.news_tracker import Article, NewsChannel
 
     import ext.wows_api as api
@@ -77,16 +76,8 @@ class PBot(commands.AutoShardedBot):
         self.db: asyncpg.Pool[asyncpg.Record] = datab  # pylint: disable=C0103
         self.initialised_at: datetime.datetime = datetime.datetime.now()
 
-        # Notifications
-        self.notifications_cache: list[asyncpg.Record] = []
-
         # Reminders
         self.reminders: set[asyncio.Task[None]] = set()
-
-        # Dev BLog
-        self.dev_blog: asyncio.Task[None]
-        self.dev_blog_cache: list[Blog] = []
-        self.dev_blog_channels: list[int] = []
 
         # RSS: Cache & Channels
         self.news: asyncio.Task[None]

@@ -182,17 +182,23 @@ MBEMBA = [
 class MbembaView(BaseView):
     """Generic View for the Mbemba Generator."""
 
-    async def update(self, interaction: Interaction) -> None:
-        """Regenerate the embed and push to view."""
+    def __init__(self, interaction: Interaction):
+        super().__init__(interaction.user, parent=None)
+
+    def generate(self) -> discord.Embed:
+        """Generate a Mbemba Embed"""
         item = random.choice(MBEMBA)
-        embed = discord.Embed(title="Mbemba when")
+        embed = discord.Embed()
         embed.colour = discord.Colour.purple()
         embed.description = f"<:mbemba:332196308825931777> {item}"
+        return embed
+
+    async def update(self, interaction: Interaction) -> None:
+        """Regenerate the embed and push to view."""
+        embed = self.generate()
         return await interaction.response.edit_message(embed=embed, view=self)
 
-    @discord.ui.button(
-        label="Mbemba Again", style=discord.ButtonStyle.blurple, emoji=M_EMOJI
-    )
+    @discord.ui.button(style=discord.ButtonStyle.blurple, emoji=M_EMOJI)
     async def again(self, interaction: Interaction, _) -> None:
         """When clicked, re roll."""
         await self.update(interaction)
@@ -208,7 +214,9 @@ class NUFC(commands.Cog):
     @discord.app_commands.guilds(332159889587699712)
     async def mbemba(self, interaction: Interaction) -> None:
         """Mbemba When…"""
-        return await MbembaView(interaction.user).update(interaction)
+        view = MbembaView(interaction)
+        embed = view.generate()
+        await interaction.response.send_message(view=view, embed=embed)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)

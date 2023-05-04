@@ -30,16 +30,16 @@ def parse_header(i: html.HtmlElement, fixture: Fixture) -> None:
     text = [x.strip() for x in i.xpath(".//text()")]
     if "Penalties" in text:
         try:
-            fixture.penalties_home = text[1]
-            fixture.penalties_away = text[3]
+            fixture.home.pens = int(text[1])
+            fixture.away.pens = int(text[3])
             logger.info("Parsed a 2 part penalties OK!!")
         except IndexError:
             # If Penalties are still in progress, it's actually
             # in format ['Penalties', '1 - 2']
             _, pen_string = text
             home, away = pen_string.split(" - ")
-            fixture.penalties_home = home
-            fixture.penalties_away = away
+            fixture.home.pens = int(home)
+            fixture.away.pens = int(away)
 
 
 def parse_events(fixture: Fixture, tree: Any) -> list[MatchIncident]:
@@ -131,9 +131,9 @@ def parse_events(fixture: Fixture, tree: Any) -> list[MatchIncident]:
             event.set_assist(node)
 
         if "home" in team_detection:
-            event.team = fixture.home
+            event.team = fixture.home.team
         elif "away" in team_detection:
-            event.team = fixture.away
+            event.team = fixture.away.team
 
         xpath = './/div[contains(@class, "timeBox")]//text()'
         time = "".join(node.xpath(xpath)).strip()

@@ -24,8 +24,25 @@ FAVICON = (
     "Transfermarkt_favicon.png"
 )
 TF = "https://www.transfermarkt.co.uk"
+LOOP_URL = f"{TF}/transfers/neuestetransfers/statistik?minMarktwert="
 
 logger = logging.getLogger("transfermarkt")
+
+
+async def get_recent_transfers(
+    min_market_value: int = 200000,
+) -> list[Transfer]:
+    """Get the most recent transfers"""
+    url = LOOP_URL + format(min_market_value, ",").replace(',', '.')
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            if resp.status != 200:
+                logger.error("%s %s: %s", resp.status, resp.url)
+                return []
+            tree = html.fromstring(await resp.text())
+
+        xpath = './/div[@class="responsive-table"]/div/table/tbody/tr'
+        return [Transfer.from_loop(i) for i in tree.xpath(xpath)]
 
 
 class SearchResult:
@@ -610,26 +627,6 @@ class Transfer:
     def outbound(self) -> str:
         """Get outbound text."""
         return f"{self.player} {self.loan_fee}\nTo: {self.new_team}\n"
-
-    def embed(self) -> discord.Embed:
-        """An embed representing a transfermarkt player transfer."""
-        embed = discord.Embed(colour=0x1A3151)
-        flg = " ".join(self.player.flags)
-        embed.title = f"{flg} {self.player.name}"
-        embed.url = self.player.link
-        desc: list[str] = []
-        desc.append(f"**Age**: {self.player.age}")
-        desc.append(f"**Position**: {self.player.position}")
-        desc.append(f"**From**: {self.old_team}")
-        desc.append(f"**To**: {self.new_team}")
-        desc.append(f"**Fee**: {self.loan_fee}")
-
-        if self.player.picture and "http" in self.player.picture:
-            embed.set_thumbnail(url=self.player.picture)
-
-        desc.append(timed_events.Timestamp().relative)
-        embed.description = "\n".join(desc)
-        return embed
 
 
 class TeamView(view_utils.Paginator):

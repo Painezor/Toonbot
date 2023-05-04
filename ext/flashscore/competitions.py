@@ -5,68 +5,53 @@ import logging
 from lxml import html
 from typing import TYPE_CHECKING, Any
 
-from . import abc
-from .constants import COMPETITION_EMOJI, LOGO_URL, FLASHSCORE
+from pydantic import BaseModel, validator
+
+from .constants import COMPETITION_EMOJI, FLASHSCORE
+from .fixture import HasFixtures
+from .logos import HasLogo
+from .table import HasTable
+from .topscorers import HasScorers
+
 
 logger = logging.getLogger("flashscore.competition")
 
 if TYPE_CHECKING:
-    import asyncpg
     from playwright.async_api import Page
 
 
-class Competition(abc.FSObject):
+class Competition(BaseModel, HasFixtures, HasTable, HasLogo, HasScorers):
     """An object representing a Competition on Flashscore"""
 
     # Constant
     emoji = COMPETITION_EMOJI
 
-    def __init__(
-        self,
-        fsid: str | None,
-        name: str,
-        country: str | None,
-        url: str | None,
-    ) -> None:
-        # Sanitise inputs.
-        if country is not None and ":" in country:
-            country = country.split(":")[0]
+    # Required
+    name: str
 
-        if url is not None:
-            url = url.rstrip("/")
+    # Optional
+    id: str | None = None
+    country: str | None = None
+    url: str | None = None
+    logo_url: str | None = None
 
-        if name and country and not url:
-            nom = name.casefold().replace(" ", "-").replace(".", "")
-            ctr = country.casefold().replace(" ", "-").replace(".", "")
-            url = FLASHSCORE + f"/football/{ctr}/{nom}"
-        elif url and country and FLASHSCORE not in url:
-            ctr = country.casefold().replace(" ", "-").replace(".", "")
-            url = f"{FLASHSCORE}/football/{ctr}/{url}"
-        elif fsid and not url:
-            # https://www.flashscore.com/?r=1:jLsL0hAF ??
-            url = f"https://www.flashscore.com/?r=2:{url}"
+    # Fetched
+    table: str | None = None
 
-        super().__init__(fsid, name, url)
+    @validator("country")
+    def fmt_country(cls, value: str | None) -> str | None:
+        if value and ":" in value:
+            return value.split(":")[0]
+        return value
 
-        self.logo_url: str | None = None
-        self.country: str | None = country
-
-        # Table Imagee
-        self.table: str | None = None
-
-    @classmethod
-    def from_record(cls, record: asyncpg.Record) -> Competition:
-        """Generate a Competition from an asyncpg.Record"""
-        i = record
-        comp = Competition(i["id"], i["name"], i["country"], i["url"])
-        comp.logo_url = i["logo_url"]
-        return comp
+    @validator("url")
+    def fmt_url(cls, value: str | None) -> str | None:
+        if value:
+            return value.rstrip("/")
+        return value
 
     def __str__(self) -> str:
         return self.title
-
-    def __hash__(self) -> int:
-        return hash((self.title, self.id, self.url))
 
     def __eq__(self, other: Any) -> bool:
         if other is None:
@@ -96,17 +81,22 @@ class Competition(abc.FSObject):
             country = "Unidentified Country"
 
         # TODO: Extract the ID from the URL
-        comp = cls(None, name, country, link)
+        comp = cls(name=name, country=country, url=link)
 
         logo = tree.xpath('.//div[contains(@class,"__logo")]/@style')
 
         try:
-            comp.logo_url = LOGO_URL + logo[0].split("(")[1].strip(")")
+            shrt = FLASHSCORE + "/res/image/data/"
+            comp.logo_url = shrt + logo[0].split("(")[1].strip(")")
         except IndexError:
             if ".png" in logo:
                 comp.logo_url = logo
 
         return comp
+
+    @property
+    def markdown(self) -> str:
+        return f"[{self.title}]({self.url})"
 
     @property
     def title(self) -> str:

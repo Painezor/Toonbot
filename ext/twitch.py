@@ -62,37 +62,8 @@ class Contributor:
 
     @property
     def markdown(self) -> str:
-        """Return comma separated list of [name](link) social markdowns"""
-        output: list[str] = []
-        for i in self.links:
-            if "youtube" in i:
-                output.append(f"• [YouTube]({i})")
-            elif "twitch" in i:
-                output.append(f"• [Twitch]({i})")
-            elif "bilibili" in i:
-                output.append(f"• [bilibili]({i})")
-            elif "reddit" in i:
-                output.append(f"• [Reddit]({i})")
-            elif "nicovideo" in i:
-                output.append(f"• [Niconico]({i})")
-            elif "facebook" in i:
-                output.append(f"• [Facebook]({i})")
-            elif "instagram" in i:
-                output.append(f"• [Instagram]({i})")
-            elif "twitter" in i:
-                output.append(f"• [Twitter]({i})")
-            elif "discord" in i:
-                output.append(f"• [Discord]({i})")
-            elif "yandex" in i:
-                output.append(f"• [Zen]({i})")
-            elif "trovo" in i:
-                output.append(f"• [Trovo]({i})")
-            elif "forum.worldofwarships" in i:
-                output.append(f"• [WoWs Forum]({i})")
-            else:
-                logger.info("Unhandled social %s", i)
-                output.append(f"• {i}")
-        return "\n".join(output)
+        """Return bulletpoint list of socials"""
+        return "\n".join(f"• {i}" for i in self.links)
 
     @property
     def flag(self) -> list[str]:

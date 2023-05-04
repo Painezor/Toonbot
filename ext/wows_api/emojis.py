@@ -46,3 +46,48 @@ SUBMARINE_EMOJI = "<:submarine:991360776763879484>"
 SUBMARINE_SPECIAL_EMOJI = "<:submarine_special:991360980544143461>"
 SUBMARINE_PREMIUM_EMOJI = SUBMARINE_SPECIAL_EMOJI
 # TODO: Submarine Premium Emoji
+
+SHIP_EMOTES = {
+    "aircarrier": {
+        "normal": CARRIER_EMOJI,
+        "premium": CARRIER_PREMIUM_EMOJI,
+        "special": CARRIER_SPECIAL_EMOJI,
+    },
+    "battleship": {
+        "normal": BATTLESHIP_EMOJI,
+        "premium": BATTLESHIP_PREMIUM_EMOJI,
+        "special": BATTLESHIP_SPECIAL_EMOJI,
+    },
+    "cruiser": {
+        "normal": CRUISER_EMOJI,
+        "premium": CRUISER_PREMIUM_EMOJI,
+        "special": CRUISER_SPECIAL_EMOJI,
+    },
+    "destroyer": {
+        "normal": DESTROYER_EMOJI,
+        "premium": DESTROYER_PREMIUM_EMOJI,
+        "special": DESTROYER_SPECIAL_EMOJI,
+    },
+    "submarine": {
+        "normal": SUBMARINE_EMOJI,
+        "premium": SUBMARINE_PREMIUM_EMOJI,
+        "special": SUBMARINE_SPECIAL_EMOJI,
+    },
+}
+
+# Flags
+NATION_FLAGS = {
+    "commonwealth": "<:Commonwealth:991329664591212554>",
+    "europe": "🇪🇺",
+    "france": "🇫🇷",
+    "germany": "🇩🇪",
+    "japan": "🇯🇵",
+    "italy": "🇮🇹",
+    "netherlands": "🇳🇱",
+    "pan_america": "<:PanAmerica:991330048390991933>",
+    "pan_asia": "<:pan_asia:1098389406450188349>",
+    "spain": "🇪🇸",
+    "usa": "🇺🇸",
+    "uk": "🇬🇧",
+    "ussr": "<:USSR:991330483445186580>",
+}

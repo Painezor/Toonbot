@@ -4,23 +4,23 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import importlib
+import json
 import logging
 import math
 import pathlib
 import re
 from typing import TYPE_CHECKING, Any
 
-import asyncprawcore  # type: ignore
+from asyncpraw import Reddit
+from asyncprawcore import TooLarge
 import discord
 from discord.ext import commands, tasks
 from lxml import html
 from PIL import Image
 
-import ext.flashscore as fs
-
 if TYPE_CHECKING:
     from core import Bot
+    from asyncpg import Record
 
 
 NUFC_DISCORD_LINK = "newcastleutd"  # TuuJgrA
@@ -32,6 +32,10 @@ REDDIT_THUMBNAIL = (
 )
 
 logger = logging.getLogger("sidebar")
+
+
+with open("credentials.json", mode="r", encoding="utf-8") as fun:
+    _credentials = json.load(fun)
 
 
 # TODO: Ask Asyncpraw guy to make his shit unfucked.
@@ -71,24 +75,27 @@ class NUFCSidebar(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        self.bot.sidebar = self.sidebar_task.start()
-        importlib.reload(fs)
+
+        self.reddit_teams: list[Record] = []
+
+        self.reddit = Reddit(**_credentials["Reddit"])
+        self.task: asyncio.Task[None] = self.sidebar_task.start()
 
     async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
-        self.bot.sidebar.cancel()
+        self.task.cancel()
 
     @tasks.loop(hours=6)
     async def sidebar_task(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
-        if not self.bot.browser or not self.bot.teams:
+        if not self.bot.browser or not self.bot.flashscore.teams:
             await asyncio.sleep(60)
             self.sidebar_task.change_interval(seconds=60)
             return
         self.sidebar_task.change_interval(hours=6)
 
         markdown = await self.make_sidebar()
-        subreddit: Any = await self.bot.reddit.subreddit("NUFC")
+        subreddit = await self.reddit.subreddit("NUFC")
         page = await subreddit.wiki.get_page("config/sidebar")
         await page.edit(content=markdown)
 
@@ -103,12 +110,12 @@ class NUFCSidebar(commands.Cog):
     ) -> str:
         """Build the sidebar markdown"""
         # Fetch all data
-        srd: Any = await self.bot.reddit.subreddit(subreddit)
+        srd: Any = await self.reddit.subreddit(subreddit)
         wiki: Any = await srd.wiki.get_page("sidebar")
 
         wiki_content = wiki.content_md
 
-        fsr = self.bot.get_team(team_id)
+        fsr = self.bot.flashscore.get_team(team_id)
         if fsr is None:
             raise ValueError(f"Team with ID {team_id} not found in db")
 
@@ -160,7 +167,7 @@ class NUFCSidebar(commands.Cog):
         # Get match threads
         last_opponent = qry.split(" ")[0]
 
-        nufc_sub: Any = await self.bot.reddit.subreddit("NUFC")
+        nufc_sub: Any = await self.reddit.subreddit("NUFC")
 
         pre = "Pre"
         match = "Match"
@@ -186,19 +193,19 @@ class NUFCSidebar(commands.Cog):
         match_threads = f"\n\n### {pre} - {match} - {post}"
         fixture = next(i for i in results + fixtures)
         home = next(
-            (i for i in records if i["name"] == fixture.home.name),
+            (i for i in records if i["name"] == fixture.home.team.name),
             None,
         )
         away = next(
-            (i for i in records if i["name"] == fixture.away.name),
+            (i for i in records if i["name"] == fixture.away.team.name),
             None,
         )
 
         home_sub = home["subreddit"] if home is not None else ""
         away_sub = away["subreddit"] if away is not None else ""
 
-        h_sh = f"[{fixture.home.name}]({home_sub})"
-        a_sh = f"[{fixture.away.name}]({away_sub})"
+        h_sh = f"[{fixture.home.team.name}]({home_sub})"
+        a_sh = f"[{fixture.away.team.name}]({away_sub})"
         top_bar = f"> {h_sh} [{fixture.score}]({fixture.url}) {a_sh}"
 
         home_icon = "#temp" if home is None else home["icon"]
@@ -233,7 +240,7 @@ class NUFCSidebar(commands.Cog):
             ):
                 image = Image.open(badges[0])
                 image.save("TEMP_BADGE.png", "PNG")
-                sco: Any = await self.bot.reddit.subreddit("NUFC")
+                sco: Any = await self.reddit.subreddit("NUFC")
                 await sco.stylesheet.upload("TEMP_BADGE.png", "temp")
                 await sco.stylesheet.update(
                     sco.stylesheet().stylesheet, reason="Upload a badge"
@@ -244,7 +251,7 @@ class NUFCSidebar(commands.Cog):
         rows: list[str] = []
         if fixtures:
             for fix in fixtures:
-                h_sh = fix.home.name
+                h_sh = fix.home.team.name
 
                 try:
                     home = next(i for i in pool if i["name"] == h_sh)
@@ -253,7 +260,7 @@ class NUFCSidebar(commands.Cog):
                 except StopIteration:
                     h_ico = ""
 
-                a_sh = fix.away.name
+                a_sh = fix.away.team.name
                 try:
                     away = next(i for i in pool if i["name"] == a_sh)
                     a_ico = away["icon"]
@@ -288,7 +295,7 @@ class NUFCSidebar(commands.Cog):
             markdown += header
             rows.clear()
             for i in results:
-                h_sh = i.home.name
+                h_sh = i.home.team.name
 
                 try:
                     home = next(i for i in pool if i["name"] == h_sh)
@@ -297,7 +304,7 @@ class NUFCSidebar(commands.Cog):
                 except StopIteration:
                     h_ico = ""
 
-                a_sh = i.away.name
+                a_sh = i.away.team.name
                 try:
                     away = next(i for i in pool if i["name"] == a_sh)
                     a_ico = away["icon"]
@@ -343,7 +350,7 @@ class NUFCSidebar(commands.Cog):
         embed = discord.Embed(color=0xFF4500, url=REDDIT)
         embed.set_author(icon_url=REDDIT_THUMBNAIL, name="Sidebar updated")
 
-        subreddit: Any = await self.bot.reddit.subreddit("NUFC")
+        subreddit: Any = await self.reddit.subreddit("NUFC")
         if caption:
             page = await subreddit.wiki.get_page("sidebar")
 
@@ -356,10 +363,10 @@ class NUFCSidebar(commands.Cog):
 
         if image:
             await image.save(pathlib.Path(image.filename))
-            sub: Any = await self.bot.reddit.subreddit("NUFC")
+            sub: Any = await self.reddit.subreddit("NUFC")
             try:
                 await sub.stylesheet.upload("sidebar", "sidebar")
-            except asyncprawcore.TooLarge:
+            except TooLarge:
                 embed = discord.Embed()
                 embed.description = "🚫 Image file size too large"
                 reply = interaction.response.send_message

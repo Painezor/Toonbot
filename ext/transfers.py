@@ -5,29 +5,46 @@ from __future__ import annotations  # Cyclic Type hinting
 from importlib import reload
 
 import logging
-import typing
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands, tasks
-from lxml import html
 
 import ext.toonbot_utils.transfermarkt as tfm
-from ext.utils import view_utils, embed_utils
+from ext.utils import view_utils, embed_utils, timed_events
 
 logger = logging.getLogger("transfers.py")
 
 if TYPE_CHECKING:
     from core import Bot
+    from asyncio import Task
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot]
+    User: TypeAlias = discord.User | discord.Member
 
-TF = "https://www.transfermarkt.co.uk"
-MIN_MARKET_VALUE = "?minMarktwert=200.000"
-LOOP_URL = f"{TF}/transfers/neuestetransfers/statistik{MIN_MARKET_VALUE}"
 
 NOPERMS = "```yaml\nI need the following permissions.\n"
+
+
+class TransferEmbed(discord.Embed):
+    """An embed representing a transfermarkt player transfer."""
+
+    def __init__(self, transfer: tfm.Transfer):
+        super().__init__(colour=0x1A3151, url=transfer.player.link)
+
+        flg = " ".join(transfer.player.flags)
+        self.title = f"{flg} {transfer.player.name}"
+        desc: list[str] = []
+        desc.append(f"**Age**: {transfer.player.age}")
+        desc.append(f"**Position**: {transfer.player.position}")
+        desc.append(f"**From**: {transfer.old_team}")
+        desc.append(f"**To**: {transfer.new_team}")
+        desc.append(f"**Fee**: {transfer.loan_fee}")
+        desc.append(timed_events.Timestamp().relative)
+        self.description = "\n".join(desc)
+
+        if transfer.player.picture and "http" in transfer.player.picture:
+            self.set_thumbnail(url=transfer.player.picture)
 
 
 class TFCompetitionTransformer(discord.app_commands.Transformer):
@@ -49,8 +66,6 @@ class TFCompetitionTransformer(discord.app_commands.Transformer):
 class TransferChannel:
     """An object representing a channel with a Transfer Ticker"""
 
-    bot: typing.ClassVar[Bot]
-
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
         self.leagues: set[tfm.TFCompetition] = set()
@@ -66,10 +81,10 @@ class TransferChannel:
         return self.channel.mention
 
     # Database management
-    async def get_leagues(self) -> set[tfm.TFCompetition]:
+    async def get_leagues(self, bot: Bot) -> set[tfm.TFCompetition]:
         """Get the leagues needed for this channel"""
         sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
+        async with bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
                 records = await connection.fetch(sql, self.channel.id)
 
@@ -253,7 +268,10 @@ class TransfersConfig(view_utils.DropdownPaginator):
             async with connection.transaction():
                 await connection.execute(sql, self.channel.id)
 
-        interaction.client.transfer_channels.remove(self.channel)
+        cog = interaction.client.get_cog(Transfers.__cog_name__)
+        if cog is not None:
+            assert isinstance(cog, Transfers)
+            cog.transfer_channels.remove(self.channel)
 
 
 class Transfers(commands.Cog):
@@ -261,20 +279,20 @@ class Transfers(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        TransferChannel.bot = bot
+        self.parsed: list[str] = []
+        self.transfer_channels: list[TransferChannel] = []
+        self.task: Task[None]
         reload(tfm)
         reload(view_utils)
 
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
-        self.bot.transfer_channels.clear()
-        self.bot.transfers = (
-            self.transfers_loop.start()  # pylint: disable=E1101
-        )
+        self.task = self.transfers_loop.start()  # pylint: disable=E1101
 
     async def cog_unload(self) -> None:
         """Cancel transfers task on Cog Unload."""
-        self.bot.transfers.cancel()
+        self.task.cancel()
+        self.transfer_channels.clear()
 
     async def create(
         self,
@@ -318,7 +336,7 @@ class Transfers(commands.Cog):
 
         chan = TransferChannel(channel)
         await chan.reset_leagues(interaction)
-        self.bot.transfer_channels.append(chan)
+        self.transfer_channels.append(chan)
         return chan
 
     async def update_cache(self) -> list[TransferChannel]:
@@ -330,47 +348,35 @@ class Transfers(commands.Cog):
 
         # Purge dead
         cached = set([r["channel_id"] for r in records])
-        for chan in self.bot.transfer_channels.copy():
+        for chan in self.transfer_channels.copy():
             if chan.channel.id not in cached:
-                self.bot.transfer_channels.remove(chan)
+                self.transfer_channels.remove(chan)
 
-        tcl = self.bot.transfer_channels
+        tcl = self.transfer_channels
         missing = [i for i in cached if i not in [tc.channel.id for tc in tcl]]
         for cid in missing:
             channel = self.bot.get_channel(cid)
-            if channel is None:
+
+            if not isinstance(channel, discord.TextChannel):
                 continue
 
-            channel = typing.cast(discord.TextChannel, channel)
-
             chan = TransferChannel(channel)
-            await chan.get_leagues()
-            self.bot.transfer_channels.append(chan)
-        return self.bot.transfer_channels
+            await chan.get_leagues(self.bot)
+            self.transfer_channels.append(chan)
+        return self.transfer_channels
 
     # Core Loop
     @tasks.loop(minutes=1)
     async def transfers_loop(self) -> None:
         """Core transfer ticker loop - refresh every minute and
         get all new transfers from transfermarkt"""
-        if not self.bot.guilds:
-            return
+        skip_output = not bool(self.parsed)
 
-        async with self.bot.session.get(LOOP_URL) as resp:
-            if resp.status != 200:
-                rsn = await resp.text()
-                logger.error("%s %s: %s", resp.status, rsn, resp.url)
-            tree = html.fromstring(await resp.text())
-
-        skip_output = True if not self.bot.parsed_transfers else False
-
-        xpath = './/div[@class="responsive-table"]/div/table/tbody/tr'
-        transfers = [tfm.Transfer.from_loop(i) for i in tree.xpath(xpath)]
-        for i in transfers:
-            if i.player.name in self.bot.parsed_transfers:
+        for i in await tfm.get_recent_transfers():
+            if i.player.name in self.parsed:
                 continue  # skip when duplicate / void.
 
-            self.bot.parsed_transfers.append(i.player.name)
+            self.parsed.append(i.player.name)
 
             # We don't need to output when populating after a restart.
             if skip_output:
@@ -388,25 +394,16 @@ class Transfers(commands.Cog):
                 async with connection.transaction():
                     records = await connection.fetch(sql, old, new)
 
-            if not records:
-                continue
-
             logger.info("Disaptching Transfer to %s channels", len(records))
 
-            embed = i.embed()
+            embed = TransferEmbed(i)
 
             for record in records:
                 channel = self.bot.get_channel(record["channel_id"])
 
-                if channel is None:
+                if not isinstance(channel, discord.abc.Messageable):
                     continue
-
-                channel = typing.cast(discord.TextChannel, channel)
-
-                try:
-                    await channel.send(embed=embed)
-                except discord.HTTPException:
-                    continue
+                await channel.send(embed=embed)
 
     @transfers_loop.before_loop
     async def precache(self):
@@ -428,11 +425,14 @@ class Transfers(commands.Cog):
     ) -> None:
         """View the config of this channel's transfer ticker"""
         if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
+            if isinstance(interaction.channel, discord.TextChannel):
+                channel = interaction.channel
+            else:
+                return
 
         # Validate channel is a ticker channel.
         try:
-            tkrs = self.bot.transfer_channels
+            tkrs = self.transfer_channels
             chan = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
             chan = await self.create(interaction, channel)
@@ -455,11 +455,14 @@ class Transfers(commands.Cog):
     ) -> None:
         """Add a league to your transfer ticker channel(s)"""
         if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
+            if isinstance(interaction.channel, discord.TextChannel):
+                channel = interaction.channel
+            else:
+                return
 
         # Validate channel is a ticker channel.
         try:
-            tkrs = self.bot.transfer_channels
+            tkrs = self.transfer_channels
             chan = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
             chan = await self.create(interaction, channel)

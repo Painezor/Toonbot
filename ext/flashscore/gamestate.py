@@ -60,6 +60,46 @@ class GameState(enum.Enum):
     AWARDED = ("Awrd", "⚪", 0xFFFFFF)
 
 
+def get_half_time_change(old: GameState) -> EventType:
+    if old == GameState.EXTRA_TIME:
+        return EventType.ET_HT_BEGIN
+    return EventType.HALF_TIME
+
+
+def get_break_time_change(old: GameState) -> EventType:
+    if old == GameState.EXTRA_TIME:
+        return EventType.EXTRA_TIME_END
+    return EventType.NORMAL_TIME_END
+
+
+def get_extra_time_change(old: GameState) -> EventType:
+    if old == GameState.HALF_TIME:
+        return EventType.ET_HT_END
+    return EventType.EXTRA_TIME_BEGIN
+
+
+def get_live_change(old: GameState) -> EventType:
+    return {
+        GameState.SCHEDULED: EventType.KICK_OFF,
+        GameState.DELAYED: EventType.KICK_OFF,
+        GameState.INTERRUPTED: EventType.RESUMED,
+        GameState.STOPPAGE_TIME: EventType.SECOND_HALF_BEGIN,
+        GameState.HALF_TIME: EventType.SECOND_HALF_BEGIN,
+        GameState.BREAK_TIME: EventType.PERIOD_BEGIN,
+    }[old]
+
+
+def get_full_time_change(old: GameState) -> EventType:
+    try:
+        return {
+            GameState.EXTRA_TIME: EventType.SCORE_AFTER_EXTRA_TIME,
+            GameState.SCHEDULED: EventType.FINAL_RESULT_ONLY,
+            GameState.HALF_TIME: EventType.FINAL_RESULT_ONLY,
+        }[old]
+    except KeyError:
+        return EventType.FULL_TIME
+
+
 def get_event_type(
     new: GameState | None, old: GameState | None
 ) -> EventType | None:
@@ -73,45 +113,19 @@ def get_event_type(
             GameState.ABANDONED: EventType.ABANDONED,
             GameState.AFTER_EXTRA_TIME: EventType.SCORE_AFTER_EXTRA_TIME,
             GameState.AFTER_PENS: EventType.PENALTY_RESULTS,
-            GameState.BREAK_TIME: EventType.EXTRA_TIME_END
-            if old == GameState.EXTRA_TIME
-            else EventType.NORMAL_TIME_END,
+            GameState.BREAK_TIME: get_break_time_change(old),
+            GameState.AWARDED: EventType.CANCELLED,
             GameState.CANCELLED: EventType.CANCELLED,
+            GameState.WALKOVER: EventType.CANCELLED,
             GameState.DELAYED: EventType.DELAYED,
-            GameState.EXTRA_TIME: EventType.ET_HT_END
-            if old == GameState.HALF_TIME
-            else EventType.EXTRA_TIME_BEGIN,
-            GameState.HALF_TIME: EventType.ET_HT_BEGIN
-            if old == GameState.EXTRA_TIME
-            else EventType.HALF_TIME,
+            GameState.EXTRA_TIME: get_extra_time_change(old),
+            GameState.FULL_TIME: get_full_time_change(old),
+            GameState.HALF_TIME: get_half_time_change(old),
             GameState.INTERRUPTED: EventType.INTERRUPTED,
             GameState.PENALTIES: EventType.PENALTIES_BEGIN,
             GameState.POSTPONED: EventType.POSTPONED,
             GameState.STOPPAGE_TIME: None,
-            GameState.LIVE: {
-                GameState.SCHEDULED: EventType.KICK_OFF,
-                GameState.DELAYED: EventType.KICK_OFF,
-                GameState.INTERRUPTED: EventType.RESUMED,
-                GameState.HALF_TIME: EventType.SECOND_HALF_BEGIN,
-                GameState.BREAK_TIME: EventType.PERIOD_BEGIN,
-            }[old],
+            GameState.LIVE: get_live_change(old),
         }[new]
     except KeyError:
-        pass
-
-    evt = None
-
-    if new == GameState.FULL_TIME:
-        try:
-            return {
-                GameState.EXTRA_TIME: EventType.SCORE_AFTER_EXTRA_TIME,
-                GameState.SCHEDULED: EventType.FINAL_RESULT_ONLY,
-                GameState.HALF_TIME: EventType.FINAL_RESULT_ONLY,
-            }[old]
-        except KeyError:
-            return EventType.FULL_TIME
-
-    if evt is None:
         logger.error("State Change Not Handled: %s -> %s", old, new)
-
-    return evt

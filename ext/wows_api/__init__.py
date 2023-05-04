@@ -17,6 +17,7 @@ from .clan import (
     get_clan_vortex_data,
     get_member_vortex,
 )
+from .devblog import DevBlog, get_dev_blogs
 from .emojis import (
     # Game Modes
     BRAWL_EMOJI,
@@ -53,6 +54,7 @@ from .emojis import (
     SUBMARINE_EMOJI,
     SUBMARINE_PREMIUM_EMOJI,
     SUBMARINE_SPECIAL_EMOJI,
+    SHIP_EMOTES,
 )
 from .enums import Map, Nation, Region
 from .gamemode import GameMode, get_game_modes
@@ -94,6 +96,9 @@ __all__ = [
     "ClanVortexData",
     "ClanMember",
     "ClanMemberVortexData",
+    # devblog
+    "DevBlog",
+    "get_dev_blogs",
     # emojis
     "BRAWL_EMOJI",
     "CLAN_EMOJI",
@@ -127,6 +132,7 @@ __all__ = [
     "SUBMARINE_EMOJI",
     "SUBMARINE_PREMIUM_EMOJI",
     "SUBMARINE_SPECIAL_EMOJI",
+    "SHIP_EMOTES",
     # enums
     "Map",
     "Nation",

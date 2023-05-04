@@ -1,7 +1,6 @@
 """URLS, Emojis, and other strings related to FlashScore"""
 
 FLASHSCORE = "https://www.flashscore.com"
-LOGO_URL = FLASHSCORE + "/res/image/data/"
 COMPETITION_EMOJI = "🏆"
 GOAL_EMOJI = "⚽"
 INJURY_EMOJI = "<:injury:682714608972464187>"

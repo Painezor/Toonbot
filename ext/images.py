@@ -501,8 +501,9 @@ class Images(commands.Cog):
             font = ImageFont.truetype("Whitney-Medium.ttf", 24)
             wid = font.getsize(txt)[0]  # Width, Height
 
-            size = (300 - wid / 2, 180)
-            ImageDraw.Draw(base).text(size, txt, font=font, fill="#ffffff")
+            size = (300 - wid / 2, float(180))
+            drw = ImageDraw.Draw(base)
+            drw.multiline_text(size, txt, 0xFFFFFF, font)
 
             base.save(out := io.BytesIO(), "PNG")
             base.close()

@@ -2,15 +2,13 @@
 from __future__ import annotations
 
 import datetime
-from lxml import html
 from typing import TYPE_CHECKING, Literal
 
+from lxml import html
 from pydantic import BaseModel
 
+
 from ext.utils import timed_events
-
-from .abc import FSObject
-
 
 from .constants import (
     FLASHSCORE,
@@ -22,21 +20,31 @@ from .constants import (
     TEAM_EMOJI,
     YELLOW_CARD_EMOJI,
 )
+from .fixture import HasFixtures
+from .logos import HasLogo
+from .news import HasNews
+from .table import HasTable
+from .topscorers import HasScorers
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
+
+    from .cache import FlashscoreCache
     from .competitions import Competition
     from .players import FSPlayer
-
-    # TODO: Migrate FromRecord back to module
-    import asyncpg
 
 
 TFOpts = Literal["All", "Arrivals", "Departures"]
 
 
-class Team(FSObject):
+class Team(BaseModel, HasFixtures, HasTable, HasNews, HasScorers, HasLogo):
     """An object representing a Team from Flashscore"""
+
+    name: str | None = None
+    id: str | None = None  # pylint: disable=C0103
+    url: str | None = None
+
+    logo_url: str | None = None
 
     competition: Competition | None = None
     gender: str | None = None
@@ -44,63 +52,11 @@ class Team(FSObject):
 
     emoji = TEAM_EMOJI
 
-    def __init__(self, fs_id: str | None, name: str, url: str | None) -> None:
-        # Example URL:
-        # https://www.flashscore.com/team/thailand-stars/jLsL0hAF/
-        # https://www.flashscore.com/?r=3:jLsL0hAF
-
-        if fs_id is None and url:
-            fs_id = url.split("/")[-1]
-        elif url and fs_id and FLASHSCORE not in url:
-            url = f"{FLASHSCORE}/team/{url}/{fs_id}"
-        elif fs_id and not url:
-            url = f"https://www.flashscore.com/?r=3:{fs_id}"
-
-        super().__init__(fs_id, name, url)
-
     def __str__(self) -> str:
         output = self.name or "Unknown Team"
         if self.competition is not None:
             output = f"{output} ({self.competition.title})"
         return output
-
-    @classmethod
-    def from_record(cls, record: asyncpg.Record) -> Team:
-        """Retrieve a Team object from an asyncpg Record"""
-        team = Team(record["id"], record["name"], record["url"])
-        team.logo_url = record["logo_url"]
-        return team
-
-    @classmethod
-    async def from_fixture_html(
-        cls, tree: html.HtmlElement, home: bool = True
-    ) -> tuple[Team, Team]:
-        """Parse a team from the HTML of a flashscore FIxture"""
-        attr = "home" if home else "away"
-
-        teams: list[Team] = []
-        for attr in ["home", "away"]:
-            xpath = f".//div[contains(@class, 'duelParticipant__{attr}')]"
-            div = tree.xpath(xpath)
-            if not div:
-                raise LookupError("Cannot find team on page.")
-
-            div = div[0]  # Only One
-
-            # Get Name
-            xpath = ".//a[contains(@class, 'participant__participantName')]/"
-            name = "".join(div.xpath(xpath + "text()"))
-            url = "".join(div.xpath(xpath + "@href"))
-
-            team_id = url.split("/")[-2]
-            team = Team(team_id, name, FLASHSCORE + url)
-            if team.logo_url is None:
-                logo = div.xpath('.//img[@class="participant__image"]/@src')
-                logo = "".join(logo)
-                if logo:
-                    team.logo_url = FLASHSCORE + logo
-            teams.append(team)
-        return tuple(teams)
 
     @property
     def ac_row(self) -> str:
@@ -111,11 +67,22 @@ class Team(FSObject):
         return f"{self.emoji} {txt}"
 
     @property
+    def markdown(self) -> str:
+        return f"[{self.name}]({self.url})"
+
+    @property
     def tag(self) -> str:
         """Generate a 3 letter tag for the team"""
+        if self.name is None:
+            return "???"
+
         if len(self.name.split()) == 1:
             return "".join(self.name[:3]).upper()
         return "".join([i for i in self.name if i.isupper()])
+
+    @property
+    def title(self) -> str:
+        return f"{TEAM_EMOJI} {self.name}"
 
     async def get_squad(
         self, page: Page, btn_name: str | None = None
@@ -148,7 +115,7 @@ class Team(FSObject):
         return members
 
     async def get_transfers(
-        self, page: Page, type_: TFOpts, cache: set[Team]
+        self, page: Page, label: TFOpts, cache: FlashscoreCache
     ) -> list[FSTransfer]:
         """Get a list of transfers for the team retrieved from flashscore"""
         from .players import FSPlayer  # pylint disable=C0415
@@ -157,16 +124,13 @@ class Team(FSObject):
             await page.goto(url, timeout=500)
             await page.wait_for_selector("section#transfers", timeout=500)
 
-        filters = page.locator("button.filter__filter")
+        filters = page.locator("button.filter__filter", has_text=label).first
+        await filters.click(force=True)
 
-        for i in range(await filters.count()):
-            if i == {"All": 0, "Arrivals": 1, "Departures": 2}[type_]:
-                await filters.nth(i).click(force=True)
-
-            show_more = page.locator("Show more")
-            for _ in range(20):
-                if await show_more.count():
-                    await show_more.click()
+        show_more = page.locator("Show more")
+        for _ in range(20):
+            if await show_more.count():
+                await show_more.click()
 
         tree = html.fromstring(await page.inner_html(".transferTab"))
 
@@ -199,7 +163,9 @@ class Team(FSObject):
             if team_name := "".join(i.xpath(xpath + "/text()")):
                 tm_lnk = FLASHSCORE + "".join(i.xpath(xpath + "/@href"))
                 team_id = tm_lnk.split("/")[-2]
-                team = Team(team_id, team_name, tm_lnk)
+
+                if (team := cache.get_team(team_id)) is None:
+                    team = Team(id=team_id, name=team_name, url=tm_lnk)
                 trans.team = team
             output.append(trans)
         return output

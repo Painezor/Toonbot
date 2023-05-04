@@ -1,8 +1,33 @@
 """Class handling News Articles from Flashscore"""
+from __future__ import annotations
+
 import datetime
-from lxml.html import HtmlElement
+from typing import TYPE_CHECKING
+
+from lxml import html
+
 
 from .constants import FLASHSCORE
+
+if TYPE_CHECKING:
+    from playwright.async_api import Page
+
+
+class HasNews:
+    """Attached to an object that has News Available."""
+
+    url: str | None
+
+    async def get_news(self, page: Page) -> list[NewsArticle]:
+        """Fetch a list of NewsArticles for Pagination"""
+        await page.goto(f"{self.url}/news", timeout=5000)
+        locator = page.locator(".rssNew")
+        await locator.wait_for()
+
+        articles: list[NewsArticle] = []
+        for i in await locator.all():
+            articles.append(NewsArticle(html.fromstring(await i.inner_html())))
+        return articles
 
 
 class NewsArticle:
@@ -15,7 +40,7 @@ class NewsArticle:
     timestamp: datetime.datetime
     url: str
 
-    def __init__(self, data: HtmlElement) -> None:
+    def __init__(self, data: html.HtmlElement) -> None:
         xpath = './/div[@class="rssNews__title"]/text()'
         self.title = "".join(data.xpath(xpath))
 

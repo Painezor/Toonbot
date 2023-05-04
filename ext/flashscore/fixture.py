@@ -3,26 +3,27 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-# TODO: Remove Discord from import Chain.
-import discord
 from lxml import html
 from playwright.async_api import TimeoutError as PWTimeout
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 
 from ext.utils import timed_events
 
-from .abc import FSObject
 from .constants import FLASHSCORE, GOAL_EMOJI, RED_CARD_EMOJI
 from .gamestate import GameState as GS
 from .matchevents import parse_events
+from .news import HasNews
+from .table import HasTable
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
+
+    from .cache import FlashscoreCache
     from .competitions import Competition
-    from .team import Team
     from .matchevents import MatchIncident
+    from .team import Team
 
 logger = logging.getLogger("flashscore.fixture")
 
@@ -44,47 +45,61 @@ class MatchPhoto(BaseModel):
     url: str
 
 
-class Fixture(FSObject):
+class FixtureParticipant(BaseModel):
+    team: Team
+
+    cards: int = 0
+    score: int | None = None
+    pens: int | None = None
+
+
+class Fixture(BaseModel, HasNews, HasTable):
     """An object representing a Fixture from the Flashscore Website"""
 
     emoji = GOAL_EMOJI
 
-    def __init__(
-        self, home: Team, away: Team, fs_id: str | None, url: str | None
-    ) -> None:
-        if fs_id and not url:
-            url = f"https://www.flashscore.com/?r=5:{fs_id}"
+    # Required
+    home: FixtureParticipant
+    away: FixtureParticipant
 
-        if url and FLASHSCORE not in url:
-            logger.info("Invalid url %s", url)
+    # Optional
+    id: str | None = None
+    kickoff: datetime.datetime | None = None
+    time: str | GS | None = None
+    competition: Competition | None = None
+    url: str | None = None
 
-        super().__init__(fs_id, f"{home.name}:{away.name}", url)
+    # Match Events
+    events: list[MatchIncident] = []
 
-        self.away: Team = away
-        self.away_cards: int = 0
-        self.away_score: int | None = None
-        self.penalties_away: int | None = None
+    # Extra data
+    attendance: int | None = None
+    infobox: str | None = None
+    images: list[MatchPhoto] = []
+    referee: str | None = None
+    stadium: str | None = None
 
-        self.home: Team = home
-        self.home_cards: int = 0
-        self.home_score: int | None = None
-        self.penalties_home: int | None = None
+    @property
+    def logo_url(self) -> str | None:
+        if self.competition is not None:
+            return self.competition.logo_url
 
-        self.time: str | GS | None = None
-        self.kickoff: datetime.datetime | None = None
-        self.ordinal: int | None = None
+    @property
+    def name(self) -> str:
+        return f"{self.home.team.name} v {self.away.team.name}"
 
-        self.attendance: int | None = None
-        self.competition: Competition | None = None
-        self.events: list[MatchIncident] = []
-        self.infobox: str | None = None
-        self.images: list[str] | None = None
+    @property
+    def title(self) -> str:
+        return f"{self.emoji} {self.score_line}"
 
-        self.referee: str | None = None
-        self.stadium: str | None = None
+    @validator("logo_url", always=True)
+    def mk_logo_url(cls, value: str, values: dict[str, Any]) -> str | None:
+        if "competition" in values:
+            return values["competition"].logo_url
 
-        # Hacky but works for results
-        self.win: str | None = None
+    @validator("home", "away", always=True)
+    def partcipantify(cls, value: Team) -> FixtureParticipant:
+        return FixtureParticipant(team=value)
 
     @classmethod
     def from_mobi(cls, node: html.HtmlElement, id_: str) -> Fixture | None:
@@ -128,9 +143,9 @@ class Fixture(FSObject):
             logger.error("Fetch games found teams %s", teams)
             return None
 
-        home = Team(None, home_name, None)
-        away = Team(None, away_name, None)
-        return Fixture(home, away, id_, url)
+        home = FixtureParticipant(team=Team(name=str(home_name)))
+        away = FixtureParticipant(team=Team(name=str(away_name)))
+        return cls(home=home, away=away, id=id_, url=url)
 
     def set_time(self, node: html.HtmlElement) -> None:
         """Set the time of the fixture from parse_fixtures"""
@@ -183,9 +198,9 @@ class Fixture(FSObject):
         """Parse & set scoreline from parse_fixtures"""
         try:
             xpath = './/div[contains(@class,"event__score")]//text()'
-            score_home, score_away = node.xpath(xpath)
-            self.home_score = int(score_home.strip())
-            self.away_score = int(score_away.strip())
+            home, away = node.xpath(xpath)
+            self.home.score = int(home.strip())
+            self.away.score = int(away.strip())
         except ValueError:
             pass
 
@@ -202,7 +217,7 @@ class Fixture(FSObject):
     @property
     def ac_row(self) -> str:
         """Get team names and comp name for autocomplete searches"""
-        out = f"⚽ {self.home.name} {self.score} {self.away.name}"
+        out = f"⚽ {self.home.team.name} {self.score} {self.away.team.name}"
         if self.competition:
             out += f" ({self.competition.title})"
         return out
@@ -211,15 +226,15 @@ class Fixture(FSObject):
     def bold_markdown(self) -> str:
         """Markdown Formatting bold **winning** team, with
         [score](as markdown link)."""
-        if self.home_score is None or self.away_score is None:
-            return f"[{self.home.name} vs {self.away.name}]({self.url})"
+        home = self.home.team
+        away = self.away.team
+        if self.home.score is None or self.away.score is None:
+            return f"[{home.name} vs {away.name}]({self.url})"
 
-        home = self.home.name
-        away = self.away.name
         # Embolden Winner
-        if self.home_score > self.away_score:
+        if self.home.score > self.away.score:
             home = f"**{home}**"
-        if self.away_score > self.home_score:
+        elif self.away.score > self.home.score:
             away = f"**{away}**"
 
         def parse_cards(cards: int | None) -> str:
@@ -230,9 +245,9 @@ class Fixture(FSObject):
                 return f"`{RED_CARD_EMOJI}` "
             return f"`{RED_CARD_EMOJI} x{cards}` "
 
-        h_s, a_s = self.home_score, self.away_score
-        h_c = parse_cards(self.home_cards)
-        a_c = parse_cards(self.away_cards)
+        h_s, a_s = self.home.score, self.away.score
+        h_c = parse_cards(self.home.cards)
+        a_c = parse_cards(self.away.cards)
         return f"{home} {h_c}[{h_s} - {a_s}]({self.url}){a_c} {away}"
 
     @property
@@ -269,17 +284,17 @@ class Fixture(FSObject):
                     output.append(self.state.shorthand)
             output.append("` ")
 
-        hm_n = self.home.name
-        aw_n = self.away.name
+        hm_n = self.home.team.name
+        aw_n = self.away.team.name
 
-        if self.home_score is None or self.away_score is None:
+        if self.home.score is None or self.away.score is None:
             time = timed_events.Timestamp(self.kickoff).time_hour
             output.append(f" {time} [{hm_n} v {aw_n}]({self.url})")
         else:
             # Penalty Shootout
-            if self.penalties_home is not None:
-                pens = f" (p: {self.penalties_home} - {self.penalties_away}) "
-                sco = min(self.home_score, self.away_score)
+            if self.home.pens is not None:
+                pens = f" (p: {self.home.pens} - {self.away.pens}) "
+                sco = min(self.home.score, self.away.score)
                 score = f"[{sco} - {sco}]({self.url})"
                 output.append(f"{hm_n} {score}{pens}{aw_n}")
             else:
@@ -298,53 +313,21 @@ class Fixture(FSObject):
     @property
     def score(self) -> str:
         """Return "X - Y", or 'vs' if scores are None"""
-        if self.home_score is None:
+        if self.home.score is None:
             return "vs"
 
-        if self.penalties_home:
-            ph = self.penalties_home
-            pa = self.penalties_away
-            return f"({self.home_score}) ({ph}) - ({pa}) {self.away_score}"
+        if self.home.pens:
+            ph = self.home.pens
+            pa = self.away.pens
+            return f"({self.home.score}) ({ph}) - ({pa}) {self.away.score}"
 
-        return f"{self.home_score} - {self.away_score}"
+        return f"{self.home.score} - {self.away.score}"
 
     @property
     def score_line(self) -> str:
         """This is used for dropdowns so is left without links
         Outputs in format Home 0 - 0 Away"""
-        return f"{self.home.name} {self.score} {self.away.name}"
-
-    async def base_embed(self) -> discord.Embed:
-        """Return a preformatted discord embed for a generic Fixture"""
-        if self.competition:
-            embed = await self.competition.base_embed()
-        else:
-            embed = discord.Embed()
-
-        embed.url = self.url
-        if self.state:
-            embed.colour = self.state.colour
-        embed.set_author(name=self.score_line)
-        embed.timestamp = self.kickoff
-        embed.description = ""
-
-        if self.infobox is not None:
-            embed.add_field(name="Match Info", value=self.infobox)
-
-        if self.time is None:
-            return embed
-
-        if self.time == GS.SCHEDULED:
-            time = timed_events.Timestamp(self.kickoff).time_relative
-            embed.description = f"Kickoff: {time}"
-        elif self.time == GS.POSTPONED:
-            embed.description = "This match has been postponed."
-
-        if self.competition:
-            embed.set_footer(text=f"{self.time} | {self.competition.title}")
-        else:
-            embed.set_footer(text=self.time)
-        return embed
+        return f"{self.home.team.name} {self.score} {self.away.team.name}"
 
     async def get_head_to_head(
         self, page: Page, btn: str | None = None
@@ -431,15 +414,103 @@ class Fixture(FSObject):
                 continue
         return stats
 
-    async def get_table(
-        self, page: Page, button: str | None = None
-    ) -> bytes | None:
-        """Get table from fixture"""
+    @property
+    def table_url(self) -> str:
         if self.url is None:
             raise AttributeError("Fixture has no URL for get_table")
+        return self.url.rstrip("/") + "/#/standings"
 
-        url = self.url.rstrip("/") + "/#/standings"
-        return await self._get_table(page, url, button)
+    async def fetch(
+        self, page: Page, cache: FlashscoreCache | None = None
+    ) -> None:
+        """Fetch all data for a fixture"""
+        if self.url is None:
+            logger.error("url is None on fixture %s", self.name)
+            return
+
+        await page.goto(self.url)
+        loc = page.locator(".duelParticipant")
+        await loc.wait_for(timeout=2500)
+        tree = html.fromstring(await page.content())
+
+        div = tree.xpath(".//span[@class='tournamentHeader__country']")[0]
+
+        url = FLASHSCORE + "".join(div.xpath(".//@href")).rstrip("/")
+        country = "".join(div.xpath("./text()"))
+
+        mls = tree.xpath('.//div[@class="ml__item"]')
+        for i in mls:
+            label = "".join(i.xpath('./span[@class="mi__item__name]/text()'))
+            label = label.strip(":")
+
+            value = "".join(i.xpath('/span[@class="mi__item__val"]/text()'))
+
+            if "referee" in label.lower():
+                self.referee = value
+            elif "venue" in label.lower():
+                self.stadium = value
+            else:
+                logger.info("Fixture, extra data found %s %s", label, value)
+
+        if country:
+            country = country.split(":", maxsplit=1)[0]
+
+        if cache:
+            comp = cache.get_competition(url)
+            if comp is not None:
+                self.competition = comp
+                return
+
+        self.competition = await self.fetch_competition(page, url, cache)
+
+    async def fetch_competition(
+        self,
+        page: Page,
+        url: str,
+        cache: FlashscoreCache | None = None,
+    ) -> Competition | None:
+        """Go to a competition's page and fetch it directly."""
+        await page.goto(url)
+        selector = page.locator(".container__heading")
+
+        try:
+            await selector.wait_for()
+        except PWTimeout:
+            logger.error("Could not find .heading on %s", url)
+            return
+
+        tree = html.fromstring(await selector.inner_html())
+        country = tree.xpath(".//a[@class='breadcrumb__link']")[-1]
+
+        mylg = tree.xpath(".//span[contains(@title, 'Add this')]/@class")[0]
+        mylg = [i for i in mylg.rsplit(maxsplit=1) if "_" in i][-1]
+        comp_id = mylg.rsplit("_", maxsplit=1)[-1]
+
+        src = None
+
+        try:
+            # Name Correction
+            name_loc = page.locator(".heading__name").first
+            logo_url = page.locator(".heading__logo").first
+
+            name = await name_loc.text_content(timeout=1000)
+            if name is None:
+                logger.error("Failed to find name on %s", url)
+                return
+            src = await logo_url.get_attribute("src", timeout=1000)
+        except PWTimeout:
+            logger.error("Timed out heading__logo %s", url)
+            return
+
+        comp = cache.get_competition(comp_id) if cache else None
+
+        if comp is None:
+            comp = Competition(id=comp_id, name=name, country=country, url=url)
+
+        if src is not None:
+            comp.logo_url = FLASHSCORE + src
+
+        return comp
 
     # High Cost lookups.
     async def refresh(self, page: Page) -> None:
@@ -485,7 +556,9 @@ class Fixture(FSObject):
             name = "".join(tree.xpath(xpath)).strip()
 
             comp_id = href.rsplit("/", maxsplit=1)[0] if href else None
-            comp = Competition(comp_id, name, country, href)
+            comp = Competition(
+                id=comp_id, name=name, country=country, url=href
+            )
             self.competition = comp
 
         # Grab infobox
@@ -498,3 +571,73 @@ class Fixture(FSObject):
 
         self.events = parse_events(self, tree)
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
+
+
+class HasFixtures:
+    url: str | None = None
+
+    async def fixtures(self, page: Page) -> list[Fixture]:
+        """Get a list of upcoming Fixtures for the FS Item"""
+        if self.url is None:
+            raise AttributeError
+        url = self.url + "/fixtures/"
+        if page.url != url:
+            try:
+                await page.goto(url, timeout=3000)
+            except PWTimeout:
+                logger.error("Timed out loading page %s", page.url)
+                return []
+        return await self.parse_games(page)
+
+    async def results(self, page: Page) -> list[Fixture]:
+        """Get a list of upcoming Fixtures for the FS Item"""
+        if self.url is None:
+            raise AttributeError
+        url = self.url + "/results/"
+        if page.url != url:
+            try:
+                await page.goto(url, timeout=3000)
+            except PWTimeout:
+                logger.error("Timed out loading page %s", page.url)
+                return []
+        return await self.parse_games(page)
+
+    async def parse_games(self, page: Page) -> list[Fixture]:
+        """Parse games from raw HTML from fixtures or results function"""
+        from .competitions import Competition
+        from .team import Team
+
+        await (loc := page.locator("#live-table")).wait_for()
+        htm = html.fromstring(await loc.inner_html())
+
+        comp = self if isinstance(self, Competition) else None
+        fixtures: list[Fixture] = []
+        for i in htm.xpath('.//div[contains(@class, "sportName soccer")]/div'):
+            if "event__header" in i.classes:
+                xpath = './/div[contains(@class, "event__title")]//text()'
+                country, league = i.xpath(xpath)
+                league = league.casefold().split(" -")[0]
+                comp = Competition(name=league, country=country)
+                continue
+
+            try:
+                fx_id = i.xpath("./@id")[0].split("_")[-1]
+            except IndexError:
+                continue
+
+            url = f"{FLASHSCORE}/match/{fx_id}"
+
+            xpath = './/div[contains(@class,"event__participant")]/text()'
+
+            home, away = [
+                FixtureParticipant(team=Team(name=n.strip()))
+                for n in i.xpath(xpath)
+            ]
+            fx = Fixture(home=home, away=away, id=fx_id, url=url)
+            fx.competition = comp
+
+            # score
+            fx.set_score(i)
+            fx.set_time(i)
+            fixtures.append(fx)
+        return fixtures
