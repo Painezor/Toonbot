@@ -2,21 +2,23 @@
 from __future__ import annotations
 
 import logging
-import typing
+from typing import TYPE_CHECKING, cast, TypeAlias, Literal
 
 import asyncio
 import discord
+from discord.abc import GuildChannel
 from discord.ext import commands, tasks
+from discord.app_commands import Choice
 from lxml import html
 
 from ext import wows_api as api
 from ext.utils import view_utils, embed_utils
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from painezbot import PBot
 
-    Interaction: typing.TypeAlias = discord.Interaction[PBot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[PBot]
+    User: TypeAlias = discord.User | discord.Member
 
 logger = logging.getLogger("Devblog")
 
@@ -63,34 +65,30 @@ class DevBlogView(view_utils.AsyncPaginator):
         return await interaction.response.edit_message(embed=embed, view=self)
 
 
-async def db_ac(
-    interaction: Interaction, current: str
-) -> list[discord.app_commands.Choice[str]]:
+async def db_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     """Autocomplete dev blog by text"""
     cur = current.casefold()
 
-    choices: list[discord.app_commands.Choice[str]] = []
+    choices: list[Choice[str]] = []
 
-    if isinstance((cog := interaction.client.get_cog("DevBlog")), DevBlogCog):
-        cache = cog.cache
-    else:
-        cache = []
-    blogs = sorted(cache, key=lambda i: i.id)
+    cog = cast(BlogCog, interaction.client.get_cog(BlogCog.__cog_name__))
+    cache = cog.cache
+
+    blogs = sorted(cache, key=lambda i: i.id, reverse=True)
     for i in blogs:
         if cur not in i.ac_row:
             continue
 
         name = f"{i.id}: {i.title}"[:100]
-        choices.append(discord.app_commands.Choice(name=name, value=str(i.id)))
+        choices.append(Choice(name=name, value=str(i.id)))
 
         if len(choices) == 25:
             break
 
-    choices.reverse()
     return choices
 
 
-class DevBlogCog(commands.Cog):
+class BlogCog(commands.Cog):
     """DevBlog Commands"""
 
     def __init__(self, bot: PBot):
@@ -178,15 +176,15 @@ class DevBlogCog(commands.Cog):
     async def blog_tracker(
         self,
         interaction: Interaction,
-        enabled: typing.Literal["on", "off"],
+        enabled: Literal["on", "off"],
     ) -> None:
         """Enable/Disable the World of Warships dev blog tracker
         in this channel."""
         if None in (interaction.channel, interaction.guild):
             raise commands.NoPrivateMessage
 
-        channel = typing.cast(discord.TextChannel, interaction.channel)
-        guild = typing.cast(discord.Guild, interaction.guild)
+        channel = cast(discord.TextChannel, interaction.channel)
+        guild = cast(discord.Guild, interaction.guild)
 
         if enabled:
             sql = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""
@@ -226,9 +224,7 @@ class DevBlogCog(commands.Cog):
             return await view.handle_page(interaction)
 
     @commands.Cog.listener()
-    async def on_guild_channel_delete(
-        self, channel: discord.abc.GuildChannel
-    ) -> None:
+    async def on_guild_channel_delete(self, channel: GuildChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
         sql = """DELETE FROM dev_blog_channels WHERE channel_id = $1"""
         await self.bot.db.execute(sql, channel.id, timeout=10)
@@ -236,4 +232,4 @@ class DevBlogCog(commands.Cog):
 
 async def setup(bot: PBot) -> None:
     """Load the Dev Blog Cog into the bot."""
-    await bot.add_cog(DevBlogCog(bot))
+    await bot.add_cog(BlogCog(bot))

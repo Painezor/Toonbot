@@ -21,7 +21,9 @@ from .gamestate import GameState, get_event_type
 from .matchevents import EventType, MatchIncident, Penalty, Substitution
 from .players import FSPlayer
 from .topscorers import TopScorer
-from .team import Team, FSTransfer, SquadMember
+from .team import Team
+from .transfers import FSTransfer
+from .squad import SquadMember
 from .transformers import (
     cmp_tran,
     fx_tran,

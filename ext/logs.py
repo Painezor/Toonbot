@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from painezbot import PBot
 
     Interaction: TypeAlias = discord.Interaction[Bot | PBot]
-User: TypeAlias = discord.User | discord.Member
+    User: TypeAlias = discord.User | discord.Member
 
 # TODO: Split /logs command into subcommands with sub-views & Parent.
 # TODO: Fallback parser using regular events -- Check if bot has
@@ -167,7 +167,8 @@ def app_command_permission_update(entry: AuditLogEntry) -> str:
 
 def automod_action(entry: AuditLogEntry) -> str:
     name = getattr(entry.extra, "automod_rule_name")
-    trigger = getattr(entry.extra, "automod_rule_trigger")
+
+    trigger = getattr(entry.extra, "automod_rule_trigger_type")
     trigger = typing.cast(discord.AutoModRuleTriggerType, trigger)
     channel = getattr(entry.extra, "channel")
     channel = typing.cast(discord.TextChannel, channel)
@@ -256,7 +257,7 @@ def iter_embed(
             ico = entry.guild.icon.url if entry.guild.icon else None
             embed.set_author(name=entry.guild.name, icon_url=ico)
 
-        elif isinstance(target, User):
+        elif isinstance(target, discord.User | discord.Member):
             ico = target.display_avatar.url if target.display_avatar else None
             embed.set_author(name=f"{target} ({target.id})", icon_url=ico)
             embed.description = f"<@{target.id}>\n\n"
@@ -715,7 +716,7 @@ def iter_embed(
                 embed.add_field(name="Permission Overwrites", value=output)
 
         elif key == "owner":
-            owner: User = value
+            owner: discord.User | discord.Member = value
             onr = owner.mention if owner else "None"
             embed.description += f"**Owner**: {onr}\n"
 
@@ -936,9 +937,9 @@ class ToggleButton(discord.ui.Button["LogsConfig"]):
                 chan_id = self.view.channel.id
                 await connection.execute(sql, not self.value, chan_id)
 
-        cog = interaction.client.get_cog("AuditLogs")
-        if isinstance(cog, AuditLogs):
-            await cog.update_cache()
+        cog = interaction.client.get_cog(AuditLogs.__cog_name__)
+        assert isinstance(cog, AuditLogs)
+        await cog.update_cache()
         return await self.view.update(interaction)
 
 

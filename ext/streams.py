@@ -38,7 +38,7 @@ async def st_ac(
     if interaction.guild is None:
         return []
 
-    cog = interaction.client.get_cog("GuildStreams")
+    cog = interaction.client.get_cog(GuildStreams.__cog_name__)
     assert isinstance(cog, GuildStreams)
     strms = cog.streams[interaction.guild.id]
     cur = current.casefold()

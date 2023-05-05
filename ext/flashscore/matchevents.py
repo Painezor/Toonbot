@@ -18,14 +18,13 @@ from .constants import (
 from .players import FSPlayer
 
 if TYPE_CHECKING:
-    from .fixture import Fixture
-    from .team import Team
+    from .abc import BaseFixture, BaseTeam
 
 
 logger = logging.getLogger("matchevents")
 
 
-def parse_header(i: html.HtmlElement, fixture: Fixture) -> None:
+def parse_header(i: html.HtmlElement, fixture: BaseFixture) -> None:
     """Store Penalties"""
     text = [x.strip() for x in i.xpath(".//text()")]
     if "Penalties" in text:
@@ -42,7 +41,7 @@ def parse_header(i: html.HtmlElement, fixture: Fixture) -> None:
             fixture.away.pens = int(away)
 
 
-def parse_events(fixture: Fixture, tree: Any) -> list[MatchIncident]:
+def parse_events(fixture: BaseFixture, tree: Any) -> list[MatchIncident]:
     """Get a list of match events"""
     events: list[MatchIncident] = []
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
@@ -152,17 +151,17 @@ def parse_events(fixture: Fixture, tree: Any) -> list[MatchIncident]:
 class MatchIncident:
     """An object representing an event happening in a fixture"""
 
-    fixture: Fixture
+    fixture: BaseFixture
 
     assist: FSPlayer | None = None
     description: str | None = None
     icon_url: str | None = None
     player: FSPlayer | None = None
-    team: Team | None = None
+    team: BaseTeam | None = None
     note: str | None = None
     time: str | None = None
 
-    def __init__(self, fixture: Fixture) -> None:
+    def __init__(self, fixture: BaseFixture) -> None:
         self.fixture = fixture
 
     def is_done(self) -> bool:
@@ -276,7 +275,7 @@ class Penalty(Goal):
 
     missed: bool
 
-    def __init__(self, fixture: Fixture, missed: bool = False) -> None:
+    def __init__(self, fixture: BaseFixture, missed: bool = False) -> None:
         super().__init__(fixture)
         self.missed = missed
 

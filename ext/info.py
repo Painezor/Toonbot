@@ -61,7 +61,7 @@ class Info(commands.Cog):
         embed = base_embed.copy()
         embed.description = f"{channel.mention}\n\n"
 
-        if channel.category:
+        if channel.category is not None:
             if channel.permissions_synced:
                 sync = " (Perms Synced)"
             else:

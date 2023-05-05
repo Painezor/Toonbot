@@ -312,7 +312,7 @@ class TickerChannel:
             except KeyError:
                 message = await self.channel.send(embed=embed)
         except discord.HTTPException:
-            cog = self.bot.get_cog("Ticker")
+            cog = self.bot.get_cog(TickerCog.__cog_name__)
             assert isinstance(cog, TickerCog)
             cog.ticker_channels.remove(self)
             return
@@ -335,13 +335,11 @@ class TickerChannel:
                     continue
                 setattr(self, k, value)
 
-        for record in leagues:
-            if comp := self.bot.flashscore.get_competition(
-                record["url"].rstrip("/")
-            ):
+        for r in leagues:
+            if comp := self.bot.flashscore.get_competition(url=r["url"]):
                 self.leagues.add(comp)
-            else:
-                logger.error("Could not find comp %s", record)
+                continue
+            logger.error("Could not find comp %s", r)
 
 
 class TickerConfig(view_utils.DropdownPaginator):
@@ -532,9 +530,8 @@ class TickerConfig(view_utils.DropdownPaginator):
 
         self.channel.leagues.clear()
         for i in fs.DEFAULT_LEAGUES:
-            if (
-                comp := interaction.client.flashscore.get_competition(i)
-            ) is None:
+            comp = interaction.client.flashscore.get_competition(url=i)
+            if comp is None:
                 logger.info("Reset: Could not add default league %s", comp)
                 continue
             self.channel.leagues.add(comp)
@@ -569,7 +566,7 @@ class TickerConfig(view_utils.DropdownPaginator):
             await view_itr.response.edit_message(embed=embed, view=self)
             return
 
-        cog = interaction.client.get_cog("Ticker")
+        cog = interaction.client.get_cog(TickerCog.__cog_name__)
         assert isinstance(cog, TickerCog)
         cog.ticker_channels.remove(self.channel)
 

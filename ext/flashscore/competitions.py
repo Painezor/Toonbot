@@ -5,9 +5,8 @@ import logging
 from lxml import html
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, validator
-
-from .constants import COMPETITION_EMOJI, FLASHSCORE
+from .abc import BaseCompetition
+from .constants import FLASHSCORE
 from .fixture import HasFixtures
 from .logos import HasLogo
 from .table import HasTable
@@ -18,37 +17,11 @@ logger = logging.getLogger("flashscore.competition")
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
+    from .fixture import Fixture
 
 
-class Competition(BaseModel, HasFixtures, HasTable, HasLogo, HasScorers):
+class Competition(BaseCompetition, HasFixtures, HasTable, HasLogo, HasScorers):
     """An object representing a Competition on Flashscore"""
-
-    # Constant
-    emoji = COMPETITION_EMOJI
-
-    # Required
-    name: str
-
-    # Optional
-    id: str | None = None
-    country: str | None = None
-    url: str | None = None
-    logo_url: str | None = None
-
-    # Fetched
-    table: str | None = None
-
-    @validator("country")
-    def fmt_country(cls, value: str | None) -> str | None:
-        if value and ":" in value:
-            return value.split(":")[0]
-        return value
-
-    @validator("url")
-    def fmt_url(cls, value: str | None) -> str | None:
-        if value:
-            return value.rstrip("/")
-        return value
 
     def __str__(self) -> str:
         return self.title
@@ -94,17 +67,8 @@ class Competition(BaseModel, HasFixtures, HasTable, HasLogo, HasScorers):
 
         return comp
 
-    @property
-    def markdown(self) -> str:
-        return f"[{self.title}]({self.url})"
-
-    @property
-    def title(self) -> str:
-        """Return COUNTRY: league"""
-        if self.country is not None:
-            return f"{self.country.upper()}: {self.name}"
-        return self.name
-
-    @property
-    def ac_row(self) -> str:
-        return f"{self.emoji} {self.title}"
+    async def parse_games(self, page: Page) -> list[Fixture]:
+        fixtures = await HasFixtures.parse_games(self, page)
+        for i in fixtures:
+            i.competition = self
+        return fixtures

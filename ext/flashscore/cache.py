@@ -2,34 +2,36 @@ from __future__ import annotations
 
 import logging
 from lxml import html
+from pydantic import BaseModel, parse_obj_as
+from typing import TYPE_CHECKING
 
 from asyncpg import Pool, Record
 
-from .competitions import Competition
 from .constants import FLASHSCORE
-from .fixture import Fixture
-from .team import Team
+
+if TYPE_CHECKING:
+    from .competitions import Competition
+    from .fixture import Fixture
+    from .team import Team
 
 logger = logging.getLogger("fsdatabase")
 
 
-class FlashscoreCache:
+class FlashscoreCache(BaseModel):
     """Container for all cached data"""
 
+    database: Pool[Record]
     competitions: list[Competition] = []
     games: list[Fixture] = []
     teams: list[Team] = []
 
-    def __init__(self, database: Pool[Record]) -> None:
-        self._pool: Pool[Record] = database
-
     async def cache_teams(self) -> None:
-        teams = await self._pool.fetch("""SELECT * from fs_teams""")
-        self.teams = [Team.parse_obj(i) for i in teams]
+        teams = await self.database.fetch("""SELECT * from fs_teams""")
+        self.teams = parse_obj_as(list[Team], teams)
 
     async def cache_competitions(self) -> None:
-        comps = await self._pool.fetch("""SELECT * from fs_competitions""")
-        self.competitions = [Competition.parse_obj(i) for i in comps]
+        comps = await self.database.fetch("""SELECT * from fs_competitions""")
+        self.competitions = parse_obj_as(list[Competition], comps)
 
     async def save_competitions(self, comps: list[Competition]) -> None:
         """Save the competition to the bot database"""
@@ -40,7 +42,7 @@ class FlashscoreCache:
             """
 
         rows = [(i.id, i.country, i.name, i.logo_url, i.url) for i in comps]
-        await self._pool.executemany(sql, rows, timeout=60)
+        await self.database.executemany(sql, rows, timeout=60)
         await self.cache_competitions()
 
     async def save_teams(self, teams: list[Team]) -> None:
@@ -51,30 +53,34 @@ class FlashscoreCache:
                 = (EXCLUDED.name, EXCLUDED.logo_url, EXCLUDED.url)
                 """
         rows = [(i.id, i.name, i.logo_url, i.url) for i in teams]
-        await self._pool.executemany(sql, rows, timeout=10)
+        await self.database.executemany(sql, rows, timeout=10)
         await self.cache_teams()
 
-    def get_competition(self, value: str) -> Competition | None:
+    def get_competition(
+        self,
+        *,
+        id: str | None = None,
+        url: str | None = None,
+        title: str | None = None,
+    ) -> Competition | None:
         """Retrieve a competition from the ones stored in the cache."""
-        value = value.rstrip("/")
-        for i in self.competitions:
-            if i.id == value:
-                return i
+        cmp = self.competitions
+        if id is not None:
+            try:
+                return next(i for i in cmp if i.id == id)
+            except StopIteration:
+                pass
 
-            if i.title.casefold() == value.casefold():
-                return i
+        if url is not None:
+            url = url.rstrip("/")
+            try:
+                return next(i for i in cmp if i.url == url)
+            except StopIteration:
+                pass
 
-            if i.url:
-                if i.url.rstrip("/") == value:
-                    return i
-
-        # Fallback - Get First Partial match.
-        for i in self.competitions:
-            if i.url is not None and "http" in value:
-                if value in i.url:
-                    ttl = i.title
-                    logger.info("Partial url: %s to %s (%s)", value, i.id, ttl)
-                    return i
+        if title is not None:
+            title = title.casefold()
+            return next((i for i in cmp if i.title.casefold() == title), None)
         return None
 
     def get_game(self, fixture_id: str) -> Fixture | None:

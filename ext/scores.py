@@ -45,7 +45,7 @@ class ScoreChannel:
         self.channel: discord.TextChannel = channel
         self.messages: list[discord.Message] = []
         self._current_embeds: dict[str, Embed] = dict()
-        self.leagues: set[fs.Competition] = set()
+        self.leagues: list[fs.Competition] = []
 
     @property
     def id(self) -> int:  # pylint: disable=C0103
@@ -69,19 +69,19 @@ class ScoreChannel:
         except discord.HTTPException:
             return
 
-    async def get_leagues(self, bot: Bot) -> set[fs.Competition]:
+    async def get_leagues(self, bot: Bot) -> list[fs.Competition]:
         """Fetch target leagues for the ScoreChannel from the database"""
         sql = """SELECT * FROM scores_leagues WHERE channel_id = $1"""
         records = await bot.db.fetch(sql, self.channel.id, timeout=10)
 
         for i in records:
-            if (comp := bot.flashscore.get_competition(i["url"])) is None:
-                league = i["league"].rstrip("/")
-                if (comp := bot.flashscore.get_competition(league)) is None:
-                    logger.error("Failed fetching comp %s", league)
+            if (comp := bot.flashscore.get_competition(url=i["url"])) is None:
+                comp = bot.flashscore.get_competition(title=i["league"])
+                if comp is None:
+                    logger.error("Failed fetching comp %s", i["league"])
                     continue
 
-            self.leagues.add(comp)
+            self.leagues.append(comp)
         return self.leagues
 
     async def generate_embeds(
@@ -90,9 +90,9 @@ class ScoreChannel:
         """Grab Embeds for requested leagues"""
         embeds: list[Embed] = []
 
-        titles = [i.title for i in self.leagues]
+        leagues = [i.title for i in self.leagues]
         for k, val in comps.items():
-            if k in titles:
+            if k in leagues:
                 embeds += val
 
         _ = self.channel
@@ -136,7 +136,7 @@ class ScoreChannel:
         # We have a limit of 5 messages due to ratelimiting
         count = 1
 
-        cog = bot.get_cog("Scores")
+        cog = bot.get_cog(ScoresCog.__cog_name__)
         assert isinstance(cog, ScoresCog)
 
         def should_run(
@@ -221,18 +221,17 @@ class ScoreChannel:
         self.leagues.clear()
         for i in fs.DEFAULT_LEAGUES:
             if (
-                comp := interaction.client.flashscore.get_competition(i)
+                comp := interaction.client.flashscore.get_competition(url=i)
             ) is None:
                 logger.info("Reset: Could not add default league %s", comp)
                 continue
-            self.leagues.add(comp)
+            self.leagues.append(comp)
 
 
 class ScoresConfig(view_utils.DropdownPaginator):
     """Generic Config View"""
 
     def __init__(self, invoker: User, channel: ScoreChannel) -> None:
-        leagues = [i for i in channel.leagues if i.url is not None]
         self.channel: ScoreChannel = channel
 
         embed = Embed(colour=discord.Colour.dark_teal())
@@ -254,7 +253,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
 
         options: list[discord.SelectOption] = []
         rows: list[str] = []
-        for i in leagues:
+        for i in self.channel.leagues:
             if i.url is None:
                 continue
 
@@ -407,14 +406,11 @@ class ScoresCog(commands.Cog):
             if not isinstance(channel, discord.TextChannel):
                 bad.append(i["channel_id"])
                 continue
-
-            if channel.is_news():
+            elif channel.is_news():
                 bad.append(i["channel_id"])
                 continue
 
-            comp = self.bot.flashscore.get_competition(
-                str(i["url"]).rstrip("/")
-            )
+            comp = self.bot.flashscore.get_competition(url=i["url"])
             if not comp:
                 logger.error("Could not get_competition for %s", i)
                 continue
@@ -425,7 +421,7 @@ class ScoresCog(commands.Cog):
                 chn = ScoreChannel(channel)
                 chans.add(chn)
 
-            chn.leagues.add(comp)
+            chn.leagues.append(comp)
 
         # Cleanup Old.
         sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
@@ -583,7 +579,7 @@ class ScoresCog(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, chan.channel.id, url, title)
 
-        chan.leagues.add(competition)
+        chan.leagues.append(competition)
 
     @discord.app_commands.command()
     async def scores(

@@ -154,12 +154,12 @@ class ScoreLoop(commands.Cog):
         if home and home != fix.home.cards:
             evt = EVT.RED_CARD if home > fix.home.cards else EVT.VAR_RED_CARD
             self.bot.dispatch(FXE, evt, fix, home=True)
-            fix.home_cards = home
+            fix.home.cards = home
 
         if away and away != fix.away.cards:
             evt = EVT.RED_CARD if away > fix.away.cards else EVT.VAR_RED_CARD
             self.bot.dispatch(FXE, evt, fix, home=False)
-            fix.away_cards = away
+            fix.away.cards = away
 
     def handle_kickoff(
         self, fix: fs.Fixture, tree: html.HtmlElement, state: str
@@ -305,12 +305,14 @@ class ScoreLoop(commands.Cog):
             if time is None and state in ["sched", "fin"]:
                 time = state
             else:
-                time = tree.xpath("./span/text()")[-1]
+                try:
+                    time = str(tree.xpath("./span/text()")[-1])
+                except IndexError:
+                    logger.error("Error on time[-1] for %s", fix.score_line)
+                    continue
 
             self.handle_kickoff(fix, tree, state)
-
             self.handle_time(fix, time, tree)
-
             e_type = fs.get_event_type(fix.state, old_state)
             self.bot.dispatch("fixture_event", e_type, fix)
         return to_fetch

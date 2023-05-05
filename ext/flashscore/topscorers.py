@@ -6,14 +6,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-
 from .constants import FLASHSCORE, GOAL_EMOJI
 
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
     from .players import FSPlayer
-    from .team import Team
+    from .abc import BaseTeam
 
 logger = logging.getLogger("flashscore.top_scorers")
 
@@ -54,7 +53,7 @@ class TopScorer(BaseModel):
     """A Top Scorer object fetched from a Flashscore Item"""
 
     player: FSPlayer
-    team: Team | None = None
+    team: BaseTeam | None = None
     goals: int = 0
     rank: int = 0
     assists: int = 0

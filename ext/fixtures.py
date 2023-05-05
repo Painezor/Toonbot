@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeAlias, overload
 import asyncpg
 
 import discord
-from discord import Embed, File
+from discord import Embed, File, Colour
 from discord.ext import commands
 from discord.ui import Button, Select
 from lxml import html
@@ -55,6 +55,8 @@ sqd_filter_opts = [
     ("Show only injured", "injury", fs.INJURY_EMOJI),
 ]
 
+_colours: dict[str, Colour | int] = {}
+
 
 class FSEmbed(Embed):
     def __init__(self, obj: fs.Fixture | fs.Team | fs.Competition) -> None:
@@ -77,11 +79,14 @@ class FSEmbed(Embed):
 
     async def set_colour(self) -> None:
         """Get and set the colour of the embed based on current logo"""
-        self.color = getattr(self.obj, "colour", None)
+        if self.obj.id is None:
+            return
+        color = _colours.get(self.obj.id, None)
 
-        if self.color is None and self.thumbnail.url:
-            self.color = await embed_utils.get_colour(self.thumbnail.url)
-            setattr(self.obj, "colour", self.color)
+        if color is None and self.thumbnail.url:
+            color = await embed_utils.get_colour(self.thumbnail.url)
+            _colours.update({self.obj.id: color})
+        self.color = color
 
     @overload
     @classmethod

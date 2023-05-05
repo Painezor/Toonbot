@@ -68,7 +68,7 @@ class DevBlog:
     @property
     def ac_row(self) -> str:
         """Autocomplete representation"""
-        return f"{self.id} {self._cached_title} {self._cached_text}"
+        return f"{self.id} {self._cached_title} {self._cached_text}".casefold()
 
     @property
     def url(self) -> str:

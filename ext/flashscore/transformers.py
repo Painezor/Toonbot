@@ -24,12 +24,11 @@ from discord import (
     Embed,
 )
 
-
-from ext.utils import view_utils
-
 from .competitions import Competition
 from .team import Team
 from .fixture import Fixture
+
+from ext.utils import view_utils
 
 if TYPE_CHECKING:
     from core import Bot
@@ -176,7 +175,7 @@ class FSParser:
             ctry = i["defaultCountry"]["name"]
             url = i["url"]
 
-            comp = self.interaction.client.flashscore.get_competition(id_)
+            comp = self.interaction.client.flashscore.get_competition(id=id_)
 
             if comp is None:
                 comp = Competition(id=id_, name=name, country=ctry, url=url)
@@ -211,10 +210,10 @@ async def set_default(
         interaction.extras["default"] = None
         return
 
-    if (fxcog := interaction.client.get_cog("FixturesCog")) is None:
-        return
-
     from ext.fixtures import FixturesCog
+
+    if (fxcog := interaction.client.get_cog(FixturesCog.__cog_name__)) is None:
+        return
 
     assert isinstance(fxcog, FixturesCog)
     del FixturesCog
@@ -227,10 +226,11 @@ async def set_default(
         interaction.extras["default"] = None
         return
 
+    id_ = record[param]
     if param == "default_team":
-        default = interaction.client.flashscore.get_team(record[param])
+        default = interaction.client.flashscore.get_team(id_)
     else:
-        default = interaction.client.flashscore.get_competition(record[param])
+        default = interaction.client.flashscore.get_competition(id=id_)
 
     if default is None:
         interaction.extras["default"] = None
@@ -519,7 +519,7 @@ class TFCompetitionTransformer(Transformer):
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> Competition | None:
-        if fsr := interaction.client.flashscore.get_competition(value):
+        if fsr := interaction.client.flashscore.get_competition(id=value):
             return fsr
 
         if "http" in value:
@@ -621,7 +621,9 @@ class UniversalTransformer(Transformer):
         return next((i for i in pool if i.id == value), None)
 
 
-universal = Transform[Competition | Fixture | Team, UniversalTransformer]
+universal: TypeAlias = Transform[
+    Competition | Fixture | Team, UniversalTransformer
+]
 cmp_tran: TypeAlias = Transform[Competition, TFCompetitionTransformer]
 live_comp_transf: TypeAlias = Transform[Competition, LiveCompTransformer]
 fx_tran: TypeAlias = Transform[Fixture, FixtureTransformer]
