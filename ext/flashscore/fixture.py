@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from ext.utils import timed_events
 
-from .abc import BaseFixture, Participant
+from .abc import BaseFixture, Participant, BaseTeam
 from .constants import FLASHSCORE
 from .gamestate import GameState as GS
 from .matchevents import parse_events
@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
     from .cache import FlashscoreCache
     from .competitions import Competition
+    from .team import Team
 
 logger = logging.getLogger("flashscore.fixture")
 
@@ -70,7 +71,7 @@ class HasFixtures:
                 xpath = './/div[contains(@class, "event__title")]//text()'
                 country, league = i.xpath(xpath)
                 league = league.casefold().split(" -")[0]
-                comp = Competition(name=league, country=country)
+                comp = Competition(name=league, country=str(country))
                 continue
 
             try:
@@ -100,14 +101,11 @@ class Fixture(BaseFixture, HasNews, HasTable):
 
     @classmethod
     def from_mobi(cls, node: html.HtmlElement, id_: str) -> Fixture | None:
-        # TODO: Nuke Circular
-        from .team import Team
-
         link = "".join(node.xpath(".//a/@href"))
         url = FLASHSCORE + link
 
         xpath = "./text()"
-        teams = [i.strip() for i in node.xpath(xpath) if i.strip()]
+        teams = [str(i.strip()) for i in node.xpath(xpath) if i.strip()]
 
         if teams[0].startswith("updates"):
             # Awaiting Updates.
@@ -140,8 +138,8 @@ class Fixture(BaseFixture, HasNews, HasTable):
             logger.error("Fetch games found teams %s", teams)
             return None
 
-        home = Participant(team=Team(name=str(home_name)))
-        away = Participant(team=Team(name=str(away_name)))
+        home = Participant(team=BaseTeam(name=home_name))
+        away = Participant(team=BaseTeam(name=away_name))
         return Fixture(home=home, away=away, id=id_, url=url)
 
     def set_time(self, node: html.HtmlElement) -> None:
@@ -249,7 +247,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
 
     async def get_photos(self, page: Page) -> list[MatchPhoto]:
         """Get a list of Photos from a Fixture"""
-        await page.goto(f"{self.url}#/photos")
+        await page.goto(f"{self.url}/#/photos")
         body = page.locator(".section")
         await body.wait_for()
         tree = html.fromstring(await body.inner_html())
@@ -265,7 +263,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
         self, page: Page, btn: str | None = None
     ) -> list[MatchStat]:
         """Get the statistics for a match"""
-        url = f"{self.url}#/match-summary/match-statistics/"
+        url = f"{self.url}/#/match-summary/match-statistics/"
 
         if btn is not None:
             await page.locator(btn).click(force=True)
@@ -298,10 +296,13 @@ class Fixture(BaseFixture, HasNews, HasTable):
         loc = page.locator(".duelParticipant")
         await loc.wait_for(timeout=2500)
         tree = html.fromstring(await page.content())
+        teams = self._parse_teams(tree, cache)
+        self.home.team = teams[0]
+        self.away.team = teams[1]
 
         div = tree.xpath(".//span[@class='tournamentHeader__country']")[0]
 
-        url = FLASHSCORE + "".join(div.xpath(".//@href"))
+        url = FLASHSCORE + "".join(div.xpath(".//@href")).rstrip("/")
 
         mls = tree.xpath('.//div[@class="ml__item"]')
         for i in mls:
@@ -318,13 +319,54 @@ class Fixture(BaseFixture, HasNews, HasTable):
                 logger.info("Fixture, extra data found %s %s", label, value)
 
         if cache:
-            comp = cache.get_competition(url=url)
-            if comp is not None:
-                self.competition = comp
-                await cache.save_competitions([comp])
+            maybe_comp = cache.get_competition(url=url)
+
+            if (
+                maybe_comp is not None
+                and maybe_comp.country is not None
+                and "<ELEMENT" not in maybe_comp.country
+            ):
+                self.competition = maybe_comp
                 return
 
         self.competition = await self.fetch_competition(page, url, cache)
+
+        if cache and self.competition:
+            await cache.save_competitions([self.competition])
+
+    def _parse_teams(
+        self, tree: html.HtmlElement, cache: FlashscoreCache | None
+    ) -> list[Team]:
+        from .team import Team
+
+        teams: list[Team] = []
+        for attr in ["home", "away"]:
+            xpath = f".//div[contains(@class, 'duelParticipant__{attr}')]"
+            div = tree.xpath(xpath)
+            if not div:
+                raise LookupError("Cannot find team on page.")
+
+            div = div[0]  # Only One
+
+            # Get Name
+            xpath = ".//a[contains(@class, 'participant__participantName')]/"
+            name = "".join(div.xpath(xpath + "text()"))
+            url = "".join(div.xpath(xpath + "@href"))
+
+            team_id = url.split("/")[-2]
+            if cache is None or (team := cache.get_team(team_id)) is None:
+                team = Team(id=team_id, name=name, url=FLASHSCORE + url)
+            else:
+                if team.name != name:
+                    team.name = name
+
+            if team.logo_url is None:
+                logo = div.xpath('.//img[@class="participant__image"]/@src')
+                logo = "".join(logo)
+                if logo:
+                    team.logo_url = FLASHSCORE + logo
+            teams.append(team)
+        return teams
 
     async def fetch_competition(
         self,
@@ -364,9 +406,8 @@ class Fixture(BaseFixture, HasNews, HasTable):
             return
 
         try:
-            mylg = tree.xpath(".//span[contains(@title, 'Add this')]/@class")[
-                0
-            ]
+            xpath = ".//span[contains(@title, 'My Leagues')]/@class"
+            mylg = tree.xpath(xpath)[0]
             mylg = [i for i in mylg.rsplit(maxsplit=1) if "_" in i][-1]
             comp_id = mylg.rsplit("_", maxsplit=1)[-1]
             comp = cache.get_competition(id=comp_id) if cache else None
@@ -376,6 +417,9 @@ class Fixture(BaseFixture, HasNews, HasTable):
 
         if comp is None:
             comp = Competition(id=comp_id, name=name, country=country, url=url)
+        else:
+            logger.info("Comp URL %s -> %s", comp.url, url)
+            comp.url = url
 
         if src is not None:
             comp.logo_url = FLASHSCORE + src

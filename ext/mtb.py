@@ -356,9 +356,7 @@ class MatchThread:
 
         # Grab DB data
         try:
-            home_team = [
-                i for i in self.bot.reddit_teams if i["name"] == home
-            ][0]
+            home_team = [i for i in self.reddit_teams if i["name"] == home][0]
             home_icon = home_team["icon"]
             home_link = home_team["subreddit"]
         except IndexError:
@@ -501,7 +499,8 @@ class MatchThreadCommands(commands.Cog):
 
         for i in records:
             # Get upcoming games from flashscore.
-            if (team := self.bot.get_team(i["team_flashscore_id"])) is None:
+            fsid = i["team_flashscore_id"]
+            if (team := self.bot.flashscore.get_team(fsid)) is None:
                 continue
 
             page = await self.bot.browser.new_page()

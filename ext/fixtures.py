@@ -64,18 +64,8 @@ class FSEmbed(Embed):
 
         self.obj = obj
         # Handling of logourl
-        if obj.logo_url is None:
-            logo = None
-
-        elif fs.FLASHSCORE in obj.logo_url:
-            logo = obj.logo_url
-
-        else:
-            shrt = fs.FLASHSCORE + "/res/image/data/"
-            logo = shrt + obj.logo_url.replace("'", "")  # Extraneous
-
-        self.set_thumbnail(url=logo)
-        self.set_author(name=obj.title, url=obj.url, icon_url=logo)
+        self.set_thumbnail(url=obj.logo_url)
+        self.set_author(name=obj.title, url=obj.url, icon_url=obj.logo_url)
 
     async def set_colour(self) -> None:
         """Get and set the colour of the embed based on current logo"""
@@ -975,7 +965,7 @@ class FSView(view_utils.BaseView):
         embed = await FSEmbed.create(self.object)
         embed.title = "Lineups and Formations"
 
-        embed.url = f"{self.object.url}#/match-summary/lineups"
+        embed.url = f"{self.object.url}/#/match-summary/lineups"
         await self.page.goto(embed.url, timeout=5000)
         await self.page.eval_on_selector_all(fs.ADS, JS)
         screenshots: list[io.BytesIO] = []
@@ -1060,7 +1050,7 @@ class FSView(view_utils.BaseView):
 
         embed = await FSEmbed.create(self.object)
 
-        embed.url = f"{self.object.url}#/report/"
+        embed.url = f"{self.object.url}/#/report/"
         await self.page.goto(embed.url, timeout=5000)
         loc = ".reportTab"
         tree = html.fromstring(await self.page.inner_html(loc))
@@ -1147,6 +1137,7 @@ class FSView(view_utils.BaseView):
             raise NotImplementedError
 
         await self.object.refresh(self.page)
+
         assert self.object.competition is not None
         if self.object.competition.url is None:
             id_ = self.object.competition.id
@@ -1164,7 +1155,7 @@ class FSView(view_utils.BaseView):
         if self.object.attendance:
             embed.description += f"**Attendance**: {self.object.attendance}\n"
 
-        embed.url = f"{self.object.url}#/match-summary/"
+        embed.url = f"{self.object.url}/#/match-summary/"
         await self.page.goto(embed.url, timeout=5000)
         await self.handle_buttons()
         edit = interaction.response.edit_message
@@ -1182,7 +1173,7 @@ class FSView(view_utils.BaseView):
         logger.info("Video button was pressed on page %s", self.object.url)
 
         # e.url = f"{self.fixture.link}#/video"
-        url = f"{self.object.url}#/video"
+        url = f"{self.object.url}/#/video"
         await self.page.goto(url, timeout=5000)
         await self.handle_buttons()
 

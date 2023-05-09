@@ -38,6 +38,10 @@ class ScoreLoop(commands.Cog):
     async def cog_load(self) -> None:
         """Start the scores loop"""
         self.scores: asyncio.Task[None] = self.score_loop.start()
+        await self.bot.flashscore.cache_competitions()
+        await self.bot.flashscore.cache_teams()
+        logger.info("%s Competitions", len(self.bot.flashscore.competitions))
+        logger.info("%s Teams", len(self.bot.flashscore.teams))
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
@@ -78,16 +82,9 @@ class ScoreLoop(commands.Cog):
 
         need_refresh = await self.parse_games()
         if need_refresh:
-            self.bot.loop.create_task(self.bulk_fixtures(need_refresh))
-        self.bot.dispatch("scores_ready", now)
+            await self.bulk_fixtures(need_refresh)
 
-    async def handle_teams(
-        self, fixture: fs.Fixture, tree: html.HtmlElement
-    ) -> None:
-        """Fetch the teams from the fixture and look them up in our cache."""
-        home, away = await self.bot.flashscore.teams_from_fixture(tree)
-        fixture.home.team = home
-        fixture.away.team = away
+        self.bot.dispatch("scores_ready", now)
 
     async def bulk_fixtures(
         self, fixtures: list[fs.Fixture], recursion: int = 0
@@ -122,18 +119,22 @@ class ScoreLoop(commands.Cog):
 
         await asyncio.gather(*[do_fixture(i) for i in fixtures])
 
-        if not failed:
-            # Destroy all of our workers
-            while not self.score_workers.empty():
-                page = await self.score_workers.get()
-                await page.close()
+        if failed:
+            return await self.bulk_fixtures(failed, recursion + 1)
+        # Destroy all of our workers
+        while not self.score_workers.empty():
+            page = await self.score_workers.get()
+            await page.close()
 
-            # Bulk Save our competitions.
-            cmps = list(set(i.competition for i in fixtures if i.competition))
-            await self.bot.flashscore.save_competitions(cmps)
-            return
+        # Bulk Save our competitions.
+        save: list[fs.Competition | None] = []
+        for item in fixtures:
+            if item.competition not in save:
+                save.append(item.competition)
+        await self.bot.flashscore.save_competitions([i for i in save if i])
 
-        await self.bulk_fixtures(failed, recursion + 1)
+        tms = [i.home.team for i in fixtures] + [i.away.team for i in fixtures]
+        await self.bot.flashscore.save_teams(tms)
 
     # Core Loop
     def handle_cards(self, fix: fs.Fixture, tree: html.HtmlElement) -> None:
@@ -168,7 +169,11 @@ class ScoreLoop(commands.Cog):
         if fix.kickoff:
             return
 
-        time = tree.xpath("./span/text()")[0]
+        try:
+            time = tree.xpath("./span/text()")[0]
+        except IndexError:
+            return
+
         if ":" not in time:
             return
 
@@ -216,7 +221,7 @@ class ScoreLoop(commands.Cog):
 
         return override
 
-    async def fetch_games(self) -> list[str]:
+    async def fetch_mobi_html(self) -> list[str]:
         """Get the raw HTML for our games split into chunks"""
         async with self.bot.session.get("http://www.flashscore.mobi/") as resp:
             if resp.status != 200:
@@ -232,6 +237,9 @@ class ScoreLoop(commands.Cog):
         self, fix: fs.Fixture, time: str, tree: html.HtmlElement
     ) -> None:
         """Handle the parsing of time based on collected data."""
+        if ":" in time:
+            return  # This is a kickoff.
+
         try:
             fix.time = {
                 # 1 Parter
@@ -247,6 +255,7 @@ class ScoreLoop(commands.Cog):
                 "Interrupted": fs.GameState.INTERRUPTED,
                 "Postponed": fs.GameState.POSTPONED,
                 # Overrides
+                "Awaiting": fs.GameState.AWAITING,
                 "aet": fs.GameState.AFTER_EXTRA_TIME,
                 "fin": fs.GameState.FULL_TIME,
                 "pen": fs.GameState.AFTER_PENS,
@@ -266,7 +275,7 @@ class ScoreLoop(commands.Cog):
         Grab current scores from flashscore using aiohttp
         Returns a list of fixtures and dildos that need a full parse
         """
-        chunks = await self.fetch_games()
+        chunks = await self.fetch_mobi_html()
 
         to_fetch: list[fs.Fixture] = []
 
@@ -302,19 +311,19 @@ class ScoreLoop(commands.Cog):
 
             time = self.handle_score(fix, tree)
             state = "".join(tree.xpath("./a/@class")).strip()
-            if time is None and state in ["sched", "fin"]:
+            if not time and state in ["sched", "fin"]:
                 time = state
             else:
                 try:
                     time = str(tree.xpath("./span/text()")[-1])
                 except IndexError:
-                    logger.error("Error on time[-1] for %s", fix.score_line)
-                    continue
+                    time = "Awaiting"
 
             self.handle_kickoff(fix, tree, state)
             self.handle_time(fix, time, tree)
             e_type = fs.get_event_type(fix.state, old_state)
-            self.bot.dispatch("fixture_event", e_type, fix)
+            if e_type is not None:
+                self.bot.dispatch("fixture_event", e_type, fix)
         return to_fetch
 
 

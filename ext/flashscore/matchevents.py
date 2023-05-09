@@ -18,7 +18,7 @@ from .constants import (
 from .players import FSPlayer
 
 if TYPE_CHECKING:
-    from .abc import BaseFixture, BaseTeam
+    from .abc import BaseTeam, BaseFixture
 
 
 logger = logging.getLogger("matchevents")

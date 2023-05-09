@@ -202,10 +202,10 @@ class Admin(commands.Cog):
         if len(desc) > 4000:
             logger.info("DEBUG command input\n%s", code)
             logger.info("DEBUG command output\n%s", result)
-            out_embed.description = (
-                "Too long for discord, output sent to logger."
-            )
-        out_embed.description = desc
+            out_embed.description = desc[:3000] + "```" + "Remainder in logger"
+        else:
+            out_embed.description = desc
+
         embeds = [in_embed, out_embed]
         return await interaction.response.send_message(embeds=embeds)
 

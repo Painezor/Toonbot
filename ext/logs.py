@@ -744,6 +744,11 @@ def iter_embed(
             text = priv_lvl.name if priv_lvl else "`None`"
             embed.description += f"**Privacy Level**: {text}\n"
 
+        elif key == "public_updates_channel":
+            r_channel: discord.TextChannel | discord.Object = value
+            text = f"<#{r_channel.id}>" if r_channel else "`None`"
+            embed.description += f"**Rules Channel**: {text}\n"
+
         elif key == "prune_delete_days":
             # Inactive users are kicked after...
             prune: int = value

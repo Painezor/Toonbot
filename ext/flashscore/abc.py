@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, validator
 
@@ -11,6 +11,7 @@ from ext.utils import timed_events
 from .constants import (
     GOAL_EMOJI,
     COMPETITION_EMOJI,
+    FLASHSCORE,
     TEAM_EMOJI,
     RED_CARD_EMOJI,
 )
@@ -18,6 +19,7 @@ from .gamestate import GameState
 
 if TYPE_CHECKING:
     from .competitions import Competition
+    from .team import Team
     from .matchevents import MatchIncident
     from .photos import MatchPhoto
 
@@ -47,11 +49,22 @@ class BaseCompetition(BaseModel):
             return value.split(":")[0]
         return value
 
-    @validator("url")
-    def fmt_url(cls, value: str | None) -> str | None:
-        if value:
+    @validator("logo_url")
+    def fmt_logo_url(cls, value: str | None) -> str | None:
+        if value is not None:
+            value = value.rsplit("/", maxsplit=1)[-1]
+            # Extraneous ' needs removed.
+            return f"{FLASHSCORE}/res/image/data/{value}".replace("'", "")
+
+    @validator("url", always=True)
+    def fmt_url(cls, value: str | None, values: dict[str, Any]) -> str | None:
+        if value and FLASHSCORE in value:
             return value.rstrip("/")
-        return value
+
+        if values["country"] is not None and value is not None:
+            ctr = values["country"].lower().replace(" ", "-")
+            return f"{FLASHSCORE}/football/{ctr}/{value}"
+        raise ValueError("failed validating url from %s", values)
 
     @property
     def markdown(self) -> str:
@@ -142,8 +155,13 @@ class BaseFixture(BaseModel):
     stadium: str | None = None
 
     @validator("home", "away", always=True)
-    def partcipantify(cls, value: BaseTeam) -> Participant:
+    def partcipantify(cls, value: Team) -> Participant:
         return Participant(team=value)
+
+    @validator("url")
+    def strip_slash(cls, value: str | None) -> str | None:
+        if value is not None:
+            return value.rstrip("/")
 
     def __str__(self) -> str:
         if self.time in [

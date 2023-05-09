@@ -151,6 +151,9 @@ class ScoreChannel:
                 return True
 
             for i in embeds:
+                if message.flags.suppress_embeds:
+                    return True
+
                 try:
                     assert (auth := i.author.url) is not None
                     old = self._current_embeds[auth].description
@@ -351,10 +354,6 @@ class ScoresCog(commands.Cog):
         self.bot: Bot = bot
         self.score_channels: set[ScoreChannel] = set()
 
-    async def cog_load(self) -> None:
-        """Update the cache"""
-        await self.update_cache()
-
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
         self.score_channels.clear()
@@ -362,8 +361,7 @@ class ScoresCog(commands.Cog):
     @commands.Cog.listener()
     async def on_scores_ready(self, now: datetime.datetime) -> None:
         """When Livescores Fires a "scores ready" event, handle it"""
-        if not self.score_channels:
-            await self.update_cache()
+        await self.update_cache()
 
         comps = self.bot.flashscore.live_competitions()
 
@@ -390,9 +388,6 @@ class ScoresCog(commands.Cog):
     # Database load: ScoreChannels
     async def update_cache(self) -> set[ScoreChannel]:
         """Grab the most recent data for all channel configurations"""
-        await self.bot.flashscore.cache_competitions()
-        await self.bot.flashscore.cache_teams()
-
         sql = """SELECT * FROM scores_leagues"""
         records = await self.bot.db.fetch(sql, timeout=10)
 
@@ -412,7 +407,6 @@ class ScoresCog(commands.Cog):
 
             comp = self.bot.flashscore.get_competition(url=i["url"])
             if not comp:
-                logger.error("Could not get_competition for %s", i)
                 continue
 
             try:

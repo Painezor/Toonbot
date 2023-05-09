@@ -138,7 +138,8 @@ class TickerEvent:
         """Add a field to the embed with the results of the penalties"""
         fxe = self.fixture.events
         pens = [i for i in fxe if isinstance(i, fs.Penalty) and i.shootout]
-        for team in set(i.team for i in pens):
+
+        for team in [self.fixture.home.team, self.fixture.away.team]:
             if value := [str(i) for i in pens if i.team == team]:
                 embed.add_field(name=team, value="\n".join(value))
 
@@ -170,6 +171,9 @@ class TickerEvent:
         self.full = await self.extended()
         self.short = await self.short_embed()
 
+        logging.info(
+            "Dispatching Ticker Event to %s channels", len(self.channels)
+        )
         for chan in self.channels:
             await chan.output(self)
 
@@ -240,7 +244,7 @@ class TickerChannel:
 
     def __init__(self, channel: discord.TextChannel) -> None:
         self.channel: discord.TextChannel = channel
-        self.leagues: set[fs.Competition] = set()
+        self.leagues: list[fs.Competition] = []
         self.dispatched: dict[TickerEvent, discord.Message] = {}
 
         # Settings
@@ -307,14 +311,14 @@ class TickerChannel:
                 # Save on ratelimiting by checking.
                 if message.embeds:
                     if message.embeds[0].description == embed.description:
-                        return None
+                        return
                 message = await message.edit(embed=embed)
             except KeyError:
                 message = await self.channel.send(embed=embed)
         except discord.HTTPException:
             cog = self.bot.get_cog(TickerCog.__cog_name__)
             assert isinstance(cog, TickerCog)
-            cog.ticker_channels.remove(self)
+            cog.channels.remove(self)
             return
 
         self.dispatched[event] = message
@@ -337,7 +341,7 @@ class TickerChannel:
 
         for r in leagues:
             if comp := self.bot.flashscore.get_competition(url=r["url"]):
-                self.leagues.add(comp)
+                self.leagues.append(comp)
                 continue
             logger.error("Could not find comp %s", r)
 
@@ -534,7 +538,7 @@ class TickerConfig(view_utils.DropdownPaginator):
             if comp is None:
                 logger.info("Reset: Could not add default league %s", comp)
                 continue
-            self.channel.leagues.add(comp)
+            self.channel.leagues.append(comp)
 
         embed = discord.Embed(title="Ticker: Tracked Leagues Reset")
         embed.description = self.channel.mention
@@ -568,7 +572,7 @@ class TickerConfig(view_utils.DropdownPaginator):
 
         cog = interaction.client.get_cog(TickerCog.__cog_name__)
         assert isinstance(cog, TickerCog)
-        cog.ticker_channels.remove(self.channel)
+        cog.channels.remove(self.channel)
 
         embed = discord.Embed(colour=discord.Colour.red())
         embed.description = f"The Ticker for {ment} was deleted."
@@ -588,7 +592,7 @@ class TickerCog(commands.Cog):
         self.bot: Bot = bot
         TickerChannel.bot = bot
         self.workers: asyncio.Queue[Page] = asyncio.Queue(5)
-        self.ticker_channels: list[TickerChannel] = []
+        self.channels: list[TickerChannel] = []
 
     async def cog_load(self) -> None:
         """Reset the cache on load."""
@@ -663,12 +667,12 @@ class TickerCog(commands.Cog):
 
         chan = TickerChannel(channel)
         await chan.configure_channel()
-        self.ticker_channels.append(chan)
+        self.channels.append(chan)
         return chan
 
     async def update_cache(self) -> list[TickerChannel]:
         """Store a list of all Ticker Channels into the bot"""
-        self.ticker_channels.clear()
+        self.channels.clear()
         sql = """SELECT DISTINCT channel_id FROM ticker_channels"""
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
@@ -685,16 +689,16 @@ class TickerCog(commands.Cog):
 
             tkrchan = TickerChannel(chan)
             await tkrchan.configure_channel()
-            self.ticker_channels.append(tkrchan)
+            self.channels.append(tkrchan)
 
         sql = """DELETE FROM ticker_channels WHERE channel_id = $1"""
-        if self.ticker_channels:
+        if self.channels:
             async with self.bot.db.acquire() as connection:
                 async with connection.transaction():
                     for _id in bad:
                         await connection.execute(sql, _id)
             logger.info("Deleted %s bad Ticker channels", len(bad))
-        return self.ticker_channels
+        return self.channels
 
     async def refresh_table(self, competition: fs.Competition) -> None:
         """Refresh table for object"""
@@ -718,7 +722,7 @@ class TickerCog(commands.Cog):
         """Event handler for when something occurs during a fixture."""
         # Update the competition's Table on certain events.
         channels: list[TickerChannel] = []
-        for i in self.ticker_channels:
+        for i in self.channels:
             if fixture.competition in i.leagues:
                 channels.append(i)
 
@@ -776,7 +780,7 @@ class TickerCog(commands.Cog):
         channel: discord.TextChannel | None,
     ) -> None:
         """View the config of this channel's Match Event Ticker"""
-        if not self.ticker_channels:
+        if not self.channels:
             await self.update_cache()
 
         if channel is None:
@@ -784,7 +788,7 @@ class TickerCog(commands.Cog):
 
         # Validate channel is a ticker channel.
         try:
-            tkrs = self.ticker_channels
+            tkrs = self.channels
             chan = next(i for i in tkrs if i.channel.id == channel.id)
         except StopIteration:
             chan = await self.create(interaction, channel)
@@ -823,7 +827,7 @@ class TickerCog(commands.Cog):
         if channel is None:
             channel = cast(discord.TextChannel, interaction.channel)
 
-        tickers = self.ticker_channels
+        tickers = self.channels
         try:
             tkr_chan = next(i for i in tickers if i.channel.id == channel.id)
         except StopIteration:
@@ -843,7 +847,7 @@ class TickerCog(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, channel.id, competition.url)
 
-        tkr_chan.leagues.add(competition)
+        tkr_chan.leagues.append(competition)
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
@@ -854,9 +858,9 @@ class TickerCog(commands.Cog):
             async with connection.transaction():
                 await connection.execute(sql, channel.id)
 
-        for i in self.ticker_channels.copy():
+        for i in self.channels.copy():
             if i.channel.id == channel.id:
-                self.ticker_channels.remove(i)
+                self.channels.remove(i)
 
 
 async def setup(bot: Bot):

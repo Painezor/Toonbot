@@ -5,6 +5,7 @@ import asyncio
 import io
 import logging
 import typing
+import PIL
 
 import aiohttp
 from discord import Embed, User as Usr, Member, Colour
@@ -42,6 +43,7 @@ async def get_colour(url: str | None) -> Colour | int:
     """Use colour thief to grab a sampled colour from an image for an Embed"""
     if url is None:
         return Colour.og_blurple()
+
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             raw = await resp.read()
@@ -56,7 +58,11 @@ async def get_colour(url: str | None) -> Colour | int:
         finally:
             img.close()
 
-    colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
+    try:
+        colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
+    except PIL.UnidentifiedImageError:
+        logger.error("Failed to get colour on from image %s", url)
+        return Colour.og_blurple()
     return Colour.from_rgb(*colour)
 
 
