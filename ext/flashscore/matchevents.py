@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import enum
 import logging
-from typing import TYPE_CHECKING, Any, Type
+from typing import TYPE_CHECKING, Type
 
 from lxml import html
 
@@ -41,7 +41,9 @@ def parse_header(i: html.HtmlElement, fixture: BaseFixture) -> None:
             fixture.away.pens = int(away)
 
 
-def parse_events(fixture: BaseFixture, tree: Any) -> list[MatchIncident]:
+def parse_events(
+    fixture: BaseFixture, tree: html.HtmlElement
+) -> list[MatchIncident]:
     """Get a list of match events"""
     events: list[MatchIncident] = []
     for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
@@ -163,10 +165,6 @@ class MatchIncident:
 
     def __init__(self, fixture: BaseFixture) -> None:
         self.fixture = fixture
-
-    def is_done(self) -> bool:
-        """Check to see if more information is required"""
-        return self.player is not None
 
     def set_assist(self, node: html.HtmlElement) -> None:
         xpath = './/div[contains(@class, "assist")]//text()'

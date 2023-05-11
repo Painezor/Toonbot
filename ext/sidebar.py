@@ -121,8 +121,8 @@ class NUFCSidebar(commands.Cog):
 
         page = await self.bot.browser.new_page()
         try:
-            fixtures = await fsr.fixtures(page)
-            results = await fsr.results(page)
+            fixtures = await fsr.fixtures(page, self.bot.flashscore)
+            results = await fsr.results(page, self.bot.flashscore)
         finally:
             await page.close()
 

@@ -31,33 +31,39 @@ logger = logging.getLogger("flashscore.fixture")
 class HasFixtures:
     url: str | None = None
 
-    async def fixtures(self, page: Page) -> list[Fixture]:
+    async def fixtures(
+        self, page: Page, cache: FlashscoreCache | None = None
+    ) -> list[Fixture]:
         """Get a list of upcoming Fixtures for the FS Item"""
         if self.url is None:
             raise AttributeError
         url = self.url + "/fixtures/"
         if page.url != url:
             try:
-                await page.goto(url, timeout=3000)
+                await page.goto(url, timeout=5000)
             except PWTimeout:
-                logger.error("Timed out loading page %s", page.url)
+                logger.error("Timed out loading page %s", url)
                 return []
-        return await self.parse_games(page)
+        return await self.parse_games(page, cache)
 
-    async def results(self, page: Page) -> list[Fixture]:
+    async def results(
+        self, page: Page, cache: FlashscoreCache | None = None
+    ) -> list[Fixture]:
         """Get a list of upcoming Fixtures for the FS Item"""
         if self.url is None:
             raise AttributeError
         url = self.url + "/results/"
         if page.url != url:
             try:
-                await page.goto(url, timeout=3000)
+                await page.goto(url, timeout=5000)
             except PWTimeout:
-                logger.error("Timed out loading page %s", page.url)
+                logger.error("Timed out loading page %s", url)
                 return []
-        return await self.parse_games(page)
+        return await self.parse_games(page, cache)
 
-    async def parse_games(self, page: Page) -> list[Fixture]:
+    async def parse_games(
+        self, page: Page, cache: FlashscoreCache | None = None
+    ) -> list[Fixture]:
         """Parse games from raw HTML from fixtures or results function"""
         from .competitions import Competition
         from .team import Team
@@ -70,8 +76,13 @@ class HasFixtures:
             if "event__header" in i.classes:
                 xpath = './/div[contains(@class, "event__title")]//text()'
                 country, league = i.xpath(xpath)
-                league = league.casefold().split(" -")[0]
-                comp = Competition(name=league, country=str(country))
+                league = league.split(" -")[0]
+
+                if cache:
+                    comp = cache.get_competition(title=f"{country}: {league}")
+
+                if not comp:
+                    comp = Competition(name=league, country=str(country))
                 continue
 
             try:
@@ -319,14 +330,15 @@ class Fixture(BaseFixture, HasNews, HasTable):
                 logger.info("Fixture, extra data found %s %s", label, value)
 
         if cache:
-            maybe_comp = cache.get_competition(url=url)
+            _comp = cache.get_competition(url=url)
 
             if (
-                maybe_comp is not None
-                and maybe_comp.country is not None
-                and "<ELEMENT" not in maybe_comp.country
+                _comp is not None
+                and _comp.country is not None
+                # TODO: Remove this once we've fixed the <ELEMENT stuff
+                and "<" not in _comp.country
             ):
-                self.competition = maybe_comp
+                self.competition = _comp
                 return
 
         self.competition = await self.fetch_competition(page, url, cache)
@@ -387,22 +399,19 @@ class Fixture(BaseFixture, HasNews, HasTable):
             return
 
         tree = html.fromstring(await selector.inner_html())
-        country = str(tree.xpath(".//a[@class='breadcrumb__link']")[-1])
+        country = str(tree.xpath(".//a[@class='breadcrumb__link']/text()")[-1])
 
         src = None
 
         try:
             # Name Correction
-            name_loc = page.locator(".heading__name").first
-            logo_url = page.locator(".heading__logo").first
-
-            name = await name_loc.text_content(timeout=1000)
-            if name is None:
-                logger.error("Failed to find name on %s", url)
-                return
-            src = await logo_url.get_attribute("src", timeout=1000)
+            name = "".join(tree.xpath('.//div[@class="heading__name"]/text()'))
+            src = "".join(tree.xpath('.//img[@class="heading__logo"]/@src'))
         except PWTimeout:
             logger.error("Timed out heading__logo %s", url)
+            return
+        except AssertionError:
+            logger.error("Failed to find name on %s", url)
             return
 
         try:
@@ -417,11 +426,21 @@ class Fixture(BaseFixture, HasNews, HasTable):
 
         if comp is None:
             comp = Competition(id=comp_id, name=name, country=country, url=url)
-        else:
+
+        if url != comp.url:
             logger.info("Comp URL %s -> %s", comp.url, url)
             comp.url = url
 
-        if src is not None:
+        if country != comp.country:
+            logger.info("Comp country %s -> %s", comp.country, country)
+            comp.country = country
+
+        if name != comp.name:
+            logger.info("Comp country %s -> %s", comp.name, name)
+            comp.name = name
+
+        if src and src != comp.logo_url:
+            logger.info("comp logo url %s -> %s", comp.logo_url, src)
             comp.logo_url = FLASHSCORE + src
 
         return comp
@@ -483,7 +502,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
         if infobox := tree.xpath(xpath):
             self.infobox = "".join(infobox)
 
-        self.events = parse_events(self, tree)
+        self.incidents = parse_events(self, tree)
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
 
 

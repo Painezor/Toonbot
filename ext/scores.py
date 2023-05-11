@@ -1,5 +1,6 @@
 """Handle the data parsed by score_task.py"""
 from __future__ import annotations
+import asyncio
 import datetime
 
 import itertools
@@ -7,7 +8,7 @@ import logging
 from typing import TYPE_CHECKING, TypeAlias, cast
 
 import discord
-from discord import Message, Embed
+from discord import Message, Embed, Colour
 from discord.ext import commands
 from ext.fixtures import FSEmbed
 
@@ -22,7 +23,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("scores")
 
-# Constants.
+# Command Mentions.
+ADD_LEAGUE = "</livescores add_league:951948501355495506>"
+MANAGE = "</livescores manage:951948501355495506>"
 
 NGF = (
     "No games found for your tracked leagues today!\n\nYou can "
@@ -69,6 +72,8 @@ class ScoreChannel:
         except discord.HTTPException:
             return
 
+        self.messages.clear()
+
     async def get_leagues(self, bot: Bot) -> list[fs.Competition]:
         """Fetch target leagues for the ScoreChannel from the database"""
         sql = """SELECT * FROM scores_leagues WHERE channel_id = $1"""
@@ -85,19 +90,16 @@ class ScoreChannel:
         return self.leagues
 
     async def generate_embeds(
-        self, bot: Bot, comps: dict[str, list[Embed]]
+        self, comps: dict[str, list[Embed]]
     ) -> list[tuple[Message | None, list[Embed] | None]]:
         """Grab Embeds for requested leagues"""
+        # Validate Channel perms.
         embeds: list[Embed] = []
 
         leagues = [i.title for i in self.leagues]
         for k, val in comps.items():
             if k in leagues:
                 embeds += val
-
-        _ = self.channel
-        if not self.messages and _.permissions_for(_.guild.me).manage_messages:
-            await self.purge(bot)
 
         if not embeds:
             embeds = [NO_GAMES_FOUND]
@@ -127,11 +129,18 @@ class ScoreChannel:
     ) -> None:
         """Edit a live-score channel to have the latest scores"""
         # Validatiion / Rate Limit Avoidance Logic.
+        _ = self.channel
+        perms = _.permissions_for(_.guild.me)
+        if not perms.send_messages or not perms.embed_links:
+            return
+
+        if not self.messages and perms.manage_messages:
+            await self.purge(bot)
 
         if not self.leagues:
             await self.get_leagues(bot)
 
-        tuples = await self.generate_embeds(bot, comps)
+        tuples = await self.generate_embeds(comps)
 
         # We have a limit of 5 messages due to ratelimiting
         count = 1
@@ -142,19 +151,26 @@ class ScoreChannel:
         def should_run(
             message: Message | None, embeds: list[Embed] | None
         ) -> bool:
+            # If we have no Embeds to send
             if embeds is None:
+                # Check if we have already suppressed the embeds
                 if message is None or message.flags.suppress_embeds:
                     return False
+
+                # If they're not suppressed yet, we need to do so.
                 return True
 
+            # If there is no cached meessage, we need to send one.
             if message is None:
                 return True
 
             for i in embeds:
+                # If the message has suppressed embeds, we need to unsuppress
                 if message.flags.suppress_embeds:
                     return True
 
                 try:
+                    # This should always be set.
                     assert (auth := i.author.url) is not None
                     old = self._current_embeds[auth].description
                     new = i.description
@@ -170,8 +186,8 @@ class ScoreChannel:
 
             try:
                 await self.send_or_edit(message, m_embeds)
-            except (discord.NotFound, discord.Forbidden):
-                cog.score_channels.discard(self)
+            except discord.Forbidden:
+                cog.channels.discard(self)
 
             if count > 4:
                 return
@@ -202,10 +218,18 @@ class ScoreChannel:
             self.messages.append(new_msg)
             return
 
-        if embeds is None:
-            new_msg = await message.edit(suppress=True)
-        else:
-            new_msg = await message.edit(embeds=embeds, suppress=False)
+        try:
+            if embeds is None:
+                new_msg = await message.edit(suppress=True)
+            else:
+                new_msg = await message.edit(embeds=embeds, suppress=False)
+        except discord.NotFound:
+            try:
+                self.messages.remove(message)
+            except ValueError:
+                pass
+            return
+
         self.messages[self.messages.index(message)] = new_msg
 
     async def reset_leagues(self, interaction: Interaction) -> None:
@@ -237,8 +261,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
     def __init__(self, invoker: User, channel: ScoreChannel) -> None:
         self.channel: ScoreChannel = channel
 
-        embed = Embed(colour=discord.Colour.dark_teal())
-        embed.title = "LiveScores config"
+        embed = Embed(colour=Colour.dark_teal(), title="LiveScores config")
 
         chan = self.channel.channel
         perms = chan.permissions_for(chan.guild.me)
@@ -269,7 +292,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
             options.append(opt)
 
         super().__init__(invoker, embed, rows, options)
-        self.dropdown.max_values = len(self.options)
+        self.dropdown.max_values = len(self.pages[self.index])
 
     @discord.ui.select(placeholder="Removed Tracked leagues", row=1)
     async def dropdown(
@@ -352,11 +375,11 @@ class ScoresCog(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
-        self.score_channels: set[ScoreChannel] = set()
+        self.channels: set[ScoreChannel] = set()
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
-        self.score_channels.clear()
+        self.channels.clear()
 
     @commands.Cog.listener()
     async def on_scores_ready(self, now: datetime.datetime) -> None:
@@ -379,11 +402,12 @@ class ScoresCog(commands.Cog):
             embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, table)
             sc_embeds.update({comp.title: embeds})
 
-        for i in self.score_channels.copy():
-            if i.channel.is_news():
-                self.score_channels.discard(i)
-                return
-            await i.run_scores(self.bot, sc_embeds)
+        async with asyncio.Lock():
+            for i in self.channels.copy():
+                if i.channel.is_news():
+                    self.channels.discard(i)
+                    return
+                await i.run_scores(self.bot, sc_embeds)
 
     # Database load: ScoreChannels
     async def update_cache(self) -> set[ScoreChannel]:
@@ -392,7 +416,7 @@ class ScoresCog(commands.Cog):
         records = await self.bot.db.fetch(sql, timeout=10)
 
         # Generate {channel_id: [league1, league2, league3, …]}
-        chans = self.score_channels
+        chans = self.channels
         bad: list[int] = []
 
         for i in records:
@@ -422,7 +446,7 @@ class ScoresCog(commands.Cog):
         if chans:
             await self.bot.db.executemany(sql, bad)
 
-        self.score_channels = chans
+        self.channels = chans
         return chans
 
     # Core Loop
@@ -456,12 +480,12 @@ class ScoresCog(commands.Cog):
             reply = interaction.response.send_message
             return await reply(embed=embed, ephemeral=True)
 
-        chans = self.score_channels
+        chans = self.channels
         try:
             chan = next(i for i in chans if i.channel.id == channel.id)
         except StopIteration:
             chan = ScoreChannel(channel)
-            self.score_channels.add(chan)
+            self.channels.add(chan)
 
         view = ScoresConfig(interaction.user, chan)
         await interaction.response.send_message(view=view, embed=view.pages[0])
@@ -486,9 +510,8 @@ class ScoresCog(commands.Cog):
                 name, reason=reason, topic=topic
             )
         except discord.Forbidden:
-            embed = Embed(colour=discord.Colour.red())
             err = "🚫 I need manage_channels permissions to make a channel."
-            embed.description = err
+            embed = Embed(colour=Colour.red(), description=err)
             reply = interaction.response.send_message
             return await reply(embed=embed, ephemeral=True)
 
@@ -509,15 +532,15 @@ class ScoresCog(commands.Cog):
                     VALUES ($1, $2)"""
                 await connection.execute(sql, channel.guild.id, channel.id)
 
-        self.score_channels.add(chan := ScoreChannel(channel))
+        self.channels.add(chan := ScoreChannel(channel))
 
         await chan.reset_leagues(interaction)
 
         try:
             await chan.channel.send(
                 f"{interaction.user.mention} Welcome to your new livescores "
-                "channel.\n Use `/livescores add_league` to add new leagues,"
-                " and `/livescores manage` to remove them"
+                f"channel.\n Use {ADD_LEAGUE} to add new leagues,"
+                f" and {MANAGE} to remove them"
             )
             msg = f"{channel.mention} created successfully."
         except discord.Forbidden:
@@ -550,7 +573,7 @@ class ScoresCog(commands.Cog):
         if channel is None:
             channel = cast(discord.TextChannel, interaction.channel)
 
-        score_chans = self.score_channels
+        score_chans = self.channels
         try:
             chan = next(i for i in score_chans if i.channel.id == channel.id)
         except StopIteration:
@@ -631,9 +654,9 @@ class ScoresCog(commands.Cog):
                 sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
                 await connection.execute(sql, channel.id)
 
-        for i in self.score_channels.copy():
+        for i in self.channels.copy():
             if channel.id == i.channel.id:
-                self.score_channels.remove(i)
+                self.channels.remove(i)
 
 
 async def setup(bot: Bot):

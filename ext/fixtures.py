@@ -7,8 +7,6 @@
 # TODO: File=None in all r()
 # TODO: Globally Nuke _ac for Transformers
 
-# TODO: Remove Funcables, use label, move methods back to FlashScore
-
 from __future__ import annotations
 
 import asyncio
@@ -456,9 +454,9 @@ class FXPaginator(view_utils.DropdownPaginator):
             await parent.handle_buttons()
 
         if is_fixtures:
-            games = await obj.fixtures(page)
+            games = await obj.fixtures(page, interaction.client.flashscore)
         else:
-            games = await obj.results(page)
+            games = await obj.results(page, interaction.client.flashscore)
 
         embed = await FSEmbed.create(obj)
         view = FXPaginator(interaction.user, page, embed, games, parent)
@@ -1147,7 +1145,7 @@ class FSView(view_utils.BaseView):
 
         embed = await FSEmbed.create(self.object)
 
-        embed.description = "\n".join(str(i) for i in self.object.events)
+        embed.description = "\n".join(str(i) for i in self.object.incidents)
         if self.object.referee:
             embed.description += f"**Referee**: {self.object.referee}\n"
         if self.object.stadium:

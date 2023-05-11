@@ -44,8 +44,7 @@ class BlogEmbed(discord.Embed):
         else:
             self.description = final
 
-        if self.images:
-            self.set_image(url=self.images[0])
+        self.set_image(url=self.images[0] or None)  # Null coalesce
 
     @staticmethod
     def get_emote(node: html.HtmlElement) -> str:
@@ -62,8 +61,15 @@ class BlogEmbed(discord.Embed):
         return api.SHIP_EMOTES[s_class]["normal"]
 
     def parse_a(self, node: html.HtmlElement) -> None:
-        """Convert <a href="bar">foo</a> to [foo](bar)"""
-        self.text += f"[{node.text}]({node.attrib['href']})"
+        """Convert <a href="bar">foo<p>hi</p></a> to [foohi](bar)"""
+        self.text += " ["
+        if node.text:
+            self.text += node.text
+        self.parse(node)
+        self.text += f"]({node.attrib['href']}) "
+
+        if node.tail:
+            self.text += node.tail
 
     def parse_br(self, _: html.HtmlElement) -> None:
         """<br/> -> \n"""
@@ -71,12 +77,36 @@ class BlogEmbed(discord.Embed):
 
     def parse_em(self, node: html.HtmlElement) -> None:
         """<em> for *emphasis*"""
-        self.text += f"*{node.text}*"
+        self.text += " *"
+        if node.text:
+            self.text += node.text
+        self.parse(node)  # Iter children, these are emphasised too
+
+        self.text += "* "  # End of emphasis
+
+        if node.tail:
+            self.text += f"{node.tail}"
+
+    def parse_h2(self, node: html.HtmlElement) -> None:
+        self.parse_header(node)  # This will soon be ##
+
+    def parse_h3(self, node: html.HtmlElement) -> None:
+        self.parse_header(node)  # This will soon be ###
+
+    def parse_h4(self, node: html.HtmlElement) -> None:
+        self.parse_header(node)  # This will soon be ####
 
     def parse_header(self, node: html.HtmlElement) -> None:
         """Parse Header Blocks and Embolden"""
+        self.text += " **"
         if node.text:
-            self.text += f"**{node.text}**"
+            self.text += node.text
+
+        self.parse(node)
+        self.text += "** "
+
+        if node.tail:
+            self.text += node.tail
 
         if node.getnext() is None:
             self.text += "\n"
@@ -89,7 +119,15 @@ class BlogEmbed(discord.Embed):
             _cls = node.attrib["class"]
             logger.error("'i' tag %s containing text %s", _cls, node.text)
 
-    def parse_image(self, node: html.HtmlElement) -> None:
+        if node.text:
+            self.text += node.text
+
+        self.parse(node)
+
+        if node.tail:
+            self.text += node.tail
+
+    def parse_img(self, node: html.HtmlElement) -> None:
         """Get Image & save link to self.images"""
         src = "http:" + node.attrib["src"]
         self.images.append(src)
@@ -105,107 +143,127 @@ class BlogEmbed(discord.Embed):
             if node.attrib.get("data-type", False):
                 self.text += self.get_emote(node)
 
-            if node.text is not None:
-                self.text += f"**{node.text}** "
-            return
+            if node.text:
+                self.text += f" **{node.text}** "
+        else:
+            if node.text:
+                self.text += node.text
 
-        if node.text:
-            self.text += node.text
+        self.parse(node)
 
-    def parse_div_tag(self, node: html.HtmlElement) -> None:
+        if node.tail:
+            self.text += node.tail
+
+    def parse_div(self, node: html.HtmlElement) -> None:
         """Parse <div> tag"""
         if "article-cut" in node.classes:
-            self.parse_br(node)
+            return self.parse_br(node)
+
+        if "spoiler-title" in node.classes:
+            self.text += f"```diff\n{node.text}\n- Check original article```"
             return
 
-        elif "spoiler" in node.classes:
-            for i in node.iterchildren():
-                node.remove(i)
-
-            self.text += "```\nSee article for full statistics```"
-
-        elif node.text is not None:
+        if node.text:
             self.text += node.text
 
-    def parse_list(self, node: html.HtmlElement) -> None:
+        self.parse(node)
+
+        if node.tail:
+            self.text += node.tail
+
+    def parse_li(self, node: html.HtmlElement) -> None:
         """Parse <li> tags"""
-        bullet = "•"
+        # Get a count of total parent ol/ul/lis
         if node.text:
-            if (par := node.getparent()) is not None:
-                if (par := par.getparent()) is not None:
-                    if par.tag in ["ul", "ol", "li"]:
-                        bullet = "∟○"
+            depth = sum(1 for _ in node.iterancestors("ol", "ul", "li"))
+            bullet = {1: "•", 2: "∟○"}[depth]
             self.text += f"\n{bullet} {node.text}"
 
         if node.getnext() is None:
             if len(node) == 0:  # Number of children
                 self.text += "\n"
 
-    def parse_p_tag(self, node: html.HtmlElement) -> None:
+        self.parse(node)
+
+        if node.tail:
+            self.text += node.tail
+
+    def parse_ol(self, node: html.HtmlElement) -> None:
+        return self.parse_p(node)
+
+    def parse_ul(self, node: html.HtmlElement) -> None:
+        return self.parse_ul(node)
+
+    def parse_p(self, node: html.HtmlElement) -> None:
         """Parse <p> tags"""
         if node.text:
-            if node.getprevious() is not None and node.text:
-                self.text += "\n"
             self.text += node.text
-            if (nxt := node.getnext()) is not None and nxt.tag == "p":
-                self.text += "\n"
+
+        self.parse(node)
+
+        if node.tail:
+            self.text += node.tail
+
+        self.text += "\n"
 
     def parse_u(self, node: html.HtmlElement) -> None:
         """__Underline__"""
-        self.text += f"__{node.text}__"
+        self.text += " __"
+        if node.text:
+            self.text += node.text
+
+        self.parse(node)
+
+        self.text += "__ "
+        if node.tail:
+            self.text += node.tail
 
     def parse_table(self, _: html.HtmlElement) -> None:
         """Tables are a pain in the dick."""
         self.text += "```\n<Table Omitted, please see web article>```"
 
-    def parse(self, node: html.HtmlElement, is_tail: bool = False) -> None:
-        """Recursively parse a single node and it's children"""
-        tag = node.tag
-        tail = node.tail
-        text = node.text
+    def parse_th(self, _: html.HtmlElement) -> None:
+        pass
 
-        if text is not None and text.strip():
+    def parse_td(self, _: html.HtmlElement) -> None:
+        pass
+
+    def parse_tr(self, _: html.HtmlElement) -> None:
+        pass
+
+    def parse(self, tree: html.HtmlElement) -> None:
+        """Recursively parse a single node and it's children"""
+        for node in tree.iterchildren():
+            tag = node.tag
+            tail = node.tail
+            text = node.text
             try:
                 {
                     "a": self.parse_a,
                     "br": self.parse_br,
-                    "div": self.parse_div_tag,
+                    "div": self.parse_div,
                     "em": self.parse_em,
                     "i": self.parse_info,
-                    "h2": self.parse_header,
-                    "h3": self.parse_header,
-                    "h4": self.parse_header,
-                    "img": self.parse_image,
-                    "p": self.parse_p_tag,
+                    "h2": self.parse_h2,
+                    "h3": self.parse_h3,
+                    "h4": self.parse_h4,
+                    "img": self.parse_img,
+                    "p": self.parse_p,
                     "span": self.parse_span,
                     "strong": self.parse_header,
-                    "sup": self.parse_p_tag,
+                    "sup": self.parse_p,
                     "table": self.parse_table,
+                    "td": self.parse_td,
+                    "th": self.parse_th,
+                    "tr": self.parse_tr,
                     "u": self.parse_u,
-                    "ol": self.parse_p_tag,
-                    "ul": self.parse_p_tag,
-                    "li": self.parse_list,
+                    "ol": self.parse_ol,
+                    "ul": self.parse_ul,
+                    "li": self.parse_li,
                 }[tag](node)
             except KeyError:
                 logger.error("Unhandled tag: [%s]: %s|%s", tag, text, tail)
-                return
-
-        if is_tail:
-            return
-
-        if tag == "table":
-            return
-
-        for sub_node in node.iterchildren():
-            self.parse(sub_node)
-
-        if tail:
-            par = node.getparent()
-            if par:
-                node.tag = par.tag
-            node.text = node.tail
-            node.tail = None
-            self.parse(node, is_tail=True)
+                continue
 
     @classmethod
     async def create(cls, blog: api.DevBlog) -> discord.Embed:
@@ -243,7 +301,9 @@ async def db_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 
     choices: list[Choice[str]] = []
     for i in dbc:
-        if cur not in i.ac_row:
+        ac_row = f"{i.id} {i.title} {i.text}".casefold()
+
+        if cur not in ac_row:
             continue
 
         name = f"{i.id}: {i.title}"[:100]
@@ -274,15 +334,14 @@ class BlogCog(commands.Cog):
         tree = html.fromstring(src)
         title = str(tree.xpath(".//title/text()")[0])
         title = title.split(" - Development", maxsplit=1)[0]
-        blog.cache_title(title)
+        blog.title = title
 
         xpath = './/div[@class="article__content"]'
         text = tree.xpath(xpath)[0].text_content()
 
         if text:
             logger.info("Storing Dev Blog #%s", blog.id)
-            blog.cache_text(text)
-            blog.cache_title(text)
+            blog.text = text
         else:
             return
         sql = """INSERT INTO dev_blogs (id, title, text) VALUES ($1, $2, $3)
@@ -387,7 +446,7 @@ class BlogCog(commands.Cog):
         except StopIteration:
             # If a specific blog is not selected, send the browser view.
             txt = search.casefold()
-            yes = [i for i in self.cache if txt in i.ac_row]
+            yes = [i for i in self.cache if txt in i.text]
             view = DevBlogView(interaction.user, pages=yes)
             return await view.handle_page(interaction)
 

@@ -458,7 +458,7 @@ class MatchThread:
 
         # Match Events
         formatted_ticker = ""
-        for event in self.fixture.events:
+        for event in self.fixture.incidents:
             team = event.team
 
             team = home_icon if team == home else team
@@ -506,7 +506,7 @@ class MatchThreadCommands(commands.Cog):
             page = await self.bot.browser.new_page()
 
             try:
-                fixtures = await team.fixtures(page)
+                fixtures = await team.fixtures(page, self.bot.flashscore)
             finally:
                 await page.close()
 

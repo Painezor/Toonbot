@@ -80,30 +80,6 @@ class BaseView(discord.ui.View):
             return
         logger.error("Message not set on view %s", self.__class__.__name__)
 
-    def add_function_row(
-        self,
-        items: list[Funcable],
-        row: int = 0,
-        placeholder: str = "More Options...",
-        force_dropdown: bool = False,
-    ):
-        """Create a row of up to 5 Buttons,
-        or a dropdown up to 25 options"""
-
-        if len(items) > 25:
-            raise ValueError(f"Too many for dropdown: {len(items)} > 25")
-
-        if len(items) < 6 and not force_dropdown:
-            for i in items:
-                fun = FuncButton(i.function, i.args, i.keywords, label=i.label)
-                fun.row = row
-                fun.disabled = i.disabled
-                fun.style = i.style
-                fun.emoji = i.emoji
-                self.add_item(fun)
-        else:
-            self.add_item(FuncSelect(items, row, placeholder))
-
     async def on_error(  # type: ignore
         self,
         interaction: Interaction,
@@ -317,89 +293,6 @@ class PagedItemSelect(DropdownPaginator):
         """Stop the view and allow retrieval of interaction and values"""
         self.stop()
         self.interaction = interaction
-
-
-class Funcable:
-    """A 'Selectable Function' to be used with generate_function_row to
-    create either a FuncSelect or row of FuncButtons"""
-
-    def __init__(
-        self,
-        label: str,
-        function: typing.Callable[..., typing.Any],
-        args: list[typing.Any] | None = None,
-        keywords: dict[str, typing.Any] | None = None,
-        emoji: str | None = "🔘",
-        description: str | None = None,
-        style: discord.ButtonStyle = discord.ButtonStyle.gray,
-        disabled: bool = False,
-    ):
-        self.label: str = label
-        self.emoji: str | None = emoji
-        self.description: str | None = description
-        self.style: discord.ButtonStyle = style
-        self.disabled: bool = disabled
-
-        self.function: typing.Callable[..., typing.Any] = function
-        self.args: list[typing.Any] = [] if args is None else args
-        self.keywords: dict[str, typing.Any]
-        self.keywords = {} if keywords is None else keywords
-
-
-class FuncSelect(discord.ui.Select[BaseView]):
-    """A Select that ties to individually passed functions"""
-
-    def __init__(
-        self,
-        items: list[Funcable],
-        row: int,
-        placeholder: str | None = None,
-    ):
-        self.items: dict[str, Funcable] = {}
-
-        super().__init__(row=row, placeholder=placeholder)
-
-        for num, i in enumerate(items):
-            self.items[str(num)] = i
-            self.add_option(
-                label=i.label,
-                emoji=i.emoji,
-                description=i.description,
-                value=str(num),
-            )
-
-    async def callback(  # type: ignore
-        self, interaction: Interaction
-    ) -> typing.Any:
-        """The handler for the FuncSelect Dropdown"""
-        await interaction.response.defer()
-        value: Funcable = self.items[self.values[0]]
-        return await value.function(*value.args, **value.keywords)
-
-
-class FuncButton(discord.ui.Button[BaseView]):
-    """A Generic Button with a passed through function."""
-
-    def __init__(
-        self,
-        function: typing.Callable[..., typing.Awaitable[typing.Any]],
-        args: list[typing.Any] | None = None,
-        kw: dict[str, typing.Any] | None = None,
-        **kwargs: typing.Any,
-    ) -> None:
-        super().__init__(**kwargs)
-
-        self.function: typing.Callable[
-            ..., typing.Awaitable[typing.Any]
-        ] = function
-        self.args: list[typing.Any] = [] if args is None else args
-        self.kwargs: dict[str, typing.Any] = {} if kw is None else kw
-
-    async def callback(self, interaction: Interaction) -> None:  # type: ignore
-        """The Callback performs the passed function with any passed
-        args/kwargs"""
-        await interaction.response.defer()
-        return await self.function(*self.args, **self.kwargs)
 
 
 class Confirmation(BaseView):

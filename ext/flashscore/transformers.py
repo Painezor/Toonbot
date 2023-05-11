@@ -350,7 +350,7 @@ async def choose_recent_fixture(
     """Allow the user to choose from the most recent games of a fixture"""
     page = await interaction.client.browser.new_page()
     try:
-        fixtures = await fsr.results(page)
+        fixtures = await fsr.results(page, interaction.client.flashscore)
     finally:
         await page.close()
 

@@ -34,20 +34,10 @@ async def get_dev_blogs() -> list[int]:
 class DevBlog:
     """A world of Warships DevBlog"""
 
-    def __init__(
-        self,
-        _id: int,
-        title: str | None = None,
-        text: str | None = None,
-    ):
+    def __init__(self, _id: int, title: str = "", text: str = ""):
         self.id: int = _id  # pylint: disable=C0103
-        self.title: str | None = title
-        self.text: str | None = text
-
-    @property
-    def ac_row(self) -> str:
-        """Autocomplete representation"""
-        return f"{self.id} {self.title} {self.text}".casefold()
+        self.title: str = title
+        self.text: str = text
 
     @property
     def url(self) -> str:
@@ -55,17 +45,9 @@ class DevBlog:
         return f"https://blog.worldofwarships.com/blog/{self.id}"
 
     async def fetch_text(self) -> html.HtmlElement:
-        """Get the fully formatted text for the devblog"""
+        """Get the HTML content for a devblog"""
         async with aiohttp.ClientSession() as session:
             async with session.get(self.url) as resp:
                 tree = html.fromstring(await resp.text())
 
         return tree.xpath('.//div[@class="article__content"]')[0]
-
-    def cache_title(self, title: str) -> None:
-        """Cache the title of the dev blog"""
-        self.title = title
-
-    def cache_text(self, text: str) -> None:
-        """Cache the text of the dev blog"""
-        self.text = text

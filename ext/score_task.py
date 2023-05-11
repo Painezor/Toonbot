@@ -33,7 +33,9 @@ class ScoreLoop(commands.Cog):
         self.bot: Bot = bot
         self.tasks: set[asyncio.Task[None]] = set()
         self.score_workers: asyncio.Queue[Page] = asyncio.Queue()
+
         self._last_ordinal: int = 0
+        self._pending: list[fs.Fixture] = []
 
     async def cog_load(self) -> None:
         """Start the scores loop"""
@@ -80,19 +82,17 @@ class ScoreLoop(commands.Cog):
             self.bot.flashscore.games.clear()
             self._last_ordinal = ordinal
 
-        need_refresh = await self.parse_games()
-        if need_refresh:
-            await self.bulk_fixtures(need_refresh)
+        await self.parse_games()
+        if self._pending:
+            await self.handle_pending_fixtures()
 
         self.bot.dispatch("scores_ready", now)
 
-    async def bulk_fixtures(
-        self, fixtures: list[fs.Fixture], recursion: int = 0
-    ) -> None:
+    async def handle_pending_fixtures(self, recursion: int = 0) -> None:
         """Fetch all data for a fixture"""
 
         recur = "" if not recursion else f"retry #{recursion}"
-        logger.info("Batch Fetching %s fixtures %s", len(fixtures), recur)
+        logger.info("Batch Fetching %s fixtures %s", len(self._pending), recur)
 
         async def spawn_worker() -> None:
             """Create a worker object"""
@@ -102,10 +102,11 @@ class ScoreLoop(commands.Cog):
         # Bulk spawn our workers.
         # We use recursion so don't remake.
         if not recursion:
-            num_workers = min(len(fixtures), MAX_SCORE_WORKERS)
+            num_workers = min(len(self._pending), MAX_SCORE_WORKERS)
             await asyncio.gather(*[spawn_worker() for _ in range(num_workers)])
 
         failed: list[fs.Fixture] = []
+        success: list[fs.Fixture] = []
 
         async def do_fixture(fixture: fs.Fixture) -> None:
             """Get worker, fetch page, release worker"""
@@ -114,27 +115,33 @@ class ScoreLoop(commands.Cog):
                 await fixture.fetch(page, cache=self.bot.flashscore)
             except PWTimeout:
                 failed.append(fixture)
+            else:
+                success.append(fixture)
             finally:
                 await self.score_workers.put(page)
 
-        await asyncio.gather(*[do_fixture(i) for i in fixtures])
+        await asyncio.gather(*[do_fixture(i) for i in self._pending])
+
+        save: list[fs.Competition | None] = []
+        teams: list[fs.BaseTeam] = []
+
+        for item in success:
+            teams += [item.home.team, item.away.team]
+            if item.competition not in save:
+                save.append(item.competition)
+        await self.bot.flashscore.save_competitions([i for i in save if i])
+        await self.bot.flashscore.save_teams(teams)
 
         if failed:
-            return await self.bulk_fixtures(failed, recursion + 1)
+            self._pending = failed
+            return await self.handle_pending_fixtures(recursion + 1)
+
         # Destroy all of our workers
         while not self.score_workers.empty():
             page = await self.score_workers.get()
             await page.close()
 
         # Bulk Save our competitions.
-        save: list[fs.Competition | None] = []
-        for item in fixtures:
-            if item.competition not in save:
-                save.append(item.competition)
-        await self.bot.flashscore.save_competitions([i for i in save if i])
-
-        tms = [i.home.team for i in fixtures] + [i.away.team for i in fixtures]
-        await self.bot.flashscore.save_teams(tms)
 
     # Core Loop
     def handle_cards(self, fix: fs.Fixture, tree: html.HtmlElement) -> None:
@@ -154,12 +161,12 @@ class ScoreLoop(commands.Cog):
 
         if home and home != fix.home.cards:
             evt = EVT.RED_CARD if home > fix.home.cards else EVT.VAR_RED_CARD
-            self.bot.dispatch(FXE, evt, fix, home=True)
+            self.bot.dispatch(FXE, evt, fix, team=fix.home.team)
             fix.home.cards = home
 
         if away and away != fix.away.cards:
             evt = EVT.RED_CARD if away > fix.away.cards else EVT.VAR_RED_CARD
-            self.bot.dispatch(FXE, evt, fix, home=False)
+            self.bot.dispatch(FXE, evt, fix, team=fix.away.team)
             fix.away.cards = away
 
     def handle_kickoff(
@@ -210,13 +217,13 @@ class ScoreLoop(commands.Cog):
         if fix.home.score != hsc:
             if fix.home.score is not None:
                 evt = EVT.GOAL if hsc > fix.home.score else EVT.VAR_GOAL
-                self.bot.dispatch(FXE, evt, fix, home=True)
+                self.bot.dispatch(FXE, evt, fix, team=fix.home.team)
             fix.home.score = hsc
 
         if fix.away.score != asc:
             if fix.away.score is not None:
                 evt = EVT.GOAL if asc > fix.away.score else EVT.VAR_GOAL
-                self.bot.dispatch(FXE, evt, fix, home=False)
+                self.bot.dispatch(FXE, evt, fix, team=fix.away.team)
             fix.away.score = asc
 
         return override
@@ -270,41 +277,40 @@ class ScoreLoop(commands.Cog):
             else:
                 logger.error("Time Not unhandled: %s", time)
 
-    async def parse_games(self) -> list[fs.Fixture]:
+    def get_fixture_from_cache(
+        self, tree: html.HtmlElement
+    ) -> tuple[fs.Fixture, fs.GameState | None]:
+        """Fetch the fixture from the cache"""
+        link = "".join(tree.xpath(".//a/@href"))
+        match_id = link.split("/")[-2]
+
+        fix = self.bot.flashscore.get_game(match_id)
+        if fix:
+            return fix, fix.state
+
+        fix = fs.Fixture.from_mobi(tree, match_id)
+        if fix is None:
+            raise LookupError
+
+        self._pending.append(fix)
+        self.bot.flashscore.games.append(fix)
+        return fix, None
+
+    async def parse_games(self) -> None:
         """
         Grab current scores from flashscore using aiohttp
         Returns a list of fixtures and dildos that need a full parse
         """
         chunks = await self.fetch_mobi_html()
 
-        to_fetch: list[fs.Fixture] = []
-
         for game in chunks:
             try:
                 tree = html.fromstring(game)
-            except etree.ParserError:
-                continue  # Document is empty because of trailing </div>
-
-            link = "".join(tree.xpath(".//a/@href"))
-            try:
-                match_id = link.split("/")[-2]
-            except IndexError:
-                # Awaiting.
+                fix, old_state = self.get_fixture_from_cache(tree)
+            except (etree.ParserError, IndexError, LookupError):
+                # Document is empty because of trailing </div>
+                # Or state is AWAITING
                 continue
-
-            # Set & forget: Competition, Teams
-            fix = self.bot.flashscore.get_game(match_id)
-            if fix is None:
-                fix = fs.Fixture.from_mobi(tree, match_id)
-                if fix is None:
-                    continue
-
-                to_fetch.append(fix)
-                self.bot.flashscore.games.append(fix)
-                await asyncio.sleep(0)
-                old_state = None
-            else:
-                old_state = fix.state
 
             # Handling red cards is done relatively simply, do this first.
             self.handle_cards(fix, tree)
@@ -324,7 +330,6 @@ class ScoreLoop(commands.Cog):
             e_type = fs.get_event_type(fix.state, old_state)
             if e_type is not None:
                 self.bot.dispatch("fixture_event", e_type, fix)
-        return to_fetch
 
 
 async def setup(bot: Bot) -> None:

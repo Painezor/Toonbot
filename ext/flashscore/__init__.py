@@ -1,5 +1,6 @@
 """Working with Webscraping the flashscore website"""
 # pyright: reportImportCycles=false
+from .abc import BaseTeam
 from .cache import FlashscoreCache
 from .competitions import Competition
 from .constants import (
@@ -33,6 +34,8 @@ from .transformers import (
 )
 
 __all__ = [
+    # abc
+    "BaseTeam",
     # constants
     "ADS",
     "COMPETITION_EMOJI",

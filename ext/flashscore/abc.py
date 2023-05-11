@@ -4,7 +4,7 @@ import datetime
 import logging
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator  # type: ignore
 
 from ext.utils import timed_events
 
@@ -64,7 +64,9 @@ class BaseCompetition(BaseModel):
         if values["country"] is not None and value is not None:
             ctr = values["country"].lower().replace(" ", "-")
             return f"{FLASHSCORE}/football/{ctr}/{value}"
-        raise ValueError("failed validating url from %s", values)
+
+        logger.error("failed validating url from %s", values)
+        return None
 
     @property
     def markdown(self) -> str:
@@ -145,7 +147,7 @@ class BaseFixture(BaseModel):
     url: str | None = None
 
     # Match Events
-    events: list[MatchIncident] = []
+    incidents: list[MatchIncident] = []
 
     # Extra data
     attendance: int | None = None

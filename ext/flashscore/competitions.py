@@ -5,6 +5,8 @@ import logging
 from lxml import html
 from typing import TYPE_CHECKING, Any
 
+from ext.flashscore.cache import FlashscoreCache
+
 from .abc import BaseCompetition
 from .constants import FLASHSCORE
 from .fixture import HasFixtures
@@ -27,7 +29,7 @@ class Competition(BaseCompetition, HasFixtures, HasTable, HasLogo, HasScorers):
         return self.title
 
     def __eq__(self, other: Any) -> bool:
-        if other is None:
+        if not isinstance(other, Competition):
             return False
 
         if self.title == other.title:
@@ -67,8 +69,10 @@ class Competition(BaseCompetition, HasFixtures, HasTable, HasLogo, HasScorers):
 
         return comp
 
-    async def parse_games(self, page: Page) -> list[Fixture]:
-        fixtures = await HasFixtures.parse_games(self, page)
+    async def parse_games(
+        self, page: Page, cache: FlashscoreCache | None = None
+    ) -> list[Fixture]:
+        fixtures = await HasFixtures.parse_games(self, page, cache)
         for i in fixtures:
             i.competition = self
         return fixtures
