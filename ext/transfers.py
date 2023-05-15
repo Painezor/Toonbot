@@ -1,8 +1,6 @@
 """Automated fetching of the latest football transfer
    information from transfermarkt"""
-from __future__ import annotations  # Cyclic Type hinting
-
-from importlib import reload
+from __future__ import annotations  # Cyclic Type hintingd
 
 import logging
 from typing import TYPE_CHECKING, TypeAlias
@@ -11,7 +9,7 @@ import discord
 from discord.ext import commands, tasks
 
 import ext.toonbot_utils.transfermarkt as tfm
-from ext.utils import view_utils, embed_utils, timed_events
+from ext.utils import view_utils, embed_utils, timed_events, flags
 
 logger = logging.getLogger("transfers.py")
 
@@ -26,23 +24,66 @@ if TYPE_CHECKING:
 NOPERMS = "```yaml\nI need the following permissions.\n"
 
 
+DEFAULT_LEAGUES = [
+    tfm.TFCompetition(
+        name="Premier League",
+        country=["England"],
+        link=tfm.TF + "premier-league/startseite/wettbewerb/GB1",
+    ),
+    tfm.TFCompetition(
+        name="Championship",
+        country=["England"],
+        link=tfm.TF + "/championship/startseite/wettbewerb/GB2",
+    ),
+    tfm.TFCompetition(
+        name="Eredivisie",
+        country=["Netherlands"],
+        link=tfm.TF + "/eredivisie/startseite/wettbewerb/NL1",
+    ),
+    tfm.TFCompetition(
+        name="Bundesliga",
+        country=["Germany"],
+        link=tfm.TF + "/bundesliga/startseite/wettbewerb/L1",
+    ),
+    tfm.TFCompetition(
+        name="Serie A",
+        country=["Italy"],
+        link=tfm.TF + "/serie-a/startseite/wettbewerb/IT1",
+    ),
+    tfm.TFCompetition(
+        name="LaLiga",
+        country=["Spain"],
+        link=tfm.TF + "/laliga/startseite/wettbewerb/ES1",
+    ),
+    tfm.TFCompetition(
+        name="Ligue 1",
+        country=["France"],
+        link=tfm.TF + "/ligue-1/startseite/wettbewerb/FR1",
+    ),
+    tfm.TFCompetition(
+        name="Major League Soccer",
+        country=["United States"],
+        link=tfm.TF + "/major-league-soccer/startseite/wettbewerb/MLS1",
+    ),
+]
+
+
 class TransferEmbed(discord.Embed):
     """An embed representing a transfermarkt player transfer."""
 
     def __init__(self, transfer: tfm.Transfer):
         super().__init__(colour=0x1A3151, url=transfer.player.link)
 
-        flg = " ".join(transfer.player.flags)
+        flg = " ".join(flags.get_flags(transfer.player.country))
         self.title = f"{flg} {transfer.player.name}"
-        desc: list[str] = []
-        desc.append(f"**Age**: {transfer.player.age}")
-        desc.append(f"**Position**: {transfer.player.position}")
-        desc.append(f"**From**: {transfer.old_team}")
-        desc.append(f"**To**: {transfer.new_team}")
-        desc.append(f"**Fee**: {transfer.loan_fee}")
-        desc.append(timed_events.Timestamp().relative)
-        self.description = "\n".join(desc)
-
+        self.description = (
+            f"**Age**: {transfer.player.age}\n"
+            f"**Position**: {transfer.player.position}\n"
+            f"**From**: {transfer.old_team}\n"
+            f"**To**: {transfer.new_team}\n"
+            f"**Fee**: {transfer.loan_fee}\n"
+            f"{timed_events.Timestamp().relative}"
+        )
         if transfer.player.picture and "http" in transfer.player.picture:
             self.set_thumbnail(url=transfer.player.picture)
 
@@ -60,7 +101,7 @@ class TFCompetitionTransformer(discord.app_commands.Transformer):
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> tfm.CompetitionSearch | None:
-        return await tfm.CompetitionSearch.search(value, interaction)
+        return tfm.CompetitionSearch(value)
 
 
 class TransferChannel:
@@ -103,7 +144,7 @@ class TransferChannel:
                  (channel_id, name, country, link) VALUES ($1, $2, $3, $4)
                  ON CONFLICT DO NOTHING"""
 
-        defaults = tfm.DEFAULT_LEAGUES
+        defaults = DEFAULT_LEAGUES
 
         fields = [(self.id, x.name, x.country, x.link) for x in defaults]
         async with interaction.client.db.acquire(timeout=60) as connection:
@@ -111,7 +152,7 @@ class TransferChannel:
                 await connection.execute(sql, self.id)
                 await connection.executemany(sq2, fields)
 
-        self.leagues = set(tfm.DEFAULT_LEAGUES)
+        self.leagues = set(DEFAULT_LEAGUES)
 
 
 class TransfersConfig(view_utils.DropdownPaginator):
@@ -147,10 +188,10 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
             lbl = league.name[:100]
             opt = discord.SelectOption(label=lbl, value=league.link)
-            opt.emoji = league.flags[0]
+            opt.emoji = flags.get_flags(league.country)[0]
             ctr = league.country[0]
-            flg = league.flags[0]
-            rows.append(f"{flg} {ctr}: {league.markdown}")
+            md = f"[{league.name}]({league.link})"
+            rows.append(f"{opt.emoji} {ctr}: {md}")
             options.append(opt)
 
         super().__init__(invoker, embed, rows, options)
@@ -282,8 +323,6 @@ class Transfers(commands.Cog):
         self.parsed: list[str] = []
         self.transfer_channels: list[TransferChannel] = []
         self.task: Task[None]
-        reload(tfm)
-        reload(view_utils)
 
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
@@ -368,8 +407,11 @@ class Transfers(commands.Cog):
     # Core Loop
     @tasks.loop(minutes=1)
     async def transfers_loop(self) -> None:
-        """Core transfer ticker loop - refresh every minute and
-        get all new transfers from transfermarkt"""
+        """
+        Core transfer ticker loop
+
+        Refresh every minute and get all new transfers from transfermarkt
+        """
         skip_output = not bool(self.parsed)
 
         for i in await tfm.get_recent_transfers():
@@ -384,17 +426,23 @@ class Transfers(commands.Cog):
 
             old = i.old_team.league.link if i.old_team.league else None
             new = i.new_team.league.link if i.new_team.league else None
+
+            if old is new is None:
+                logger.error("recent transfers %s -> None, None.", i.player)
+                return
+
             logger.info("Scanning for %s or %s", old, new)
             # Fetch the list of channels to output the transfer to.
             sql = """SELECT DISTINCT transfers_channels.channel_id
                      FROM transfers_channels LEFT OUTER JOIN transfers_leagues
                      ON transfers_channels.channel_id
                      = transfers_leagues.channel_id WHERE link in ($1, $2)"""
-            async with self.bot.db.acquire(timeout=60) as connection:
-                async with connection.transaction():
-                    records = await connection.fetch(sql, old, new)
+            records = await self.bot.db.fetch(sql, old, new)
 
-            logger.info("Disaptching Transfer to %s channels", len(records))
+            if not records:
+                continue
+
+            logger.info("Dispatching Transfer to %s channels", len(records))
 
             embed = TransferEmbed(i)
 

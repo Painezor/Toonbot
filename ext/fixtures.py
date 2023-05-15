@@ -454,9 +454,9 @@ class FXPaginator(view_utils.DropdownPaginator):
             await parent.handle_buttons()
 
         if is_fixtures:
-            games = await obj.fixtures(page, interaction.client.flashscore)
+            games = await obj.fixtures(page, interaction.client.cache)
         else:
-            games = await obj.results(page, interaction.client.flashscore)
+            games = await obj.results(page, interaction.client.cache)
 
         embed = await FSEmbed.create(obj)
         view = FXPaginator(interaction.user, page, embed, games, parent)
@@ -522,7 +522,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             rows.append(i.output)
             opt = discord.SelectOption(label=i.player.name)
             opt.value = i.player.url
-            opt.emoji = i.player.flags[0]
+            opt.emoji = flags.get_flags(i.player.country)[0]
 
             team = f" ({i.team.name})" if i.team else ""
             opt.description = f"⚽ {i.goals} {team}"
@@ -701,7 +701,7 @@ class TransfersView(view_utils.DropdownPaginator):
     @discord.ui.button(label="All", row=3)
     async def _all(self, interaction: Interaction, _) -> None:
         """Get all transfers for the team."""
-        cache = interaction.client.flashscore
+        cache = interaction.client.cache
         transfers = await self.team.get_transfers(self.page, "All", cache)
         embed = await FSEmbed.create(self.team)
         embed.title = "Transfers (All)"
@@ -720,7 +720,7 @@ class TransfersView(view_utils.DropdownPaginator):
     ) -> TransfersView:
         """Generate a TransfersView"""
         embed: Embed = await FSEmbed.create(team)
-        cache = interaction.client.flashscore
+        cache = interaction.client.cache
         transfers = await team.get_transfers(page, "All", cache)
         view = TransfersView(interaction.user, page, team, embed, transfers)
         return view
@@ -1139,7 +1139,7 @@ class FSView(view_utils.BaseView):
         assert self.object.competition is not None
         if self.object.competition.url is None:
             id_ = self.object.competition.id
-            comps = interaction.client.flashscore.competitions
+            comps = interaction.client.cache.competitions
             cmp = next(i for i in comps if i.id == id_)
             self.object.competition = cmp
 
