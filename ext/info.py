@@ -233,8 +233,8 @@ class Info(commands.Cog):
                 emb.add_field(name="Denied", value=deny)
             embeds.append(emb)
 
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
         return view.message
 
@@ -316,8 +316,8 @@ class Info(commands.Cog):
 
         embeds = [i for i in [embed, perm_embed] if i]
 
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
         return
 
@@ -363,8 +363,8 @@ class Info(commands.Cog):
             await _(embed=embed, ephemeral=True)
             return
 
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
         return
 
@@ -517,8 +517,8 @@ class Info(commands.Cog):
 
         embeds = [cover, chs, stickers, r_e]
 
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
         return
 
@@ -642,8 +642,8 @@ class Info(commands.Cog):
         shared.description = f"User found on {len(matches)} servers."
 
         embeds += embed_utils.rows_to_embeds(shared, matches, 20)
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
         return
 

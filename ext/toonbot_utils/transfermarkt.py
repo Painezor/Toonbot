@@ -1,88 +1,44 @@
 """Utilities for working with transfers from transfermarkt"""
 from __future__ import annotations  # Cyclic Type hinting
 
+from abc import abstractmethod
 import datetime
 import logging
-from typing import TYPE_CHECKING
-import typing
+from pydantic import BaseModel
+from typing import TypeVar, Literal, Generic
 
 import aiohttp
-import discord
 from lxml import html
 
-from ext.utils import view_utils, timed_events, flags, embed_utils
-
-if TYPE_CHECKING:
-    from core import Bot
-
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
-    T = typing.TypeVar("T", bound="SearchView")
-
-FAVICON = (
-    "https://upload.wikimedia.org/wikipedia/commons/f/fb/"
-    "Transfermarkt_favicon.png"
-)
 TF = "https://www.transfermarkt.co.uk"
 LOOP_URL = f"{TF}/transfers/neuestetransfers/statistik?minMarktwert="
+MIN_MARKET_VALUE = 200000
 
 logger = logging.getLogger("transfermarkt")
 
 
-async def get_recent_transfers(
-    min_market_value: int = 200000,
-) -> list[Transfer]:
+async def get_recent_transfers(mmv: int = MIN_MARKET_VALUE) -> list[Transfer]:
     """Get the most recent transfers"""
-    url = LOOP_URL + format(min_market_value, ",").replace(',', '.')
+    url = LOOP_URL + format(mmv, ",").replace(",", ".")
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
             if resp.status != 200:
-                logger.error("%s %s: %s", resp.status, resp.url)
+                logger.error("%s: %s", resp.status, resp.url)
                 return []
             tree = html.fromstring(await resp.text())
 
         xpath = './/div[@class="responsive-table"]/div/table/tbody/tr'
-        return [Transfer.from_loop(i) for i in tree.xpath(xpath)]
+        return [await Transfer.from_loop(i) for i in tree.xpath(xpath)]
 
 
-class SearchResult:
+class SearchResult(BaseModel):
     """A result from a transfermarkt search"""
 
     name: str
     link: str
     country: list[str] = []
     emoji: str = "🔎"
-
-    def __init__(self, name: str, link: str) -> None:
-        self.name = name
-        self.link = link
-
-    def __repr__(self) -> str:
-        return f"SearchResult({self.__dict__})"
-
-    def __hash__(self) -> int:
-        return hash(self.link)
-
-    @property
-    def base_embed(self) -> discord.Embed:
-        """A generic embed used for transfermarkt objects"""
-        embed = discord.Embed(color=discord.Colour.dark_blue())
-        embed.set_author(name="TransferMarkt")
-        return embed
-
-    @property
-    def markdown(self) -> str:
-        """Returns [Result Name](Result Link)"""
-        return f"[{self.name}]({self.link})"
-
-    @property
-    def flags(self) -> typing.List[str]:
-        """Return a flag for each of the object's countries"""
-        # Return the 'earth' emoji if caller does not have a country
-        if not self.country:
-            return ["🌍"]
-
-        return flags.get_flags(self.country)
+    picture: str | None = None
 
 
 class TFCompetition(SearchResult):
@@ -90,19 +46,7 @@ class TFCompetition(SearchResult):
 
     emoji: str = "🏆"
 
-    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
-        super().__init__(name, link)
-        for k, val in kwargs.items():
-            setattr(self, k, val)
-
-    def __str__(self) -> str:
-        flg = " ".join(self.flags)
-        return f"{flg} {self.markdown}"
-
-    def __bool__(self) -> bool:
-        return bool(self.name)
-
-    async def get_attendance(self) -> list[discord.Embed]:
+    async def get_attendance(self) -> list[StadiumAttendance]:  # list[StadAtt]
         """Fetch attendances for the competition"""
         url = self.link.replace("startseite", "besucherzahlen")
 
@@ -113,38 +57,8 @@ class TFCompetition(SearchResult):
                     logger.error("%s %s: %s", resp.status, rsn, resp.url)
                 tree = html.fromstring(await resp.text())
 
-        xpath = (
-            './/table[@class="items"]/tbody/tr[@class="odd" or @class="even"]'
-        )
-        rows = [StadiumAttendance(i) for i in tree.xpath(xpath)]
-
-        embeds: list[discord.Embed] = []
-        # Average
-        embed = self.base_embed.copy()
-        embed.title = f"Average Attendance data for {self.name}"
-        embed.url = url
-        rows.sort(key=lambda x: x.average, reverse=True)
-
-        enu = [f"{i[0]}: {i[1].average_row}" for i in enumerate(rows, 1)]
-        embeds += embed_utils.rows_to_embeds(embed, [i for i in enu], 25)
-
-        embed = self.base_embed.copy()
-        embed.title = f"Total Attendance data for {self.name}"
-        embed.url = url
-        rows.sort(key=lambda x: x.total, reverse=True)
-
-        enu = [f"{i[0]}: {i[1].total_row}" for i in enumerate(rows, 1)]
-        embeds += embed_utils.rows_to_embeds(embed, [i for i in enu], 25)
-
-        embed = self.base_embed.copy()
-        embed.title = f"Max Capacity data for {self.name}"
-        embed.url = url
-        rows.sort(key=lambda x: x.capacity, reverse=True)
-
-        enu = [f"{i[0]}: {i[1].capacity_row}" for i in enumerate(rows, 1)]
-        embeds += embed_utils.rows_to_embeds(embed, [i for i in enu], 25)
-
-        return embeds
+        xp = './/table[@class="items"]/tbody/tr[@class="odd" or @class="even"]'
+        return [StadiumAttendance(i) for i in tree.xpath(xp)]
 
 
 class TFTeam(SearchResult):
@@ -153,52 +67,22 @@ class TFTeam(SearchResult):
     emoji: str = "👕"
     league: TFCompetition | None = None
 
-    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
-        super().__init__(name, link)
-
-        for k, value in kwargs.items():
-            setattr(self, k, value)
-
-    def __str__(self) -> str:
-        flg = " ".join(self.flags)
-        if self.league is not None:
-            return f"{flg} {self.markdown} ({self.league.markdown})"
-        return f"{flg} {self.markdown}"
-
     @property
     def badge(self) -> str:
         """Return a link to the team's badge"""
         number = self.link.split("/")[-1]
         return f"https://tmssl.akamaized.net/images/wappen/head/{number}.png"
 
-    @property
-    def base_embed(self) -> discord.Embed:
-        """Return a discord embed object representing a team"""
-        embed = super().base_embed
-        embed.set_thumbnail(url=self.badge)
-        embed.title = self.name
-        embed.url = self.link
-        return embed
-
-    # TODO: Contract Class
-    async def get_contracts(self) -> list[discord.Embed]:
+    async def get_contracts(self) -> list[Contract]:
         """Helper method for fetching contracts"""
-        embed = self.base_embed
-        embed.description = ""
         url = self.link.replace("startseite", "vertragsende")
-
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    rsn = await resp.text()
-                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
+                    logger.error("%s: %s", resp.status, resp.url)
                 tree = html.fromstring(await resp.text())
 
-        embed.url = url
-        embed.title = f"Expiring contracts for {self.name}"
-        embed.set_author(name="Transfermarkt", url=url, icon_url=FAVICON)
-
-        rows: list[str] = []
+        rows: list[Contract] = []
 
         xpath = './/div[@class="large-8 columns"]/div[@class="box"]'
         for i in tree.xpath(xpath)[0].xpath(".//tbody/tr"):
@@ -216,48 +100,48 @@ class TFTeam(SearchResult):
             if not name and not link:
                 continue
 
-            pos = "".join(i.xpath(".//td[1]//tr[2]/td/text()"))
+            age = "".join(i.xpath("./td[2]/text()")).split("(", maxsplit=1)[-1]
 
-            age = "".join(i.xpath("./td[2]/text()"))
-            age = age.split("(", maxsplit=1)[-1].replace(")", "").strip()
+            country = [str(i).strip() for i in i.xpath(".//td[3]/img/@title")]
 
-            country = i.xpath(".//td[3]/img/@title")
-            flag = flags.get_flags(country)
             date = "".join(i.xpath(".//td[4]//text()")).strip()
-
-            time = datetime.datetime.strptime(date, "%b %d, %Y")
-            expiry = timed_events.Timestamp(time).countdown
+            dt = datetime.datetime.strptime(date, "%b %d, %Y")
 
             option = "".join(i.xpath(".//td[5]//text()")).strip()
-            option = f"\n∟ {option.title()}" if option != "-" else ""
+            option = option.title() if option else None
 
-            markdown = f"[{name}]({link})"
-            flag = "" if not flag else flag
-            rows.append(f"{flag} {markdown} {age}, {pos} ({expiry}){option}")
+            pos = "".join(i.xpath(".//td[1]//tr[2]/td/text()"))
+            age = int(age.replace(")", "").strip())
+            player = TFPlayer(
+                name=name, link=link, position=pos, age=age, country=country
+            )
+            rows.append(Contract(player=player, expiry=dt, option=option))
+        return rows
 
-        if not rows:
-            rows = ["No expiring contracts found."]
+    async def get_league(self) -> TFCompetition:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(self.link) as resp:
+                if resp.status != 200:
+                    logger.error("%s: %s", resp.status, resp.url)
+                tree = html.fromstring(await resp.text())
 
-        return embed_utils.rows_to_embeds(embed, rows)
+        name = tree.xpath('.//span[@class="data-header__club"]/a/text()')
+        name = "".join(name).strip()
+        url = tree.xpath('.//span[@class="data-header__club"]/a/@href')
+        url = TF + "".join(url)
+        self.league = TFCompetition(name=name, link=url)
+        return self.league
 
-    # TODO: Rumour Class
-    async def get_rumours(self) -> list[discord.Embed]:
+    async def get_rumours(self) -> list[Rumour]:
         """Helper method for fetching rumours"""
-        embed = self.base_embed
-
         url = self.link.replace("startseite", "geruechte")
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    rsn = await resp.text()
-                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
-            tree = html.fromstring(await resp.text())
+                    logger.error("%s: %s", resp.status, resp.url)
+                tree = html.fromstring(await resp.text())
 
-        embed.url = str(resp.url)
-        embed.title = f"Transfer rumours for {self.name}"
-        embed.set_author(name="Transfermarkt", url=resp.url, icon_url=FAVICON)
-
-        rows: list[str] = []
+        rows: list[Rumour] = []
         xpath = './/div[@class="large-8 columns"]/div[@class="box"]'
         for i in tree.xpath(xpath)[0].xpath(".//tbody/tr"):
             xpath = './/tm-tooltip[@data-type="player"]/a/@title'
@@ -271,30 +155,31 @@ class TFTeam(SearchResult):
             if link and TF not in link:
                 link = TF + link
 
-            pos = "".join(i.xpath(".//td[2]//tr[2]/td/text()"))
             country = i.xpath(".//td[3]/img/@title")
-            flag = flags.get_flag(country)
-            age = "".join(i.xpath("./td[4]/text()")).strip()
+            pos = "".join(i.xpath(".//td[2]//tr[2]/td/text()"))
+            plr = TFPlayer(name=name, link=link, country=country, position=pos)
+            plr.age = int("".join(i.xpath("./td[4]/text()")).strip())
+
             team = "".join(i.xpath(".//td[5]//img/@alt"))
 
             team_link = "".join(i.xpath(".//td[5]//img/@href"))
             if TF not in team_link:
                 team_link = TF + team_link
 
+            team = TFTeam(name=team, link=team_link)
             source = "".join(i.xpath(".//td[8]//a/@href"))
-            src = f"[Info]({source})"
-            rows.append(
-                f"{flag} **[{name}]({link})** ({src})\n{age},"
-                f" {pos} [{team}]({team_link})\n"
-            )
 
-        if not rows:
-            rows = ["No rumours about new signings found."]
+            rows.append(Rumour(player=plr, team=team, url=source))
+        return rows
 
-        return embed_utils.rows_to_embeds(embed, rows)
+    async def get_transfers(self) -> tuple[list[Transfer], list[Transfer]]:
+        """
+        Get recent transfers for the team
 
-    async def get_transfers(self) -> list[discord.Embed]:
-        """Helper method for transfers button"""
+        Returns a Tuple of:
+            List of Inbound Transfers
+            List of Outbound Transfers
+        """
         url = self.link.replace("startseite", "transfers")
 
         async with aiohttp.ClientSession() as session:
@@ -303,71 +188,39 @@ class TFTeam(SearchResult):
                     logger.error("Status %s: %s", resp.status, url)
                 tree = html.fromstring(await resp.text())
 
-        base_embed = self.base_embed
-        base_embed.set_author(name="Transfermarkt", url=url, icon_url=FAVICON)
-        base_embed.url = url
-
-        embeds: list[discord.Embed] = []
         xpath = (
             './/div[@class="box"][.//h2[contains(text(),"Arrivals")]]'
             '//tr[@class="even" or @class="odd"]'
         )
 
         inb = [Transfer.from_team(i, False, self) for i in tree.xpath(xpath)]
-        if inb:
-            embed = base_embed.copy()
-            embed.title = f"Inbound Transfers for {embed.title}"
-            embed.colour = discord.Colour.green()
-
-            rows = [i.inbound for i in inb]
-            embeds += embed_utils.rows_to_embeds(embed, rows)
 
         xpath = (
             './/div[@class="box"][.//h2[contains(text(),"Departures")]]'
             '//tr[@class="even" or @class="odd"]'
         )
         out = [Transfer.from_team(i, True, self) for i in tree.xpath(xpath)]
-        if out:
-            embed = base_embed.copy()
-            embed.title = f"Outbound Transfers for {embed.title}"
-            embed.colour = discord.Colour.red()
-            rows = [i.outbound for i in out]
-            embeds += embed_utils.rows_to_embeds(embed, rows)
 
-        if not embeds:
-            embed = base_embed
-            embed.title = f"No transfers found {embed.title}"
-            embed.colour = discord.Colour.orange()
-            embeds = [embed]
-        return embeds
+        return inb, out
 
-    # TODO: Trophy Class
-    async def get_trophies(self) -> list[discord.Embed]:
-        """Get Trophies"""
+    async def get_trophies(self) -> list[Trophy]:
+        """Get A list of Trophy Objects related to the team"""
+
         url = self.link.replace("startseite", "erfolge")
-
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 if resp.status != 200:
-                    rsn = await resp.text()
-                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
-            tree = html.fromstring(await resp.text())
+                    logger.error("%s: %s", resp.status, resp.url)
+                tree = html.fromstring(await resp.text())
 
-        trophies: list[str] = []
+        trophies: list[Trophy] = []
         for i in tree.xpath('.//div[@class="box"][./div[@class="header"]]'):
             title = "".join(i.xpath(".//h2/text()"))
 
             xpath = './/div[@class="erfolg_infotext_box"]/text()'
             split = "".join(i.xpath(xpath)).split()
-            dates = " ".join(split).replace(" ,", ",")
-            trophies.append(f"**{title}**\n{dates}\n")
-
-        embed = self.base_embed
-        embed.title = f"{self.name} Trophy Case"
-
-        if not trophies:
-            trophies = ["No trophies found for team."]
-        return embed_utils.rows_to_embeds(embed, trophies)
+            trophies.append(Trophy(name=title, dates=split))
+        return trophies
 
 
 class TFPlayer(SearchResult):
@@ -376,40 +229,12 @@ class TFPlayer(SearchResult):
     age: int | None = None
     team: TFTeam | None = None
     position: str | None = None
-    picture: str | None = None
-
-    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
-        super().__init__(name, link)
-
-        for k, val in kwargs.items():
-            setattr(self, k, val)
-
-    def __repr__(self) -> str:
-        return f"Player({self.__dict__})"
-
-    def __str__(self) -> str:
-        desc = [" ".join(self.flags), self.markdown, self.age, self.position]
-
-        if self.team is not None:
-            desc.append(self.team.markdown)
-        return " ".join([str(i) for i in desc if i])
 
 
 class Referee(SearchResult):
     """An object representing a referee from transfermarkt"""
 
     age: int | None = None
-
-    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
-        super().__init__(name, link)
-
-        for k, val in kwargs.items():
-            setattr(self, k, val)
-
-    def __str__(self) -> str:
-        flg = " ".join(self.flags)
-        output = f"{flg} {self.markdown} {self.age}"
-        return output
 
 
 class Staff(SearchResult):
@@ -418,26 +243,18 @@ class Staff(SearchResult):
     team: TFTeam | None = None
     age: int | None = None
     job: str | None = None
-    picture: str | None = None
-
-    def __init__(self, name: str, link: str, **kwargs: typing.Any) -> None:
-        super().__init__(name, link)
-
-        for k, val in kwargs.items():
-            setattr(self, k, val)
-
-    def __str__(self) -> str:
-        team = self.team.markdown if self.team is not None else ""
-        markdown = self.markdown
-        flg = " ".join(self.flags)
-        return f"{flg} {markdown} {self.age}, {self.job} {team}".strip()
 
 
 class Agent(SearchResult):
     """An object representing an Agent from transfermarkt"""
 
 
-class Transfer:
+class TransferFee(BaseModel):
+    fee: str
+    url: str
+
+
+class Transfer(BaseModel):
     """An Object representing a transfer from transfermarkt"""
 
     player: TFPlayer
@@ -445,426 +262,197 @@ class Transfer:
     new_team: TFTeam
     old_team: TFTeam
 
-    fee: str
-    fee_link: str
+    fee: TransferFee
     date: str | None = None
 
-    def __init__(self) -> None:
-        pass
+    @staticmethod
+    def get_player(node: html.HtmlElement) -> TFPlayer:
+        name = "".join(node.xpath(".//td[1]//tr[1]/td[2]/a/text()")).strip()
 
-    @classmethod
-    def from_loop(cls, data: typing.Any) -> Transfer:
-        """Generated from the Transfer Ticker Loop"""
-        tran = Transfer()
-        name = "".join(data.xpath(".//td[1]//tr[1]/td[2]/a/text()")).strip()
+        link = TF + "".join(node.xpath(".//td[1]//tr[1]/td[2]/a/@href"))
 
-        link = TF + "".join(data.xpath(".//td[1]//tr[1]/td[2]/a/@href"))
-
-        player = TFPlayer(name, link)
+        player = TFPlayer(name=name, link=link)
 
         # Box 1 - Player Info
-        player.picture = "".join(data.xpath(".//img/@data-src"))
-        player.position = "".join(data.xpath("./td[1]//tr[2]/td/text()"))
+        player.picture = "".join(node.xpath(".//img/@data-src"))
+        player.position = "".join(node.xpath("./td[1]//tr[2]/td/text()"))
 
         # Box 2 - Age
-        player.age = int("".join(data.xpath("./td[2]//text()")).strip())
+        player.age = int("".join(node.xpath("./td[2]//text()")).strip())
 
         # Box 3 - Country
-        player.country = data.xpath(".//td[3]/img/@title")
+        ctr = [str(i).strip() for i in node.xpath(".//td[3]/img/@title")]
+        player.country = ctr
+        return player
 
-        tran.player = player
-
-        # Box 4 - Old Team
-        xpath = './/td[4]//img[@class="tiny_wappen"]//@title'
-        o_t_name = "".join(data.xpath(xpath))
-
-        xpath = './/td[4]//img[@class="tiny_wappen"]/parent::a/@href'
-        o_t_link = TF + "".join(data.xpath(xpath))
-
-        xpath = './/td[4]//img[@class="flaggenrahmen"]/following-sibling::a/'
-        o_l_name = "".join(data.xpath(xpath + "@title"))
-        if o_l_name:
-            o_l_link = TF + "".join(data.xpath(xpath + "@href"))
-        else:
-            xpath = './/td[4]//img[@class="flaggenrahmen"]/parent::div/text()'
-            o_l_name = "".join(data.xpath(xpath))
-            o_l_link = ""
-
-        o_l_link = o_l_link.replace("transfers", "startseite")
-        if o_l_link:
-            o_l_link = o_l_link.split("/saison_id", maxsplit=1)[0]
-
-        xpath = './/td[4]//img[@class="flaggenrahmen"]/@alt'
-        ctry = data.xpath(xpath)
-
-        old_lg = TFCompetition(o_l_name, o_l_link, country=ctry)
-        tran.old_team = TFTeam(o_t_name, o_t_link, league=old_lg, country=ctry)
-
-        # Box 5 - New Team
-        xpath = './/td[5]//img[@class="tiny_wappen"]//@title'
-        n_t_name = "".join(data.xpath(xpath))
-
-        xpath = './/td[5]//img[@class="tiny_wappen"]/parent::a/@href'
-        n_t_link = TF + "".join(data.xpath(xpath))
-
-        xpath = './/td[5]//img[@class="flaggenrahmen"]/following-sibling::a/'
-        n_l_name = "".join(data.xpath(xpath + "@title"))
-        if n_l_name:
-            n_l_link = TF + "".join(data.xpath(xpath + "@href"))
-        else:
-            xpath = './/td[5]//img[@class="flaggenrahmen"]/parent::div/text()'
-            n_l_name = "".join(data.xpath(xpath))
-            n_l_link = ""
-
-        n_l_link = n_l_link.replace("transfers", "startseite")
-        if n_l_link:
-            n_l_link = n_l_link.split("/saison_id", maxsplit=1)[0]
-
-        xpath = './/td[5]//img[@class="flaggenrahmen"]/@alt'
-        ctry = data.xpath(xpath)
-        nw_lg = TFCompetition(n_l_name, n_l_link, country=ctry)
-
-        new_team = TFTeam(n_t_name, n_t_link, league=nw_lg, country=ctry)
-
-        tran.new_team = new_team
-        player.team = new_team
-
-        # Box 6 - Leagues & Fee
-        tran.fee = "".join(data.xpath(".//td[6]//a/text()"))
-        tran.fee_link = TF + "".join(data.xpath(".//td[6]//a/@href"))
-        return tran
-
-    @classmethod
-    def from_team(cls, data: typing.Any, out: bool, team: TFTeam) -> Transfer:
-        """Generated from a Team Object"""
-        tran = Transfer()
-
+    @staticmethod
+    def get_player_from_team(node: html.HtmlElement) -> TFPlayer:
         # Block 1 - Discard, Position Colour Marker.
         # Block 2 - Name, Link, Picture, Position
         xpath = './/tm-tooltip[@data-type="player"]/a/@title'
-        if not (name := "".join(data.xpath(xpath)).strip()):
-            name = "".join(data.xpath("./td[2]//a/text()")).strip()
+        if not (name := "".join(node.xpath(xpath)).strip()):
+            name = "".join(node.xpath("./td[2]//a/text()")).strip()
 
         xpath = './tm-tooltip[@data-type="player"]/a/@href'
-        if not (link := "".join(data.xpath(xpath))):
-            link = "".join(data.xpath("./td[2]//a/@href"))
+        if not (link := "".join(node.xpath(xpath))):
+            link = "".join(node.xpath("./td[2]//a/@href"))
 
         if link and TF not in link:
             link = TF + link
 
         player = TFPlayer(name=name, link=link)
         xpath = './img[@class="bilderrahmen-fixed"]/@data-src'
-        player.picture = "".join(data.xpath(xpath))
+        player.picture = "".join(node.xpath(xpath))
 
         xpath = "./td[2]//tr[2]/td/text()"
-        player.position = "".join(data.xpath(xpath)).strip()
+        player.position = "".join(node.xpath(xpath)).strip()
 
         # Block 3 - Age
-        player.age = int("".join(data.xpath("./td[3]/text()")).strip())
+        player.age = int("".join(node.xpath("./td[3]/text()")).strip())
 
         # Block 4 - Nationality
         xpath = "./td[4]//img/@title"
-        player.country = [i.strip() for i in data.xpath(xpath) if i.strip()]
+        player.country = [i.strip() for i in node.xpath(xpath) if i.strip()]
+        return player
 
-        tran.player = player
+    @staticmethod
+    async def team(node: html.HtmlElement, num: Literal["4", "5"]) -> TFTeam:
+        # Box 4 - Old Team
+        _ = f'.//td[{num}]//img[@class="tiny_wappen"]//@title'
+        name = "".join(node.xpath(_))
 
+        _ = f'.//td[{num}]//img[@class="tiny_wappen"]/parent::a/@href'
+        link = TF + "".join(node.xpath(_))
+
+        _ = f'.//td[{num}]//img[@class="flaggenrahmen"]/following-sibling::a/'
+        lg_name = "".join(node.xpath(_ + "@title"))
+        lg_link = ""
+
+        team = TFTeam(name=name, link=link)
+        if lg_name:
+            lg_link = TF + "".join(node.xpath(_ + "@href"))
+            lg_link = lg_link.replace("transfers", "startseite")
+            if lg_link:
+                lg_link = lg_link.split("/saison_id", maxsplit=1)[0]
+            team.league = TFCompetition(name=lg_name, link=lg_link)
+        else:
+            team.league = await team.get_league()
+
+        _ = f'.//td[{num}]//img[@class="flaggenrahmen"]/@alt'
+        team.league.country = [str(i) for i in node.xpath(_)]
+        team.country = team.league.country
+
+        return team
+
+    @staticmethod
+    def get_other_team(node: html.HtmlElement) -> TFTeam:
         # Block 5 - Other Team
         xpath = './td[5]//td[@class="hauptlink"]/a/text()'
-        team_name = "".join(data.xpath(xpath)).strip()
+        name = "".join(node.xpath(xpath)).strip()
 
         xpath = './td[5]//td[@class="hauptlink"]/a/@href'
-        if (team_link := "".join(data.xpath(xpath))) and TF not in team_link:
-            team_link = TF + team_link
+        if (link := "".join(node.xpath(xpath))) and TF not in link:
+            link = TF + link
 
         xpath = "./td[5]//tr[2]//a/text()"
-        comp_name = "".join(data.xpath(xpath)).strip()
+        lg_name = "".join(node.xpath(xpath)).strip()
 
         xpath = "./td[5]//tr[2]//a/@href"
-        comp_link = "".join(data.xpath(xpath)).strip()
-
-        league = TFCompetition(name=comp_name, link=comp_link)
-        b_team = TFTeam(name=team_name, link=team_link)
-        b_team.league = league
+        lg_link = "".join(node.xpath(xpath)).strip()
 
         xpath = "./td[5]//img[@class='flaggenrahmen']/@title"
-        team.country = [i.strip() for i in data.xpath(xpath) if i.strip()]
+        country = [i.strip() for i in node.xpath(xpath) if i.strip()]
 
-        tran.new_team = b_team if out else team
-        tran.old_team = team if out else team
+        league = TFCompetition(name=lg_name, link=lg_link, country=country)
+        team = TFTeam(name=name, link=link, league=league, country=country)
+        return team
 
-        # Block 6 - Fee or Loan
-        tran.fee = "".join(data.xpath(".//td[6]//text()"))
+    @staticmethod
+    def get_fee(node: html.HtmlElement) -> TransferFee:
+        # Box 6 - Fee
+        fee = "".join(node.xpath(".//td[6]//a/text()"))
+        link = TF + "".join(node.xpath(".//td[6]//a/@href"))
+        return TransferFee(fee=fee, url=link)
 
-        xpath = ".//td[6]//@href"
-        tran.fee_link = TF + "".join(data.xpath(xpath)).strip()
-        tran.date = "".join(data.xpath(".//i/text()"))
+    @classmethod
+    async def from_loop(cls, node: html.HtmlElement) -> Transfer:
+        """Generated from the Transfer Ticker Loop"""
+        player = cls.get_player(node)
+        old = await cls.team(node, "4")
+        new = await cls.team(node, "5")
+        fee = cls.get_fee(node)
+        player.team = new
+
+        tran = Transfer(player=player, old_team=old, new_team=new, fee=fee)
+        return tran
+
+    @classmethod
+    def from_team(
+        cls, node: html.HtmlElement, out: bool, team: TFTeam
+    ) -> Transfer:
+        """Generated from a Team Object"""
+        player = cls.get_player_from_team(node)
+
+        other = cls.get_other_team(node)
+        new = other if out else team
+        old = team if out else other
+        fee = cls.get_fee(node)
+
+        tran = Transfer(player=player, new_team=new, old_team=old, fee=fee)
+        tran.date = "".join(node.xpath(".//i/text()"))
         return tran
 
     @property
     def loan_fee(self) -> str:
-        """Returns either Loan Information or the total fee of a player's
-        transfer"""
+        """
+        Returns either Loan Information or the total fee of a player transfer
+        """
         date = "" if self.date is None else f": {self.date}"
-        output = f"[{self.fee}]({self.fee_link}) {date}"
+        output = f"[{self.fee.fee}]({self.fee.url}) {date}"
         return output
 
     def __str__(self) -> str:
         return f"{self.player} ({self.loan_fee})"
 
-    @property
-    def movement(self) -> str:
-        """Moving from Team A to Team B"""
-        old_md = self.old_team.markdown if self.old_team else "?"
-        new_md = self.new_team.markdown if self.new_team else "?"
-        return f"{old_md} ➡ {new_md}"
 
-    @property
-    def inbound(self) -> str:
-        """Get inbound text."""
-        return f"{self.player} {self.loan_fee}\nFrom: {self.old_team}\n"
-
-    @property
-    def outbound(self) -> str:
-        """Get outbound text."""
-        return f"{self.player} {self.loan_fee}\nTo: {self.new_team}\n"
+ResultT = TypeVar("ResultT", bound=SearchResult)
 
 
-class TeamView(view_utils.Paginator):
-    """A View representing a Team on TransferMarkt"""
-
-    def __init__(
-        self, invoker: User, team: TFTeam, embeds: list[discord.Embed]
-    ) -> None:
-        super().__init__(invoker, embeds)
-        self.team: TFTeam = team
-
-    @discord.ui.button(label="Transfers", emoji="🔄", row=1)
-    async def transfers(self, interaction: Interaction, _) -> None:
-        """Push transfers to View"""
-        embeds = await self.team.get_transfers()
-        view = TeamView(interaction.user, self.team, embeds)
-        view.transfers.disabled = True
-        await interaction.response.send_message(view=view, embed=view.pages[0])
-        view.message = await interaction.original_response()
-
-    @discord.ui.button(label="Rumours", emoji="🕵", row=1)
-    async def rumours(self, interaction: Interaction, _) -> None:
-        """Send transfer rumours for a team to View"""
-        embeds = await self.team.get_rumours()
-        view = TeamView(interaction.user, self.team, embeds)
-        view.rumours.disabled = True
-        await interaction.response.send_message(view=view, embed=view.pages[0])
-        view.message = await interaction.original_response()
-
-    @discord.ui.button(label="Trophies", emoji="🏆")
-    async def trophies(self, interaction: Interaction, _) -> None:
-        """Send trophies for a team to View"""
-        embeds = await self.team.get_trophies()
-        view = TeamView(interaction.user, self.team, embeds)
-        view.trophies.disabled = True
-        await interaction.response.send_message(view=view, embed=view.pages[0])
-        view.message = await interaction.original_response()
-
-    @discord.ui.button(label="Contracts", emoji="📝")
-    async def contracts(self, interaction: Interaction, _) -> None:
-        """Push a list of a team's expiring contracts to the view"""
-        embeds = await self.team.get_trophies()
-        view = TeamView(interaction.user, self.team, embeds)
-        view.contracts.disabled = True
-        await interaction.response.send_message(view=view, embed=view.pages[0])
-        view.message = await interaction.original_response()
-
-
-class StadiumAttendance:
-    """A Generic container representing the attendance data of a stadium"""
-
-    name: str
-    link: str
-    capacity: int
-    total: int
-    average: int
-    team: TFTeam
-
-    def __init__(self, data: typing.Any) -> None:
-        # Two Subnodes
-        node = data.xpath(".//td/table//tr[1]")[0]
-        team_node = data.xpath(".//td/table//tr[2]")[0]
-
-        # Stadium info
-        self.name = "".join(node.xpath(".//a/text()"))
-        self.link = TF + "".join(node.xpath(".//@href"))
-
-        # Team info
-        name = "".join(team_node.xpath(".//a/text()"))
-        link = TF + "".join(data.xpath(".//a/@href"))
-        self.team = TFTeam(name, link)
-
-        cap = "".join(data.xpath('.//td[@class="rechts"][1]/text()'))
-        self.capacity = int(cap.replace(".", ""))
-
-        tot = "".join(data.xpath('.//td[@class="rechts"][2]/text()'))
-        self.total = int(tot.replace(".", ""))
-
-        avg = "".join(data.xpath('.//td[@class="rechts"][3]/text()'))
-        self.average = int(avg.replace(".", ""))
-
-    def __str__(self) -> str:
-        """Formatted markdown for Stadium Attendance"""
-        markdown = self.team.markdown
-        return (
-            f"{self.markdown} {self.average} ({markdown})"
-            f"\n*Capacity: {self.capacity} | Total: {self.total}*\n"
-        )
-
-    @property
-    def markdown(self) -> str:
-        """return string of [Name](Link)"""
-        link = f"({self.link})" if self.link else ""
-        name = f"[{self.name}]" if self.name else ""
-        return f"{name}{link}"
-
-    @property
-    def capacity_row(self) -> str:
-        """Formatted markdown for a stadium's max capacity"""
-        markdown = self.team.markdown
-        return f"[{self.name}]({self.link}) {self.capacity} ({markdown})"
-
-    @property
-    def average_row(self) -> str:
-        """Formatted markdown for a stadium's average attendance"""
-        markdown = self.team.markdown
-        return f"[{self.name}]({self.link}) {self.average} ({markdown})"
-
-    @property
-    def total_row(self) -> str:
-        """Formatted markdown for a stadium's total attendance"""
-        team = self.team.markdown
-        return f"[{self.name}]({self.link}) {self.total} ({team})"
-
-
-class CompetitionView(view_utils.Paginator):
-    """A View representing a competition on TransferMarkt"""
-
-    def __init__(
-        self, invoker: User, comp: TFCompetition, embeds: list[discord.Embed]
-    ) -> None:
-        super().__init__(invoker, embeds)
-        self.competition: TFCompetition = comp
-
-    @discord.ui.button(label="Attendance", emoji="🏟️")
-    async def attendance(self, interaction: Interaction, _) -> None:
-        """Fetch attendances for league's stadiums."""
-        embeds = await self.competition.get_attendance()
-        view = CompetitionView(interaction.user, self.competition, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
-
-
-# TODO: AsyncDropdownPaginator
-class SearchView(view_utils.DropdownPaginator):
-    """A TransferMarkt Search in View Form"""
+class TransfermarktSearch(Generic[ResultT]):
+    """An object representing a connection to the transfermarket website"""
 
     query_string: str
     match_string: str
     category: str
 
-    def __init__(
-        self,
-        invoker: User,
-        embed: discord.Embed,
-        rows: list[str],
-        options: list[discord.SelectOption],
-        query: str,
-    ) -> None:
-        super().__init__(invoker, embed, rows, options)
+    page_number: int
+    current_url: str
+    expected_results: int
 
-        self.query: str = query
+    results: list[ResultT]
+    value: ResultT
 
-        # Afterwards.
-        self.items: list[SearchResult]
-        self.value: SearchResult
-        self.interaction: Interaction
+    def __init__(self, query: str) -> None:
+        self.query = query
 
-    @classmethod
-    async def search(
-        cls: typing.Type["T"], query: str, interaction: Interaction
-    ) -> "T" | None:
+    @staticmethod
+    @abstractmethod
+    def parse(rows: list[html.HtmlElement]) -> list[ResultT]:
+        raise NotImplementedError
+
+    async def get_page(self, page: int = 1) -> list[ResultT]:
         """Generate a SearchView from the query"""
         url = TF + "/schnellsuche/ergebnis/schnellsuche"
         # Header names, scrape then compare (don't follow a pattern.)
         # TransferMarkt Search indexes from 1.
-        params = {"query": query, cls.query_string: 1}
+        params = {"query": self.query, self.query_string: page}
 
-        async with interaction.client.session.post(url, params=params) as resp:
-            if resp.status != 200:
-                rsn = await resp.text()
-                logger.error("%s %s: %s", resp.status, rsn, resp.url)
-            tree = html.fromstring(await resp.text())
-
-        # Get trs of table after matching header / {ms} name.
-        xpath = (
-            f".//div[@class='box']/h2[@class='content-box-headline']"
-            f"[contains(text(),'{cls.match_string}')]"
-        )
-
-        trs = f"{xpath}/following::div[1]//tbody/tr"
-        header = "".join(tree.xpath(f"{xpath}//text()"))
-
-        try:
-            matches = int("".join([i for i in header if i.isdecimal()]))
-        except ValueError:
-            logger.error("ValueError when parsing header, %s", header)
-            matches = 0
-
-        embed = discord.Embed(title=f"{matches} results for {query}")
-        embed.url = str(resp.url)
-
-        cat = cls.category.title()
-        embed.set_author(name=f"TransferMarkt Search: {cat}", icon_url=FAVICON)
-
-        results = cls.parse(tree.xpath(trs))
-
-        if not results:
-            err = f"🚫 No results found for {cls.category}: {query}"
-            embed = discord.Embed(colour=discord.Colour.red())
-            embed.description = err
-            await interaction.response.send_message(embed=embed)
-            return None
-
-        embed = embed_utils.rows_to_embeds(embed, [str(i) for i in results])[0]
-
-        options: list[discord.SelectOption] = []
-        rows: list[str] = []
-        for i in results:
-            desc = i.country[0] if i.country else ""
-
-            if isinstance(i, TFTeam):
-                desc += f": {i.league.name}" if i.league else ""
-
-            option = discord.SelectOption(label=i.name, value=i.link)
-            option.description = desc[:100]
-            option.emoji = i.flags[0]
-            options.append(option)
-            rows.append(desc)
-
-        view = cls(interaction.user, embed, rows, options, query)
-        view.items = results
-        await interaction.response.send_message(view=view, embed=embed)
-        return view
-
-    async def handle_page(  # type: ignore
-        self, interaction: Interaction
-    ) -> None:
-        """Perform a search"""
-        url = TF + "/schnellsuche/ergebnis/schnellsuche"
-        # Header names, scrape then compare (don't follow a pattern.)
-        # TransferMarkt Search indexes from 1.
-        params = {"query": self.query, self.query_string: self.index + 1}
-
-        async with interaction.client.session.post(url, params=params) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.error("%s %s: %s", resp.status, text, resp.url)
-            tree = html.fromstring(await resp.text())
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, params=params) as resp:
+                if resp.status != 200:
+                    logger.error("%s: %s", resp.status, resp.url)
+                self.current_url = str(resp.url)
+                tree = html.fromstring(await resp.text())
 
         # Get trs of table after matching header / {ms} name.
         xpath = (
@@ -876,69 +464,26 @@ class SearchView(view_utils.DropdownPaginator):
         header = "".join(tree.xpath(f"{xpath}//text()"))
 
         try:
-            matches = int("".join([i for i in header if i.isdecimal()]))
+            count = int("".join([i for i in header if i.isdecimal()]))
         except ValueError:
             logger.error("ValueError when parsing header, %s", header)
-            matches = 0
-
-        embed = discord.Embed(title=f"{matches} results for {self.query}")
-        embed.url = str(resp.url)
-
-        cat = self.category.title()
-        embed.set_author(name=f"TransferMarkt Search: {cat}", icon_url=FAVICON)
-
-        self.items = self.parse(tree.xpath(trs))
-
-        if not self.items:
-            self.index = 0
-            err = f"🚫 No results found for {self.category}: {self.query}"
-            embed = discord.Embed(colour=discord.Colour.red())
-            embed.description = err
-            return await interaction.response.edit_message(embed=embed)
-
-        _ = [str(i) for i in self.items]
-        embed = embed_utils.rows_to_embeds(embed, _)[0]
-        self.pages = [embed] * max(matches // 10, 1)
-        options: list[discord.SelectOption] = []
-        for i in self.items:
-            desc = i.country[0] if i.country else ""
-
-            if isinstance(i, TFTeam):
-                desc += f": {i.league.name}" if i.league else ""
-
-            opt = discord.SelectOption(label=i.name, value=i.link)
-            opt.description = desc[:100]
-            opt.emoji = i.flags[0]
-            options.append(opt)
-
-        self.dropdown.options = options
-        await interaction.response.edit_message(view=self, embed=embed)
-
-    @discord.ui.select(row=4, placeholder="Select correct item")
-    async def dropdown(
-        self, itr: Interaction, sel: discord.ui.Select[SearchView]
-    ) -> None:
-        """Set self.value to target object"""
-        self.value = next(i for i in self.items if i.link in sel.values)
-        self.interaction = itr
-
-    @staticmethod
-    def parse(rows: list[typing.Any]) -> list[typing.Any]:
-        """This should always be polymorphed"""
-        return rows
+            count = 0
+        self.expected_results = count
+        self.results = self.parse(tree.xpath(trs))
+        return self.results
 
 
-class AgentSearch(SearchView):
+class AgentSearch(TransfermarktSearch[Agent]):
     """View when searching for an Agent"""
 
     category = "Agents"
     query_string = "page"
     match_string = "for agents"
 
-    value: Agent
+    results: list[Agent]
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[Agent]:
+    def parse(rows: list[html.HtmlElement]) -> list[Agent]:
         """Parse a transfermarkt page into a list of Agent Objects"""
         results: list[Agent] = []
         for i in rows:
@@ -949,7 +494,7 @@ class AgentSearch(SearchView):
         return results
 
 
-class CompetitionSearch(SearchView):
+class CompetitionSearch(TransfermarktSearch[TFCompetition]):
     """View When Searching for a Competition"""
 
     category = "Competitions"
@@ -959,21 +504,24 @@ class CompetitionSearch(SearchView):
     value: TFCompetition
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[TFCompetition]:
+    def parse(rows: list[html.HtmlElement]) -> list[TFCompetition]:
         """Parse a transfermarkt page into a list of Competition Objects"""
         results: list[TFCompetition] = []
         for i in rows:
             name = "".join(i.xpath(".//td[2]/a/text()")).strip()
             link = TF + "".join(i.xpath(".//td[2]/a/@href")).strip()
 
-            country = [_.strip() for _ in i.xpath(".//td[3]/img/@title")]
+            country = [
+                _.strip()
+                for _ in i.xpath(".//td[@class='flaggenrahmen']/img/@title")
+            ]
             comp = TFCompetition(name=name, link=link, country=country)
 
             results.append(comp)
         return results
 
 
-class PlayerSearch(SearchView):
+class PlayerSearch(TransfermarktSearch[TFPlayer]):
     """A Search View for a player"""
 
     category = "Players"
@@ -983,7 +531,7 @@ class PlayerSearch(SearchView):
     value: TFPlayer
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[TFPlayer]:
+    def parse(rows: list[html.HtmlElement]) -> list[TFPlayer]:
         """Parse a transfer page to get a list of players"""
         results: list[TFPlayer] = []
         for i in rows:
@@ -1035,7 +583,7 @@ class PlayerSearch(SearchView):
         return results
 
 
-class RefereeSearch(SearchView):
+class RefereeSearch(TransfermarktSearch[Referee]):
     """View when searching for a Referee"""
 
     category = "Referees"
@@ -1045,7 +593,7 @@ class RefereeSearch(SearchView):
     value: Referee
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[Referee]:
+    def parse(rows: list[html.HtmlElement]) -> list[Referee]:
         """Parse a transfer page to get a list of referees"""
         results: list[Referee] = []
         for i in rows:
@@ -1058,13 +606,13 @@ class RefereeSearch(SearchView):
             name = "".join(i.xpath(xpath)).strip()
             country = i.xpath(".//td/img[1]/@title")
             age = "".join(i.xpath('.//td[@class="zentriert"]/text()')).strip()
-            ref = Referee(name, link, country=country, age=age)
+            ref = Referee(name=name, link=link, country=country, age=int(age))
 
             results.append(ref)
         return results
 
 
-class StaffSearch(SearchView):
+class StaffSearch(TransfermarktSearch[Staff]):
     """A Search View for a Staff member"""
 
     category = "Managers"
@@ -1072,7 +620,7 @@ class StaffSearch(SearchView):
     match_string = "Managers"
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[Staff]:
+    def parse(rows: list[html.HtmlElement]) -> list[Staff]:
         """Parse a list of staff"""
         results: list[Staff] = []
         for i in rows:
@@ -1082,7 +630,7 @@ class StaffSearch(SearchView):
 
             name = "".join(i.xpath('.//td[@class="hauptlink"]/a/text()'))
 
-            staff = Staff(name, link)
+            staff = Staff(name=name, link=link)
 
             xpath = './/img[@class="bilderrahmen-fixed"]/@src'
             staff.picture = "".join(i.xpath(xpath))
@@ -1095,21 +643,21 @@ class StaffSearch(SearchView):
 
             try:
                 xpath = './/tm-tooltip[@data-type="club"][1]/a/@title'
-                team_name = i.xpath(xpath)[0]
+                name = i.xpath(xpath)[0]
 
                 leg = i.xpath('.//tm-tooltip[@data-type="club"][1]/a/@href')[0]
                 if TF not in leg:
                     leg = TF + leg
-                team_link = leg
+                link = leg
 
-                staff.team = TFTeam(team_name, team_link)
+                staff.team = TFTeam(name=name, link=link)
             except IndexError:
                 pass
             results.append(staff)
         return results
 
 
-class TeamSearch(SearchView):
+class TeamSearch(TransfermarktSearch[TFTeam]):
     """A Search View for a team"""
 
     category = "Team"
@@ -1119,11 +667,25 @@ class TeamSearch(SearchView):
     value: TFTeam
 
     @staticmethod
-    def parse(rows: list[typing.Any]) -> list[TFTeam]:
+    def parse(rows: list[html.HtmlElement]) -> list[TFTeam]:
         """Fetch a list of teams from a transfermarkt page"""
-        results: list[TFTeam] = []
-
+        output: list[TFTeam] = []
         for i in rows:
+            xpath = ".//tr[2]/td/a/@href"
+            if TF not in (link := "".join(i.xpath(xpath)).strip()):
+                link = TF + link
+
+            name = "".join(i.xpath(".//tr[2]/td/a/text()")).strip()
+            xpath = './/td/img[@class="flaggenrahmen" ]/@title'
+            country = [k.strip() for k in i.xpath(xpath) if k]
+
+            xpath = './/td[@class="suche-vereinswappen"]/img/@src'
+            logo = "".join(i.xpath(xpath))
+
+            comp = TFCompetition(
+                name=name, link=link, country=country, picture=logo
+            )
+
             xpath = './/tm-tooltip[@data-type="club"]/a/@title'
             if not (name := "".join(i.xpath(xpath)).strip()):
                 name = "".join(i.xpath('.//td[@class="hauptlink"]/a/@title'))
@@ -1134,66 +696,62 @@ class TeamSearch(SearchView):
 
             if link and TF not in link:
                 link = TF + link
-
-            xpath = ".//tr[2]/td/a/@href"
-            if TF not in (lg_lnk := "".join(i.xpath(xpath)).strip()):
-                lg_lnk = TF + lg_lnk
-
-            lg_name = "".join(i.xpath(".//tr[2]/td/a/text()")).strip()
-
-            xpath = './/td/img[@class="flaggenrahmen" ]/@title'
-            country = [c.strip() for c in i.xpath(xpath) if c]
-
-            xpath = './/td[@class="suche-vereinswappen"]/img/@src'
-            logo = "".join(i.xpath(xpath))
-
-            league = TFCompetition(lg_name, lg_lnk, country=country, logo=logo)
-
-            team = TFTeam(name, link, league=league)
-
-            results.append(team)
-        return results
+            output.append(TFTeam(name=name, link=link, league=comp))
+        return output
 
 
-DEFAULT_LEAGUES = [
-    TFCompetition(
-        name="Premier League",
-        country="England",
-        link=TF + "premier-league/startseite/wettbewerb/GB1",
-    ),
-    TFCompetition(
-        name="Championship",
-        country="England",
-        link=TF + "/championship/startseite/wettbewerb/GB2",
-    ),
-    TFCompetition(
-        name="Eredivisie",
-        country="Netherlands",
-        link=TF + "/eredivisie/startseite/wettbewerb/NL1",
-    ),
-    TFCompetition(
-        name="Bundesliga",
-        country="Germany",
-        link=TF + "/bundesliga/startseite/wettbewerb/L1",
-    ),
-    TFCompetition(
-        name="Serie A",
-        country="Italy",
-        link=TF + "/serie-a/startseite/wettbewerb/IT1",
-    ),
-    TFCompetition(
-        name="LaLiga",
-        country="Spain",
-        link=TF + "/laliga/startseite/wettbewerb/ES1",
-    ),
-    TFCompetition(
-        name="Ligue 1",
-        country="France",
-        link=TF + "/ligue-1/startseite/wettbewerb/FR1",
-    ),
-    TFCompetition(
-        name="Major League Soccer",
-        country="United States",
-        link=TF + "/major-league-soccer/startseite/wettbewerb/MLS1",
-    ),
-]
+class StadiumAttendance:
+    """A Generic container representing the attendance data of a stadium"""
+
+    name: str
+    link: str
+    capacity: int
+    total: int
+    average: int
+    team: TFTeam
+
+    def __init__(self, data: html.HtmlElement) -> None:
+        # Two Subnodes
+        node = data.xpath(".//td/table//tr[1]")[0]
+        team_node = data.xpath(".//td/table//tr[2]")[0]
+
+        # Stadium info
+        self.name = "".join(node.xpath(".//a/text()"))
+        self.link = TF + "".join(node.xpath(".//@href"))
+
+        # Team info
+        name = "".join(team_node.xpath(".//a/text()"))
+        link = TF + "".join(data.xpath(".//a/@href"))
+        self.team = TFTeam(name=name, link=link)
+
+        cap = "".join(data.xpath('.//td[@class="rechts"][1]/text()'))
+        self.capacity = int(cap.replace(".", ""))
+
+        tot = "".join(data.xpath('.//td[@class="rechts"][2]/text()'))
+        self.total = int(tot.replace(".", ""))
+
+        avg = "".join(data.xpath('.//td[@class="rechts"][3]/text()'))
+        self.average = int(avg.replace(".", ""))
+
+
+class Trophy(BaseModel):
+    """A Trophy represented by TransferMarket"""
+
+    name: str
+    dates: list[str]
+
+
+class Contract(BaseModel):
+    """A Transfermarkt Contract"""
+
+    player: TFPlayer
+    expiry: datetime.datetime
+    option: str | None = None
+
+
+class Rumour(BaseModel):
+    """A Transfermarkt Rumour"""
+
+    player: TFPlayer
+    team: TFTeam
+    url: str

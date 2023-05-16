@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("xkcd")
 
 
-class XKCDView(view_utils.AsyncPaginator):
+class XKCDView(view_utils.Paginator):
     """A View to browse XKCD Comics"""
 
     def __init__(

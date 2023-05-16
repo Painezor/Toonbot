@@ -571,8 +571,8 @@ class TwitchTracker(commands.Cog):
         rows = [i.row for i in ordered]
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     async def make_cc_embed(self, cont: Contributor) -> discord.Embed:
@@ -642,8 +642,8 @@ class TwitchTracker(commands.Cog):
         embed.colour = discord.Colour.dark_blue()
 
         embeds = embed_utils.rows_to_embeds(embed, [i.row for i in ccs])
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     track = discord.app_commands.Group(
@@ -690,7 +690,7 @@ class TwitchTracker(commands.Cog):
         await interaction.followup.send(embed=embed)
 
         view = TrackerConfig(interaction.user, chan)
-        await send(view=view, embed=view.pages[0])
+        await send(view=view, embed=view.embeds[0])
         view.message = await interaction.original_response()
 
     @track.command()
@@ -717,7 +717,7 @@ class TwitchTracker(commands.Cog):
             send = interaction.edit_original_response
 
         view = TrackerConfig(interaction.user, chan)
-        await send(view=view, embed=view.pages[0])
+        await send(view=view, embed=view.embeds[0])
 
     # Database Cleanup
     @commands.Cog.listener()

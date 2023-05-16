@@ -111,14 +111,14 @@ class UrbanDictionary(commands.Cog):
 
             data = await resp.json()
 
-            if not (embeds := parse(data)):
-                embed = discord.Embed(colour=discord.Colour.red())
-                embed.description = f"🚫 No results for {term}"
-                reply = interaction.response.send_message
-                return await reply(embed=embed, ephemeral=True)
+        if not (embeds := parse(data)):
+            embed = discord.Embed(colour=discord.Colour.red())
+            embed.description = f"🚫 No results for {term}"
+            reply = interaction.response.send_message
+            return await reply(embed=embed, ephemeral=True)
 
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
 
     @ud.command()
     async def random(self, interaction: Interaction) -> None:
@@ -128,8 +128,8 @@ class UrbanDictionary(commands.Cog):
                 logger.error("%s: %s", resp.status, resp.url)
             json = await resp.json()
             embeds = parse(json)
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
 
     @ud.command()
     async def word_of_the_day(self, interaction: Interaction) -> None:
@@ -139,9 +139,9 @@ class UrbanDictionary(commands.Cog):
             if resp.status != 200:
                 logger.error("%s: %s", resp.status, resp.url)
             json = await resp.json()
-            embeds = parse(json)
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        embeds = parse(json)
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
 
 
 async def setup(bot: Bot) -> None:

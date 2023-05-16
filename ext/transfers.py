@@ -68,6 +68,18 @@ DEFAULT_LEAGUES = [
 ]
 
 
+def team_to_string(team: tfm.TFTeam) -> str:
+    flg = " ".join(flags.get_flags(team.country))
+    markdown = f"{flg} [{team.name}]({team.link})"
+    olg = team.league
+    if olg:
+        if olg.link:
+            markdown += f" ([{olg.name}]({olg.link}))"
+        else:
+            markdown += f" ({olg.name})"
+    return markdown
+
+
 class TransferEmbed(discord.Embed):
     """An embed representing a transfermarkt player transfer."""
 
@@ -76,11 +88,12 @@ class TransferEmbed(discord.Embed):
 
         flg = " ".join(flags.get_flags(transfer.player.country))
         self.title = f"{flg} {transfer.player.name}"
+
         self.description = (
             f"**Age**: {transfer.player.age}\n"
             f"**Position**: {transfer.player.position}\n"
-            f"**From**: {transfer.old_team}\n"
-            f"**To**: {transfer.new_team}\n"
+            f"**From**: {team_to_string(transfer.old_team)}\n"
+            f"**To**: {team_to_string(transfer.new_team)}\n"
             f"**Fee**: {transfer.loan_fee}\n"
             f"{timed_events.Timestamp().relative}"
         )
@@ -220,7 +233,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
         view_itr = view.interaction
         if not view.value:
-            embed = self.pages[self.index]
+            embed = self.embeds[self.index]
             return await view_itr.response.edit_message(view=self, embed=embed)
 
         sql = """DELETE from transfers_leagues
@@ -243,7 +256,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
         await itr.followup.send(content=msg)
 
         view = TransfersConfig(itr.user, self.channel)
-        await view_itr.response.send_message(view=view, embed=view.pages[0])
+        await view_itr.response.send_message(view=view, embed=view.embeds[0])
         view.message = await itr.original_response()
 
     @discord.ui.button(row=3, style=discord.ButtonStyle.primary, label="Reset")
@@ -262,7 +275,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
         view_itr = view.interaction
         if not view.value:
             # Return to normal viewing
-            embed = self.pages[self.index]
+            embed = self.embeds[self.index]
             return await view_itr.response.edit_message(embed=embed, view=self)
 
         await self.channel.reset_leagues(interaction)
@@ -273,7 +286,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
         await interaction.followup.send(embed=embed)
 
         view = TransfersConfig(interaction.user, self.channel)
-        await view_itr.response.send_message(view=view, embed=view.pages[0])
+        await view_itr.response.send_message(view=view, embed=view.embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Delete", row=3, style=discord.ButtonStyle.red)
@@ -295,7 +308,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
         view_itr = view.interaction
         if not view.value:
-            embed = self.pages[self.index]
+            embed = self.embeds[self.index]
             await view_itr.response.edit_message(view=self, embed=embed)
             return
 
@@ -309,11 +322,6 @@ class TransfersConfig(view_utils.DropdownPaginator):
             async with connection.transaction():
                 await connection.execute(sql, self.channel.id)
 
-        cog = interaction.client.get_cog(Transfers.__cog_name__)
-        if cog is not None:
-            assert isinstance(cog, Transfers)
-            cog.transfer_channels.remove(self.channel)
-
 
 class Transfers(commands.Cog):
     """Create and configure Transfer Ticker channels"""
@@ -321,8 +329,9 @@ class Transfers(commands.Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         self.parsed: list[str] = []
-        self.transfer_channels: list[TransferChannel] = []
         self.task: Task[None]
+
+        self._override_once: bool = False
 
     async def cog_load(self) -> None:
         """Load the transfer channels on cog load."""
@@ -331,7 +340,6 @@ class Transfers(commands.Cog):
     async def cog_unload(self) -> None:
         """Cancel transfers task on Cog Unload."""
         self.task.cancel()
-        self.transfer_channels.clear()
 
     async def create(
         self,
@@ -375,34 +383,7 @@ class Transfers(commands.Cog):
 
         chan = TransferChannel(channel)
         await chan.reset_leagues(interaction)
-        self.transfer_channels.append(chan)
         return chan
-
-    async def update_cache(self) -> list[TransferChannel]:
-        """Load Transfer Channels into the bot."""
-        sql = """SELECT * FROM transfers_channels"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records = await connection.fetch(sql)
-
-        # Purge dead
-        cached = set([r["channel_id"] for r in records])
-        for chan in self.transfer_channels.copy():
-            if chan.channel.id not in cached:
-                self.transfer_channels.remove(chan)
-
-        tcl = self.transfer_channels
-        missing = [i for i in cached if i not in [tc.channel.id for tc in tcl]]
-        for cid in missing:
-            channel = self.bot.get_channel(cid)
-
-            if not isinstance(channel, discord.TextChannel):
-                continue
-
-            chan = TransferChannel(channel)
-            await chan.get_leagues(self.bot)
-            self.transfer_channels.append(chan)
-        return self.transfer_channels
 
     # Core Loop
     @tasks.loop(minutes=1)
@@ -414,11 +395,16 @@ class Transfers(commands.Cog):
         """
         skip_output = not bool(self.parsed)
 
+        if self._override_once:
+            skip_output = False
+            self._override_once = False
+
+        bad: list[int] = []
         for i in await tfm.get_recent_transfers():
-            if i.player.name in self.parsed:
+            if i.player.link in self.parsed:
                 continue  # skip when duplicate / void.
 
-            self.parsed.append(i.player.name)
+            self.parsed.append(i.player.link)
 
             # We don't need to output when populating after a restart.
             if skip_output:
@@ -428,8 +414,7 @@ class Transfers(commands.Cog):
             new = i.new_team.league.link if i.new_team.league else None
 
             if old is new is None:
-                logger.error("recent transfers %s -> None, None.", i.player)
-                return
+                continue
 
             logger.info("Scanning for %s or %s", old, new)
             # Fetch the list of channels to output the transfer to.
@@ -450,13 +435,16 @@ class Transfers(commands.Cog):
                 channel = self.bot.get_channel(record["channel_id"])
 
                 if not isinstance(channel, discord.abc.Messageable):
+                    bad.append(record["channel_id"])
                     continue
-                await channel.send(embed=embed)
 
-    @transfers_loop.before_loop
-    async def precache(self):
-        """Cache before loop starts."""
-        await self.update_cache()
+                try:
+                    await channel.send(embed=embed)
+                except discord.Forbidden:
+                    bad.append(channel.id)
+
+        if bad:
+            logger.info("Found %s bad transfer channels", len(bad))
 
     tf = discord.app_commands.Group(
         name="transfer_ticker",
@@ -479,16 +467,18 @@ class Transfers(commands.Cog):
                 return
 
         # Validate channel is a ticker channel.
-        try:
-            tkrs = self.transfer_channels
-            chan = next(i for i in tkrs if i.channel.id == channel.id)
-        except StopIteration:
+        sql = """SELECT * from transfers_channels WHERE channel_id = $1"""
+        record = await self.bot.db.fetchrow(sql, channel.id)
+        if record is None:
             chan = await self.create(interaction, channel)
             if chan is None:
                 return
+        else:
+            chan = TransferChannel(channel)
 
         view = TransfersConfig(interaction.user, chan)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.send_message(view=view, embed=emb)
         view.message = await interaction.original_response()
 
     @tf.command()
@@ -509,13 +499,14 @@ class Transfers(commands.Cog):
                 return
 
         # Validate channel is a ticker channel.
-        try:
-            tkrs = self.transfer_channels
-            chan = next(i for i in tkrs if i.channel.id == channel.id)
-        except StopIteration:
+        sql = """SELECT * from transfers_channels WHERE channel_id = $1"""
+        record = await self.bot.db.fetchrow(sql, channel.id)
+        if record is None:
             chan = await self.create(interaction, channel)
             if chan is None:
                 return
+        else:
+            chan = TransferChannel(channel)
 
         ctr = competition.country[0] if competition.country else None
         chan.leagues.add(competition)
@@ -538,11 +529,8 @@ class Transfers(commands.Cog):
     async def on_guild_channel_delete(self, chan: discord.TextChannel) -> None:
         """Delete all transfer info for deleted channel from database"""
         sql = """DELETE FROM transfers_channels WHERE channel_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                log = await connection.execute(sql, chan.id)
-                if log != "DELETE 0":
-                    logger.info("%s TF Channel auto-deleted ", chan.id)
+        if await self.bot.db.execute(sql, chan.id) != "DELETE 0":
+            logger.info("%s TF Channel auto-deleted", chan.id)
 
 
 async def setup(bot: Bot):

@@ -440,7 +440,8 @@ class Clans(commands.Cog):
         seasons = interaction.client.clan_battle_seasons
         ssn = next((i for i in seasons if season == i.season_id), None)
         view = Leaderboard(interaction.user, clans, ssn, region)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        embed = view.embeds[0]
+        await interaction.response.send_message(view=view, embed=embed)
         view.message = await interaction.original_response()
 
 

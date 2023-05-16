@@ -43,6 +43,9 @@ class BaseCompetition(BaseModel):
     # Fetched
     table: str | None = None
 
+    class Config:
+        validate_assignment = True
+
     @validator("country")
     def fmt_country(cls, value: str | None) -> str | None:
         if value:
@@ -53,6 +56,10 @@ class BaseCompetition(BaseModel):
     def fmt_logo_url(cls, value: str | None) -> str | None:
         if value is not None:
             value = value.rsplit("/", maxsplit=1)[-1]
+
+            if value.endswith(".gif"):  # empty-logo-team-share
+                return f"{FLASHSCORE}/res/image/{value}".replace("'", "")
+
             # Extraneous ' needs removed.
             return f"{FLASHSCORE}/res/image/data/{value}".replace("'", "")
 

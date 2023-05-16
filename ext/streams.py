@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import collections
-import typing
+from typing import TYPE_CHECKING, TypeAlias, cast
 
 import discord
 from discord.ext import commands
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     from core import Bot
 
-    Interaction: typing.TypeAlias = discord.Interaction[Bot]
-    User: typing.TypeAlias = discord.User | discord.Member
+    Interaction: TypeAlias = discord.Interaction[Bot]
+    User: TypeAlias = discord.User | discord.Member
 
 
 class Stream:
@@ -25,11 +25,6 @@ class Stream:
     def __str__(self):
         return f"[{self.name}]({self.link}) added by {self.added_by.mention}"
 
-    @property
-    def ac_row(self) -> str:
-        """casefold version of name and link for autocomplete purposes"""
-        return f"{self.name} {self.link}".casefold()
-
 
 async def st_ac(
     interaction: Interaction, current: str
@@ -38,15 +33,18 @@ async def st_ac(
     if interaction.guild is None:
         return []
 
-    cog = interaction.client.get_cog(GuildStreams.__cog_name__)
-    assert isinstance(cog, GuildStreams)
-    strms = cog.streams[interaction.guild.id]
-    cur = current.casefold()
-    matches = [i.name[:100] for i in strms if cur in i.ac_row]
+    bot = interaction.client
 
+    cog = cast(GuildStreams, bot.get_cog(GuildStreams.__cog_name__))
+    cur = current.casefold()
     options: list[discord.app_commands.Choice[str]] = []
-    for item in matches:
-        options.append(discord.app_commands.Choice(name=item, value=item))
+
+    for i in cog.streams[interaction.guild.id]:
+        if cur not in f"{i.name} {i.link}".casefold():
+            continue
+
+        val = i.name[:100]
+        options.append(discord.app_commands.Choice(name=val, value=val))
 
         if len(options) == 25:
             break

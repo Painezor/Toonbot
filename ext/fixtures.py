@@ -365,7 +365,7 @@ class SquadView(view_utils.DropdownPaginator):
         par = self.parent
         plr = self.players
         view = SquadView(itr.user, self.page, emb, self.team, plr, parent=par)
-        await itr.response.edit_message(view=view, embed=view.pages[0])
+        await itr.response.edit_message(view=view, embed=view.embeds[0])
 
     @classmethod
     async def create(
@@ -464,7 +464,7 @@ class FXPaginator(view_utils.DropdownPaginator):
             edit = interaction.edit_original_response
         else:
             edit = interaction.response.edit_message
-        await edit(view=view, embed=view.pages[0])
+        await edit(view=view, embed=view.embeds[0])
 
         view.message = await interaction.original_response()
         parent.message = view.message
@@ -556,7 +556,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             edit = interaction.edit_original_response
         else:
             edit = interaction.response.edit_message
-        await edit(view=view, embed=view.pages[0])
+        await edit(view=view, embed=view.embeds[0])
 
     @discord.ui.select(placeholder="Go to Player", disabled=True)
     async def dropdown(
@@ -599,7 +599,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             self.natfilt.style = discord.ButtonStyle.blurple
         if tm_flt:
             self.teamfilt.style = discord.ButtonStyle.blurple
-        emb = new.pages[0]
+        emb = new.embeds[0]
         await view.interaction.response.edit_message(view=new, embed=emb)
 
     @discord.ui.button(label="Filter: Team", emoji=fs.TEAM_EMOJI, row=4)
@@ -617,7 +617,8 @@ class TopScorersView(view_utils.DropdownPaginator):
             opts.append(opt)
 
         view = view_utils.PagedItemSelect(interaction.user, opts)
-        await interaction.response.edit_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.edit_message(view=view, embed=emb)
         await view.wait()
 
         tm_flt = teams
@@ -634,7 +635,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             new.natfilt.style = discord.ButtonStyle.blurple
         if tm_flt:
             new.teamfilt.style = discord.ButtonStyle.blurple
-        emb = new.pages[0]
+        emb = new.embeds[0]
         await view.interaction.response.edit_message(view=new, embed=emb)
 
 
@@ -712,7 +713,8 @@ class TransfersView(view_utils.DropdownPaginator):
         view = TransfersView(
             invoker, self.page, self.team, embed, transfers, parent=par
         )
-        await interaction.response.edit_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.edit_message(view=view, embed=emb)
 
     @classmethod
     async def start(
@@ -934,7 +936,8 @@ class FSView(view_utils.BaseView):
             raise NotImplementedError
 
         view = await ArchiveSelect.start(interaction, self.page, self.object)
-        await interaction.response.edit_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.edit_message(view=view, embed=emb)
 
     # Fixture Only
     @discord.ui.button(label="Head to Head", emoji="⚔")
@@ -999,15 +1002,15 @@ class FSView(view_utils.BaseView):
 
         photos = await self.object.get_photos(self.page)
 
-        pht: list[Embed] = []
+        embeds: list[Embed] = []
         for i in photos:
             emb = embed.copy()
             emb.description = i.description
             emb.set_image(url=i.url)
-            pht.append(emb)
+            embeds.append(emb)
 
-        view = view_utils.Paginator(interaction.user, pht, parent=self)
-        await interaction.response.edit_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds, parent=self)
+        await interaction.response.edit_message(view=view, embed=embeds[0])
 
     @discord.ui.button(label="News", emoji="📰")
     async def news(self, interaction: Interaction, _: Button[FSView]) -> None:
@@ -1029,13 +1032,13 @@ class FSView(view_utils.BaseView):
             embeds.append(embed)
 
         await self.handle_buttons()
-        view = view_utils.Paginator(interaction.user, embeds, parent=self)
+        view = view_utils.EmbedPaginator(interaction.user, embeds, parent=self)
 
         if interaction.response.is_done():
             edit = interaction.edit_original_response
         else:
             edit = interaction.response.edit_message
-        await edit(view=view, embed=view.pages[0])
+        await edit(view=view, embed=embeds[0])
 
     # Fixture Only
     @discord.ui.button(label="Report", emoji="📰")
@@ -1067,8 +1070,8 @@ class FSView(view_utils.BaseView):
         embed.description = f"**{title}**\n\n"
         embeds = embed_utils.rows_to_embeds(embed, content, 5, "", 2500)
         await self.handle_buttons()
-        view = view_utils.Paginator(interaction.user, embeds, parent=self)
-        await interaction.response.edit_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds, parent=self)
+        await interaction.response.edit_message(view=view, embed=embeds[0])
 
     # Competition, Team
     @discord.ui.button(label="Results", emoji="📋")
@@ -1100,7 +1103,8 @@ class FSView(view_utils.BaseView):
             raise NotImplementedError
 
         view = await SquadView.create(interaction, self.page, self.object)
-        await interaction.response.edit_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.edit_message(view=view, embed=emb)
 
     # Team only
     @discord.ui.button(label="Transfers", emoji=fs.OUTBOUND_EMOJI)
@@ -1111,7 +1115,7 @@ class FSView(view_utils.BaseView):
 
         view = await TransfersView.start(interaction, self.page, self.object)
         edit = interaction.response.edit_message
-        return await edit(embed=view.pages[0], view=self, attachments=[])
+        return await edit(embed=view.embeds[0], view=self, attachments=[])
 
     # Competition, Fixture, Team
     @discord.ui.button(label="Standings", emoji="🏅")

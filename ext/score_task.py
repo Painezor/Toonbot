@@ -40,10 +40,10 @@ class ScoreLoop(commands.Cog):
     async def cog_load(self) -> None:
         """Start the scores loop"""
         self.scores: asyncio.Task[None] = self.score_loop.start()
-        await self.bot.flashscore.cache_competitions()
-        await self.bot.flashscore.cache_teams()
-        logger.info("%s Competitions", len(self.bot.flashscore.competitions))
-        logger.info("%s Teams", len(self.bot.flashscore.teams))
+        await self.bot.cache.cache_competitions()
+        await self.bot.cache.cache_teams()
+        logger.info("%s Competitions", len(self.bot.cache.competitions))
+        logger.info("%s Teams", len(self.bot.cache.teams))
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
@@ -52,7 +52,7 @@ class ScoreLoop(commands.Cog):
         for i in self.tasks:
             i.cancel()
 
-        self.bot.flashscore.games.clear()
+        self.bot.cache.games.clear()
 
         while not self.score_workers.empty():
             page = await self.score_workers.get()
@@ -64,7 +64,7 @@ class ScoreLoop(commands.Cog):
     ) -> None:
         """The transformers save comps/teams to their extras, so we can
         update them as they're found."""
-        cache = interaction.client.flashscore
+        cache = interaction.client.cache
         if "comps" in interaction.extras:
             await cache.save_competitions(interaction.extras["comps"])
         if "teams" in interaction.extras:
@@ -79,7 +79,7 @@ class ScoreLoop(commands.Cog):
         ordinal = now.toordinal()
 
         if self._last_ordinal != ordinal:
-            self.bot.flashscore.games.clear()
+            self.bot.cache.games.clear()
             self._last_ordinal = ordinal
 
         await self.parse_games()
@@ -112,7 +112,7 @@ class ScoreLoop(commands.Cog):
             """Get worker, fetch page, release worker"""
             page = await self.score_workers.get()
             try:
-                await fixture.fetch(page, cache=self.bot.flashscore)
+                await fixture.fetch(page, cache=self.bot.cache)
             except PWTimeout:
                 failed.append(fixture)
             else:
@@ -129,13 +129,14 @@ class ScoreLoop(commands.Cog):
             teams += [item.home.team, item.away.team]
             if item.competition not in save:
                 save.append(item.competition)
-        await self.bot.flashscore.save_competitions([i for i in save if i])
-        await self.bot.flashscore.save_teams(teams)
+        await self.bot.cache.save_competitions([i for i in save if i])
+        await self.bot.cache.save_teams(teams)
 
         if failed:
             self._pending = failed
             return await self.handle_pending_fixtures(recursion + 1)
 
+        self._pending.clear()
         # Destroy all of our workers
         while not self.score_workers.empty():
             page = await self.score_workers.get()
@@ -284,7 +285,7 @@ class ScoreLoop(commands.Cog):
         link = "".join(tree.xpath(".//a/@href"))
         match_id = link.split("/")[-2]
 
-        fix = self.bot.flashscore.get_game(match_id)
+        fix = self.bot.cache.get_game(match_id)
         if fix:
             return fix, fix.state
 
@@ -293,7 +294,7 @@ class ScoreLoop(commands.Cog):
             raise LookupError
 
         self._pending.append(fix)
-        self.bot.flashscore.games.append(fix)
+        self.bot.cache.games.append(fix)
         return fix, None
 
     async def parse_games(self) -> None:

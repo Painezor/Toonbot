@@ -1,12 +1,10 @@
 """Handle the data parsed by score_task.py"""
 from __future__ import annotations
-import asyncio
 import datetime
 
 import itertools
 import logging
 from typing import TYPE_CHECKING, TypeAlias, cast
-
 import discord
 from discord import Message, Embed, Colour
 from discord.ext import commands
@@ -80,8 +78,8 @@ class ScoreChannel:
         records = await bot.db.fetch(sql, self.channel.id, timeout=10)
 
         for i in records:
-            if (comp := bot.flashscore.get_competition(url=i["url"])) is None:
-                comp = bot.flashscore.get_competition(title=i["league"])
+            if (comp := bot.cache.get_competition(url=i["url"])) is None:
+                comp = bot.cache.get_competition(title=i["league"])
                 if comp is None:
                     logger.error("Failed fetching comp %s", i["league"])
                     continue
@@ -124,6 +122,39 @@ class ScoreChannel:
         tuples.sort(key=sorter)
         return tuples
 
+    def should_run(
+        self, message: Message | None, embeds: list[Embed] | None
+    ) -> bool:
+        """Check if we need to send or update messages for each embed."""
+        # If we have no Embeds to send
+        if embeds is None:
+            # Check if we have already suppressed the embeds
+            if message is None or message.flags.suppress_embeds:
+                return False
+
+            # If they're not suppressed yet, we need to do so.
+            return True
+
+        # If there is no cached meessage, we need to send one.
+        if message is None:
+            return True
+
+        for i in embeds:
+            # If the message has suppressed embeds, we need to unsuppress
+            if message.flags.suppress_embeds:
+                return True
+
+            try:
+                # This should always be set.
+                assert (auth := i.author.url) is not None
+                old = self._current_embeds[auth].description
+                new = i.description
+                if old != new:
+                    return True  # We're good to go.
+            except KeyError:
+                return True  # Old Embed does not exist, we need a new one.
+        return False
+
     async def run_scores(
         self, bot: Bot, comps: dict[str, list[Embed]]
     ) -> None:
@@ -148,46 +179,18 @@ class ScoreChannel:
         cog = bot.get_cog(ScoresCog.__cog_name__)
         assert isinstance(cog, ScoresCog)
 
-        def should_run(
-            message: Message | None, embeds: list[Embed] | None
-        ) -> bool:
-            # If we have no Embeds to send
-            if embeds is None:
-                # Check if we have already suppressed the embeds
-                if message is None or message.flags.suppress_embeds:
-                    return False
-
-                # If they're not suppressed yet, we need to do so.
-                return True
-
-            # If there is no cached meessage, we need to send one.
-            if message is None:
-                return True
-
-            for i in embeds:
-                # If the message has suppressed embeds, we need to unsuppress
-                if message.flags.suppress_embeds:
-                    return True
-
-                try:
-                    # This should always be set.
-                    assert (auth := i.author.url) is not None
-                    old = self._current_embeds[auth].description
-                    new = i.description
-                    if old != new:
-                        return True  # We're good to go.
-                except KeyError:
-                    return True  # Old Embed does not exist, we need a new one.
-            return False
-
         for message, m_embeds in tuples:
-            if not should_run(message, m_embeds):
+            if not self.should_run(message, m_embeds):
                 continue
 
             try:
                 await self.send_or_edit(message, m_embeds)
             except discord.Forbidden:
                 cog.channels.discard(self)
+            except discord.HTTPException:
+                assert m_embeds is not None
+                urls = ", ".join([i.thumbnail.url or "" for i in m_embeds])
+                logger.info("HTTP Exception %s", urls)
 
             if count > 4:
                 return
@@ -235,20 +238,16 @@ class ScoreChannel:
     async def reset_leagues(self, interaction: Interaction) -> None:
         """Reset the channel's list of leagues to the defaults"""
 
-        async with interaction.client.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = """DELETE FROM scores_leagues WHERE channel_id = $1"""
-                await connection.execute(sql, self.channel.id)
-
-                sql = """INSERT INTO scores_leagues (channel_id, url)
-                        VALUES ($1, $2)"""
-                args = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
-                await connection.executemany(sql, args)
+        sql = """DELETE FROM scores_leagues WHERE channel_id = $1"""
+        await interaction.client.db.execute(sql, self.channel.id)
+        _ = """INSERT INTO scores_leagues (channel_id, url) VALUES ($1, $2)"""
+        args = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
+        await interaction.client.db.executemany(sql, args)
 
         self.leagues.clear()
         for i in fs.DEFAULT_LEAGUES:
             if (
-                comp := interaction.client.flashscore.get_competition(url=i)
+                comp := interaction.client.cache.get_competition(url=i)
             ) is None:
                 logger.info("Reset: Could not add default league %s", comp)
                 continue
@@ -292,7 +291,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
             options.append(opt)
 
         super().__init__(invoker, embed, rows, options)
-        self.dropdown.max_values = len(self.pages[self.index])
+        self.dropdown.max_values = len(self.dropdowns[self.index])
 
     @discord.ui.select(placeholder="Removed Tracked leagues", row=1)
     async def dropdown(
@@ -310,7 +309,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
         await view.wait()
 
         if not view.value:
-            embed = self.pages[self.index]
+            embed = self.embeds[self.index]
             edit = view.interaction.response.edit_message
             return await edit(view=self, embed=embed)
 
@@ -355,7 +354,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
         view_itr = view.interaction
         if not view.value:
             # Return to normal viewing
-            embed = self.pages[self.index]
+            embed = self.embeds[self.index]
             return await view_itr.response.edit_message(embed=embed, view=self)
 
         await self.channel.reset_leagues(interaction)
@@ -366,7 +365,9 @@ class ScoresConfig(view_utils.DropdownPaginator):
         await interaction.followup.send(embed=embed)
 
         view = ScoresConfig(interaction.user, self.channel)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        await interaction.response.send_message(
+            view=view, embed=view.embeds[0]
+        )
         view.message = await interaction.original_response()
 
 
@@ -376,6 +377,7 @@ class ScoresCog(commands.Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         self.channels: set[ScoreChannel] = set()
+        self._locked: bool = False
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
@@ -386,15 +388,13 @@ class ScoresCog(commands.Cog):
         """When Livescores Fires a "scores ready" event, handle it"""
         await self.update_cache()
 
-        comps = self.bot.flashscore.live_competitions()
+        comps = self.bot.cache.live_competitions()
 
         sc_embeds: dict[str, list[Embed]] = {}
         for comp in comps:
             embed = await FSEmbed.create(comp)
 
-            flt = [
-                i for i in self.bot.flashscore.games if i.competition == comp
-            ]
+            flt = [i for i in self.bot.cache.games if i.competition == comp]
             fix = sorted(flt, key=lambda c: c.kickoff or now)
 
             ls_txt = [i.live_score_text for i in fix]
@@ -402,12 +402,16 @@ class ScoresCog(commands.Cog):
             embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, table)
             sc_embeds.update({comp.title: embeds})
 
-        async with asyncio.Lock():
-            for i in self.channels.copy():
-                if i.channel.is_news():
-                    self.channels.discard(i)
-                    return
-                await i.run_scores(self.bot, sc_embeds)
+        if self._locked:
+            return
+
+        self._locked = True
+        for i in self.channels.copy():
+            if i.channel.is_news():
+                self.channels.discard(i)
+                return
+            await i.run_scores(self.bot, sc_embeds)
+        self._locked = False
 
     # Database load: ScoreChannels
     async def update_cache(self) -> set[ScoreChannel]:
@@ -429,7 +433,7 @@ class ScoresCog(commands.Cog):
                 bad.append(i["channel_id"])
                 continue
 
-            comp = self.bot.flashscore.get_competition(url=i["url"])
+            comp = self.bot.cache.get_competition(url=i["url"])
             if not comp:
                 continue
 
@@ -443,7 +447,7 @@ class ScoresCog(commands.Cog):
 
         # Cleanup Old.
         sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
-        if chans:
+        if chans and bad:
             await self.bot.db.executemany(sql, bad)
 
         self.channels = chans
@@ -488,7 +492,9 @@ class ScoresCog(commands.Cog):
             self.channels.add(chan)
 
         view = ScoresConfig(interaction.user, chan)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        await interaction.response.send_message(
+            view=view, embed=view.embeds[0]
+        )
 
     @livescores.command()
     @discord.app_commands.describe(name="Enter a name for the channel")
@@ -606,12 +612,12 @@ class ScoresCog(commands.Cog):
     ) -> None:
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""
-        if not self.bot.flashscore.games:
+        if not self.bot.cache.games:
             embed = Embed(colour=discord.Colour.red())
             embed.description = "🚫 No live games found"
             return await interaction.response.send_message(embed=embed)
 
-        games = self.bot.flashscore.games
+        games = self.bot.cache.games
         if competition:
             games = [i for i in games if i.competition == competition]
 
@@ -639,8 +645,8 @@ class ScoresCog(commands.Cog):
                 embed.description = f"\n**{i}**\n{j}\n"
         embeds.append(embed)
 
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     # Event listeners for channel deletion or guild removal.

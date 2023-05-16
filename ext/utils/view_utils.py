@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, TypeAlias
 import typing
 
 import discord
+from discord import Embed, Message, SelectOption
+from discord.ui import TextInput, Select
 
 from ext.utils import embed_utils
 
@@ -23,8 +25,8 @@ logger = logging.getLogger("view_utils")
 class BaseView(discord.ui.View):
     """Error Handler."""
 
-    message: discord.Message | None = None
-    embed: discord.Embed | None = None
+    message: Message | None = None
+    embed: Embed | None = None
 
     def __init__(
         self,
@@ -104,23 +106,23 @@ class BaseView(discord.ui.View):
 class JumpModal(discord.ui.Modal):
     """Type page number in box, set index to that page."""
 
-    page: discord.ui.TextInput[JumpModal]
-    page = discord.ui.TextInput(label="Enter a page number")
+    page: TextInput[JumpModal] = TextInput(label="Enter a page number")
 
     def __init__(self, view: Paginator, title: str = "Jump to page") -> None:
         super().__init__(title=title)
         self.view = view
-        self.page.placeholder = f"1 - {len(view.pages)}"
+        self.page.placeholder = f"1 - {view.pages}"
 
     async def on_submit(  # type: ignore
         self, interaction: Interaction, /
     ) -> None:
         """Validate entered data & set parent index."""
-        try:
-            _ = self.view.pages[int(self.page.value)]
-            self.view.index = int(self.page.value) - 1  # Humans index from 1
-        except (ValueError, IndexError):  # Number was out of range.
-            self.view.index = len(self.view.pages) - 1
+        new_index = int(self.page.value) - 1  # Humans index from 1
+
+        if new_index > self.view.pages:
+            new_index = self.view.pages
+
+        self.view.index = new_index
         return await self.view.handle_page(interaction)
 
 
@@ -134,30 +136,29 @@ class Paginator(BaseView):
     def __init__(
         self,
         invoker: User,
-        embeds: list[discord.Embed],
+        pages: int,
         *,
-        index: int = 0,
         parent: BaseView | None = None,
         timeout: float | None = None,
     ) -> None:
         super().__init__(invoker, parent=parent, timeout=timeout)
 
-        self.pages = embeds
-        self.index = index
+        self.pages = pages
+        self.index: int = 0
         self.update_buttons()
 
     def update_buttons(self) -> None:
         """Refresh labels & Availability of buttons"""
-        self.jump.disabled = len(self.pages) < 3
-        self.next.disabled = self.index + 1 >= len(self.pages)
+        pages = len(self.pages) if isinstance(self.pages, list) else self.pages
+        self.jump.disabled = pages < 3
+        self.next.disabled = self.index + 1 >= pages
         self.previous.disabled = self.index == 0
-        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
+        self.jump.label = f"{self.index + 1}/{pages}"
 
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
-        embed = self.pages[self.index]
-        self.update_buttons()
-        await interaction.response.edit_message(embed=embed, view=self)
+        cln = self.__class__.__name__
+        raise NotImplementedError("No suitable handle_page found for %s", cln)
 
     @discord.ui.button(label="◀️", row=0)
     async def previous(self, interaction: Interaction, _) -> None:
@@ -177,25 +178,28 @@ class Paginator(BaseView):
         await self.handle_page(interaction)
 
 
-class AsyncPaginator(Paginator):
-    """Used when we need to manually fetch each page, store an int rather
-    than a list of actual pages"""
+class EmbedPaginator(Paginator):
+    def __init__(
+        self,
+        invoker: User,
+        embeds: list[Embed],
+        *,
+        index: int = 0,
+        parent: BaseView | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        self.embeds: list[Embed] = embeds
+        pages = len(embeds)
+        super().__init__(invoker, pages, parent=parent, timeout=timeout)
+        self.index = index
 
-    def __init__(self, invoker: User, max_pages: int) -> None:
-        dummy = [discord.Embed()] * max_pages
-        super().__init__(invoker, dummy)
-        self.pages: int = max_pages
+    async def handle_page(self, interaction: Interaction) -> None:
+        embed = self.embeds[self.index]
         self.update_buttons()
-
-    def update_buttons(self) -> None:
-        """Handle Bubttons when we don't have a len for pages"""
-        self.jump.disabled = self.pages < 3
-        self.next.disabled = self.index + 1 >= self.pages
-        self.previous.disabled = self.index == 0
-        self.jump.label = f"{self.index + 1}/{self.pages}"
+        await interaction.response.edit_message(embed=embed, view=self)
 
 
-class DropdownPaginator(Paginator):
+class DropdownPaginator(EmbedPaginator):
     """A Paginator takes an embed, a list of rows, and a list of SelectOptions.
 
     When a button is clicked, the page is changed and the embed at the current
@@ -204,9 +208,9 @@ class DropdownPaginator(Paginator):
     def __init__(
         self,
         invoker: User,
-        embed: discord.Embed,
+        embed: Embed,
         rows: list[str],
-        options: list[discord.SelectOption],
+        options: list[SelectOption],
         length: int = 25,
         footer: str = "",
         *,
@@ -229,7 +233,7 @@ class DropdownPaginator(Paginator):
 
     @discord.ui.select()
     async def dropdown(
-        self, itr: Interaction, _: discord.ui.Select[DropdownPaginator]
+        self, itr: Interaction, _: Select[DropdownPaginator]
     ) -> None:
         """Raise because you didn't subclass, dickweed."""
         logger.info(itr.command.__dict__)
@@ -237,11 +241,9 @@ class DropdownPaginator(Paginator):
 
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
-        embed = self.pages[self.index]
+        embed = self.embeds[self.index]
         self.dropdown.options = self.dropdowns[self.index]
-        self.jump.label = f"{self.index + 1}/{len(self.pages)}"
-        self.next.disabled = self.index + 1 >= len(self.pages)
-        self.previous.disabled = self.index == 0
+        self.update_buttons()
         return await interaction.response.edit_message(embed=embed, view=self)
 
 
@@ -251,10 +253,10 @@ class PagedItemSelect(DropdownPaginator):
     def __init__(
         self,
         invoker: User,
-        options: list[discord.SelectOption],
+        options: list[SelectOption],
         **kwargs: typing.Any,
     ):
-        embed = discord.Embed(title="Select from multiple pages")
+        embed = Embed(title="Select from multiple pages")
         rows = [i.label for i in options]
         super().__init__(invoker, embed, rows, options, **kwargs)
 
@@ -265,11 +267,10 @@ class PagedItemSelect(DropdownPaginator):
 
     async def handle_page(self, interaction: Interaction) -> None:
         """Set the items to checked"""
-        embed = self.pages[self.index]
+        embed = self.embeds[self.index]
         self.dropdown.options = self.dropdowns[self.index]
         self.dropdown.max_values = len(self.dropdowns[self.index])
-        self.next.disabled = self.index + 1 >= len(self.pages)
-        self.previous.disabled = self.index == 0
+        self.update_buttons()
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(row=1, options=[])

@@ -479,8 +479,7 @@ def iter_embed(
                 embed.description += "**Cover Image**: `None`\n"
 
         elif key == "deaf":
-            deaf: bool = value
-            embed.description += f"**Server Deafened**: {deaf}\n"
+            embed.description += f"**Server Deafened**: {value}\n"
 
         elif key == "default_auto_archive_duration":
             archive_time: int = value
@@ -489,9 +488,11 @@ def iter_embed(
 
         elif key == "default_notifications":
             # Guild Notification Level
-            notif: discord.NotificationLevel = value
-            txt = stringify_notification_level(notif)
+            txt = stringify_notification_level(value)
             embed.description += f"**Notification Level**: {txt}\n"
+
+        elif key == "default_reaction_emoji":
+            embed.description += f"**Default Reaction Emoji**: {value}"
 
         elif key == "deny":
             deny: discord.Permissions = value

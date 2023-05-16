@@ -64,6 +64,7 @@ class Competition(BaseCompetition, HasFixtures, HasTable, HasLogo, HasScorers):
             shrt = FLASHSCORE + "/res/image/data/"
             comp.logo_url = shrt + logo[0].split("(")[1].strip(")")
         except IndexError:
+            logger.error("failed to split logo url of %s", logo)
             if ".png" in logo:
                 comp.logo_url = logo
 

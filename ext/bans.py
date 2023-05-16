@@ -65,14 +65,14 @@ class BanView(view_utils.DropdownPaginator):
             self.bans.remove(entry)
 
         new_view = BanView(itr.user, self.bans)
-        n_embed = new_view.pages[0]
+        n_embed = new_view.embeds[0]
         await itr.response.edit_message(embed=n_embed, view=new_view)
         await itr.followup.send(embed=embed)
 
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
         try:
-            embed = self.pages[self.index]
+            embed = self.embeds[self.index]
         except IndexError:
             embed = discord.Embed(title="Banned Users")
             embed.colour = discord.Colour.dark_red()
@@ -162,7 +162,8 @@ class BanCog(commands.Cog):
                 return
 
         view = BanView(interaction.user, bans)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        embed = view.embeds[0]
+        await interaction.response.send_message(view=view, embed=embed)
         view.message = await interaction.original_response()
 
 

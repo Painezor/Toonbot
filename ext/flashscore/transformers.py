@@ -175,13 +175,15 @@ class FSParser:
             ctry = i["defaultCountry"]["name"]
             url = i["url"]
 
-            comp = self.interaction.client.flashscore.get_competition(id=id_)
+            comp = self.interaction.client.cache.get_competition(id=id_)
 
             if comp is None:
                 comp = Competition(id=id_, name=name, country=ctry, url=url)
 
             if i["images"]:
                 logo_url = i["images"][0]["path"]
+                logger.info('setting logo_url to %s', logo_url)
+                # If bad: FLASHSCORE + "/res/image/data/"
                 comp.logo_url = logo_url
 
             self.comps.append(comp)
@@ -190,11 +192,13 @@ class FSParser:
             logging.info("unhandled particpant types %s", types)
 
     def parse_team(self, i: dict[str, Any]) -> None:
-        team = self.interaction.client.flashscore.get_team(i["id"])
+        team = self.interaction.client.cache.get_team(i["id"])
         if team is None:
             team = Team.parse_obj(i)
         try:
             team.logo_url = i["images"][0]["path"]
+            logger.info('setting team logo_url to %s', team.logo_url)
+            # todo: if bad FLASHSCORE + "/res/image/data/"
         except IndexError:
             pass
         team.gender = i["gender"]["name"]
@@ -228,9 +232,9 @@ async def set_default(
 
     id_ = record[param]
     if param == "default_team":
-        default = interaction.client.flashscore.get_team(id_)
+        default = interaction.client.cache.get_team(id_)
     else:
-        default = interaction.client.flashscore.get_competition(id=id_)
+        default = interaction.client.cache.get_competition(id=id_)
 
     if default is None:
         interaction.extras["default"] = None
@@ -350,12 +354,12 @@ async def choose_recent_fixture(
     """Allow the user to choose from the most recent games of a fixture"""
     page = await interaction.client.browser.new_page()
     try:
-        fixtures = await fsr.results(page, interaction.client.flashscore)
+        fixtures = await fsr.results(page, interaction.client.cache)
     finally:
         await page.close()
 
     view = FixtureSelect(interaction.user, fixtures)
-    await interaction.response.send_message(view=view, embed=view.pages[0])
+    await interaction.response.send_message(view=view, embed=view.embeds[0])
     view.message = await interaction.original_response()
     await view.wait()
 
@@ -371,7 +375,7 @@ class TeamTransformer(Transformer):
         self, interaction: Interaction, current: str, /
     ) -> list[Choice[str]]:
         """Autocomplete from list of stored teams"""
-        teams = list(interaction.client.flashscore.teams)
+        teams = list(interaction.client.cache.teams)
         teams.sort(key=lambda x: x.title)
 
         # Run Once - Set Default for interaction.
@@ -406,13 +410,14 @@ class TeamTransformer(Transformer):
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> Team | None:
-        if fsr := interaction.client.flashscore.get_team(value):
+        if fsr := interaction.client.cache.get_team(value):
             return fsr
 
         teams = await search(value, "team", interaction)
 
         view = TeamSelect(interaction.user, teams)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.send_message(view=view, embed=emb)
         view.message = await interaction.original_response()
         await view.wait()
         if not view.team:
@@ -431,7 +436,7 @@ class FixtureTransformer(Transformer):
         cur = current.casefold()
 
         choices: list[Choice[str]] = []
-        for i in interaction.client.flashscore.games:
+        for i in interaction.client.cache.games:
             ac_row = i.ac_row.casefold()
             if cur and cur not in ac_row:
                 continue
@@ -457,17 +462,18 @@ class FixtureTransformer(Transformer):
         self, interaction: Interaction, value: str, /
     ) -> Fixture | None:
         """Try to convert input to a fixture"""
-        games = interaction.client.flashscore.games
+        games = interaction.client.cache.games
         if fix := next((i for i in games if i.id == value), None):
             return fix
 
-        if fsr := interaction.client.flashscore.get_team(value):
+        if fsr := interaction.client.cache.get_team(value):
             return await choose_recent_fixture(interaction, fsr)
 
         teams = await search(value, "team", interaction)
 
         view = TeamSelect(interaction.user, teams)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.send_message(view=view, embed=emb)
         view.message = await interaction.original_response()
         await view.wait()
 
@@ -486,7 +492,7 @@ class TFCompetitionTransformer(Transformer):
     ) -> list[Choice[str]]:
         """Autocomplete from list of stored competitions"""
 
-        comps = interaction.client.flashscore.competitions
+        comps = interaction.client.cache.competitions
         lgs = sorted(comps, key=lambda x: x.title)
 
         if "default" not in interaction.extras:
@@ -519,7 +525,7 @@ class TFCompetitionTransformer(Transformer):
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
     ) -> Competition | None:
-        if fsr := interaction.client.flashscore.get_competition(id=value):
+        if fsr := interaction.client.cache.get_competition(id=value):
             return fsr
 
         if "http" in value:
@@ -533,7 +539,8 @@ class TFCompetitionTransformer(Transformer):
         comps = await search(value, "comp", interaction)
 
         view = CompetitionSelect(interaction.user, comps)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        emb = view.embeds[0]
+        await interaction.response.send_message(view=view, embed=emb)
         view.message = await interaction.original_response()
         await view.wait()
         return view.competition
@@ -547,9 +554,7 @@ class LiveCompTransformer(TFCompetitionTransformer):
     ) -> list[Choice[str]]:
         """Autocomplete from list of stored competitions"""
 
-        leagues = set(
-            i.competition for i in interaction.client.flashscore.games
-        )
+        leagues = set(i.competition for i in interaction.client.cache.games)
         leagues = [i for i in leagues if i is not None]
         leagues.sort(key=lambda i: i.name)
         curr = current.casefold()
@@ -588,7 +593,7 @@ class UniversalTransformer(Transformer):
         cur = value.casefold()
         opts: list[Choice[str]] = []
 
-        cln = interaction.client.flashscore
+        cln = interaction.client.cache
 
         pool = None
         if interaction.command is None:
@@ -614,7 +619,7 @@ class UniversalTransformer(Transformer):
         self, interaction: Interaction, value: str
     ) -> Any:
         """Return the first Fixture, Competition, or Team Found"""
-        cln = interaction.client.flashscore
+        cln = interaction.client.cache
         pool = cln.teams + cln.competitions + cln.games
 
         # TODO: Fallback Search

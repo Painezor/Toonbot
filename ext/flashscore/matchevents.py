@@ -24,130 +24,97 @@ if TYPE_CHECKING:
 logger = logging.getLogger("matchevents")
 
 
-def parse_header(i: html.HtmlElement, fixture: BaseFixture) -> None:
-    """Store Penalties"""
-    text = [x.strip() for x in i.xpath(".//text()")]
-    if "Penalties" in text:
-        try:
-            fixture.home.pens = int(text[1])
-            fixture.away.pens = int(text[3])
-            logger.info("Parsed a 2 part penalties OK!!")
-        except IndexError:
-            # If Penalties are still in progress, it's actually
-            # in format ['Penalties', '1 - 2']
-            _, pen_string = text
-            home, away = pen_string.split(" - ")
-            fixture.home.pens = int(home)
-            fixture.away.pens = int(away)
+class IncidentParser:
+    """A parser to generate matchincident classes from a fixture's html"""
 
+    def __init__(self, fixture: BaseFixture, tree: html.HtmlElement) -> None:
+        self.fixture = fixture
+        self.tree = tree
 
-def parse_events(
-    fixture: BaseFixture, tree: html.HtmlElement
-) -> list[MatchIncident]:
-    """Get a list of match events"""
-    events: list[MatchIncident] = []
-    for i in tree.xpath('.//div[contains(@class, "verticalSections")]/div'):
-        # Detection of Teams
-        team_detection = i.attrib["class"]
-        if "Header" in team_detection:
-            parse_header(i, fixture)
-            continue
+        self.incidents: list[MatchIncident] = []
+        self.parse()
 
-        try:
-            # event node -- if we can't find one, we can't parse one.
-            node = i.xpath('./div[contains(@class, "incident")]')[0]
-        except IndexError:
-            continue
+    def parse(self):
+        """Find what parser we need to use and send data to it"""
+        xpath = './/div[contains(@class, "verticalSections")]/div'
+        for i in self.tree.xpath(xpath):
+            team_detection = i.attrib["class"]
+            if "Header" in team_detection:
+                self.parse_header(i)
+                continue
 
-        svg_t = "".join(node.xpath(".//svg//text()")).strip()
-        svg_cl = "".join(node.xpath(".//svg/@class")).strip()
-        sub_i = "".join(node.xpath(".//div[@class='smv__subIncident']/text()"))
+            try:
+                # event node -- if we can't find one, we can't parse one.
+                node = i.xpath('./div[contains(@class, "incident")]')[0]
+            except IndexError:
+                continue
 
-        logger.info(
-            "svg_text: %s, svg_class: %s, sub_i: %s", svg_t, svg_cl, sub_i
-        )
+            class_ = "".join(node.xpath(".//svg/@class")).strip()
 
-        # Try to figure out what kind of event this is.
-        if svg_cl == "soccer":
-            # This is a goal.
+            try:
+                event = {
+                    "card-ico yellowCard-ico": Booking,
+                    "footballOwnGoal-ico": OwnGoal,
+                    "redCard-ico": RedCard,
+                    "redyellowcard-ico": SecondYellow,
+                    "soccer": self.parse_goal(node),
+                    "substitution": Substitution,
+                    "warning": self.parse_warning(node),
+                    "var": VAR,
+                }[class_](self.fixture, node)
 
-            if sub_i == "(Penalty)":
-                event = Penalty(fixture)
+                if "home" in team_detection:
+                    event.team = self.fixture.home.team
+                elif "away" in team_detection:
+                    event.team = self.fixture.away.team
 
-            elif sub_i:
-                logger.info("Unhandled goal sub_incident %s", sub_i)
-                event = Goal(fixture)
+                xpath = './/div[contains(@class, "timeBox")]//text()'
+                event.time = "".join(node.xpath(xpath)).strip()
 
-            else:
-                event = Goal(fixture)
+                self.incidents.append(event)
+            except KeyError:
+                text = "".join(node.xpath(".//svg//text()")).strip()
+                logger.info("parsing match events on %s", self.fixture.url)
+                logger.error("Match Event Not Handled correctly.")
+                logger.info("text: [%s], class: [%s]", text, class_)
+                xpath = ".//div[@class='smv__subIncident']/text()"
+                sub_i = "".join(node.xpath(xpath))
+                if sub_i:
+                    logger.info("sub_incident: %s", sub_i)
 
-        elif "footballOwnGoal-ico" in svg_cl:
-            event = OwnGoal(fixture)
+    def parse_goal(self, node: html.HtmlElement) -> Type[Goal]:
+        """Parse a Goal"""
+        subi = "".join(node.xpath(".//div[@class='smv__subIncident']/text()"))
 
-        elif "Penalty missed" in sub_i:
-            event = Penalty(fixture, missed=True)
+        if subi:
+            try:
+                return {"(Penalty)": Penalty}[subi]
+            except KeyError:
+                logger.info("Unhandled goal sub_incident %s", subi)
+        return Goal
 
-        # cards
-        elif (
-            "Yellow card / Red card" in svg_t
-            or "redyellowcard-ico" in svg_cl.casefold()
-        ):
-            event = SecondYellow(fixture)
+    def parse_warning(self, node: html.HtmlElement) -> Type[MatchIncident]:
+        """Parse a Warning (usually penalty missed...)"""
+        subi = "".join(node.xpath(".//div[@class='smv__subIncident']/text()"))
+        if subi == "(Penalty missed)":
+            return Penalty
+        raise KeyError
 
-        elif "redCard-ico" in svg_cl:
-            event = RedCard(fixture)
-
-        elif "yellowCard-ico" in svg_cl:
-            event = Booking(fixture)
-
-        elif "card-ico" in svg_cl:
-            event = Booking(fixture)
-            logger.info("Fallback reached, card-ico")
-
-        # VAR
-        elif "var" in svg_cl:
-            event = VAR(fixture)
-            if svg_cl != "var":
-                logger.info("var has svg_clas %s", svg_cl)
-
-        # Subs
-        elif "substitution" in svg_cl:
-            event = Substitution(fixture)
-            event.set_player_off(node)
-
-        else:
-            logger.info("parsing match events on %s", fixture.url)
-            logger.error("Match Event Not Handled correctly.")
-            logger.info("text: %s, class: %s", svg_t, svg_cl)
-            if sub_i:
-                logger.info("sub_incident: %s", sub_i)
-
-            event = MatchIncident(fixture)
-
-        # Event Player.
-        event.set_player(node)
-
-        # Assist of a goal.
-        if isinstance(event, Goal):
-            event.set_assist(node)
-
-        if "home" in team_detection:
-            event.team = fixture.home.team
-        elif "away" in team_detection:
-            event.team = fixture.away.team
-
-        xpath = './/div[contains(@class, "timeBox")]//text()'
-        time = "".join(node.xpath(xpath)).strip()
-        event.time = time
-        event.note = svg_t
-
-        # Description of the event.
-        xpath = './/div[contains(@class, "incidentIcon")]//@title'
-        title = "".join(node.xpath(xpath)).strip().replace("<br />", " ")
-        event.description = title
-
-        events.append(event)
-    return events
+    def parse_header(self, i: html.HtmlElement) -> None:
+        """Store Penalties"""
+        text = [x.strip() for x in i.xpath(".//text()")]
+        if "Penalties" in text:
+            try:
+                self.fixture.home.pens = int(text[1])
+                self.fixture.away.pens = int(text[3])
+                logger.info("Parsed a 2 part penalties OK!!")
+            except IndexError:
+                # If Penalties are still in progress, it's actually
+                # in format ['Penalties', '1 - 2']
+                _, pen_string = text
+                home, away = pen_string.split(" - ")
+                self.fixture.home.pens = int(home)
+                self.fixture.away.pens = int(away)
 
 
 class MatchIncident:
@@ -163,17 +130,19 @@ class MatchIncident:
     note: str | None = None
     time: str | None = None
 
-    def __init__(self, fixture: BaseFixture) -> None:
+    def __init__(self, fixture: BaseFixture, node: html.HtmlElement) -> None:
         self.fixture = fixture
+        self.node = node
+        self.set_player()
 
-    def set_assist(self, node: html.HtmlElement) -> None:
+    def set_assist(self) -> None:
         xpath = './/div[contains(@class, "assist")]//text()'
-        if a_name := "".join(node.xpath(xpath)):
+        if a_name := "".join(self.node.xpath(xpath)):
             a_name = a_name.strip("()")
 
             xpath = './/div[contains(@class, "assist")]//@href'
 
-            a_url = "".join(node.xpath(xpath))
+            a_url = "".join(self.node.xpath(xpath))
             if a_url:
                 a_url = FLASHSCORE + a_url
             try:
@@ -182,11 +151,16 @@ class MatchIncident:
                 first, second = None, a_name
             self.assist = FSPlayer(forename=first, surname=second, url=a_url)
 
-    def set_player(self, node: html.HtmlElement) -> None:
+    def set_description(self) -> None:
+        xpath = './/div[contains(@class, "incidentIcon")]//@title'
+        title = "".join(self.node.xpath(xpath)).strip().replace("<br />", " ")
+        self.description = title
+
+    def set_player(self) -> None:
         xpath = './/a[contains(@class, "playerName")]//text()'
-        if name := "".join(node.xpath(xpath)).strip():
+        if name := "".join(self.node.xpath(xpath)).strip():
             xpath = './/a[contains(@class, "playerName")]//@href'
-            url = "".join(node.xpath(xpath)).strip()
+            url = "".join(self.node.xpath(xpath)).strip()
             if url:
                 url = FLASHSCORE + url
 
@@ -202,7 +176,10 @@ class Substitution(MatchIncident):
 
     player_off: FSPlayer | None = None
 
-    def set_player_off(self, node: html.HtmlElement) -> None:
+    def __init__(self, fixture: BaseFixture, node: html.HtmlElement) -> None:
+        super().__init__(fixture, node)
+
+        # Set player_off
         xpath = './/div[contains(@class, "incidentSubOut")]/a/'
         if name := "".join(node.xpath(xpath + "text()")):
             name = name.strip()
@@ -233,6 +210,11 @@ class Goal(MatchIncident):
     """A Generic Goal Event"""
 
     assist: FSPlayer | None = None
+
+    def __init__(self, fixture: BaseFixture, node: html.HtmlElement) -> None:
+        super().__init__(fixture, node)
+        self.set_assist()
+        self.set_description()
 
     def __str__(self) -> str:
         output = [self.timestamp]
@@ -273,8 +255,13 @@ class Penalty(Goal):
 
     missed: bool
 
-    def __init__(self, fixture: BaseFixture, missed: bool = False) -> None:
-        super().__init__(fixture)
+    def __init__(
+        self,
+        fixture: BaseFixture,
+        node: html.HtmlElement,
+        missed: bool = False,
+    ) -> None:
+        super().__init__(fixture, node)
         self.missed = missed
 
     @property
@@ -346,6 +333,11 @@ class SecondYellow(RedCard):
 class Booking(MatchIncident):
     """An object representing the event of a player being given
     a yellow card"""
+
+    def __init__(self, fixture: BaseFixture, node: html.HtmlElement) -> None:
+        super().__init__(fixture, node)
+        self.set_player()
+        self.set_description()
 
     def __str__(self) -> str:
         if self.time is None:

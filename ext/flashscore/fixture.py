@@ -14,7 +14,7 @@ from ext.utils import timed_events
 from .abc import BaseFixture, Participant, BaseTeam
 from .constants import FLASHSCORE
 from .gamestate import GameState as GS
-from .matchevents import parse_events
+from .matchevents import IncidentParser
 from .news import HasNews
 from .photos import MatchPhoto
 from .table import HasTable
@@ -502,7 +502,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
         if infobox := tree.xpath(xpath):
             self.infobox = "".join(infobox)
 
-        self.incidents = parse_events(self, tree)
+        self.incidents = IncidentParser(self, tree).incidents
         self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
 
 

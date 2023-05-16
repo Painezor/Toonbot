@@ -197,7 +197,7 @@ class Tv(commands.Cog):
             rows = [f"No televised matches found, check online at {embed.url}"]
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        view = view_utils.Paginator(interaction.user, embeds)
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
         return await view.handle_page(interaction)
 
 

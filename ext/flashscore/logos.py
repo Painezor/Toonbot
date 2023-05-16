@@ -17,5 +17,6 @@ class HasLogo:
             logo = page.locator("img.heading__logo")
             logo_url = await logo.get_attribute("src")
             if logo_url is not None:
-                logo_url = FLASHSCORE + logo_url
+                logo_url = logo_url.rsplit("/", maxsplit=1)[-1]
+                logo_url = FLASHSCORE + "/res/image/data/" + logo_url
                 self.logo_url = logo_url

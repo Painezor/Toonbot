@@ -133,7 +133,7 @@ class QuoteEmbed(discord.Embed):
         self.description = quote["message_content"]
 
 
-class QuotesView(view_utils.AsyncPaginator):
+class QuotesView(view_utils.Paginator):
     """Generic Paginator that returns nothing."""
 
     def __init__(

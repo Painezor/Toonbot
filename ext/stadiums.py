@@ -261,7 +261,9 @@ class Stadiums(commands.Cog):
             return await reply(embed=embed, ephemeral=True)
 
         view = StadiumBrowser(interaction.user, stadiums)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        await interaction.response.send_message(
+            view=view, embed=view.embeds[0]
+        )
 
 
 async def setup(bot: Bot):

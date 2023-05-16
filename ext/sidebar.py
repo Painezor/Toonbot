@@ -11,8 +11,8 @@ import pathlib
 import re
 from typing import TYPE_CHECKING, Any
 
-from asyncpraw import Reddit
-from asyncprawcore import TooLarge
+from asyncpraw import Reddit  # type: ignore
+from asyncprawcore import TooLarge  # type: ignore
 import discord
 from discord.ext import commands, tasks
 from lxml import html
@@ -88,16 +88,16 @@ class NUFCSidebar(commands.Cog):
     @tasks.loop(hours=6)
     async def sidebar_task(self) -> None:
         """Background task, repeat every 6 hours to update the sidebar"""
-        if not self.bot.browser or not self.bot.flashscore.teams:
+        if not self.bot.browser or not self.bot.cache.teams:
             await asyncio.sleep(60)
             self.sidebar_task.change_interval(seconds=60)
             return
         self.sidebar_task.change_interval(hours=6)
 
         markdown = await self.make_sidebar()
-        subreddit = await self.reddit.subreddit("NUFC")
-        page = await subreddit.wiki.get_page("config/sidebar")
-        await page.edit(content=markdown)
+        subreddit = await self.reddit.subreddit("NUFC")  # type: ignore
+        page = await subreddit.wiki.get_page("config/sidebar")  # type: ignore
+        await page.edit(content=markdown)  # type: ignore
 
         time = datetime.datetime.now()
         logger.info("%s The sidebar of r/NUFC was updated.", time)
@@ -115,14 +115,14 @@ class NUFCSidebar(commands.Cog):
 
         wiki_content = wiki.content_md
 
-        fsr = self.bot.flashscore.get_team(team_id)
+        fsr = self.bot.cache.get_team(team_id)
         if fsr is None:
             raise ValueError(f"Team with ID {team_id} not found in db")
 
         page = await self.bot.browser.new_page()
         try:
-            fixtures = await fsr.fixtures(page, self.bot.flashscore)
-            results = await fsr.results(page, self.bot.flashscore)
+            fixtures = await fsr.fixtures(page, self.bot.cache)
+            results = await fsr.results(page, self.bot.cache)
         finally:
             await page.close()
 
@@ -141,6 +141,8 @@ class NUFCSidebar(commands.Cog):
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{pad}\n"
 
         xpath = ".//tbody/tr"
+
+        name = qry.casefold()
         for i in tree.xpath(xpath):
             items = i.xpath(".//td//text()")
 
@@ -155,14 +157,9 @@ class NUFCSidebar(commands.Cog):
 
             # [rank] [t] [p, w, d, l] [gd, pts]
             cols = [items[0], team] + items[2:6] + items[8:10]
-
-            name = qry.casefold()
             tem = team.casefold()
-
-            table_rows: list[str] = []
-            for i in cols:
-                table_rows.append(f"**{i}**" if name in tem else i)
-            table += " | ".join(table_rows) + "\n"
+            rows: list[str] = [f"**{i}**" if name in tem else i for i in cols]
+            table += " | ".join(rows) + "\n"
 
         # Get match threads
         last_opponent = qry.split(" ")[0]

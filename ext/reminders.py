@@ -97,11 +97,7 @@ class RemindModal(discord.ui.Modal):
                  reminder_content, created_time, target_time, user_id)
                  VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *"""
 
-        args = [mid, cid, gid, dsc, time, rmd, uid]
-        async with bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                record = await connection.fetchrow(sql, *args)
-
+        record = await bot.db.fetchrow(sql, mid, cid, gid, dsc, time, rmd, uid)
         if record is None:
             return
 
@@ -241,8 +237,8 @@ class Reminders(commands.Cog):
         embed = discord.Embed(colour=0x7289DA, title="Your reminders")
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        view = view_utils.Paginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=view.pages[0])
+        view = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=view, embed=embeds[0])
 
 
 async def setup(bot: Bot | PBot) -> None:

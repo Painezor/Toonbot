@@ -113,7 +113,8 @@ class BlogEmbed(discord.Embed):
 
     def parse_info(self, node: html.HtmlElement) -> None:
         """Handling of supership Stars"""
-        if node.attrib.get("class", None) == "superShipStar":
+        cls_ = node.attrib.get("class", None)
+        if cls_ == "superShipStar":
             self.text += r"\⭐"
         else:
             _cls = node.attrib["class"]
@@ -275,7 +276,7 @@ class BlogEmbed(discord.Embed):
         return embed
 
 
-class DevBlogView(view_utils.AsyncPaginator):
+class DevBlogView(view_utils.Paginator):
     """Browse Dev Blogs"""
 
     def __init__(self, invoker: User, pages: list[api.DevBlog]) -> None:
@@ -362,6 +363,7 @@ class BlogCog(commands.Cog):
         for blog_id in await api.get_dev_blogs():
             if blog_id in cached:
                 continue
+
             blog = api.DevBlog(blog_id)
             await self.save_blog(blog)
 

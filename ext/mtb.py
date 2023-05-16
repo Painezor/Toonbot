@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, cast, Any
 
 import asyncpg
-import asyncpraw
+import asyncpraw  # type: ignore
 import discord
 from discord.ext import commands, tasks
 from lxml import html
@@ -41,6 +41,14 @@ class MatchThread:
         self.settings: asyncpg.Record = settings
         self.mtb_history: asyncpg.Record = record
 
+        from ext.sidebar import NUFCSidebar
+
+        cog = bot.get_cog(NUFCSidebar.__name__)
+        if isinstance(cog, NUFCSidebar):
+            self.reddit_teams = cog.reddit_teams
+        else:
+            self.reddit_teams = []
+
         # Fetch once
         self.t_v = None
 
@@ -58,7 +66,7 @@ class MatchThread:
         # Pre/Match/Post
         self.pre = None
         self.match = None
-        self.post: asyncpraw.models.Submission = None
+        self.post = None
 
         # Browser Page
         self.page: Page = page
@@ -500,13 +508,13 @@ class MatchThreadCommands(commands.Cog):
         for i in records:
             # Get upcoming games from flashscore.
             fsid = i["team_flashscore_id"]
-            if (team := self.bot.flashscore.get_team(fsid)) is None:
+            if (team := self.bot.cache.get_team(fsid)) is None:
                 continue
 
             page = await self.bot.browser.new_page()
 
             try:
-                fixtures = await team.fixtures(page, self.bot.flashscore)
+                fixtures = await team.fixtures(page, self.bot.cache)
             finally:
                 await page.close()
 
