@@ -26,13 +26,12 @@ logger = logging.getLogger("Devblog")
 class BlogEmbed(discord.Embed):
     """Convert a Dev Blog to an Embed"""
 
-    text: str = ""
-    images: list[str] = []
-
     def __init__(self, blog: api.DevBlog) -> None:
         super().__init__(url=blog.url, colour=0x00FFFF)
         txt = f"World of Warships Development Blog #{blog.id}"
         self.set_author(name=txt, url=blog.url)
+        self.text: str = ""
+        self.images: list[str] = []
 
     def finalise(self) -> None:
         """Truncate & apply image"""
@@ -44,7 +43,8 @@ class BlogEmbed(discord.Embed):
         else:
             self.description = final
 
-        self.set_image(url=self.images[0] or None)  # Null coalesce
+        if self.images:
+            self.set_image(url=self.images[0])  # Null coalesce
 
     @staticmethod
     def get_emote(node: html.HtmlElement) -> str:
@@ -98,6 +98,9 @@ class BlogEmbed(discord.Embed):
 
     def parse_header(self, node: html.HtmlElement) -> None:
         """Parse Header Blocks and Embolden"""
+        if node.getprevious() is None:
+            self.text += "\n"
+
         self.text += " **"
         if node.text:
             self.text += node.text
@@ -117,8 +120,11 @@ class BlogEmbed(discord.Embed):
         if cls_ == "superShipStar":
             self.text += r"\⭐"
         else:
-            _cls = node.attrib["class"]
-            logger.error("'i' tag %s containing text %s", _cls, node.text)
+            try:
+                _cls = node.attrib["class"]
+                logger.error("'i' tag %s containing text %s", _cls, node.text)
+            except KeyError:
+                pass
 
         if node.text:
             self.text += node.text
@@ -160,10 +166,6 @@ class BlogEmbed(discord.Embed):
         if "article-cut" in node.classes:
             return self.parse_br(node)
 
-        if "spoiler-title" in node.classes:
-            self.text += f"```diff\n{node.text}\n- Check original article```"
-            return
-
         if node.text:
             self.text += node.text
 
@@ -176,13 +178,13 @@ class BlogEmbed(discord.Embed):
         """Parse <li> tags"""
         # Get a count of total parent ol/ul/lis
         if node.text:
-            depth = sum(1 for _ in node.iterancestors("ol", "ul", "li"))
-            bullet = {1: "•", 2: "∟○"}[depth]
+            depth = sum(1 for _ in node.iterancestors("ol", "ul"))
+            try:
+                bullet = {1: "•", 2: "∟○", 3: "└─⁍"}[depth]
+            except KeyError:
+                bullet = "•"
+                logger.error("invalid depth %s", depth)
             self.text += f"\n{bullet} {node.text}"
-
-        if node.getnext() is None:
-            if len(node) == 0:  # Number of children
-                self.text += "\n"
 
         self.parse(node)
 
@@ -193,7 +195,7 @@ class BlogEmbed(discord.Embed):
         return self.parse_p(node)
 
     def parse_ul(self, node: html.HtmlElement) -> None:
-        return self.parse_ul(node)
+        return self.parse_p(node)
 
     def parse_p(self, node: html.HtmlElement) -> None:
         """Parse <p> tags"""
@@ -205,7 +207,8 @@ class BlogEmbed(discord.Embed):
         if node.tail:
             self.text += node.tail
 
-        self.text += "\n"
+        if node.text:
+            self.text += "\n"
 
     def parse_u(self, node: html.HtmlElement) -> None:
         """__Underline__"""
@@ -235,20 +238,23 @@ class BlogEmbed(discord.Embed):
     def parse(self, tree: html.HtmlElement) -> None:
         """Recursively parse a single node and it's children"""
         for node in tree.iterchildren():
-            tag = node.tag
-            tail = node.tail
-            text = node.text
+            if node.text:
+                node.text = node.text.strip()
+            if node.tail:
+                node.tail = node.tail.strip()
             try:
                 {
                     "a": self.parse_a,
                     "br": self.parse_br,
                     "div": self.parse_div,
                     "em": self.parse_em,
-                    "i": self.parse_info,
                     "h2": self.parse_h2,
                     "h3": self.parse_h3,
                     "h4": self.parse_h4,
+                    "i": self.parse_info,
                     "img": self.parse_img,
+                    "li": self.parse_li,
+                    "ol": self.parse_ol,
                     "p": self.parse_p,
                     "span": self.parse_span,
                     "strong": self.parse_header,
@@ -258,11 +264,12 @@ class BlogEmbed(discord.Embed):
                     "th": self.parse_th,
                     "tr": self.parse_tr,
                     "u": self.parse_u,
-                    "ol": self.parse_ol,
                     "ul": self.parse_ul,
-                    "li": self.parse_li,
-                }[tag](node)
+                }[node.tag.strip()](node)
             except KeyError:
+                tag = node.tag
+                tail = node.tail
+                text = node.text
                 logger.error("Unhandled tag: [%s]: %s|%s", tag, text, tail)
                 continue
 
@@ -270,7 +277,7 @@ class BlogEmbed(discord.Embed):
     async def create(cls, blog: api.DevBlog) -> discord.Embed:
         html = await blog.fetch_text()
         embed = cls(blog)
-        embed.title = html.xpath('.//h2[@class="article__title"]/text()')[0]
+        embed.title = blog.title
         embed.parse(html)
         embed.finalise()
         return embed
@@ -325,7 +332,9 @@ class BlogCog(commands.Cog):
         self.cache: list[api.DevBlog] = []
 
         self.task: asyncio.Task[None] = self.blog_loop.start()
-        self.channels: list[discord.abc.Messageable] = []
+
+    async def cog_load(self) -> None:
+        await self.get_blogs()
 
     async def save_blog(self, blog: api.DevBlog) -> None:
         """Store cached inner text of a specific dev blog"""
@@ -357,9 +366,10 @@ class BlogCog(commands.Cog):
     @tasks.loop(seconds=60)
     async def blog_loop(self) -> None:
         """Loop to get the latest dev blog articles"""
-        if not [cached := [r.id for r in self.cache]]:
+        if not [cached := [int(r.id) for r in self.cache]]:
             return
 
+        sql = """SELECT * FROM dev_blog_channels"""
         for blog_id in await api.get_dev_blogs():
             if blog_id in cached:
                 continue
@@ -369,26 +379,17 @@ class BlogCog(commands.Cog):
 
             embed = await BlogEmbed.create(blog)
 
-            for i in self.channels:
-                try:
-                    await i.send(embed=embed)
-                except (AttributeError, discord.HTTPException):
+            return
+            for r in await self.bot.db.fetch(sql, timeout=10):
+                channel = self.bot.get_channel(r["channel_id"])
+                if not isinstance(channel, discord.TextChannel):
                     continue
 
-    @blog_loop.before_loop
-    async def update_cache(self) -> None:
-        """Assure dev blog channel list is loaded."""
-        self.channels.clear()
-
-        await self.get_blogs()
-
-        sql = """SELECT * FROM dev_blog_channels"""
-        records = await self.bot.db.fetch(sql, timeout=10)
-
-        for r in records:
-            chan = self.bot.get_channel(r["channel_id"])
-            if isinstance(chan, discord.abc.Messageable):
-                self.channels.append(chan)
+                try:
+                    await channel.send(embed=embed)
+                except discord.HTTPException:
+                    logger.error("Failed to send blog", exc_info=True)
+                    continue
 
     async def get_blogs(self) -> None:
         """Get a list of old dev blogs stored in DB"""
@@ -399,6 +400,7 @@ class BlogCog(commands.Cog):
         self.cache = [
             api.DevBlog(r["id"], r["title"], r["text"]) for r in records
         ]
+        logger.info("Get_blogs made %s blogs", len(self.cache))
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(manage_channels=True)
@@ -431,7 +433,6 @@ class BlogCog(commands.Cog):
         embed.description = output
         embed_utils.user_to_footer(embed, interaction.user)
         await interaction.response.send_message(embed=embed)
-        await self.update_cache()
 
     @discord.app_commands.command()
     @discord.app_commands.autocomplete(search=db_ac)

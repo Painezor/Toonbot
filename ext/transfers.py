@@ -68,18 +68,6 @@ DEFAULT_LEAGUES = [
 ]
 
 
-def team_to_string(team: tfm.TFTeam) -> str:
-    flg = " ".join(flags.get_flags(team.country))
-    markdown = f"{flg} [{team.name}]({team.link})"
-    olg = team.league
-    if olg:
-        if olg.link:
-            markdown += f" ([{olg.name}]({olg.link}))"
-        else:
-            markdown += f" ({olg.name})"
-    return markdown
-
-
 class TransferEmbed(discord.Embed):
     """An embed representing a transfermarkt player transfer."""
 
@@ -89,16 +77,33 @@ class TransferEmbed(discord.Embed):
         flg = " ".join(flags.get_flags(transfer.player.country))
         self.title = f"{flg} {transfer.player.name}"
 
-        self.description = (
-            f"**Age**: {transfer.player.age}\n"
+        self.description = ""
+        if transfer.player.age is not None:
+            self.description += f"**Age**: {transfer.player.age}\n"
+
+        self.description += (
             f"**Position**: {transfer.player.position}\n"
-            f"**From**: {team_to_string(transfer.old_team)}\n"
-            f"**To**: {team_to_string(transfer.new_team)}\n"
-            f"**Fee**: {transfer.loan_fee}\n"
+            f"**From**: {self.parse_team(transfer.old_team)}\n"
+            f"**To**: {self.parse_team(transfer.new_team)}\n"
+            f"**Fee**: {self.parse_fee(transfer)}\n"
             f"{timed_events.Timestamp().relative}"
         )
         if transfer.player.picture and "http" in transfer.player.picture:
             self.set_thumbnail(url=transfer.player.picture)
+
+    @staticmethod
+    def parse_fee(tf: tfm.Transfer) -> str:
+        date = "" if tf.date is None else f": {tf.date}"
+        return f"[{tf.fee.fee.title()}]({tf.fee.url}) {date}"
+
+    @staticmethod
+    def parse_team(team: tfm.TFTeam) -> str:
+        flg = " ".join(flags.get_flags(team.country))
+        markdown = f"{flg} [{team.name}]({team.link})"
+        olg = team.league
+        if olg and olg.name:
+            markdown += f" ([{olg.name}]({olg.link}))"
+        return markdown
 
 
 class TFCompetitionTransformer(discord.app_commands.Transformer):
@@ -424,9 +429,6 @@ class Transfers(commands.Cog):
                      = transfers_leagues.channel_id WHERE link in ($1, $2)"""
             records = await self.bot.db.fetch(sql, old, new)
 
-            if not records:
-                continue
-
             logger.info("Dispatching Transfer to %s channels", len(records))
 
             embed = TransferEmbed(i)
@@ -434,8 +436,12 @@ class Transfers(commands.Cog):
             for record in records:
                 channel = self.bot.get_channel(record["channel_id"])
 
-                if not isinstance(channel, discord.abc.Messageable):
+                if not isinstance(channel, discord.TextChannel):
                     bad.append(record["channel_id"])
+                    continue
+
+                if channel.is_news():
+                    bad.append(channel.id)
                     continue
 
                 try:
@@ -443,8 +449,12 @@ class Transfers(commands.Cog):
                 except discord.Forbidden:
                     bad.append(channel.id)
 
+            DEBUG_CHANNEL = self.bot.get_channel(1108036536710209546)
+            if isinstance(DEBUG_CHANNEL, discord.TextChannel):
+                await DEBUG_CHANNEL.send(embed=embed)
+
         if bad:
-            logger.info("Found %s bad transfer channels", len(bad))
+            logger.info("Found %s bad transfer channels", bad)
 
     tf = discord.app_commands.Group(
         name="transfer_ticker",

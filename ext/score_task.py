@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands, tasks
-from lxml import html, etree
-from playwright.async_api import Page, TimeoutError as PWTimeout
+from lxml import etree, html
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PWTimeout
 
 from ext import flashscore as fs
 
@@ -21,8 +22,9 @@ if TYPE_CHECKING:
 logger = getLogger("ScoreLoop")
 
 EVT = fs.EventType
-MAX_SCORE_WORKERS = 5
 CURRENT_DATETIME_OFFSET = 2  # Hour difference between us and flashscore
+MAX_RECURSION = 5
+MAX_SCORE_WORKERS = 5
 FXE = "fixture_event"  # Just a string for dispatching events.
 
 
@@ -129,20 +131,19 @@ class ScoreLoop(commands.Cog):
             teams += [item.home.team, item.away.team]
             if item.competition not in save:
                 save.append(item.competition)
+
+        # Bulk Save data.
         await self.bot.cache.save_competitions([i for i in save if i])
         await self.bot.cache.save_teams(teams)
 
-        if failed:
-            self._pending = failed
+        self._pending = failed
+        if failed and recursion < MAX_RECURSION:
             return await self.handle_pending_fixtures(recursion + 1)
 
-        self._pending.clear()
         # Destroy all of our workers
         while not self.score_workers.empty():
             page = await self.score_workers.get()
             await page.close()
-
-        # Bulk Save our competitions.
 
     # Core Loop
     def handle_cards(self, fix: fs.Fixture, tree: html.HtmlElement) -> None:

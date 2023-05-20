@@ -22,7 +22,11 @@ class HasTable:
         self, page: Page, button: str | None = None
     ) -> bytes | None:
         """Get the table from a flashscore page"""
-        await page.goto(self.table_url, timeout=5000)
+        try:
+            await page.goto(self.table_url, timeout=5000)
+        except PWTimeout:
+            logger.error("Timed out loading page %s", self.table_url)
+            return
 
         if button:
             loc = page.locator("button")

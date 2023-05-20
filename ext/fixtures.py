@@ -92,7 +92,7 @@ class FSEmbed(Embed):
         ...
 
     @classmethod
-    async def create(cls, obj: ...) -> Embed:
+    async def create(cls, obj: Any) -> Embed:
         """Create an embed based upon what type of fsobject is passed"""
 
         embed = cls(obj)
@@ -187,8 +187,15 @@ class StatsView(BaseView):
         view = cls(interaction.user, page, obj, parent=parent)
         await view.handle_buttons()
 
-        if output := "\n".join(str(i) for i in stats):
-            embed.description = f"```ini\n{output}```"
+        if stats:
+            dsc: list[str] = []
+            for i in stats:
+                home = i.home.rjust(4)
+                label = i.label.center(19)
+                away = i.away.ljust(4)
+                dsc.append(f"{home} [{label}] {away}")
+            out: str = "\n".join(dsc)
+            embed.description = f"```ini\n{out}```"
         else:
             embed.description = "Could not find stats for this game."
 
@@ -659,18 +666,23 @@ class TransfersView(view_utils.DropdownPaginator):
         rows: list[str] = []
         options: list[discord.SelectOption] = []
         for i in transfers:
-            opt = discord.SelectOption(label=i.player.name, emoji=i.emoji)
+            _ = fs.INBOUND_EMOJI if i.direction == "in" else fs.OUTBOUND_EMOJI
+            opt = discord.SelectOption(label=i.player.name, emoji=_)
             if i.team is not None:
                 opt.description = i.team.name
             options.append(opt)
-            rows.append(i.output)
+
+            pmd = f"[{i.player.name}]({i.player.url})"
+            tmd = f"[{i.team.name}]({i.team.url})" if i.team else "Free Agent"
+            date = timed_events.Timestamp(i.date).date
+            rows.append(f"{pmd} {_} {tmd}\n{date} {i.type}\n")
 
         teams = set(i.team for i in transfers if i.team is not None)
         team_sel: list[discord.SelectOption] = []
         for j in teams:
             assert j.url is not None
-            emo = fs.TEAM_EMOJI
-            opt = discord.SelectOption(label=j.title, value=j.url, emoji=emo)
+            _ = fs.TEAM_EMOJI
+            opt = discord.SelectOption(label=j.title, value=j.url, emoji=_)
             team_sel.append(opt)
         self.tm_dropdown.options = team_sel
 
@@ -771,7 +783,7 @@ class ArchiveSelect(view_utils.DropdownPaginator):
             country = obj.country
             season = fs.Competition(name=c_name, country=country, url=c_link)
             seasons.append(season)
-            rows.append(season.markdown)
+            rows.append(f"[{season.name}]({season.url})")
 
             opt = discord.SelectOption(label=c_name, value=c_link)
             if country is not None:
@@ -1138,13 +1150,12 @@ class FSView(view_utils.BaseView):
         if not isinstance(self.object, fs.Fixture):
             raise NotImplementedError
 
-        await self.object.refresh(self.page)
+        await self.object.fetch(self.page)
 
         assert self.object.competition is not None
         if self.object.competition.url is None:
             id_ = self.object.competition.id
-            comps = interaction.client.cache.competitions
-            cmp = next(i for i in comps if i.id == id_)
+            cmp = interaction.client.cache.get_competition(id=id_)
             self.object.competition = cmp
 
         embed = await FSEmbed.create(self.object)
@@ -1226,7 +1237,9 @@ class FixturesCog(commands.Cog):
     ) -> None:
         """Set the default team for your flashscore lookups"""
         embed = await FSEmbed.create(team)
-        embed.description = f"Commands will use  default team {team.markdown}"
+
+        md = f"[{team.name}]({team.url})"
+        embed.description = f"Commands will use default team {md}"
 
         if interaction.guild is None:
             raise commands.NoPrivateMessage
@@ -1320,6 +1333,19 @@ class FixturesCog(commands.Cog):
         page = await self.bot.browser.new_page()
         view = FSView(interaction.user, page, match)
         await view.frm.callback(interaction)
+
+    @discord.app_commands.command(name="tv")
+    @discord.app_commands.describe(match=FIXTURE)
+    async def tv(self, interaction: Interaction, match: fs.fx_tran) -> None:
+        """Find the TV information for a fixture"""
+        embed = FSEmbed(match)
+
+        if match.tv:
+            tv = ", ".join(f"[{i.name}]({i.link})" for i in match.tv)
+            embed.description = tv
+        else:
+            embed.description = "Could not find TV Info for this fixture"
+        await interaction.response.send_message(embed=embed)
 
     @discord.app_commands.command(name="summary")
     @discord.app_commands.describe(match=FIXTURE)

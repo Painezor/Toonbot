@@ -50,4 +50,5 @@ class DevBlog:
             async with session.get(self.url) as resp:
                 tree = html.fromstring(await resp.text())
 
+        self.title = tree.xpath('.//h2[@class="article__title"]/text()')[0]
         return tree.xpath('.//div[@class="article__content"]')[0]

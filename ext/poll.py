@@ -25,7 +25,6 @@ class PollView(view_utils.BaseView):
 
     def __init__(
         self,
-        invoker: User,
         question: str,
         answers: list[str],
         minutes: int,
@@ -37,7 +36,7 @@ class PollView(view_utils.BaseView):
         self.end = discord.utils.utcnow() + datetime.timedelta(minutes=minutes)
         self.ends_at = timed_events.Timestamp(self.end).countdown
 
-        super().__init__(invoker)
+        super().__init__(None)
 
         self.dropdown.options = [SelectOption(label=i) for i in answers]
 
@@ -141,10 +140,6 @@ class PollView(view_utils.BaseView):
         edit = interaction.response.edit_message
         return await edit(view=self, embed=embed)
 
-    async def interaction_check(self, _: discord.Interaction) -> bool:
-        """Always allow people to vote"""
-        return True
-
 
 class PollModal(discord.ui.Modal, title="Create a poll"):
     """UI Sent to user to ask them to create a poll."""
@@ -204,7 +199,7 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
             err = "Invalid number of minutes provided, defaulting to 60"
             embed.description = err
             await interaction.followup.send(embed=embed, ephemeral=True)
-        view = PollView(interaction.user, question, answers, time, votes)
+        view = PollView(question, answers, time, votes)
         await interaction.response.send_message(view=view)
         view.message = await interaction.original_response()
 

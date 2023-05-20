@@ -67,9 +67,11 @@ class TopScorer(BaseModel):
         text = f"`{str(self.rank).rjust(3)}.` {GOAL_EMOJI} {self.goals}"
         if self.assists:
             text += f" (+{self.assists})"
-        text += f" {self.player.flags[0]} {self.player.markdown}"
+
+        pmd = f"[{self.player.name}]({self.player.url})"
+        text += f" {self.player.flags[0]} {pmd}"
         if self.team:
-            text += f" ({self.team.markdown})"
+            text += f" ([{self.team.name}]({self.team.url}))"
         return text
 
 

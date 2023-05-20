@@ -15,7 +15,8 @@ WIP = (
     "```diff\n- This ship is still in testing and marked as Work in Progress\n"
     "- These values may not be final."
 )
-
+# Number of Expected ship upgrade slots.
+SLOTS = {1: 1, 2: 1, 3: 1, 4: 2, 5: 3, 6: 4, 7: 4, 8: 5, 9: 6, 10: 6, 11: 6}
 
 if TYPE_CHECKING:
     from painezbot import PBot
@@ -236,27 +237,7 @@ class OverviewEmbed(ShipEmbed):
         super().__init__(fitting.ship)
 
         ship = fitting.ship
-        tier = ship.tier
-        slots = ship.mod_slots
-
-        # Check for bonus Slots (Arkansas Beta, Z-35, …)
-        slts = {
-            1: 1,
-            2: 1,
-            3: 1,
-            4: 2,
-            5: 3,
-            6: 4,
-            7: 4,
-            8: 5,
-            9: 6,
-            10: 6,
-            11: 6,
-        }[tier]
-
-        if slots != slts:
-            text = f"This ship has {slots} upgrades instead of {slts}"
-            self.add_field(name="Special Upgrade Slots", value=text)
+        self.handle_irregular_slots(ship)
 
         if ship.images:
             self.set_image(url=fitting.ship.images.large)
@@ -324,6 +305,13 @@ class OverviewEmbed(ShipEmbed):
             if desc:
                 self.add_field(name="Next Ships", value="\n".join(desc))
 
+    def handle_irregular_slots(self, ship: api.Ship) -> None:
+        # Check for bonus Slots (Arkansas Beta, Z-35, …)
+        slts = SLOTS[ship.tier]
+        if ship.mod_slots != slts:
+            text = f"This ship has {ship.mod_slots} upgrades instead of {slts}"
+            self.add_field(name="Special Upgrade Slots", value=text)
+
 
 class TorpedoesEmbed(ShipEmbed):
     """Embed with details about ship-launched torpedoes"""
@@ -366,6 +354,16 @@ class TorpedoesEmbed(ShipEmbed):
 class ShipView(view_utils.BaseView):
     """A view representing a ship"""
 
+    @staticmethod
+    def get_modules(
+        ship: api.Ship, cache: dict[str, api.Module]
+    ) -> list[api.Module]:
+        if not ship.modules_tree:
+            return []
+
+        shp_mods = ship.modules_tree.values()
+        return [cache[str(i.module_id)] for i in shp_mods if i.is_default]
+
     def __init__(
         self, interaction: Interaction, ship: api.Ship, **kwargs: Any
     ) -> None:
@@ -373,13 +371,8 @@ class ShipView(view_utils.BaseView):
 
         self.ship: api.Ship = ship
 
-        matches: list[api.Module] = []
-        modules = list(ship.modules_tree.values()) if ship.modules_tree else []
-        for i in [j for j in modules if j.is_default]:
-            try:
-                matches.append(interaction.client.modules[str(i.module_id)])
-            except KeyError:
-                logger.error("ShipView Failed module id %s", i.module_id)
+        cache = interaction.client.modules
+        matches: list[api.Module] = self.get_modules(ship, cache)
 
         self.fitting = api.ShipFit(ship, matches)
 

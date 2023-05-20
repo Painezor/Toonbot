@@ -15,11 +15,13 @@ from .constants import (
     PLAYER_EMOJI,
     RED_CARD_EMOJI,
     TEAM_EMOJI,
+    VAR_EMOJI,
+    WARNING_EMOJI,
     YELLOW_CARD_EMOJI,
 )
 from .fixture import Fixture
-from .gamestate import GameState, get_event_type
-from .matchevents import EventType, MatchIncident, Penalty, Substitution
+from .gamestate import GameState, get_event_type, EventType
+from .matchevents import MatchIncident
 from .players import FSPlayer
 from .topscorers import TopScorer
 from .team import Team
@@ -48,6 +50,8 @@ __all__ = [
     "PLAYER_EMOJI",
     "RED_CARD_EMOJI",
     "TEAM_EMOJI",
+    "WARNING_EMOJI",
+    "VAR_EMOJI",
     "YELLOW_CARD_EMOJI",
     # cache
     "FlashscoreCache",
@@ -61,8 +65,6 @@ __all__ = [
     # match events
     "EventType",
     "MatchIncident",
-    "Penalty",
-    "Substitution",
     # players
     "FSPlayer",
     "TopScorer",

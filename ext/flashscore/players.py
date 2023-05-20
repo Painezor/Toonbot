@@ -29,13 +29,6 @@ class FSPlayer(BaseModel):
         return f"{self.forename} {self.surname}"
 
     @property
-    def markdown(self) -> str:
-        """Return [name](url)"""
-        if self.url is None:
-            return self.name
-        return f"[{self.name}]({self.url})"
-
-    @property
     def flags(self) -> list[str]:
         """Get the flag using transfer_tools util"""
         return flags.get_flags(self.country)

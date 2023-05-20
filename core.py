@@ -5,7 +5,8 @@ import asyncio
 import datetime
 import json
 import logging
-from typing import TYPE_CHECKING, cast
+
+from typing import TYPE_CHECKING
 
 import aiohttp
 import asyncpg
@@ -18,7 +19,6 @@ import ext.flashscore as fs
 from ext.utils.playwright_browser import make_browser
 
 if TYPE_CHECKING:
-    from io import BytesIO
     from playwright.async_api import BrowserContext
 
 
@@ -123,19 +123,6 @@ class Bot(commands.AutoShardedBot):
                 logger.info("Loaded %s", i)
             except commands.ExtensionError:
                 logger.error("Failed to load cog %s", i, exc_info=True)
-
-    async def dump_image(self, data: BytesIO) -> str | None:
-        """Save a stitched image"""
-        file = discord.File(fp=data, filename="dumped_image.png")
-        channel = self.get_channel(874655045633843240)
-
-        if channel is None:
-            return None
-
-        channel = cast(discord.TextChannel, channel)
-
-        img_msg = await channel.send(file=file)
-        return img_msg.attachments[0].url
 
 
 async def run() -> None:

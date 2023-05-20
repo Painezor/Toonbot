@@ -3,20 +3,21 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 import logging
 from typing import TYPE_CHECKING, cast, Any
 
+from asyncpraw import Reddit
 import asyncpg
-import asyncpraw  # type: ignore
 import discord
 from discord.ext import commands, tasks
-from lxml import html
 
 import ext.flashscore as fs
 
 if TYPE_CHECKING:
     from core import Bot
     from playwright.async_api import Page
+    from asyncpraw.models import Submission
 
 logger = logging.getLogger("matchthread")
 
@@ -24,9 +25,15 @@ LSTV = "https://www.livesoccertv.com/"
 # TODO: Delete MatchThread Bot or Rewrite it Entirely.
 
 
+with open("credentials.json", mode="r", encoding="utf-8") as fun:
+    _credentials = json.load(fun)
+
+
 class MatchThread:
     """Tool for updating a reddit post with the latest
     information about a match."""
+
+    reddit = Reddit(**_credentials["Reddit"])
 
     def __init__(
         self,
@@ -60,13 +67,15 @@ class MatchThread:
 
         # Notification Channel
         chn = self.bot.get_channel(self.settings["notify_channel"])
-        chn = cast(discord.TextChannel, chn)
-        self.channel: discord.TextChannel | None = chn
+        if isinstance(chn, discord.TextChannel):
+            self.channel: discord.TextChannel | None = chn
+        else:
+            self.channel = None
 
         # Pre/Match/Post
-        self.pre = None
-        self.match = None
-        self.post = None
+        self.pre: Submission | None = None
+        self.match: Submission | None = None
+        self.post: Submission | None = None
 
         # Browser Page
         self.page: Page = page
@@ -89,12 +98,14 @@ class MatchThread:
     async def start(self) -> None:
         """The core loop for the match thread bot."""
         # Gather initial data
-        await self.fixture.refresh(self.page)
+        await self.fixture.fetch(self.page)
 
         # Post Pre-Match Thread if required
         title, markdown = await self.pre_match()
 
-        subreddit = await self.reddit.subreddit(self.srd_string, fetch=True)
+        subreddit = await MatchThread.reddit.subreddit(
+            self.srd_string, fetch=True
+        )
 
         k_o = self.fixture.kickoff
         if k_o is None:
@@ -130,7 +141,7 @@ class MatchThread:
         if self.channel:
             embed = self.base_embed
             embed.title = f"Pre-Match Thread: {self.fixture.score_line}"
-            embed.url = self._pre_url
+            embed.url = self.pre.url
             embed.description = f"[Flashscore Link]({self.fixture.url})"
             await self.channel.send(embed=embed)
 
@@ -142,7 +153,7 @@ class MatchThread:
             await discord.utils.sleep_until(k_o - delta)
 
         # Refresh fixture at kickoff.
-        await self.fixture.refresh(self.page)
+        await self.fixture.fetch(self.page)
         title, markdown = await self.write_markdown()
 
         # Post initial thread or resume existing thread.
@@ -178,7 +189,7 @@ class MatchThread:
             if self.stop:
                 break
 
-            await self.fixture.refresh(self.page)
+            await self.fixture.fetch(self.page)
 
             title, markdown = await self.write_markdown()
             # Only need to update if something has changed.
@@ -231,9 +242,9 @@ class MatchThread:
 
         # Then edit the pre-match thread with both links too.
         markdown: Any = self.pre.selftext
-        markdown = markdown.replace("*Pre*", f"[Pre]({self._pre_url})")
-        markdown = markdown.replace("*Match*", f"[Match]({self._mt_url})")
-        markdown = markdown.replace("*Post*", f"[Post]({self._post_url})")
+        markdown = markdown.replace("*Pre*", f"[Pre]({self.pre.url})")
+        markdown = markdown.replace("*Match*", f"[Match]({self.match.url})")
+        markdown = markdown.replace("*Post*", f"[Post]({self.post.url})")
         await self.pre.edit(markdown)
 
         if self.channel:
@@ -279,51 +290,6 @@ class MatchThread:
         # markdown += await self.fixture.preview()
         return title, markdown
 
-    async def fetch_tv(self) -> dict[str, str]:
-        """Fetch information about where the match will be televised"""
-
-        async with self.bot.session.get(LSTV) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                logger.error("%s %s: %s", resp.status, text, resp.url)
-            tree = html.fromstring(await resp.text())
-
-        tv: dict[str, str] = {}
-        for i in tree.xpath(".//tr//a"):
-            if self.fixture.home.team.name in "".join(i.xpath(".//text()")):
-                lnk = i.xpath(".//@href")
-                tv.update({"link": f"http://www.livesoccertv.com{lnk}"})
-                break
-        if not tv:
-            return {}
-
-        async with self.bot.session.get(tv["link"]) as resp:
-            if resp.status != 200:
-                tree = html.fromstring(await resp.text())
-            else:
-                text = await resp.text()
-                logger.error("%s %s: %s", resp.status, text, resp.url)
-                return tv
-
-        tv_table = tree.xpath('.//table[@id="wc_channels"]//tr')
-
-        if not tv_table:
-            tv.update({"uk_tv": ""})
-            return tv
-
-        for i in tv_table:
-            country = i.xpath(".//td[1]/span/text()")
-            if "United Kingdom" not in country:
-                continue
-            uk_tv_channels = i.xpath(".//td[2]/a/text()")
-            uk_tv_links = i.xpath(".//td[2]/a/@href")
-            uk_tv_links = [
-                f"http://www.livesoccertv.com/{i}" for i in uk_tv_links
-            ]
-            uk_tv = list(zip(uk_tv_channels, uk_tv_links))
-            tv.update({"uk_tv": f"[{i}]({j})" for i, j in uk_tv})
-        return tv
-
     async def send_notification(self, channel_id: int, post: Any):
         """Announce new posts to designated channels."""
         channel = self.bot.get_channel(channel_id)
@@ -341,7 +307,7 @@ class MatchThread:
         self, post_match: bool = False
     ) -> tuple[str, str]:
         """Write markdown for the current fixture"""
-        await self.fixture.refresh(self.page)
+        await self.fixture.fetch(self.page)
 
         # Alias for easy replacing.
         home = self.fixture.home.team.name
@@ -436,22 +402,9 @@ class MatchThread:
             if sv_discord := self.settings["discord_link"]:
                 markdown += f"[](#icon-discord) [Discord]({sv_discord})\n\n"
 
-            if not self.t_v:
-                t_v = await self.fetch_tv()
-                if t_v:
-                    self.t_v = (
-                        f"📺🇬🇧 **TV** (UK): {t_v['uk_tv']}\n\n"
-                        if t_v["uk_tv"]
-                        else ""
-                    )
-                    self.t_v += (
-                        "📺🌍 **TV** (International): "
-                        f"[International TV Coverage]({t_v['link']})\n\n"
-                    )
-                else:
-                    self.t_v = ""
-
-            markdown += self.t_v
+            tv = ", ".join(f"[{i.name}]({i.link})" for i in self.fixture.tv)
+            if tv:
+                markdown += tv + "\n\n"
 
         # markdown += f"* [Formation]({await self.fixture.formation()})\n"
         # markdown += f"* [Stats]({await self.fixture.stats()})\n"
@@ -490,6 +443,7 @@ class MatchThreadCommands(commands.Cog):
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
         self.active_threads: list[MatchThread] = []
+        self.reddit = Reddit()
         self.scheduler_task = self.schedule_threads.start()
 
     async def cog_unload(self) -> None:

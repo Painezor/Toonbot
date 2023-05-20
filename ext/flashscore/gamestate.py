@@ -4,9 +4,49 @@ from __future__ import annotations
 import enum
 import logging
 
-from .matchevents import EventType
-
 logger = logging.getLogger("flashscore.gamestate")
+
+
+class EventType(enum.Enum):
+    """An Enum representing an EventType for ticker events"""
+
+    def __init__(self, value: str):
+        self._value_ = value
+
+    # Goals
+    GOAL = "Goal"
+    VAR_GOAL = "VAR Goal"
+
+    # Cards
+    RED_CARD = "Red Card"
+    VAR_RED_CARD = "VAR Red Card"
+
+    # State Changes
+    DELAYED = "Match Delayed"
+    INTERRUPTED = "Match Interrupted"
+    CANCELLED = "Match Cancelled"
+    POSTPONED = "Match Postponed"
+    ABANDONED = "Match Abandoned"
+    RESUMED = "Match Resumed"
+
+    # Period Changes
+    KICK_OFF = "Kick Off"
+    HALF_TIME = "Half Time"
+    SECOND_HALF_BEGIN = "Second Half"
+    PERIOD_BEGIN = "Period #PERIOD#"
+    PERIOD_END = "Period #PERIOD# Ends"
+    FULL_TIME = "Full Time"
+
+    FINAL_RESULT_ONLY = "Final Result"
+    SCORE_AFTER_EXTRA_TIME = "Score After Extra Time"
+
+    NORMAL_TIME_END = "End of normal time"
+    EXTRA_TIME_BEGIN = "ET: First Half"
+    ET_HT_BEGIN = "ET: Half Time"
+    ET_HT_END = "ET: Second Half"
+    EXTRA_TIME_END = "ET: End of Extra Time"
+    PENALTIES_BEGIN = "Penalties Begin"
+    PENALTY_RESULTS = "Penalty Results"
 
 
 class GameState(enum.Enum):

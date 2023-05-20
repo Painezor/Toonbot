@@ -100,20 +100,19 @@ class TFTeam(SearchResult):
             if not name and not link:
                 continue
 
-            age = "".join(i.xpath("./td[2]/text()")).split("(", maxsplit=1)[-1]
-
             country = [str(i).strip() for i in i.xpath(".//td[3]/img/@title")]
 
             date = "".join(i.xpath(".//td[4]//text()")).strip()
             dt = datetime.datetime.strptime(date, "%b %d, %Y")
 
-            option = "".join(i.xpath(".//td[5]//text()")).strip()
-            option = option.title() if option else None
+            _opt = "".join(i.xpath(".//td[5]//text()")).strip()
+            option = _opt.title() if _opt else None
 
             pos = "".join(i.xpath(".//td[1]//tr[2]/td/text()"))
-            age = int(age.replace(")", "").strip())
+            age = "".join(i.xpath("./td[2]/text()")).split("(", maxsplit=1)[-1]
+            age_ = int(age.replace(")", "").strip())
             player = TFPlayer(
-                name=name, link=link, position=pos, age=age, country=country
+                name=name, link=link, position=pos, age=age_, country=country
             )
             rows.append(Contract(player=player, expiry=dt, option=option))
         return rows
@@ -160,13 +159,13 @@ class TFTeam(SearchResult):
             plr = TFPlayer(name=name, link=link, country=country, position=pos)
             plr.age = int("".join(i.xpath("./td[4]/text()")).strip())
 
-            team = "".join(i.xpath(".//td[5]//img/@alt"))
+            name = "".join(i.xpath(".//td[5]//img/@alt"))
 
-            team_link = "".join(i.xpath(".//td[5]//img/@href"))
-            if TF not in team_link:
-                team_link = TF + team_link
+            link = "".join(i.xpath(".//td[5]//img/@href"))
+            if TF not in link:
+                link = TF + link
 
-            team = TFTeam(name=team, link=team_link)
+            team = TFTeam(name=name, link=link)
             source = "".join(i.xpath(".//td[8]//a/@href"))
 
             rows.append(Rumour(player=plr, team=team, url=source))
@@ -308,7 +307,10 @@ class Transfer(BaseModel):
         player.position = "".join(node.xpath(xpath)).strip()
 
         # Block 3 - Age
-        player.age = int("".join(node.xpath("./td[3]/text()")).strip())
+        try:
+            player.age = int("".join(node.xpath("./td[3]/text()")).strip())
+        except ValueError:
+            player.age = None
 
         # Block 4 - Nationality
         xpath = "./td[4]//img/@title"
@@ -401,18 +403,6 @@ class Transfer(BaseModel):
         tran = Transfer(player=player, new_team=new, old_team=old, fee=fee)
         tran.date = "".join(node.xpath(".//i/text()"))
         return tran
-
-    @property
-    def loan_fee(self) -> str:
-        """
-        Returns either Loan Information or the total fee of a player transfer
-        """
-        date = "" if self.date is None else f": {self.date}"
-        output = f"[{self.fee.fee}]({self.fee.url}) {date}"
-        return output
-
-    def __str__(self) -> str:
-        return f"{self.player} ({self.loan_fee})"
 
 
 ResultT = TypeVar("ResultT", bound=SearchResult)

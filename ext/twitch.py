@@ -348,16 +348,11 @@ class TwitchTracker(commands.Cog):
 
     async def update_cache(self) -> list[TrackerChannel]:
         """Load the databases' tracker channels into the bot"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                channel_ids = await connection.fetch(
-                    """SELECT DISTINCT channel_id FROM tracker_channels"""
-                )
 
-        channel_ids = [r["channel_id"] for r in channel_ids]
+        sql = """SELECT DISTINCT channel_id FROM tracker_channels"""
+        records = await self.bot.db.fetch(sql, timeout=10)
+        channel_ids = [r["channel_id"] for r in records]
 
-        # Purge Old.
-        # Fetch New
         trackers: list[TrackerChannel] = []
         for c_id in channel_ids:
             channel = self.bot.get_channel(c_id)
@@ -562,8 +557,8 @@ class TwitchTracker(commands.Cog):
                     i.contributor = True
             streams = [i for i in streams if i.contributor is contributor]
 
-        embed = discord.Embed(title="Live World of Warships Streams")
-        embed.colour = 0x9146FF
+        embed = discord.Embed(colour=0x914644)
+        embed.title = "Live World of Warships Streams"
         embed.set_thumbnail(url=TWITCH_LOGO)
         embed.url = TWITCH_DIRECTORY
 

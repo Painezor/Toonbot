@@ -7,9 +7,11 @@ INJURY_EMOJI = "<:injury:682714608972464187>"
 INBOUND_EMOJI = "<:inbound:1079808760194814014>"
 OUTBOUND_EMOJI = "<:outbound:1079808772559609928>"
 PLAYER_EMOJI = "🏃‍♂️"
-RED_CARD_EMOJI = "🟥"
-YELLOW_CARD_EMOJI = "🟨"
 TEAM_EMOJI = "👕"
+RED_CARD_EMOJI = "🟥"
+VAR_EMOJI = "<:var:756863119950741554>"
+WARNING_EMOJI = "⚠️"
+YELLOW_CARD_EMOJI = "🟨"
 DEFAULT_LEAGUES = [
     "https://www.flashscore.com/football/europe/champions-league/",
     "https://www.flashscore.com/football/europe/euro/",

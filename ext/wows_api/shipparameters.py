@@ -358,9 +358,9 @@ class ShipProfile(BaseModel):
     dive_bomber: ShipDiveBomberProfile | None
     engine: ShipEngineProfile | None
     fighters: ShipFighterProfile | None
+    hull: ShipHullProfile | None
     fire_control: ShipFireControlProfile | None
     flight_control: ShipFlightControlProfile | None
-    hull: ShipHullProfile | None
     mobility: ShipMobilityProfile | None
     torpedo_bomber: ShipTorpedoBomberProfile | None
     torpedoes: ShipTorpedoProfile | None

@@ -12,13 +12,14 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from asyncpraw import Reddit  # type: ignore
-from asyncprawcore import TooLarge  # type: ignore
+from asyncprawcore import TooLarge
 import discord
 from discord.ext import commands, tasks
 from lxml import html
 from PIL import Image
 
 if TYPE_CHECKING:
+    import ext.flashscore as fs
     from core import Bot
     from asyncpg import Record
 
@@ -81,6 +82,10 @@ class NUFCSidebar(commands.Cog):
         self.reddit = Reddit(**_credentials["Reddit"])
         self.task: asyncio.Task[None] = self.sidebar_task.start()
 
+    async def cog_load(self) -> None:
+        sql = """SELECT * FROM team_data"""
+        self.reddit_teams = await self.bot.db.fetch(sql)
+
     async def cog_unload(self) -> None:
         """Cancel the sidebar task when Cog is unloaded."""
         self.task.cancel()
@@ -101,6 +106,35 @@ class NUFCSidebar(commands.Cog):
 
         time = datetime.datetime.now()
         logger.info("%s The sidebar of r/NUFC was updated.", time)
+
+    def get_team(self, name: str | None) -> tuple[str, str]:
+        if name is None:
+            return "", "?"
+
+        try:
+            team = next(i for i in self.reddit_teams if i["name"] == name)
+            icon = team["icon"]
+            short = team["short_name"]
+        except StopIteration:
+            icon = ""
+            short = name
+        return icon, short
+
+    def parse_fixtures(self, fixtures: list[fs.Fixture]) -> list[str]:
+        rows: list[str] = []
+        for fix in fixtures:
+            h_sh, h_ico = self.get_team(fix.home.team.name)
+            a_sh, a_ico = self.get_team(fix.away.team.name)
+
+            if fix.kickoff:
+                k_o = fix.kickoff.strftime("%d/%m/%Y %H:%M")
+            else:
+                k_o = ""
+
+            sco = fix.score
+            sco = f"{k_o} | {h_ico} [{h_sh} {sco} {a_sh}]({fix.url}) {a_ico}\n"
+            rows.append(sco)
+        return rows
 
     async def make_sidebar(
         self,
@@ -132,11 +166,6 @@ class NUFCSidebar(commands.Cog):
                 raise ConnectionError()
             tree = html.fromstring(await resp.text())
 
-        sql = """SELECT * FROM team_data"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records = await connection.fetch(sql)
-
         pad = "|:--:" * 6
         table = f"\n\n* Table\n\n Pos.|Team|P|W|D|L|GD|Pts\n--:|:--{pad}\n"
 
@@ -150,7 +179,7 @@ class NUFCSidebar(commands.Cog):
             # Insert subreddit link from db
 
             try:
-                team = next(i for i in records if i["name"] == team)
+                team = next(i for i in self.reddit_teams if i["name"] == team)
                 team = f"[{team['name']}]({team['subreddit']})"
             except StopIteration:
                 pass
@@ -190,11 +219,19 @@ class NUFCSidebar(commands.Cog):
         match_threads = f"\n\n### {pre} - {match} - {post}"
         fixture = next(i for i in results + fixtures)
         home = next(
-            (i for i in records if i["name"] == fixture.home.team.name),
+            (
+                i
+                for i in self.reddit_teams
+                if i["name"] == fixture.home.team.name
+            ),
             None,
         )
         away = next(
-            (i for i in records if i["name"] == fixture.away.team.name),
+            (
+                i
+                for i in self.reddit_teams
+                if i["name"] == fixture.away.team.name
+            ),
             None,
         )
 
@@ -244,38 +281,9 @@ class NUFCSidebar(commands.Cog):
                 )
                 image.close()
 
-        pool = records
-        rows: list[str] = []
-        if fixtures:
-            for fix in fixtures:
-                h_sh = fix.home.team.name
-
-                try:
-                    home = next(i for i in pool if i["name"] == h_sh)
-                    h_ico = home["icon"]
-                    h_sh = home["short_name"]
-                except StopIteration:
-                    h_ico = ""
-
-                a_sh = fix.away.team.name
-                try:
-                    away = next(i for i in pool if i["name"] == a_sh)
-                    a_ico = away["icon"]
-                    a_sh = away["short_name"]
-                except StopIteration:
-                    a_ico = ""
-
-                if fix.kickoff:
-                    k_o = fix.kickoff.strftime("%d/%m/%Y %H:%M")
-                else:
-                    k_o = ""
-                sco = f"[{h_sh} {fix.score} {a_sh}]({fix.url})"
-                rows.append(f"{k_o} | {h_ico} {sco} {a_ico}\n")
-
-            hdr = "\n\n Date & Time | Match\n--:|:--\n"
-            fx_markdown = "\n* Upcoming fixtures" + rows_to_md_table(hdr, rows)
-        else:
-            fx_markdown = ""
+        rows = self.parse_fixtures(fixtures)
+        hdr = "\n\n Date & Time | Match\n--:|:--\n"
+        fx_markdown = "\n* Upcoming fixtures" + rows_to_md_table(hdr, rows)
 
         # After fetching everything, begin construction.
         now = datetime.datetime.now().ctime()
@@ -287,40 +295,14 @@ class NUFCSidebar(commands.Cog):
 
         markdown: str = wiki_content + table + fx_markdown
 
+        results = self.parse_fixtures(results)
         if results:
             header = "* Previous Results\n"
             markdown += header
-            rows.clear()
-            for i in results:
-                h_sh = i.home.team.name
-
-                try:
-                    home = next(i for i in pool if i["name"] == h_sh)
-                    h_ico = home["icon"]
-                    h_sh = home["short_name"]
-                except StopIteration:
-                    h_ico = ""
-
-                a_sh = i.away.team.name
-                try:
-                    away = next(i for i in pool if i["name"] == a_sh)
-                    a_ico = away["icon"]
-                    a_sh = away["short_name"]
-                except StopIteration:
-                    # '/' Denotes away ::after img
-                    a_ico = ""
-
-                sco = f"[{h_sh} {i.score} {a_sh}]({i.url})"
-                if i.kickoff:
-                    k_o = i.kickoff.strftime("%d/%m/%Y %H:%M")
-                else:
-                    k_o = "?"
-
-                rows.append(f"{k_o} | {h_ico} {sco} {a_ico}\n")
 
             hdr = "\n Date | Result\n--:|:--\n"
             used: int = 10240 - len(markdown + footer)
-            markdown += rows_to_md_table(hdr, rows, 20, used)
+            markdown += rows_to_md_table(hdr, results, 20, used)
         markdown += footer
         return markdown
 

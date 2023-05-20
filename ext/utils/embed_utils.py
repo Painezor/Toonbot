@@ -5,11 +5,10 @@ import asyncio
 import io
 import logging
 import typing
-import PIL
 
 import aiohttp
 from discord import Embed, User as Usr, Member, Colour
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 logger = logging.getLogger("embed_utils")
 
@@ -60,7 +59,7 @@ async def get_colour(url: str | None) -> Colour | int:
 
     try:
         colour = await asyncio.to_thread(get_dominant_color, io.BytesIO(raw))
-    except PIL.UnidentifiedImageError:
+    except UnidentifiedImageError:
         logger.error("Failed to get colour on from image %s", url)
         return Colour.og_blurple()
     return Colour.from_rgb(*colour)
@@ -75,12 +74,14 @@ def rows_to_embeds(
     embed: Embed,
     items: list[str],
     rows: int = 10,
-    footer: str = "",
+    footer: str | None = None,
     max_length: int = 4096,
 ) -> list[Embed]:
     """Create evenly distributed rows of text from a list of data"""
 
     desc = embed.description + "\n" if embed.description else ""
+    if footer is None:
+        footer = ""
 
     count: int = 0
     embeds: list[Embed] = []

@@ -14,10 +14,11 @@ from ext.utils import timed_events
 from .abc import BaseFixture, Participant, BaseTeam
 from .constants import FLASHSCORE
 from .gamestate import GameState as GS
-from .matchevents import IncidentParser
+from .matchevents import IncidentParser, MatchIncident
 from .news import HasNews
 from .photos import MatchPhoto
 from .table import HasTable
+from .tv import TVListing
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
@@ -110,6 +111,8 @@ class HasFixtures:
 class Fixture(BaseFixture, HasNews, HasTable):
     """An object representing a Fixture from the Flashscore Website"""
 
+    incidents: list[MatchIncident] = []
+
     @classmethod
     def from_mobi(cls, node: html.HtmlElement, id_: str) -> Fixture | None:
         link = "".join(node.xpath(".//a/@href"))
@@ -194,7 +197,6 @@ class Fixture(BaseFixture, HasNews, HasTable):
         else:
             logger.error("Failed to convert %s to datetime.", time)
 
-        # Bypass time setter by directly changing _private val.
         if "'" in time or "+" in time or time.isdigit():
             self.time = time
             return
@@ -311,44 +313,56 @@ class Fixture(BaseFixture, HasNews, HasTable):
         self.home.team = teams[0]
         self.away.team = teams[1]
 
-        div = tree.xpath(".//span[@class='tournamentHeader__country']")[0]
+        if self.kickoff is None:
+            xpath = ".//div[contains(@class, 'startTime')]/div/text()"
+            k_o = "".join(tree.xpath(xpath))
+            k_o = datetime.datetime.strptime(k_o, "%d.%m.%Y %H:%M")
+            k_o = k_o.astimezone()
+            self.kickoff = k_o
 
-        url = FLASHSCORE + "".join(div.xpath(".//@href")).rstrip("/")
+        # Infobox
+        xpath = (
+            './/div[contains(@class, "infoBoxModule")]'
+            '/div[contains(@class, "info__")]/text()'
+        )
+        if infobox := tree.xpath(xpath):
+            self.infobox = "".join(infobox)
 
-        mls = tree.xpath('.//div[@class="ml__item"]')
+        self.incidents = IncidentParser(self, tree).incidents
+        self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
+
+        mls = tree.xpath('.//div[@class="mi__item"]')
         for i in mls:
-            label = "".join(i.xpath('./span[@class="mi__item__name]/text()'))
-            label = label.strip(":")
+            label = "".join(i.xpath('./span[@class="mi__item__name"]//text()'))
+            label = label.strip(":").casefold()
 
-            value = "".join(i.xpath('/span[@class="mi__item__val"]/text()'))
+            value = "".join(i.xpath('./span[@class="mi__item__val"]//text()'))
 
-            if "referee" in label.lower():
+            if "referee" in label:
                 self.referee = value
-            elif "venue" in label.lower():
+            elif "venue" in label:
                 self.stadium = value
+            elif "attendance" in label:
+                self.attendance = int(value.replace(" ", ""))
+
             else:
                 logger.info("Fixture, extra data found %s %s", label, value)
 
-        if cache:
-            _comp = cache.get_competition(url=url)
+        tv = tree.xpath('.//div[@class="br__broadcasts"]//a')
+        channels: list[TVListing] = []
+        for i in tv:
+            link = "".join(i.xpath(".//@href"))
+            name = "".join(i.xpath(".//text()"))
+            channels.append(TVListing(name=name, link=link))
+        self.tv = channels
 
-            if (
-                _comp is not None
-                and _comp.country is not None
-                # TODO: Remove this once we've fixed the <ELEMENT stuff
-                and "<" not in _comp.country
-            ):
-                self.competition = _comp
-                return
-
-        self.competition = await self.fetch_competition(page, url, cache)
-
-        if cache and self.competition:
-            await cache.save_competitions([self.competition])
+        div = tree.xpath(".//span[@class='tournamentHeader__country']")[0]
+        comp_url = FLASHSCORE + "".join(div.xpath(".//@href")).rstrip("/")
+        self.competition = await self.fetch_competition(page, comp_url, cache)
 
     def _parse_teams(
         self, tree: html.HtmlElement, cache: FlashscoreCache | None
-    ) -> list[Team]:
+    ) -> tuple[Team, Team]:
         from .team import Team
 
         teams: list[Team] = []
@@ -368,17 +382,14 @@ class Fixture(BaseFixture, HasNews, HasTable):
             team_id = url.split("/")[-2]
             if cache is None or (team := cache.get_team(team_id)) is None:
                 team = Team(id=team_id, name=name, url=FLASHSCORE + url)
-            else:
-                if team.name != name:
-                    team.name = name
 
-            if team.logo_url is None:
-                logo = div.xpath('.//img[@class="participant__image"]/@src')
-                logo = "".join(logo)
-                if logo:
-                    team.logo_url = FLASHSCORE + logo
+            team.name = name
+            logo = div.xpath('.//img[@class="participant__image"]/@src')
+            logo = "".join(logo)
+            if logo:
+                team.logo_url = FLASHSCORE + logo
             teams.append(team)
-        return teams
+        return tuple(teams)
 
     async def fetch_competition(
         self,
@@ -389,6 +400,11 @@ class Fixture(BaseFixture, HasNews, HasTable):
         """Go to a competition's page and fetch it directly."""
         from .competitions import Competition
 
+        if cache:
+            comp = cache.get_competition(url=url)
+        else:
+            comp = None
+
         await page.goto(url)
         selector = page.locator(".container__heading")
 
@@ -396,121 +412,38 @@ class Fixture(BaseFixture, HasNews, HasTable):
             await selector.wait_for()
         except PWTimeout:
             logger.error("Could not find .heading on %s", url)
-            return
+            return comp
 
         tree = html.fromstring(await selector.inner_html())
         country = str(tree.xpath(".//a[@class='breadcrumb__link']/text()")[-1])
 
-        src = None
-
-        try:
-            # Name Correction
-            name = "".join(tree.xpath('.//div[@class="heading__name"]/text()'))
-            src = "".join(tree.xpath('.//img[@class="heading__logo"]/@src'))
-        except PWTimeout:
-            logger.error("Timed out heading__logo %s", url)
-            return
-        except AssertionError:
-            logger.error("Failed to find name on %s", url)
-            return
+        # Name Correction
+        name = "".join(tree.xpath('.//div[@class="heading__name"]/text()'))
 
         try:
             xpath = ".//span[contains(@title, 'My Leagues')]/@class"
             mylg = tree.xpath(xpath)[0]
             mylg = [i for i in mylg.rsplit(maxsplit=1) if "_" in i][-1]
             comp_id = mylg.rsplit("_", maxsplit=1)[-1]
-            comp = cache.get_competition(id=comp_id) if cache else None
+            if comp is None and cache:
+                comp = cache.get_competition(id=comp_id)
         except IndexError:
             comp_id = comp = None
             logger.error("Could not find mylg on %s", url)
 
         if comp is None:
-            comp = Competition(id=comp_id, name=name, country=country, url=url)
-
-        if url != comp.url:
-            logger.info("Comp URL %s -> %s", comp.url, url)
+            comp = Competition(id=comp_id, name=name, url=url, country=country)
+        else:
             comp.url = url
-
-        if country != comp.country:
-            logger.info("Comp country %s -> %s", comp.country, country)
             comp.country = country
-
-        if name != comp.name:
-            logger.info("Comp country %s -> %s", comp.name, name)
             comp.name = name
 
-        if src and src != comp.logo_url:
-            logger.info("comp logo url %s -> %s", comp.logo_url, src)
-            comp.logo_url = FLASHSCORE + src
-
+        if img := tree.xpath('.//img[contains(@class, "heading__logo")]/@src'):
+            comp.logo_url = FLASHSCORE + img[-1]
         return comp
-
-    # High Cost lookups.
-    async def refresh(self, page: Page) -> None:
-        """Perform an intensive full lookup for a fixture"""
-        # TODO: Nuke Ciruclar
-        from .competitions import Competition
-
-        if self.url is None:
-            raise AttributeError(f"Can't refres - no url\n {self.__dict__}")
-
-        try:
-            await page.goto(self.url, timeout=5000)
-            await page.locator(".container__detail").wait_for(timeout=5000)
-            tree = html.fromstring(await page.content())
-        except PWTimeout:
-            return None
-
-        # Some of these will only need updating once per match
-        if self.kickoff is None:
-            xpath = ".//div[contains(@class, 'startTime')]/div/text()"
-            k_o = "".join(tree.xpath(xpath))
-            k_o = datetime.datetime.strptime(k_o, "%d.%m.%Y %H:%M")
-            k_o = k_o.astimezone()
-            self.kickoff = k_o
-
-        if None in [self.referee, self.stadium]:
-            text = tree.xpath('.//div[@class="mi__data"]/span/text()')
-
-            if ref := "".join([i for i in text if "referee" in i.casefold()]):
-                self.referee = ref.strip().replace("Referee:", "")
-
-            if venue := "".join([i for i in text if "venue" in i.casefold()]):
-                self.stadium = venue.strip().replace("Venue:", "")
-
-        if self.competition is None or self.competition.url is None:
-            xpath = './/span[contains(@class, "__country")]//a/@href'
-            href = "".join(tree.xpath(xpath))
-
-            xpath = './/span[contains(@class, "__country")]/text()'
-            country = "".join(tree.xpath(xpath)).strip()
-
-            xpath = './/span[contains(@class, "__country")]/a/text()'
-            name = "".join(tree.xpath(xpath)).strip()
-
-            comp_id = href.rsplit("/", maxsplit=1)[0] if href else None
-            comp = Competition(
-                id=comp_id, name=name, country=country, url=href
-            )
-            self.competition = comp
-
-        # Grab infobox
-        xpath = (
-            './/div[contains(@class, "infoBoxModule")]'
-            '/div[contains(@class, "info__")]/text()'
-        )
-        if infobox := tree.xpath(xpath):
-            self.infobox = "".join(infobox)
-
-        self.incidents = IncidentParser(self, tree).incidents
-        self.images = tree.xpath('.//div[@class="highlight-photo"]//img/@src')
 
 
 class MatchStat(BaseModel):
     home: str
     label: str
     away: str
-
-    def __str__(self) -> str:
-        hom = self.home
-        return f"{hom.rjust(4)} [{self.label.center(19)}] {self.away.ljust(4)}"

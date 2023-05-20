@@ -20,8 +20,8 @@ from .gamestate import GameState
 if TYPE_CHECKING:
     from .competitions import Competition
     from .team import Team
-    from .matchevents import MatchIncident
     from .photos import MatchPhoto
+    from .tv import TVListing
 
 
 logger = logging.getLogger("flashscore.abc")
@@ -39,9 +39,6 @@ class BaseCompetition(BaseModel):
     country: str | None = None
     url: str | None = None
     logo_url: str | None = None
-
-    # Fetched
-    table: str | None = None
 
     class Config:
         validate_assignment = True
@@ -76,10 +73,6 @@ class BaseCompetition(BaseModel):
         return None
 
     @property
-    def markdown(self) -> str:
-        return f"[{self.title}]({self.url})"
-
-    @property
     def title(self) -> str:
         """Return COUNTRY: league"""
         if self.country is not None:
@@ -104,6 +97,20 @@ class BaseTeam(BaseModel):
 
     emoji = TEAM_EMOJI
 
+    class Config:
+        validate_assignment = True
+
+    @validator("logo_url")
+    def fmt_logo_url(cls, value: str | None) -> str | None:
+        if value is not None:
+            value = value.rsplit("/", maxsplit=1)[-1]
+
+            if value.endswith(".gif"):  # empty-logo-team-share
+                return f"{FLASHSCORE}/res/image/{value}".replace("'", "")
+
+            # Extraneous ' needs removed.
+            return f"{FLASHSCORE}/res/image/data/{value}".replace("'", "")
+
     @property
     def ac_row(self) -> str:
         """Autocomplete"""
@@ -111,10 +118,6 @@ class BaseTeam(BaseModel):
         if self.competition is not None:
             txt += f" ({self.competition.name})"
         return f"{self.emoji} {txt}"
-
-    @property
-    def markdown(self) -> str:
-        return f"[{self.name}]({self.url})"
 
     @property
     def tag(self) -> str:
@@ -153,15 +156,13 @@ class BaseFixture(BaseModel):
     competition: Competition | None = None
     url: str | None = None
 
-    # Match Events
-    incidents: list[MatchIncident] = []
-
     # Extra data
     attendance: int | None = None
     infobox: str | None = None
     images: list[MatchPhoto] = []
     referee: str | None = None
     stadium: str | None = None
+    tv: list[TVListing] = []
 
     @validator("home", "away", always=True)
     def partcipantify(cls, value: Team) -> Participant:

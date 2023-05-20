@@ -266,7 +266,7 @@ class TeamSelect(view_utils.DropdownPaginator):
             opt.description = f"{team.id}: {team.url}"
             opt.emoji = team.emoji
             options.append(opt)
-            rows.append(f"`{team.id}` {team.markdown}")
+            rows.append(f"`{team.id}` [{team.name}]({team.url})")
 
         self.teams = teams
         super().__init__(invoker, embed, rows, options)
@@ -330,7 +330,7 @@ class CompetitionSelect(view_utils.DropdownPaginator):
             opt = SelectOption(label=i.title, value=i.id)
             opt.description = i.url
             opt.emoji = i.emoji
-            rows.append(f"`{i.id}` {i.markdown}")
+            rows.append(f"`{i.id}` [{i.name}]({i.url})")
             options.append(opt)
 
         self.comps = competitions

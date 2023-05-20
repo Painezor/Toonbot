@@ -5,6 +5,7 @@ import datetime
 import itertools
 import logging
 from typing import TYPE_CHECKING, TypeAlias, cast
+from asyncpg import DataError
 import discord
 from discord import Message, Embed, Colour
 from discord.ext import commands
@@ -282,12 +283,10 @@ class ScoresConfig(view_utils.DropdownPaginator):
             if i.url is None:
                 continue
 
-            opt = discord.SelectOption(label=i.title, value=i.url)
-            opt.description = i.url
-
             flag = flags.get_flag(i.country)
-            opt.emoji = flag
-            rows.append(f"{flag} {i.markdown}")
+            opt = discord.SelectOption(label=i.title, value=i.url, emoji=flag)
+            opt.description = i.url
+            rows.append(f"{flag} [{i.name}]({i.url})")
             options.append(opt)
 
         super().__init__(invoker, embed, rows, options)
@@ -378,10 +377,16 @@ class ScoresCog(commands.Cog):
         self.bot: Bot = bot
         self.channels: set[ScoreChannel] = set()
         self._locked: bool = False
+        self._table_cache: dict[str, str] = {}
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
         self.channels.clear()
+
+    @commands.Cog.listener()
+    async def on_table_update(self, comp: fs.Competition, url: str) -> None:
+        if comp.id:
+            self._table_cache[comp.id] = url
 
     @commands.Cog.listener()
     async def on_scores_ready(self, now: datetime.datetime) -> None:
@@ -398,8 +403,11 @@ class ScoresCog(commands.Cog):
             fix = sorted(flt, key=lambda c: c.kickoff or now)
 
             ls_txt = [i.live_score_text for i in fix]
-            table = f"\n[View Table]({comp.table})" if comp.table else ""
-            embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, table)
+            if comp.id in self._table_cache:
+                footer = f"\n[View Table]({self._table_cache[comp.id]})"
+            else:
+                footer = None
+            embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, footer)
             sc_embeds.update({comp.title: embeds})
 
         if self._locked:
@@ -448,7 +456,10 @@ class ScoresCog(commands.Cog):
         # Cleanup Old.
         sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
         if chans and bad:
-            await self.bot.db.executemany(sql, bad)
+            try:
+                await self.bot.db.executemany(sql, bad)
+            except DataError:
+                logger.error("data error %s", bad)
 
         self.channels = chans
         return chans

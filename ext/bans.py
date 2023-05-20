@@ -129,9 +129,13 @@ class BanCog(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(ban_members=True)
-    @discord.app_commands.checks.bot_has_permissions(ban_members=True)
     async def ban(self, interaction: Interaction) -> None:
         """Bans a list of user IDs"""
+        if not interaction.app_permissions.ban_members:
+            emb = discord.Embed(colour=discord.Colour.red())
+            emb.description = "I need ban_members permission to do this."
+            await interaction.response.send_message(embed=emb, ephemeral=True)
+            return
         return await interaction.response.send_modal(BanModal())
 
     @discord.app_commands.command()

@@ -30,7 +30,7 @@ class BaseView(discord.ui.View):
 
     def __init__(
         self,
-        invoker: User,
+        invoker: User | None,
         *,
         parent: BaseView | None = None,
         timeout: float | None = 180,
@@ -38,7 +38,7 @@ class BaseView(discord.ui.View):
         # User ID of the person who invoked the command.
         super().__init__(timeout=timeout)
 
-        self.invoker: int = invoker.id
+        self.invoker: User | None = invoker
 
         self.parent = parent
         if parent is None:
@@ -69,8 +69,10 @@ class BaseView(discord.ui.View):
     async def interaction_check(
         self, interaction: discord.Interaction, /
     ) -> bool:
-        """Make sure only the person running the command can select options"""
-        return interaction.user.id == self.invoker
+        """If an invoker was passed, make sure only they can click"""
+        if self.invoker:
+            return interaction.user.id == self.invoker.id
+        return True
 
     async def on_timeout(self) -> None:
         """Cleanup"""

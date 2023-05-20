@@ -33,8 +33,8 @@ class SquadMember(BaseModel):
         """Return a row representing the Squad Member"""
         plr = self.player
         pos = self.position
-
-        text = f"`#{self.squad_number}` {plr.flags} {plr.markdown} ({pos}): "
+        pmd = f"[{plr.name}]({plr.url})"
+        text = f"`#{self.squad_number}` {plr.flags} {pmd} ({pos}): "
 
         if self.goals:
             text += f" {GOAL_EMOJI} {self.goals}"
