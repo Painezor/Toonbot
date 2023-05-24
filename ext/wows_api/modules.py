@@ -180,7 +180,7 @@ async def fetch_modules(modules: list[int]) -> dict[str, Module]:
     output: dict[str, Module] = {}
     for id_, data in data["data"].items():
         try:
-            output.update({id_: Module(**data)})
+            output.update({id_: Module.parse_obj(data)})
         except ValidationError as err:
             logger.error("Validation failed on %s", id_)
             logger.error(err)

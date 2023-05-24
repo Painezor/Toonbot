@@ -468,11 +468,13 @@ class MatchThreadCommands(commands.Cog):
             page = await self.bot.browser.new_page()
 
             try:
+                team = fs.Team.parse_obj(team)
                 fixtures = await team.fixtures(page, self.bot.cache)
             finally:
                 await page.close()
 
             for fixture in fixtures:
+                fixture = fs.Fixture.parse_obj(fixture)
                 await self.spool_thread(fixture, i)
 
     async def spool_thread(

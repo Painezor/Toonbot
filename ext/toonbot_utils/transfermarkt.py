@@ -4,7 +4,7 @@ from __future__ import annotations  # Cyclic Type hinting
 from abc import abstractmethod
 import datetime
 import logging
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import TypeVar, Literal, Generic
 
 import aiohttp
@@ -39,6 +39,19 @@ class SearchResult(BaseModel):
     country: list[str] = []
     emoji: str = "🔎"
     picture: str | None = None
+
+    @validator("link", allow_reuse=True)
+    def validate_link(cls, value: str) -> str:
+        """Append TF"""
+        if TF in value:
+            return value
+        return TF + value
+
+    @validator("country", allow_reuse=True, pre=True)
+    def country_to_list(cls, value: str | list[str]) -> list[str]:
+        if isinstance(value, str):
+            return [value]
+        return value
 
 
 class TFCompetition(SearchResult):
@@ -218,6 +231,8 @@ class TFTeam(SearchResult):
 
             xpath = './/div[@class="erfolg_infotext_box"]/text()'
             split = "".join(i.xpath(xpath)).split()
+            split = [i for i in split if i != ","]
+
             trophies.append(Trophy(name=title, dates=split))
         return trophies
 

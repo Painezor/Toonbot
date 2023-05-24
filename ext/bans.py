@@ -42,7 +42,7 @@ class BanView(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options, multi=True)
 
     @discord.ui.select(placeholder="Unban members")
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, sel: discord.ui.Select[BanView]
     ) -> None:
         """Perform unbans on the entries passed back from the SelectOption"""

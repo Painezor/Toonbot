@@ -77,27 +77,41 @@ class RemindModal(discord.ui.Modal):
     ) -> None:
         """Insert entry to the database when the form is submitted"""
         delta = relativedelta()
-        delta.hours = int(self.hours.value) or 0
-        delta.minutes = int(self.minutes.value) or 0
-        delta.day = int(self.days.value) or 0
-        delta.months = int(self.months.value) or 0
+        if self.hours.value:
+            delta.hours = int(self.hours.value)
 
-        time = discord.utils.utcnow()
-        rmd = time + delta
-        mid = self.message.id if self.message else None
-        gid = interaction.guild.id if interaction.guild else None
+        if self.minutes.value:
+            delta.minutes = int(self.minutes.value)
+        if self.days.value:
+            delta.day = int(self.days.value)
+        if self.months.value:
+            delta.months = int(self.months.value)
+
+        created_at = discord.utils.utcnow()
+        remind_at = created_at + delta
+        message_id = self.message.id if self.message else None
+        guild_id = interaction.guild.id if interaction.guild else None
         if interaction.channel is not None:
-            cid = interaction.channel.id
+            channel_id = interaction.channel.id
         else:
-            cid = None
-        dsc = self.description.value
+            channel_id = None
+        description = self.description.value
         uid = interaction.user.id
         bot = interaction.client
         sql = """INSERT INTO reminders (message_id, channel_id, guild_id,
                  reminder_content, created_time, target_time, user_id)
                  VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *"""
 
-        record = await bot.db.fetchrow(sql, mid, cid, gid, dsc, time, rmd, uid)
+        record = await bot.db.fetchrow(
+            sql,
+            message_id,
+            channel_id,
+            guild_id,
+            description,
+            created_at,
+            remind_at,
+            uid,
+        )
         if record is None:
             return
 
@@ -105,9 +119,9 @@ class RemindModal(discord.ui.Modal):
         bot.reminders.add(reminder_task)
         reminder_task.add_done_callback(bot.reminders.discard)
 
-        time = timed_events.Timestamp(rmd).time_relative
+        created_at = timed_events.Timestamp(remind_at).time_relative
         embed = discord.Embed(colour=0x00FFFF)
-        embed.description = f"**{time}**\n\n> {dsc}"
+        embed.description = f"**{created_at}**\n\n> {description}"
         embed.set_author(name="⏰ Reminder Created")
 
         send = interaction.response.send_message

@@ -1,5 +1,4 @@
 """Working with Webscraping the flashscore website"""
-# pyright: reportImportCycles=false
 from .abc import BaseTeam
 from .cache import FlashscoreCache
 from .competitions import Competition
@@ -20,20 +19,12 @@ from .constants import (
     YELLOW_CARD_EMOJI,
 )
 from .fixture import Fixture
-from .gamestate import GameState, get_event_type, EventType
 from .matchevents import MatchIncident
 from .players import FSPlayer
-from .topscorers import TopScorer
-from .team import Team
-from .transfers import FSTransfer
 from .squad import SquadMember
-from .transformers import (
-    cmp_tran,
-    fx_tran,
-    tm_tran,
-    live_comp_transf,
-    universal,
-)
+from .team import Team
+from .topscorers import TopScorer
+from .transfers import FSTransfer
 
 __all__ = [
     # abc
@@ -59,11 +50,7 @@ __all__ = [
     "Competition",
     # fixture
     "Fixture",
-    # gamestate,
-    "GameState",
-    "get_event_type",
     # match events
-    "EventType",
     "MatchIncident",
     # players
     "FSPlayer",
@@ -72,10 +59,4 @@ __all__ = [
     "SquadMember",
     # team
     "Team",
-    # transformers
-    "cmp_tran",
-    "fx_tran",
-    "live_comp_transf",
-    "tm_tran",
-    "universal",
 ]

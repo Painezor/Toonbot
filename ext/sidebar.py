@@ -120,7 +120,7 @@ class NUFCSidebar(commands.Cog):
             short = name
         return icon, short
 
-    def parse_fixtures(self, fixtures: list[fs.Fixture]) -> list[str]:
+    def parse_fixtures(self, fixtures: list[fs.abc.BaseFixture]) -> list[str]:
         rows: list[str] = []
         for fix in fixtures:
             h_sh, h_ico = self.get_team(fix.home.team.name)
@@ -152,6 +152,7 @@ class NUFCSidebar(commands.Cog):
         fsr = self.bot.cache.get_team(team_id)
         if fsr is None:
             raise ValueError(f"Team with ID {team_id} not found in db")
+        fsr = fs.Team.parse_obj(fsr)
 
         page = await self.bot.browser.new_page()
         try:

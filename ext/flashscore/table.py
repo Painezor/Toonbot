@@ -5,27 +5,33 @@ import logging
 from typing import TYPE_CHECKING
 
 from playwright.async_api import TimeoutError as PWTimeout
+from pydantic import BaseModel
 
 from .constants import ADS
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
 
+    from .abc import BaseTeam
+
 
 logger = logging.getLogger("flashscore.table")
 
 
 class HasTable:
+    """Attached to an object that can have standings"""
+
     url: str | None
 
     async def get_table(
         self, page: Page, button: str | None = None
-    ) -> bytes | None:
+    ) -> Table | None:
         """Get the table from a flashscore page"""
+        url = self.base_url + "/standings"
         try:
-            await page.goto(self.table_url, timeout=5000)
+            await page.goto(url, timeout=5000)
         except PWTimeout:
-            logger.error("Timed out loading page %s", self.table_url)
+            logger.error("Timed out loading page %s", url)
             return
 
         if button:
@@ -47,11 +53,19 @@ class HasTable:
 
         javascript = "ads => ads.forEach(x => x.remove());"
         await page.eval_on_selector_all(ADS, javascript)
-        return await table_div.screenshot(type="png")
+        img = await table_div.screenshot(type="png")
+
+        return Table(image=img, teams=[])
 
     # Overriden on Fixture
     @property
-    def table_url(self) -> str:
+    def base_url(self) -> str:
         if self.url is None:
             raise AttributeError(f"No URL found on {self}")
-        return self.url.rstrip("/") + "/standings"
+        return self.url.rstrip("/")
+
+
+class Table(BaseModel):
+    image: bytes
+
+    teams: list[BaseTeam] = []

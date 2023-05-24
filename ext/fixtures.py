@@ -4,6 +4,7 @@
 # TODO: Fixture => report
 # TODO: Transfers => Dropdowns for Competitions
 # TODO: Squad => Enumerate when not sorting by squad number.
+# TODO: Standings => Dropdown for Teams
 # TODO: File=None in all r()
 # TODO: Globally Nuke _ac for Transformers
 
@@ -24,6 +25,8 @@ from lxml import html
 from playwright.async_api import Page
 
 import ext.flashscore as fs
+from ext.toonbot_utils.fs_transform import fixture_, universal, comp_, team_
+from ext.flashscore.gamestate import GameState
 from ext.utils import embed_utils, flags, image_utils, view_utils, timed_events
 from ext.utils.view_utils import BaseView
 
@@ -56,8 +59,46 @@ sqd_filter_opts = [
 _colours: dict[str, Colour | int] = {}
 
 
+def fmt_scorer(scorer: fs.TopScorer) -> str:
+    text = f"`{str(scorer.rank).rjust(3)}.` {fs.GOAL_EMOJI} {scorer.goals}"
+    if scorer.assists:
+        text += f" (+{scorer.assists})"
+
+    pmd = f"[{scorer.player.name}]({scorer.player.url})"
+    flag = " ".join(flags.get_flags(scorer.player.country))
+    text += f" {flag} {pmd}"
+    if scorer.team:
+        text += f" ([{scorer.team.name}]({scorer.team.url}))"
+    return text
+
+
+def fmt_squad(sqd: fs.SquadMember) -> str:
+    """Return a row representing the Squad Member"""
+    plr = sqd.player
+    pos = sqd.position
+    pmd = f"[{plr.name}]({plr.url})"
+
+    flag = ", ".join(flags.get_flags(plr.country))
+    text = f"`#{sqd.squad_number}` {flag} {pmd} ({pos}): "
+
+    if sqd.goals:
+        text += f" {fs.GOAL_EMOJI} {sqd.goals}"
+    if sqd.appearances:
+        text += f" {fs.TEAM_EMOJI} {sqd.appearances}"
+    if sqd.reds:
+        text += f" {fs.RED_CARD_EMOJI} {sqd.reds}"
+    if sqd.yellows:
+        text += f" {fs.YELLOW_CARD_EMOJI} {sqd.yellows}"
+    if sqd.injury:
+        text += f" {fs.INJURY_EMOJI} {sqd.injury}"
+    return text
+
+
 class FSEmbed(Embed):
-    def __init__(self, obj: fs.Fixture | fs.Team | fs.Competition) -> None:
+    def __init__(
+        self,
+        obj: fs.abc.BaseFixture | fs.abc.BaseTeam | fs.abc.BaseCompetition,
+    ) -> None:
         super().__init__()
 
         self.obj = obj
@@ -78,17 +119,17 @@ class FSEmbed(Embed):
 
     @overload
     @classmethod
-    async def create(cls, obj: fs.Fixture) -> FixtureEmbed:
+    async def create(cls, obj: fs.abc.BaseFixture) -> FixtureEmbed:
         ...
 
     @overload
     @classmethod
-    async def create(cls, obj: fs.Team) -> TeamEmbed:
+    async def create(cls, obj: fs.abc.BaseTeam) -> TeamEmbed:
         ...
 
     @overload
     @classmethod
-    async def create(cls, obj: fs.Competition) -> CompetitionEmbed:
+    async def create(cls, obj: fs.abc.BaseCompetition) -> CompetitionEmbed:
         ...
 
     @classmethod
@@ -138,10 +179,10 @@ class FixtureEmbed(Embed):
         if fixture.time is None:
             return embed
 
-        elif fixture.time == fs.GameState.SCHEDULED:
+        elif fixture.time == GameState.SCHEDULED:
             time = timed_events.Timestamp(fixture.kickoff).time_relative
             embed.description = f"Kickoff: {time}"
-        elif fixture.time == fs.GameState.POSTPONED:
+        elif fixture.time == GameState.POSTPONED:
             embed.description = "This match has been postponed."
 
         if fixture.competition:
@@ -166,7 +207,6 @@ class StatsView(BaseView):
         super().__init__(invoker, parent=parent, timeout=timeout)
         self.fixture: fs.Fixture = fixture
         self.page: Page = page
-        self.remove_item(self.sub_page)
 
     @classmethod
     async def start(
@@ -204,35 +244,40 @@ class StatsView(BaseView):
         else:
             await interaction.response.edit_message(embed=embed, view=view)
 
-    @discord.ui.button(row=1, label="Stats")
-    async def sub_page(
-        self, interaction: Interaction, btn: Button[StatsView]
-    ) -> None:
-        """A button that requests a subpage"""
-        stats = await self.fixture.get_stats(self.page, btn.label)
-        embed = await FSEmbed.create(self.fixture)
-        if output := "\n".join(str(i) for i in stats):
-            embed.description = f"```ini\n{output}```"
-        else:
-            embed.description = "Could not find stats for this game."
-        embed.title = f"Stats ({btn.label})"
-        return await interaction.response.edit_message(view=self, embed=embed)
-
     async def handle_buttons(self) -> None:
         """Add sub page buttons."""
         cur = [i.label for i in self.children if isinstance(i, Button)]
 
-        # TODO: Change locator to subTabs > a or working variaation.
-        for i in await self.page.locator(".subTabs").all():
-            for j in await i.locator("a").all():
-                text = await j.text_content()
-                if not text:
-                    continue
+        # TODO: Change locator to subTabs > a or working variation.
+        for i in await self.page.locator(".subTabs > a").all():
+            text = await i.text_content()
+            if not text:
+                continue
 
-                if text not in cur:
-                    btn = copy.copy(self.sub_page)
-                    btn.label = text
-                    self.add_item(btn)
+            if text not in cur:
+                self.add_item(StatsButton(text))
+
+        bt = [i for i in self.children if isinstance(i, Button)]
+        btns = [f"{i.label} / {i.custom_id}" for i in bt]
+        logger.info("Current buttons %s", ", ".join(btns))
+
+
+class StatsButton(Button[StatsView]):
+    def __init__(self, label: str) -> None:
+        super().__init__(label=label)
+
+    async def callback(self, interaction: Interaction) -> None:
+        """A button that requests a subpage"""
+        assert self.view is not None
+        stats = await self.view.fixture.get_stats(self.view.page, self.label)
+        embed = await FSEmbed.create(self.view.fixture)
+        if output := "\n".join(str(i) for i in stats):
+            embed.description = f"```ini\n{output}```"
+        else:
+            embed.description = "Could not find stats for this game."
+        embed.title = f"Stats ({self.label})"
+        view = self.view
+        return await interaction.response.edit_message(view=view, embed=embed)
 
 
 # TODO: Finish Standings View -> Team Dropdown
@@ -265,7 +310,7 @@ class StandingsView(BaseView):
         embed = await FSEmbed.create(obj)
         embed.title = "Standings"
 
-        image = await obj.get_table(page)
+        table = await obj.get_table(page)
         view = cls(interaction.user, page, obj, parent=parent)
 
         loc = page.locator(".subTabs")
@@ -281,24 +326,27 @@ class StandingsView(BaseView):
                 button.label = text
                 view.add_item(button)
 
-        if image is not None:
-            atts = [File(fp=io.BytesIO(image), filename="standings.png")]
+        if table is not None:
+            atts = [File(fp=io.BytesIO(table.image), filename="standings.png")]
         else:
             atts = []
 
         embed.set_image(url="attachment://standings.png")
-        edit = interaction.response.edit_message
+        if interaction.response.is_done():
+            edit = interaction.edit_original_response
+        else:
+            edit = interaction.response.edit_message
         await edit(view=view, embed=embed, attachments=atts)
 
     @discord.ui.button(label="Subtable")
     async def subtable(
         self, interaction: Interaction, btn: Button[StandingsView]
     ) -> None:
-        image = await self.object.get_table(self.page, btn.label)
+        table = await self.object.get_table(self.page, btn.label)
         embed = await FSEmbed.create(self.object)
         embed.title = f"Standings ({btn.label})"
-        if image is not None:
-            file = File(fp=io.BytesIO(image), filename="standings.png")
+        if table is not None:
+            file = File(fp=io.BytesIO(table.image), filename="standings.png")
             atts = [file]
         else:
             atts = []
@@ -342,7 +390,7 @@ class SquadView(view_utils.DropdownPaginator):
         rows: list[str] = []
         options: list[discord.SelectOption] = []
         for i in players:
-            rows.append(i.output)
+            rows.append(fmt_squad(i))
             opt = discord.SelectOption(label=i.player.name)
             opt.emoji = fs.PLAYER_EMOJI
 
@@ -354,7 +402,7 @@ class SquadView(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options, 40, **kwargs)
 
     @discord.ui.select(row=1, placeholder="View Player", disabled=True)
-    async def dropdown(self, itr: Interaction, sel: Select[SquadView]) -> None:
+    async def remove(self, itr: Interaction, sel: Select[SquadView]) -> None:
         """Go to specified player"""
         raise NotImplementedError
         # player = next(i for i in self.players if i.player.name in sel.values)
@@ -422,7 +470,7 @@ class FXPaginator(view_utils.DropdownPaginator):
         invoker: User,
         page: Page,
         embed: Embed,
-        fixtures: list[fs.Fixture],
+        fixtures: list[fs.abc.BaseFixture],
         parent: BaseView | None = None,
     ) -> None:
         self.page: Page = page
@@ -477,11 +525,10 @@ class FXPaginator(view_utils.DropdownPaginator):
         parent.message = view.message
 
     @discord.ui.select()
-    async def dropdown(
-        self, itr: Interaction, sel: Select[FXPaginator]
-    ) -> None:
+    async def remove(self, itr: Interaction, sel: Select[FXPaginator]) -> None:
         """Go to Fixture"""
         fix = next(i for i in self.fixtures if i.id in sel.values)
+        fix = fs.Fixture.parse_obj(fix)
         parent = FSView(itr.user, self.page, fix)
         await parent.news.callback(itr)
 
@@ -526,7 +573,7 @@ class TopScorersView(view_utils.DropdownPaginator):
             if i.player.url is None:
                 continue
 
-            rows.append(i.output)
+            rows.append(fmt_scorer(i))
             opt = discord.SelectOption(label=i.player.name)
             opt.value = i.player.url
             opt.emoji = flags.get_flags(i.player.country)[0]
@@ -566,7 +613,7 @@ class TopScorersView(view_utils.DropdownPaginator):
         await edit(view=view, embed=view.embeds[0])
 
     @discord.ui.select(placeholder="Go to Player", disabled=True)
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, select: Select[TopScorersView]
     ) -> None:
         await itr.response.defer()
@@ -677,7 +724,11 @@ class TransfersView(view_utils.DropdownPaginator):
             date = timed_events.Timestamp(i.date).date
             rows.append(f"{pmd} {_} {tmd}\n{date} {i.type}\n")
 
-        teams = set(i.team for i in transfers if i.team is not None)
+        teams: list[fs.BaseTeam] = []
+        for i in transfers:
+            if i.team not in teams and i.team is not None:
+                teams.append(i.team)
+
         team_sel: list[discord.SelectOption] = []
         for j in teams:
             assert j.url is not None
@@ -688,13 +739,13 @@ class TransfersView(view_utils.DropdownPaginator):
 
         super().__init__(invoker, embed, rows, options, 5, **kwargs)
 
-        self.teams: set[fs.Team] = teams
+        self.teams: list[fs.abc.BaseTeam] = teams
         self.team: fs.Team = team
         self.page: Page = page
         self.transfers: list[fs.FSTransfer] = transfers
 
     @discord.ui.select(placeholder="Go to Player", disabled=True)
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, sel: Select[TransfersView]
     ) -> None:
         """First Dropdown: Player"""
@@ -708,8 +759,12 @@ class TransfersView(view_utils.DropdownPaginator):
         self, interaction: Interaction, sel: Select[TransfersView]
     ) -> None:
         """Second Dropdown: Team"""
-        team = next(i for i in self.teams if i.url in sel.values)
-        await FXPaginator.start(interaction, self.page, team, False, self)
+        for i in self.teams:
+            if i.url in sel.values:
+                team = fs.Team.parse_obj(i)
+                await FXPaginator.start(
+                    interaction, self.page, team, False, self
+                )
 
     @discord.ui.button(label="All", row=3)
     async def _all(self, interaction: Interaction, _) -> None:
@@ -798,7 +853,7 @@ class ArchiveSelect(view_utils.DropdownPaginator):
         return ArchiveSelect(invoker, page, embed, rows, options, seasons)
 
     @discord.ui.select(placeholder="Select Previous Year")
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, sel: Select[ArchiveSelect]
     ) -> None:
         """Spawn a new View for the Selected Season"""
@@ -823,25 +878,13 @@ class H2HView(view_utils.BaseView):
         self.page = page
         self.fixture = fixture
 
-    @discord.ui.button(label="subpage")
-    async def btn(self, interaction: Interaction, _: Button[H2HView]) -> None:
-        """A button to go to a subpage of a HeadToHeadView"""
-        rows = await self.fixture.get_head_to_head(self.page, _.label)
-        embed = await FSEmbed.create(self.fixture)
-        embed.title = f"Head to Head ({_.label})"
-        embed.description = "\n".join(rows)
-        await interaction.response.edit_message(view=self, embed=embed)
-
     async def add_buttons(self) -> None:
         """Generate a button for each subtab found."""
         btns = [i.label for i in self.children if isinstance(i, Button)]
         for i in await self.page.locator(".subTabs > a").all():
             if not (text := await i.text_content()) or text in btns:
                 continue
-
-            button = copy.copy(self.btn)
-            button.label = text
-            self.add_item(button)
+            self.add_item(H2HButton(text))
 
     @classmethod
     async def start(
@@ -864,13 +907,40 @@ class H2HView(view_utils.BaseView):
         else:
             edit = interaction.response.edit_message
 
-        rows = await fixture.get_head_to_head(page)
+        rows = await fixture.get_h2h(page)
         embed = await FSEmbed.create(fixture)
         embed.title = "Head to Head"
-        embed.description = "\n".join(rows)
+        embed.description = ""
+
+        for i in rows:
+            ts = timed_events.Timestamp(i.kickoff).relative
+            text = f"{ts} {i.home} {i.score} {i.away}\n"
+            embed.description += text
+
         await edit(view=view, embed=embed)
         view.message = await interaction.original_response()
         parent.message = view.message
+
+
+class H2HButton(Button[H2HView]):
+    def __init__(self, label: str) -> None:
+        super().__init__(label=label)
+
+    async def callback(self, interaction: Interaction) -> None:
+        """A button to go to a subpage of a HeadToHeadView"""
+        assert self.view is not None
+        rows = await self.view.fixture.get_h2h(self.view.page, self.label)
+        embed = await FSEmbed.create(self.view.fixture)
+        embed.title = f"Head to Head ({self.label})"
+
+        embed.description = ""
+
+        for i in rows:
+            ts = timed_events.Timestamp(i.kickoff).relative
+            text = f"{ts} {i.home} {i.score} {i.away}\n"
+            embed.description += text
+
+        await interaction.response.edit_message(view=self.view, embed=embed)
 
 
 class FSView(view_utils.BaseView):
@@ -1230,11 +1300,7 @@ class FixturesCog(commands.Cog):
 
     @default.command(name="team")
     @discord.app_commands.describe(team=TEAM_NAME)
-    async def d_team(
-        self,
-        interaction: Interaction,
-        team: fs.tm_tran,
-    ) -> None:
+    async def d_team(self, interaction: Interaction, team: team_) -> None:
         """Set the default team for your flashscore lookups"""
         embed = await FSEmbed.create(team)
 
@@ -1257,7 +1323,7 @@ class FixturesCog(commands.Cog):
     @default.command(name="competition")
     @discord.app_commands.describe(competition=COMPETITION)
     async def d_comp(
-        self, interaction: Interaction, competition: fs.cmp_tran
+        self, interaction: Interaction, competition: comp_
     ) -> None:
         """Set the default competition for your flashscore lookups"""
 
@@ -1282,8 +1348,9 @@ class FixturesCog(commands.Cog):
     @discord.app_commands.command()
     @discord.app_commands.rename(obj="search")
     @discord.app_commands.describe(obj="Team, Competition, or Fixture")
-    async def table(self, interaction: Interaction, obj: fs.universal) -> None:
+    async def table(self, interaction: Interaction, obj: universal) -> None:
         """Fetch a table for a team, competition, or fixture"""
+        await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()
         view = FSView(interaction.user, page, obj)
         await StandingsView.start(interaction, page, obj, view)
@@ -1291,7 +1358,7 @@ class FixturesCog(commands.Cog):
     @discord.app_commands.command(name="fixtures")
     @discord.app_commands.rename(obj="search")
     @discord.app_commands.describe(obj="Team or Competition")
-    async def fx(self, interaction: Interaction, obj: fs.universal) -> None:
+    async def fx(self, interaction: Interaction, obj: universal) -> None:
         """Search for upcoming fixtures for a team or competition"""
         assert isinstance(obj, fs.Competition | fs.Team)
         await interaction.response.defer(thinking=True)
@@ -1301,7 +1368,7 @@ class FixturesCog(commands.Cog):
     @discord.app_commands.command(name="results")
     @discord.app_commands.rename(obj="search")
     @discord.app_commands.describe(obj="Team or Competition")
-    async def rx(self, interaction: Interaction, obj: fs.universal) -> None:
+    async def rx(self, interaction: Interaction, obj: universal) -> None:
         """Search for previous results from a team or competition"""
         assert isinstance(obj, fs.Competition | fs.Team)
         await interaction.response.defer(thinking=True)
@@ -1311,7 +1378,7 @@ class FixturesCog(commands.Cog):
     @discord.app_commands.command()
     @discord.app_commands.describe(obj="Team or Fixture")
     @discord.app_commands.rename(obj="search")
-    async def news(self, interaction: Interaction, obj: fs.universal) -> None:
+    async def news(self, interaction: Interaction, obj: universal) -> None:
         """Get the latest news for a team or fixture"""
         await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()
@@ -1320,7 +1387,7 @@ class FixturesCog(commands.Cog):
     # FIXTURE commands
     @discord.app_commands.command()
     @discord.app_commands.describe(match=FIXTURE)
-    async def stats(self, interaction: Interaction, match: fs.fx_tran) -> None:
+    async def stats(self, interaction: Interaction, match: fixture_) -> None:
         """Look up the stats for a fixture."""
         await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()
@@ -1328,7 +1395,7 @@ class FixturesCog(commands.Cog):
 
     @discord.app_commands.command(name="lineups")
     @discord.app_commands.describe(match=FIXTURE)
-    async def frm(self, interaction: Interaction, match: fs.fx_tran) -> None:
+    async def frm(self, interaction: Interaction, match: fixture_) -> None:
         """Look up the lineups and/or formations for a Fixture."""
         page = await self.bot.browser.new_page()
         view = FSView(interaction.user, page, match)
@@ -1336,7 +1403,7 @@ class FixturesCog(commands.Cog):
 
     @discord.app_commands.command(name="tv")
     @discord.app_commands.describe(match=FIXTURE)
-    async def tv(self, interaction: Interaction, match: fs.fx_tran) -> None:
+    async def tv(self, interaction: Interaction, match: fixture_) -> None:
         """Find the TV information for a fixture"""
         embed = FSEmbed(match)
 
@@ -1349,7 +1416,7 @@ class FixturesCog(commands.Cog):
 
     @discord.app_commands.command(name="summary")
     @discord.app_commands.describe(match=FIXTURE)
-    async def smry(self, interaction: Interaction, match: fs.fx_tran) -> None:
+    async def smry(self, interaction: Interaction, match: fixture_) -> None:
         """Get a summary for a fixture"""
         page = await self.bot.browser.new_page()
         view = FSView(interaction.user, page, match)
@@ -1358,7 +1425,7 @@ class FixturesCog(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.describe(match=FIXTURE)
-    async def h2h(self, interaction: Interaction, match: fs.fx_tran) -> None:
+    async def h2h(self, interaction: Interaction, match: fixture_) -> None:
         """Lookup the head-to-head details for a Fixture"""
         page = await self.bot.browser.new_page()
         parent = FSView(interaction.user, page, match)
@@ -1366,7 +1433,7 @@ class FixturesCog(commands.Cog):
 
     @discord.app_commands.command()
     @discord.app_commands.describe(team=TEAM_NAME)
-    async def squad(self, interaction: Interaction, team: fs.tm_tran) -> None:
+    async def squad(self, interaction: Interaction, team: team_) -> None:
         """Lookup a team's squad members"""
         page = await self.bot.browser.new_page()
         view = FSView(interaction.user, page, team)
@@ -1375,7 +1442,7 @@ class FixturesCog(commands.Cog):
     @discord.app_commands.command(name="top_scorers")
     @discord.app_commands.rename(obj="competition")
     @discord.app_commands.describe(obj=COMPETITION)
-    async def scr(self, interaction: Interaction, obj: fs.cmp_tran) -> None:
+    async def scr(self, interaction: Interaction, obj: comp_) -> None:
         """Get top scorers from a competition."""
         await interaction.response.defer(thinking=True)
         page = await self.bot.browser.new_page()

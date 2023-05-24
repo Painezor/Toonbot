@@ -18,6 +18,7 @@ URI = (
     "https://worldofwarships.eu/en/content/"
     "contents-and-drop-rates-of-containers/"
 )
+logger = logging.getLogger("test")
 
 
 # TODO: Container drops
@@ -33,10 +34,10 @@ class Test(commands.Cog):
         if "get_lootbox/" not in request.url:
             return
 
-        logging.debug("REQUEST RECEIVED %s\n", request.url)
+        logger.debug("REQUEST RECEIVED %s\n", request.url)
         resp = await request.response()
         if resp is not None:
-            logging.debug(resp.json())
+            logger.debug(resp.json())
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(250252535699341312)

@@ -120,13 +120,13 @@ async def contract_embeds(team: tfm.TFTeam) -> list[discord.Embed]:
 
     rows: list[str] = []
     for i in contracts:
-        flag = [i for i in flags.get_flags(i.player.country) if i]
+        flag = " ".join(flags.get_flags(i.player.country))
         expire = timed_events.Timestamp(i.expiry).countdown
         md = f"[{i.player.name}]({i.player.link})"
         opt = i.option if i.option else ""
         pos = i.player.position
         age = i.player.age
-        rows.append(f"{flag} {md} ({pos} {age}){expire} {opt}")
+        rows.append(f"{expire} {flag} {md} ({age}, {pos}) {opt}")
     return embed_utils.rows_to_embeds(embed, rows)
 
 
@@ -303,7 +303,7 @@ class TeamView(view_utils.EmbedPaginator):
         embeds = await transfer_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.transfers.disabled = True
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.response.edit_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Rumours", emoji="🕵", row=1)
@@ -312,7 +312,7 @@ class TeamView(view_utils.EmbedPaginator):
         embeds = await rumour_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.rumours.disabled = True
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.response.edit_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Trophies", emoji="🏆")
@@ -321,7 +321,7 @@ class TeamView(view_utils.EmbedPaginator):
         embeds = await trophy_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.trophies.disabled = True
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.response.edit_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Contracts", emoji="📝")
@@ -330,7 +330,7 @@ class TeamView(view_utils.EmbedPaginator):
         embeds = await contract_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.contracts.disabled = True
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.response.edit_message(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
 
@@ -430,7 +430,7 @@ class Lookup(commands.Cog):
 
         embeds = await transfer_embeds(team)
         view = TeamView(interaction.user, team, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @transfer.command()
@@ -446,7 +446,7 @@ class Lookup(commands.Cog):
 
         embeds = await rumour_embeds(team)
         view = TeamView(interaction.user, team, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.app_commands.command()
@@ -462,7 +462,7 @@ class Lookup(commands.Cog):
 
         embeds = await contract_embeds(team)
         view = TeamView(interaction.user, team, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.app_commands.command()
@@ -477,7 +477,7 @@ class Lookup(commands.Cog):
 
         embeds = await trophy_embeds(team)
         view = TeamView(interaction.user, team, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.app_commands.command()
@@ -492,7 +492,7 @@ class Lookup(commands.Cog):
 
         embeds = await attendance_embeds(comp)
         view = CompetitionView(interaction.user, comp, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
 

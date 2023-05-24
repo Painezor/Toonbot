@@ -200,7 +200,7 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
             embed.description = err
             await interaction.followup.send(embed=embed, ephemeral=True)
         view = PollView(question, answers, time, votes)
-        await interaction.response.send_message(view=view)
+        await interaction.response.send_message(view=view, embed=embed)
         view.message = await interaction.original_response()
 
 

@@ -138,7 +138,7 @@ class BlogEmbed(discord.Embed):
         """Get Image & save link to self.images"""
         src = "http:" + node.attrib["src"]
         self.images.append(src)
-        self.text += f"[Image]({src})"
+        self.text += f" [Image]({src}) "
 
     def parse_span(self, node: html.HtmlElement) -> None:
         """Extract ships from span blocks."""
@@ -283,6 +283,8 @@ class BlogEmbed(discord.Embed):
         return embed
 
 
+# TODO: Image Browser Dropdown
+# TODO: Paginate text.
 class DevBlogView(view_utils.Paginator):
     """Browse Dev Blogs"""
 
@@ -309,9 +311,9 @@ async def db_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
 
     choices: list[Choice[str]] = []
     for i in dbc:
-        ac_row = f"{i.id} {i.title} {i.text}".casefold()
+        autocomplete = f"{i.id} {i.title} {i.text}".casefold()
 
-        if cur not in ac_row:
+        if cur not in autocomplete:
             continue
 
         name = f"{i.id}: {i.title}"[:100]

@@ -314,7 +314,7 @@ class NUFC(commands.Cog):
         except discord.Forbidden:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = "❌ I can't react in this channel"
-            await interaction.response.send_message(embed=embed)
+            await interaction.followup.send(embed=embed)
             return
         txt = ":upvote:332196220460072970"
         await interaction.edit_original_response(content=txt)

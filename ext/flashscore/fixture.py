@@ -9,11 +9,9 @@ from lxml import html
 from playwright.async_api import TimeoutError as PWTimeout
 from pydantic import BaseModel
 
-from ext.utils import timed_events
-
-from .abc import BaseFixture, Participant, BaseTeam
+from .abc import BaseCompetition, BaseFixture, Participant, BaseTeam
 from .constants import FLASHSCORE
-from .gamestate import GameState as GS
+from .gamestate import GameState
 from .matchevents import IncidentParser, MatchIncident
 from .news import HasNews
 from .photos import MatchPhoto
@@ -23,8 +21,6 @@ from .tv import TVListing
 if TYPE_CHECKING:
     from playwright.async_api import Page
     from .cache import FlashscoreCache
-    from .competitions import Competition
-    from .team import Team
 
 logger = logging.getLogger("flashscore.fixture")
 
@@ -34,7 +30,7 @@ class HasFixtures:
 
     async def fixtures(
         self, page: Page, cache: FlashscoreCache | None = None
-    ) -> list[Fixture]:
+    ) -> list[BaseFixture]:
         """Get a list of upcoming Fixtures for the FS Item"""
         if self.url is None:
             raise AttributeError
@@ -49,7 +45,7 @@ class HasFixtures:
 
     async def results(
         self, page: Page, cache: FlashscoreCache | None = None
-    ) -> list[Fixture]:
+    ) -> list[BaseFixture]:
         """Get a list of upcoming Fixtures for the FS Item"""
         if self.url is None:
             raise AttributeError
@@ -64,14 +60,16 @@ class HasFixtures:
 
     async def parse_games(
         self, page: Page, cache: FlashscoreCache | None = None
-    ) -> list[Fixture]:
+    ) -> list[BaseFixture]:
         """Parse games from raw HTML from fixtures or results function"""
-        from .competitions import Competition
-        from .team import Team
+        try:
+            await (loc := page.locator("#live-table")).wait_for()
+            htm = html.fromstring(await loc.inner_html())
+        except PWTimeout:
+            logger.error("Timed out waiiting for #live-table %s", page.url)
+            return []
 
-        await (loc := page.locator("#live-table")).wait_for()
-        htm = html.fromstring(await loc.inner_html())
-        fixtures: list[Fixture] = []
+        fixtures: list[BaseFixture] = []
         comp = None
         for i in htm.xpath('.//div[contains(@class, "sportName soccer")]/div'):
             if "event__header" in i.classes:
@@ -83,7 +81,7 @@ class HasFixtures:
                     comp = cache.get_competition(title=f"{country}: {league}")
 
                 if not comp:
-                    comp = Competition(name=league, country=str(country))
+                    comp = BaseCompetition(name=league, country=str(country))
                 continue
 
             try:
@@ -93,12 +91,14 @@ class HasFixtures:
 
             url = f"{FLASHSCORE}/match/{fx_id}"
 
-            xpath = './/div[contains(@class,"event__participant")]/text()'
+            xpath = './/div[contains(@class,"event__participant")]//text()'
+            names = [n.strip() for n in i.xpath(xpath)]
+            logger.info("Got team names %s", ", ".join(names))
 
-            home, away = [
-                Participant(team=Team(name=n.strip())) for n in i.xpath(xpath)
-            ]
+            home, away = [Participant(team=BaseTeam(name=i)) for i in names]
             fx = Fixture(home=home, away=away, id=fx_id, url=url)
+            fx.home.team.name = names[0]
+            fx.away.team.name = names[1]
             fx.competition = comp
 
             # score
@@ -113,49 +113,6 @@ class Fixture(BaseFixture, HasNews, HasTable):
 
     incidents: list[MatchIncident] = []
 
-    @classmethod
-    def from_mobi(cls, node: html.HtmlElement, id_: str) -> Fixture | None:
-        link = "".join(node.xpath(".//a/@href"))
-        url = FLASHSCORE + link
-
-        xpath = "./text()"
-        teams = [str(i.strip()) for i in node.xpath(xpath) if i.strip()]
-
-        if teams[0].startswith("updates"):
-            # Awaiting Updates.
-            teams[0] = teams[0].replace("updates", "")
-
-        if len(teams) == 1:
-            teams = teams[0].split(" - ")
-
-        if len(teams) == 2:
-            home_name, away_name = teams
-
-        elif len(teams) == 3:
-            if teams[1] == "La Duchere":
-                home_name = f"{teams[0]} {teams[1]}"
-                away_name = teams[2]
-            elif teams[2] == "La Duchere":
-                home_name = teams[0]
-                away_name = f"{teams[1]} {teams[2]}"
-
-            elif teams[0] == "Banik Most":
-                home_name = f"{teams[0]} {teams[1]}"
-                away_name = teams[2]
-            elif teams[1] == "Banik Most":
-                home_name = teams[0]
-                away_name = f"{teams[1]} {teams[2]}"
-            else:
-                logger.error("Fetch games found %s", teams)
-                return None
-        else:
-            logger.error("Fetch games found teams %s", teams)
-            return None
-
-        home = Participant(team=BaseTeam(name=home_name))
-        away = Participant(team=BaseTeam(name=away_name))
-        return Fixture(home=home, away=away, id=id_, url=url)
-
     def set_time(self, node: html.HtmlElement) -> None:
         """Set the time of the fixture from parse_fixtures"""
         state = None
@@ -166,13 +123,13 @@ class Fixture(BaseFixture, HasNews, HasTable):
         if override:
             try:
                 self.time = {
-                    "Abn": GS.ABANDONED,
-                    "AET": GS.AFTER_EXTRA_TIME,
-                    "Awrd": GS.AWARDED,
-                    "FRO": GS.FINAL_RESULT_ONLY,
-                    "Pen": GS.AFTER_PENS,
-                    "Postp": GS.POSTPONED,
-                    "WO": GS.WALKOVER,
+                    "Abn": GameState.ABANDONED,
+                    "AET": GameState.AFTER_EXTRA_TIME,
+                    "Awrd": GameState.AWARDED,
+                    "FRO": GameState.FINAL_RESULT_ONLY,
+                    "Pen": GameState.AFTER_PENS,
+                    "Postp": GameState.POSTPONED,
+                    "WO": GameState.WALKOVER,
                 }[override]
             except KeyError:
                 logger.error("missing state for override %s", override)
@@ -189,8 +146,8 @@ class Fixture(BaseFixture, HasNews, HasTable):
                 self.kickoff = k_o.astimezone(datetime.timezone.utc)
 
                 if self.kickoff < dtn:
-                    self.time = GS.SCHEDULED
-                self.time = GS.FULL_TIME
+                    self.time = GameState.SCHEDULED
+                self.time = GameState.FULL_TIME
                 return
             except ValueError:
                 continue
@@ -212,9 +169,9 @@ class Fixture(BaseFixture, HasNews, HasTable):
         except ValueError:
             pass
 
-    async def get_head_to_head(
+    async def get_h2h(
         self, page: Page, btn: str | None = None
-    ) -> list[str]:
+    ) -> list[HeadToHeadResult]:
         """Return a list of Fixtures matching head to head criteria"""
         url = f"{self.url}/#/h2h"
         await page.goto(url, timeout=5000)
@@ -227,11 +184,11 @@ class Fixture(BaseFixture, HasNews, HasTable):
         game: html.HtmlElement
         xpath = './/div[@class="rows" or @class="section__title"]'
 
-        output: list[str] = []
+        output: list[HeadToHeadResult] = []
+        header = ""
         for row in tree.xpath(xpath):
             if "section__title" in row.classes:
                 header = row.xpath(".//text()")[0]
-                output.append(f"\n**{header}**\n")
                 continue
 
             for game in row:
@@ -245,17 +202,24 @@ class Fixture(BaseFixture, HasNews, HasTable):
                 xpath = './/span[contains(@class, "date")]/text()'
                 k_o = game.xpath(xpath)[0].strip()
                 k_o = datetime.datetime.strptime(k_o, "%d.%m.%y")
-                k_o = timed_events.Timestamp(k_o).relative
 
                 try:
                     tms = game.xpath('.//span[@class="h2h__result"]//text()')
-                    tms = f"{tms[0]} - {tms[1]}"
+                    txt = f"{tms[0]} - {tms[1]}"
                     # Directly set the private var to avoid the score setter.
-                    output.append(f"{k_o} {home} {tms} {away}")
                 except ValueError:
                     txt = game.xpath('.//span[@class="h2h__result"]//text()')
                     logger.error("ValueError trying to split string, %s", txt)
-                    output.append(f"{k_o} {home} {txt} {away}")
+
+                output.append(
+                    HeadToHeadResult(
+                        home=home,
+                        away=away,
+                        kickoff=k_o,
+                        score=txt,
+                        header=header,
+                    )
+                )
         return output
 
     async def get_photos(self, page: Page) -> list[MatchPhoto]:
@@ -278,11 +242,11 @@ class Fixture(BaseFixture, HasNews, HasTable):
         """Get the statistics for a match"""
         url = f"{self.url}/#/match-summary/match-statistics/"
 
-        if btn is not None:
-            await page.locator(btn).click(force=True)
-
         await page.goto(url, timeout=5000)
         await page.wait_for_selector(".section", timeout=5000)
+        if btn is not None:
+            await page.locator("a", has_text=btn).click(force=True)
+
         src = await page.inner_html(".section")
 
         stats: list[MatchStat] = []
@@ -352,20 +316,28 @@ class Fixture(BaseFixture, HasNews, HasTable):
         channels: list[TVListing] = []
         for i in tv:
             link = "".join(i.xpath(".//@href"))
+
+            if "http" not in link:
+                continue
+
             name = "".join(i.xpath(".//text()"))
+            if "bet365" in link:
+                logger.info("bet365 has link %s", link)
+                continue
+
             channels.append(TVListing(name=name, link=link))
         self.tv = channels
 
         div = tree.xpath(".//span[@class='tournamentHeader__country']")[0]
         comp_url = FLASHSCORE + "".join(div.xpath(".//@href")).rstrip("/")
         self.competition = await self.fetch_competition(page, comp_url, cache)
+        self.home.team.competition = self.competition
+        self.away.team.competition = self.competition
 
     def _parse_teams(
         self, tree: html.HtmlElement, cache: FlashscoreCache | None
-    ) -> tuple[Team, Team]:
-        from .team import Team
-
-        teams: list[Team] = []
+    ) -> tuple[BaseTeam, BaseTeam]:
+        teams: list[BaseTeam] = []
         for attr in ["home", "away"]:
             xpath = f".//div[contains(@class, 'duelParticipant__{attr}')]"
             div = tree.xpath(xpath)
@@ -381,7 +353,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
 
             team_id = url.split("/")[-2]
             if cache is None or (team := cache.get_team(team_id)) is None:
-                team = Team(id=team_id, name=name, url=FLASHSCORE + url)
+                team = BaseTeam(id=team_id, name=name, url=FLASHSCORE + url)
 
             team.name = name
             logo = div.xpath('.//img[@class="participant__image"]/@src')
@@ -396,10 +368,8 @@ class Fixture(BaseFixture, HasNews, HasTable):
         page: Page,
         url: str,
         cache: FlashscoreCache | None = None,
-    ) -> Competition | None:
+    ) -> BaseCompetition | None:
         """Go to a competition's page and fetch it directly."""
-        from .competitions import Competition
-
         if cache:
             comp = cache.get_competition(url=url)
         else:
@@ -415,7 +385,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
             return comp
 
         tree = html.fromstring(await selector.inner_html())
-        country = str(tree.xpath(".//a[@class='breadcrumb__link']/text()")[-1])
+        ctry = str(tree.xpath(".//a[@class='breadcrumb__link']/text()")[-1])
 
         # Name Correction
         name = "".join(tree.xpath('.//div[@class="heading__name"]/text()'))
@@ -424,18 +394,18 @@ class Fixture(BaseFixture, HasNews, HasTable):
             xpath = ".//span[contains(@title, 'My Leagues')]/@class"
             mylg = tree.xpath(xpath)[0]
             mylg = [i for i in mylg.rsplit(maxsplit=1) if "_" in i][-1]
-            comp_id = mylg.rsplit("_", maxsplit=1)[-1]
+            c_id = mylg.rsplit("_", maxsplit=1)[-1]
             if comp is None and cache:
-                comp = cache.get_competition(id=comp_id)
+                comp = cache.get_competition(id=c_id)
         except IndexError:
-            comp_id = comp = None
+            c_id = comp = None
             logger.error("Could not find mylg on %s", url)
 
         if comp is None:
-            comp = Competition(id=comp_id, name=name, url=url, country=country)
+            comp = BaseCompetition(id=c_id, name=name, url=url, country=ctry)
         else:
             comp.url = url
-            comp.country = country
+            comp.country = ctry
             comp.name = name
 
         if img := tree.xpath('.//img[contains(@class, "heading__logo")]/@src'):
@@ -447,3 +417,11 @@ class MatchStat(BaseModel):
     home: str
     label: str
     away: str
+
+
+class HeadToHeadResult(BaseModel):
+    header: str
+    home: str
+    score: str
+    away: str
+    kickoff: datetime.datetime

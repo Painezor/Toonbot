@@ -75,7 +75,7 @@ class Leaderboard(view_utils.DropdownPaginator):
         self.clans: list[api.ClanLeaderboardStats] = clans
 
     @discord.ui.select(row=1, options=[], placeholder="View Clan")
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, sel: discord.ui.Select[Leaderboard]
     ) -> None:
         """Push the latest version of the view to the user"""
@@ -356,7 +356,7 @@ class WinnerView(view_utils.DropdownPaginator):
 
         # Override Data since we're kinda spoofing it.
         self.dropdowns = options
-        self.dropdown.options = self.dropdowns[0]
+        self.remove.options = self.dropdowns[0]
         self.pages = embeds
         self.update_buttons()
 
@@ -365,7 +365,7 @@ class WinnerView(view_utils.DropdownPaginator):
             self.clans += i
 
     @discord.ui.select(placeholder="View Clan")
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, select: discord.ui.Select[WinnerView]
     ) -> None:
         """Go to clan mentioned"""

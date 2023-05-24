@@ -56,7 +56,7 @@ def stringify_minutes(value: int) -> str:
             value
         ]
     except KeyError:
-        logging.error("Unhandled archive duration %s", value)
+        logger.error("Unhandled archive duration %s", value)
         return str(value)
 
 

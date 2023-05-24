@@ -2,15 +2,19 @@
 from __future__ import annotations
 
 import datetime
+import logging
+from lxml import html
 from typing import TYPE_CHECKING
 
-from lxml import html
-
+from playwright.async_api import TimeoutError as PWTimeout
 
 from .constants import FLASHSCORE
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
+
+
+logger = logging.getLogger("flashscore.news")
 
 
 class HasNews:
@@ -20,14 +24,30 @@ class HasNews:
 
     async def get_news(self, page: Page) -> list[NewsArticle]:
         """Fetch a list of NewsArticles for Pagination"""
-        await page.goto(f"{self.url}/news", timeout=5000)
+
+        url = self.base_url + "/news"
+        try:
+            await page.goto(url, timeout=5000)
+        except PWTimeout:
+            logger.error("Timed out loading page %s", url)
+            return []
+
         locator = page.locator(".rssNew")
-        await locator.wait_for()
+        try:
+            await locator.wait_for()
+        except PWTimeout:
+            logger.error("Failed finding .rssNew on %s", page.url)
 
         articles: list[NewsArticle] = []
         for i in await locator.all():
             articles.append(NewsArticle(html.fromstring(await i.inner_html())))
         return articles
+
+    @property
+    def base_url(self) -> str:
+        if self.url is None:
+            raise AttributeError(f"No URL found on {self}")
+        return self.url.rstrip("/")
 
 
 class NewsArticle:

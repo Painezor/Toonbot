@@ -294,11 +294,10 @@ class TrackerConfig(view_utils.DropdownPaginator):
             options.append(opt)
             rows.append(i.mention)
 
-        super().__init__(invoker, embed, rows, options)
-        self.dropdown.max_values = len(options)
+        super().__init__(invoker, embed, rows, options, multi=True)
 
     @discord.ui.select(placeholder="Remove tracked roles", row=1)
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, sel: discord.ui.Select[TrackerConfig]
     ):
         await self.remove_tracked(itr, sel.values)

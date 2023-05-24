@@ -193,7 +193,7 @@ class StadiumBrowser(view_utils.DropdownPaginator):
         self.stadiums = stadiums
 
     @discord.ui.select(placeholder="Select a Stadium")
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, sel: discord.ui.Select[StadiumBrowser]
     ) -> None:
         for i in self.stadiums:

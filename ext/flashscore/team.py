@@ -114,7 +114,7 @@ class Team(BaseTeam, HasFixtures, HasTable, HasNews, HasScorers, HasLogo):
                 team_id = tm_lnk.split("/")[-2]
 
                 if (team := cache.get_team(team_id)) is None:
-                    team = Team(id=team_id, name=team_name, url=tm_lnk)
+                    team = BaseTeam(id=team_id, name=team_name, url=tm_lnk)
                 trans.team = team
             output.append(trans)
         return output

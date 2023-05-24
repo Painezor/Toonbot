@@ -12,7 +12,8 @@ from lxml import etree, html
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PWTimeout
 
-from ext import flashscore as fs
+import ext.flashscore as fs
+from ext.flashscore.gamestate import GameState, EventType as EVT
 
 if TYPE_CHECKING:
     from core import Bot
@@ -21,11 +22,83 @@ if TYPE_CHECKING:
 
 logger = getLogger("ScoreLoop")
 
-EVT = fs.EventType
 CURRENT_DATETIME_OFFSET = 2  # Hour difference between us and flashscore
 MAX_RECURSION = 5
-MAX_SCORE_WORKERS = 5
+MAX_SCORE_WORKERS = 2
 FXE = "fixture_event"  # Just a string for dispatching events.
+
+
+def get_half_time_change(old: GameState) -> EVT:
+    if old == GameState.EXTRA_TIME:
+        return EVT.ET_HT_BEGIN
+    return EVT.HALF_TIME
+
+
+def get_break_time_change(old: GameState) -> EVT:
+    if old == GameState.EXTRA_TIME:
+        return EVT.EXTRA_TIME_END
+    return EVT.NORMAL_TIME_END
+
+
+def get_extra_time_change(old: GameState) -> EVT:
+    if old == GameState.HALF_TIME:
+        return EVT.ET_HT_END
+    return EVT.EXTRA_TIME_BEGIN
+
+
+def get_live_change(old: GameState) -> EVT:
+    return {
+        GameState.SCHEDULED: EVT.KICK_OFF,
+        GameState.DELAYED: EVT.KICK_OFF,
+        GameState.INTERRUPTED: EVT.RESUMED,
+        GameState.STOPPAGE_TIME: EVT.SECOND_HALF_BEGIN,
+        GameState.HALF_TIME: EVT.SECOND_HALF_BEGIN,
+        GameState.BREAK_TIME: EVT.PERIOD_BEGIN,
+    }[old]
+
+
+def get_full_time_change(old: GameState) -> EVT:
+    try:
+        return {
+            GameState.EXTRA_TIME: EVT.SCORE_AFTER_EXTRA_TIME,
+            GameState.SCHEDULED: EVT.FINAL_RESULT_ONLY,
+            GameState.HALF_TIME: EVT.FINAL_RESULT_ONLY,
+            GameState.AWAITING: EVT.FINAL_RESULT_ONLY,
+        }[old]
+    except KeyError:
+        return EVT.FULL_TIME
+
+
+def get_event_type(new: GameState | None, old: GameState | None) -> EVT | None:
+    """Conver a new / old difference to an EventType"""
+    if old is None:
+        return
+    if new is None:
+        return
+    if new in [GameState.AWAITING, GameState.STOPPAGE_TIME, old]:
+        return
+
+    # I'm pretty sure this is a fucking warcrime.
+    try:
+        return {
+            GameState.ABANDONED: EVT.ABANDONED,
+            GameState.AFTER_EXTRA_TIME: EVT.SCORE_AFTER_EXTRA_TIME,
+            GameState.AFTER_PENS: EVT.PENALTY_RESULTS,
+            GameState.AWARDED: EVT.CANCELLED,
+            GameState.BREAK_TIME: get_break_time_change(old),
+            GameState.CANCELLED: EVT.CANCELLED,
+            GameState.DELAYED: EVT.DELAYED,
+            GameState.EXTRA_TIME: get_extra_time_change(old),
+            GameState.FULL_TIME: get_full_time_change(old),
+            GameState.HALF_TIME: get_half_time_change(old),
+            GameState.INTERRUPTED: EVT.INTERRUPTED,
+            GameState.LIVE: get_live_change(old),
+            GameState.PENALTIES: EVT.PENALTIES_BEGIN,
+            GameState.POSTPONED: EVT.POSTPONED,
+            GameState.WALKOVER: EVT.CANCELLED,
+        }[new]
+    except KeyError:
+        logger.error("New State Change Not Handled: %s -> %s", old, new)
 
 
 class ScoreLoop(commands.Cog):
@@ -124,8 +197,8 @@ class ScoreLoop(commands.Cog):
 
         await asyncio.gather(*[do_fixture(i) for i in self._pending])
 
-        save: list[fs.Competition | None] = []
-        teams: list[fs.BaseTeam] = []
+        save: list[fs.abc.BaseCompetition | None] = []
+        teams: list[fs.abc.BaseTeam] = []
 
         for item in success:
             teams += [item.home.team, item.away.team]
@@ -146,7 +219,9 @@ class ScoreLoop(commands.Cog):
             await page.close()
 
     # Core Loop
-    def handle_cards(self, fix: fs.Fixture, tree: html.HtmlElement) -> None:
+    def handle_cards(
+        self, fix: fs.abc.BaseFixture, tree: html.HtmlElement
+    ) -> None:
         """Handle the Cards of a fixture"""
         if not (cards := tree.xpath("./img/@class")):
             return
@@ -172,7 +247,7 @@ class ScoreLoop(commands.Cog):
             fix.away.cards = away
 
     def handle_kickoff(
-        self, fix: fs.Fixture, tree: html.HtmlElement, state: str
+        self, fix: fs.abc.BaseFixture, tree: html.HtmlElement, state: str
     ) -> None:
         """Set the kickoff of a fixture by parsing data"""
         if fix.kickoff:
@@ -202,7 +277,7 @@ class ScoreLoop(commands.Cog):
         fix.kickoff = _
 
     def handle_score(
-        self, fix: fs.Fixture, tree: html.HtmlElement
+        self, fix: fs.abc.BaseFixture, tree: html.HtmlElement
     ) -> str | None:
         """Parse Score and return overrides if they exist."""
         home, away = tree.xpath("string(.//a/text())").split(":")
@@ -243,7 +318,7 @@ class ScoreLoop(commands.Cog):
         return etree.tostring(data).decode("utf8").split("<br/>")
 
     def handle_time(
-        self, fix: fs.Fixture, time: str, tree: html.HtmlElement
+        self, fix: fs.abc.BaseFixture, time: str, tree: html.HtmlElement
     ) -> None:
         """Handle the parsing of time based on collected data."""
         if ":" in time:
@@ -252,24 +327,24 @@ class ScoreLoop(commands.Cog):
         try:
             fix.time = {
                 # 1 Parter
-                "Break Time": fs.GameState.BREAK_TIME,
-                "Extra Time": fs.GameState.EXTRA_TIME,
-                "Half Time": fs.GameState.HALF_TIME,
-                "Live": fs.GameState.FINAL_RESULT_ONLY,
-                "Penalties": fs.GameState.PENALTIES,
+                "Break Time": GameState.BREAK_TIME,
+                "Extra Time": GameState.EXTRA_TIME,
+                "Half Time": GameState.HALF_TIME,
+                "Live": GameState.FINAL_RESULT_ONLY,
+                "Penalties": GameState.PENALTIES,
                 # 2 Parters
-                "Abandoned": fs.GameState.ABANDONED,
-                "Cancelled": fs.GameState.CANCELLED,
-                "Delayed": fs.GameState.DELAYED,
-                "Interrupted": fs.GameState.INTERRUPTED,
-                "Postponed": fs.GameState.POSTPONED,
+                "Abandoned": GameState.ABANDONED,
+                "Cancelled": GameState.CANCELLED,
+                "Delayed": GameState.DELAYED,
+                "Interrupted": GameState.INTERRUPTED,
+                "Postponed": GameState.POSTPONED,
                 # Overrides
-                "Awaiting": fs.GameState.AWAITING,
-                "aet": fs.GameState.AFTER_EXTRA_TIME,
-                "fin": fs.GameState.FULL_TIME,
-                "pen": fs.GameState.AFTER_PENS,
-                "sched": fs.GameState.SCHEDULED,
-                "wo": fs.GameState.WALKOVER,
+                "Awaiting": GameState.AWAITING,
+                "aet": GameState.AFTER_EXTRA_TIME,
+                "fin": GameState.FULL_TIME,
+                "pen": GameState.AFTER_PENS,
+                "sched": GameState.SCHEDULED,
+                "wo": GameState.WALKOVER,
             }[time]
         except KeyError:
             for i in (time := tree.xpath("./span/text()")):
@@ -281,7 +356,7 @@ class ScoreLoop(commands.Cog):
 
     def get_fixture_from_cache(
         self, tree: html.HtmlElement
-    ) -> tuple[fs.Fixture, fs.GameState | None]:
+    ) -> tuple[fs.abc.BaseFixture, GameState | None]:
         """Fetch the fixture from the cache"""
         link = "".join(tree.xpath(".//a/@href"))
         match_id = link.split("/")[-2]
@@ -290,9 +365,10 @@ class ScoreLoop(commands.Cog):
         if fix:
             return fix, fix.state
 
-        fix = fs.Fixture.from_mobi(tree, match_id)
+        fix = fs.abc.BaseFixture.from_mobi(tree, match_id)
         if fix is None:
             raise LookupError
+        fix = fs.Fixture.parse_obj(fix)
 
         self._pending.append(fix)
         self.bot.cache.games.append(fix)
@@ -329,7 +405,7 @@ class ScoreLoop(commands.Cog):
 
             self.handle_kickoff(fix, tree, state)
             self.handle_time(fix, time, tree)
-            e_type = fs.get_event_type(fix.state, old_state)
+            e_type = get_event_type(fix.state, old_state)
             if e_type is not None:
                 self.bot.dispatch("fixture_event", e_type, fix)
 

@@ -57,7 +57,7 @@ async def get_ships() -> list[Ship]:
             images: dict[str, Any] = data["data"]["ship_type_images"][k]
             images.update({"name": val})
             images.update({"api_name": k})
-            types.append(ShipType(**images))
+            types.append(ShipType.parse_obj(images))
 
         params.update({"page_no": 1})
         ships: list[Ship] = []

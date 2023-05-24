@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from ext.utils import flags
 
 if TYPE_CHECKING:
     from .team import Team
@@ -27,8 +26,3 @@ class FSPlayer(BaseModel):
         if self.forename is None:
             return self.surname
         return f"{self.forename} {self.surname}"
-
-    @property
-    def flags(self) -> list[str]:
-        """Get the flag using transfer_tools util"""
-        return flags.get_flags(self.country)

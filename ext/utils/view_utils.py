@@ -227,14 +227,14 @@ class DropdownPaginator(EmbedPaginator):
 
         try:
             if multi:
-                self.dropdown.max_values = len(self.dropdowns[0])
-            self.dropdown.options = self.dropdowns[0]
+                self.remove.max_values = len(self.dropdowns[0])
+            self.remove.options = self.dropdowns[0]
         except IndexError:
-            self.remove_item(self.dropdown)
+            self.remove_item(self.remove)
         self.options = options
 
     @discord.ui.select()
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, _: Select[DropdownPaginator]
     ) -> None:
         """Raise because you didn't subclass, dickweed."""
@@ -244,7 +244,7 @@ class DropdownPaginator(EmbedPaginator):
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
         embed = self.embeds[self.index]
-        self.dropdown.options = self.dropdowns[self.index]
+        self.remove.options = self.dropdowns[self.index]
         self.update_buttons()
         return await interaction.response.edit_message(embed=embed, view=self)
 
@@ -262,7 +262,7 @@ class PagedItemSelect(DropdownPaginator):
         rows = [i.label for i in options]
         super().__init__(invoker, embed, rows, options, **kwargs)
 
-        self.dropdown.max_values = len(self.dropdowns[self.index])
+        self.remove.max_values = len(self.dropdowns[self.index])
 
         self.values: set[str] = set()
         self.interaction: Interaction  # passback
@@ -270,13 +270,13 @@ class PagedItemSelect(DropdownPaginator):
     async def handle_page(self, interaction: Interaction) -> None:
         """Set the items to checked"""
         embed = self.embeds[self.index]
-        self.dropdown.options = self.dropdowns[self.index]
-        self.dropdown.max_values = len(self.dropdowns[self.index])
+        self.remove.options = self.dropdowns[self.index]
+        self.remove.max_values = len(self.dropdowns[self.index])
         self.update_buttons()
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(row=1, options=[])
-    async def dropdown(
+    async def remove(
         self, itr: Interaction, sel: discord.ui.Select[PagedItemSelect]
     ) -> None:
         """Response object for view"""
@@ -313,6 +313,9 @@ class Confirmation(BaseView):
         self.interaction: Interaction
         self.true.label = true
         self.false.label = false
+
+        # Remove the hide button.
+        self.remove_item(self._stop)
 
     @discord.ui.button(label="Yes")
     async def true(self, interaction: Interaction, _) -> None:

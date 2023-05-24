@@ -65,7 +65,7 @@ async def fetch_player_stats(
                 raise ConnectionError()
             data = await resp.json()
 
-    return [PlayerStats(**i) for i in data.pop("data").values()]
+    return [PlayerStats.parse_obj(i) for i in data.pop("data").values()]
 
 
 async def fetch_player_ship_stats(

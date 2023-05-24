@@ -2,14 +2,7 @@ from lxml import html
 
 from pydantic import BaseModel
 
-from .constants import (
-    FLASHSCORE,
-    GOAL_EMOJI,
-    INJURY_EMOJI,
-    RED_CARD_EMOJI,
-    TEAM_EMOJI,
-    YELLOW_CARD_EMOJI,
-)
+from .constants import FLASHSCORE
 from .players import FSPlayer
 
 
@@ -27,26 +20,6 @@ class SquadMember(BaseModel):
     yellows: int
     reds: int
     injury: str
-
-    @property
-    def output(self) -> str:
-        """Return a row representing the Squad Member"""
-        plr = self.player
-        pos = self.position
-        pmd = f"[{plr.name}]({plr.url})"
-        text = f"`#{self.squad_number}` {plr.flags} {pmd} ({pos}): "
-
-        if self.goals:
-            text += f" {GOAL_EMOJI} {self.goals}"
-        if self.appearances:
-            text += f" {TEAM_EMOJI} {self.appearances}"
-        if self.reds:
-            text += f" {RED_CARD_EMOJI} {self.reds}"
-        if self.yellows:
-            text += f" {YELLOW_CARD_EMOJI} {self.yellows}"
-        if self.injury:
-            text += f" {INJURY_EMOJI} {self.injury}"
-        return text
 
 
 def parse_squad_member(row: html.HtmlElement, position: str) -> SquadMember:

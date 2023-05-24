@@ -24,7 +24,7 @@ async def get_game_modes() -> list[GameMode]:
                 logger.error("%s %s: %s", resp.status, text, resp.url)
             data = await resp.json()
 
-    return [GameMode(**i) for i in data.pop("data").values()]
+    return [GameMode.parse_obj(i) for i in data.pop("data").values()]
 
 
 class GameMode(BaseModel):

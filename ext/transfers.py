@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, TypeAlias
 
 import discord
 from discord.ext import commands, tasks
+from discord.app_commands import Transform
 
 import ext.toonbot_utils.transfermarkt as tfm
 from ext.utils import view_utils, embed_utils, timed_events, flags
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
 
 
 NOPERMS = "```yaml\nI need the following permissions.\n"
+NO_EMBED_PERMS = "A transfer was found, but toonbot needs embed_links perms."
 
 
 DEFAULT_LEAGUES = [
@@ -122,62 +124,17 @@ class TFCompetitionTransformer(discord.app_commands.Transformer):
         return tfm.CompetitionSearch(value)
 
 
-class TransferChannel:
-    """An object representing a channel with a Transfer Ticker"""
-
-    def __init__(self, channel: discord.TextChannel) -> None:
-        self.channel: discord.TextChannel = channel
-        self.leagues: set[tfm.TFCompetition] = set()
-
-    @property
-    def id(self) -> int:  # pylint: disable=C0103
-        """Get ID from parent"""
-        return self.channel.id
-
-    @property
-    def mention(self) -> str:
-        """Get mention of parent"""
-        return self.channel.mention
-
-    # Database management
-    async def get_leagues(self, bot: Bot) -> set[tfm.TFCompetition]:
-        """Get the leagues needed for this channel"""
-        sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
-        async with bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records = await connection.fetch(sql, self.channel.id)
-
-        self.leagues = set(
-            tfm.TFCompetition(
-                name=r["name"], country=[r["country"]], link=r["link"]
-            )
-            for r in records
-        )
-        return self.leagues
-
-    async def reset_leagues(self, interaction: Interaction) -> None:
-        """Reset the channel back to the default leagues"""
-        sql = """DELETE FROM transfers_leagues WHERE channel_id = $1"""
-        sq2 = """INSERT INTO transfers_leagues
-                 (channel_id, name, country, link) VALUES ($1, $2, $3, $4)
-                 ON CONFLICT DO NOTHING"""
-
-        defaults = DEFAULT_LEAGUES
-
-        fields = [(self.id, x.name, x.country, x.link) for x in defaults]
-        async with interaction.client.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.execute(sql, self.id)
-                await connection.executemany(sq2, fields)
-
-        self.leagues = set(DEFAULT_LEAGUES)
-
-
-class TransfersConfig(view_utils.DropdownPaginator):
+class Config(view_utils.DropdownPaginator):
     """View for configuring Transfer Tickers"""
 
-    def __init__(self, invoker: User, channel: TransferChannel):
-        self.channel: TransferChannel = channel
+    def __init__(
+        self,
+        invoker: User,
+        channel: discord.TextChannel,
+        leagues: list[tfm.TFCompetition],
+    ):
+        self.channel: discord.TextChannel = channel
+        self.leagues: list[tfm.TFCompetition] = leagues
 
         embed = discord.Embed(colour=discord.Colour.dark_blue())
         embed.title = "Transfers Ticker config"
@@ -185,7 +142,7 @@ class TransfersConfig(view_utils.DropdownPaginator):
 
         missing: list[str] = []
 
-        chan = self.channel.channel
+        chan = self.channel
         perms = chan.permissions_for(chan.guild.me)
         if not perms.send_messages:
             missing.append("send_messages")
@@ -199,12 +156,12 @@ class TransfersConfig(view_utils.DropdownPaginator):
         options: list[discord.SelectOption] = []
         rows: list[str] = []
 
-        leagues = self.channel.leagues
         for league in sorted(leagues, key=lambda x: f"{x.country} {x.name}"):
             if not league.link:
                 continue
 
             lbl = league.name[:100]
+            logger.info(league.link)
             opt = discord.SelectOption(label=lbl, value=league.link)
             opt.emoji = flags.get_flags(league.country)[0]
             ctr = league.country[0]
@@ -215,13 +172,13 @@ class TransfersConfig(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options)
 
         if not rows:
-            mention = self.channel.channel.mention
+            mention = channel.mention
             embed.description = f"{mention} has no tracked leagues."
-            self.remove_item(self.dropdown)
+            self.remove_item(self.remove)
 
     @discord.ui.select(placeholder="Removed Tracked leagues", row=2)
-    async def dropdown(
-        self, itr: Interaction, sel: discord.ui.Select[TransfersConfig]
+    async def remove(
+        self, itr: Interaction, sel: discord.ui.Select[Config]
     ) -> None:
         """When a league is selected"""
 
@@ -245,13 +202,11 @@ class TransfersConfig(view_utils.DropdownPaginator):
                  WHERE (channel_id, link) = ($1, $2)"""
         rows = [(self.channel.id, x) for x in sel.values]
 
-        async with itr.client.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.executemany(sql, rows)
+        await itr.client.db.executemany(sql, rows)
 
         for i in sel.values:
-            league = next(j for j in self.channel.leagues if j.link == i)
-            self.channel.leagues.remove(league)
+            league = next(j for j in self.leagues if j.link == i)
+            self.leagues.remove(league)
 
         ment = self.channel.mention
         msg = f"Removed {ment} tracked leagues:\n{lg_text}"
@@ -260,9 +215,9 @@ class TransfersConfig(view_utils.DropdownPaginator):
         embed_utils.user_to_footer(embed, itr.user)
         await itr.followup.send(content=msg)
 
-        view = TransfersConfig(itr.user, self.channel)
-        await view_itr.response.send_message(view=view, embed=view.embeds[0])
-        view.message = await itr.original_response()
+        new = Config(itr.user, self.channel, self.leagues)
+        await view_itr.response.send_message(view=new, embed=new.embeds[0])
+        new.message = await itr.original_response()
 
     @discord.ui.button(row=3, style=discord.ButtonStyle.primary, label="Reset")
     async def reset(self, interaction: Interaction, _) -> None:
@@ -283,15 +238,13 @@ class TransfersConfig(view_utils.DropdownPaginator):
             embed = self.embeds[self.index]
             return await view_itr.response.edit_message(embed=embed, view=self)
 
-        await self.channel.reset_leagues(interaction)
+        await self.reset_leagues(interaction)
 
         embed = discord.Embed(title="Transfers: Tracked Leagues Reset")
         embed.description = self.channel.mention
         embed_utils.user_to_footer(embed, interaction.user)
         await interaction.followup.send(embed=embed)
-
-        view = TransfersConfig(interaction.user, self.channel)
-        await view_itr.response.send_message(view=view, embed=view.embeds[0])
+        await view_itr.response.send_message(view=self, embed=self.embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Delete", row=3, style=discord.ButtonStyle.red)
@@ -321,11 +274,45 @@ class TransfersConfig(view_utils.DropdownPaginator):
         embed.description = f"The Transfer Ticker for {ment} was deleted."
         embed_utils.user_to_footer(embed, interaction.user)
         await view_itr.response.edit_message(embed=embed, view=None)
-
         sql = """DELETE FROM transfers_channels WHERE channel_id = $1"""
+        await interaction.client.db.execute(sql, self.channel.id)
+
+    async def add_league(
+        self, interaction: Interaction, competition: tfm.TFCompetition
+    ) -> None:
+        sql = """
+        INSERT INTO transfers_leagues (channel_id, name, country, link)
+        VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
+        await interaction.client.db.execute(
+            sql,
+            self.channel.id,
+            competition.name,
+            competition.country[0],
+            competition.link,
+            timeout=60,
+        )
+
+        embed = discord.Embed(title="Transfers: Tracked League Added")
+        embed.description = f"{self.channel.mention}\n\n{competition.link}"
+        embed_utils.user_to_footer(embed, interaction.user)
+        return await interaction.response.send_message(embed=embed)
+
+    async def reset_leagues(self, interaction: Interaction) -> None:
+        """Reset the channel back to the default leagues"""
+        sql = """DELETE FROM transfers_leagues WHERE channel_id = $1"""
+        sq2 = """INSERT INTO transfers_leagues
+                 (channel_id, name, country, link) VALUES ($1, $2, $3, $4)
+                 ON CONFLICT DO NOTHING"""
+
+        defaults = DEFAULT_LEAGUES
+
+        fields = [(self.id, x.name, x.country, x.link) for x in defaults]
         async with interaction.client.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                await connection.execute(sql, self.channel.id)
+                await connection.execute(sql, self.id)
+                await connection.executemany(sq2, fields)
+
+        self.leagues = DEFAULT_LEAGUES
 
 
 class Transfers(commands.Cog):
@@ -346,13 +333,24 @@ class Transfers(commands.Cog):
         """Cancel transfers task on Cog Unload."""
         self.task.cancel()
 
-    async def create(
-        self,
-        interaction: Interaction,
-        channel: discord.TextChannel,
-    ) -> TransferChannel | None:
-        """Create a ticker for the channel"""
+    async def get_config(
+        self, interaction: Interaction, channel: discord.TextChannel | None
+    ) -> Config | None:
+        if channel is None:
+            if isinstance(interaction.channel, discord.TextChannel):
+                channel = interaction.channel
+            else:
+                return
 
+        # Validate channel is a ticker channel.
+        sql = """SELECT * from transfers_channels WHERE channel_id = $1"""
+        if await self.bot.db.fetchrow(sql, channel.id):
+            sql = """SELECT * FROM transfers_leagues WHERE channel_id = $1"""
+            records = await self.bot.db.fetch(sql, channel.id)
+            leagues = list(tfm.TFCompetition.parse_obj(r) for r in records)
+            return Config(interaction.user, channel, leagues)
+
+        # Or create one.
         chan = channel.mention
         view = view_utils.Confirmation(interaction.user, "Create", "Cancel")
         view.true.style = discord.ButtonStyle.green
@@ -376,19 +374,25 @@ class Transfers(commands.Cog):
             return None
 
         async with self.bot.db.acquire(timeout=60) as connection:
+            # Verify that this is not a livescores channel.
             async with connection.transaction():
-                # Create the ticker itself.
                 sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
                          ON CONFLICT DO NOTHING"""
                 await connection.execute(sql, channel.guild.id)
-                sql = """INSERT INTO transfers_channels
-                         (guild_id, channel_id)
-                         VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+
+                sql = """INSERT INTO transfers_channels (guild_id, channel_id)
+                       VALUES ($1, $2) ON CONFLICT DO NOTHING"""
                 await connection.execute(sql, channel.guild.id, channel.id)
 
-        chan = TransferChannel(channel)
-        await chan.reset_leagues(interaction)
-        return chan
+                sq2 = """
+                INSERT INTO transfers_leagues (channel_id, name, country, link)
+                VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
+                """
+
+                lgs = DEFAULT_LEAGUES
+                rows = [(channel.id, x.name, x.country, x.link) for x in lgs]
+                await connection.executemany(sq2, rows)
+        return Config(interaction.user, channel, lgs)
 
     # Core Loop
     @tasks.loop(minutes=1)
@@ -447,7 +451,10 @@ class Transfers(commands.Cog):
                 try:
                     await channel.send(embed=embed)
                 except discord.Forbidden:
-                    bad.append(channel.id)
+                    try:
+                        await channel.send(NO_EMBED_PERMS)
+                    except discord.Forbidden:
+                        bad.append(channel.id)
 
             DEBUG_CHANNEL = self.bot.get_channel(1108036536710209546)
             if isinstance(DEBUG_CHANNEL, discord.TextChannel):
@@ -470,70 +477,27 @@ class Transfers(commands.Cog):
         channel: discord.TextChannel | None,
     ) -> None:
         """View the config of this channel's transfer ticker"""
-        if channel is None:
-            if isinstance(interaction.channel, discord.TextChannel):
-                channel = interaction.channel
-            else:
-                return
+        cfg = await self.get_config(interaction, channel)
+        if cfg is None:
+            return
 
-        # Validate channel is a ticker channel.
-        sql = """SELECT * from transfers_channels WHERE channel_id = $1"""
-        record = await self.bot.db.fetchrow(sql, channel.id)
-        if record is None:
-            chan = await self.create(interaction, channel)
-            if chan is None:
-                return
-        else:
-            chan = TransferChannel(channel)
-
-        view = TransfersConfig(interaction.user, chan)
-        emb = view.embeds[0]
-        await interaction.response.send_message(view=view, embed=emb)
-        view.message = await interaction.original_response()
+        emb = cfg.embeds[0]
+        await interaction.response.send_message(view=cfg, embed=emb)
+        cfg.message = await interaction.original_response()
 
     @tf.command()
     @discord.app_commands.describe(competition="Search for a competition name")
     async def add_league(
         self,
         interaction: Interaction,
-        competition: discord.app_commands.Transform[
-            tfm.TFCompetition, TFCompetitionTransformer
-        ],
+        competition: Transform[tfm.TFCompetition, TFCompetitionTransformer],
         channel: discord.TextChannel | None,
     ) -> None:
         """Add a league to your transfer ticker channel(s)"""
-        if channel is None:
-            if isinstance(interaction.channel, discord.TextChannel):
-                channel = interaction.channel
-            else:
-                return
-
-        # Validate channel is a ticker channel.
-        sql = """SELECT * from transfers_channels WHERE channel_id = $1"""
-        record = await self.bot.db.fetchrow(sql, channel.id)
-        if record is None:
-            chan = await self.create(interaction, channel)
-            if chan is None:
-                return
-        else:
-            chan = TransferChannel(channel)
-
-        ctr = competition.country[0] if competition.country else None
-        chan.leagues.add(competition)
-
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = """INSERT INTO transfers_leagues
-                        (channel_id, name, country, link)
-                        VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"""
-                await connection.execute(
-                    sql, channel.id, competition.name, ctr, competition.link
-                )
-
-        embed = discord.Embed(title="Transfers: Tracked League Added")
-        embed.description = f"{chan.channel.mention}\n\n{competition.link}"
-        embed_utils.user_to_footer(embed, interaction.user)
-        return await interaction.response.send_message(embed=embed)
+        cfg = await self.get_config(interaction, channel)
+        if cfg is None:
+            return
+        await cfg.add_league(interaction, competition)
 
     @commands.Cog.listener()
     async def on_guild_channel_delete(self, chan: discord.TextChannel) -> None:

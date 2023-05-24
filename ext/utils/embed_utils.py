@@ -43,9 +43,12 @@ async def get_colour(url: str | None) -> Colour | int:
     if url is None:
         return Colour.og_blurple()
 
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            raw = await resp.read()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as resp:
+                raw = await resp.read()
+    except aiohttp.ClientError:
+        return Colour.og_blurple()
 
     def get_dominant_color(container: io.BytesIO) -> tuple[int, int, int]:
         img = Image.open(container)

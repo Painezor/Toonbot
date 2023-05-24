@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import datetime
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from pydantic import BaseModel
 
+from .abc import BaseTeam
 from .players import FSPlayer
-
-if TYPE_CHECKING:
-    from .team import Team
 
 
 class FSTransfer(BaseModel):
@@ -19,4 +17,4 @@ class FSTransfer(BaseModel):
     player: FSPlayer
     type: str
 
-    team: Team | None = None
+    team: BaseTeam | None = None

@@ -5,9 +5,8 @@ import logging
 from lxml import html
 from typing import TYPE_CHECKING, Any
 
-from ext.flashscore.cache import FlashscoreCache
-
-from .abc import BaseCompetition
+from .abc import BaseCompetition, BaseFixture
+from .cache import FlashscoreCache
 from .constants import FLASHSCORE
 from .fixture import HasFixtures
 from .logos import HasLogo
@@ -19,7 +18,6 @@ logger = logging.getLogger("flashscore.competition")
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
-    from .fixture import Fixture
 
 
 class Competition(BaseCompetition, HasFixtures, HasTable, HasLogo, HasScorers):
@@ -72,7 +70,7 @@ class Competition(BaseCompetition, HasFixtures, HasTable, HasLogo, HasScorers):
 
     async def parse_games(
         self, page: Page, cache: FlashscoreCache | None = None
-    ) -> list[Fixture]:
+    ) -> list[BaseFixture]:
         fixtures = await HasFixtures.parse_games(self, page, cache)
         for i in fixtures:
             i.competition = self

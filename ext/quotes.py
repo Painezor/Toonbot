@@ -380,7 +380,7 @@ class QuoteDB(commands.Cog):
         view = QuotesView(interaction, False)
         try:
             view.index = random.randrange(0, len(view.guild_quotes) - 1)
-            embed = QuoteEmbed(interaction, view.quotes[0])
+            embed = QuoteEmbed(interaction, view.quotes[view.index])
         except ValueError:
             embed = discord.Embed(colour=discord.Colour.red())
             embed.description = "🚫 Your server has no quotes!"

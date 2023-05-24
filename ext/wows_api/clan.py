@@ -34,7 +34,7 @@ async def get_clan_details(clan_id: int, region: Region) -> Clan:
     async with aiohttp.ClientSession() as session:
         async with session.get(url, params=params) as resp:
             data = await resp.json()
-    return Clan(**data.pop("data")[str(clan_id)])
+    return Clan.parse_obj(data.pop("data")[str(clan_id)])
 
 
 async def get_clan_vortex_data(clan_id: int, region: Region) -> ClanVortexData:

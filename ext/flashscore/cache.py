@@ -2,15 +2,8 @@ from __future__ import annotations
 
 import logging
 from pydantic import parse_obj_as
-from typing import TYPE_CHECKING
-
 from asyncpg import Pool, Record
-
-if TYPE_CHECKING:
-    from .competitions import Competition
-    from .fixture import Fixture
-    from .team import Team
-    from .abc import BaseTeam, BaseCompetition
+from .abc import BaseTeam, BaseCompetition, BaseFixture
 
 logger = logging.getLogger("fsdatabase")
 
@@ -19,24 +12,20 @@ class FlashscoreCache:
     """Container for all cached data"""
 
     database: Pool[Record]
-    competitions: list[Competition] = []
-    games: list[Fixture] = []
-    teams: list[Team] = []
+    competitions: list[BaseCompetition] = []
+    games: list[BaseFixture] = []
+    teams: list[BaseTeam] = []
 
     def __init__(self, database: Pool[Record]) -> None:
         self.database = database
 
     async def cache_teams(self) -> None:
-        from .team import Team
-
         teams = await self.database.fetch("""SELECT * from fs_teams""")
-        self.teams = parse_obj_as(list[Team], teams)
+        self.teams = parse_obj_as(list[BaseTeam], teams)
 
     async def cache_competitions(self) -> None:
-        from .competitions import Competition
-
         comps = await self.database.fetch("""SELECT * from fs_competitions""")
-        self.competitions = parse_obj_as(list[Competition], comps)
+        self.competitions = parse_obj_as(list[BaseCompetition], comps)
 
     async def save_competitions(self, comps: list[BaseCompetition]) -> None:
         """Save the competition to the bot database"""
@@ -69,7 +58,7 @@ class FlashscoreCache:
         id: str | None = None,
         url: str | None = None,
         title: str | None = None,
-    ) -> Competition | None:
+    ) -> BaseCompetition | None:
         """Retrieve a competition from the ones stored in the cache."""
         cmp = self.competitions
         if id is not None:
@@ -81,7 +70,7 @@ class FlashscoreCache:
         if url is not None:
             url = url.rstrip("/")
             try:
-                return next(i for i in cmp if i.url == url)
+                return next(i for i in self.competitions if i.url == url)
             except StopIteration:
                 pass
 
@@ -90,16 +79,16 @@ class FlashscoreCache:
             return next((i for i in cmp if i.title.casefold() == title), None)
         return None
 
-    def get_game(self, fixture_id: str) -> Fixture | None:
-        return next((i for i in self.games if i.id == fixture_id), None)
+    def get_game(self, id: str) -> BaseFixture | None:
+        return next((i for i in self.games if i.id == id), None)
 
-    def get_team(self, team_id: str) -> Team | None:
+    def get_team(self, id: str) -> BaseTeam | None:
         """Retrieve a Team from the ones stored in the cache."""
-        return next((i for i in self.teams if i.id == team_id), None)
+        return next((i for i in self.teams if i.id == id), None)
 
-    def live_competitions(self) -> list[Competition]:
+    def live_competitions(self) -> list[BaseCompetition]:
         """Get all live competitions"""
-        comps: list[Competition] = []
+        comps: list[BaseCompetition] = []
         for i in self.games:
             if i.competition and i.competition not in comps:
                 comps.append(i.competition)
