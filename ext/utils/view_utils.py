@@ -14,6 +14,7 @@ from ext.utils import embed_utils
 if TYPE_CHECKING:
     from core import Bot
     from painezbot import PBot
+    from playwright.async_api import Page
 
     Interaction: TypeAlias = discord.Interaction[Bot | PBot]
     User: TypeAlias = discord.User | discord.Member
@@ -51,7 +52,7 @@ class BaseView(discord.ui.View):
         assert self.parent is not None
         view = self.parent
         edit = interaction.response.edit_message
-        await edit(view=view, attachments=[])
+        await edit(view=view, attachments=[], embed=self.parent.embed)
 
     @discord.ui.button(emoji="🚯", row=0, style=discord.ButtonStyle.red)
     async def _stop(self, interaction: Interaction, _) -> None:
@@ -79,10 +80,18 @@ class BaseView(discord.ui.View):
         for i in self.children:
             i.disabled = True  # type: ignore
 
+        page: Page | None
+        if (page := getattr(self, "page", None)) is not None:
+            if not page.is_closed():
+                await page.close()
+
         if self.message is not None:
-            await self.message.edit(view=self)
-            return
-        logger.error("Message not set on view %s", self.__class__.__name__)
+            try:
+                await self.message.edit(view=self)
+            except discord.HTTPException:
+                pass
+        else:
+            logger.error("Message not set on view %s", self.__class__.__name__)
 
     async def on_error(  # type: ignore
         self,
@@ -141,7 +150,7 @@ class Paginator(BaseView):
         pages: int,
         *,
         parent: BaseView | None = None,
-        timeout: float | None = None,
+        timeout: float | None = 180,
     ) -> None:
         super().__init__(invoker, parent=parent, timeout=timeout)
 
@@ -188,7 +197,7 @@ class EmbedPaginator(Paginator):
         *,
         index: int = 0,
         parent: BaseView | None = None,
-        timeout: float | None = None,
+        timeout: float | None = 180,
     ) -> None:
         self.embeds: list[Embed] = embeds
         pages = len(embeds)
@@ -214,29 +223,26 @@ class DropdownPaginator(EmbedPaginator):
         rows: list[str],
         options: list[SelectOption],
         length: int = 25,
-        footer: str = "",
         *,
         multi: bool = False,
         parent: BaseView | None = None,
-        timeout: float | None = None,
+        timeout: float | None = 180,
     ) -> None:
-        embeds = embed_utils.rows_to_embeds(embed, rows, length, footer)
+        embeds = embed_utils.rows_to_embeds(embed, rows, length)
         self.dropdowns = embed_utils.paginate(options, length)
 
         super().__init__(invoker, embeds, parent=parent, timeout=timeout)
 
         try:
             if multi:
-                self.remove.max_values = len(self.dropdowns[0])
-            self.remove.options = self.dropdowns[0]
+                self.dropdown.max_values = len(self.dropdowns[0])
+            self.dropdown.options = self.dropdowns[0]
         except IndexError:
-            self.remove_item(self.remove)
+            self.remove_item(self.dropdown)
         self.options = options
 
     @discord.ui.select()
-    async def remove(
-        self, itr: Interaction, _: Select[DropdownPaginator]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, _: Select) -> None:
         """Raise because you didn't subclass, dickweed."""
         logger.info(itr.command.__dict__)
         raise NotImplementedError  # Always subclass this!
@@ -244,7 +250,7 @@ class DropdownPaginator(EmbedPaginator):
     async def handle_page(self, interaction: Interaction) -> None:
         """Refresh the view and send to user"""
         embed = self.embeds[self.index]
-        self.remove.options = self.dropdowns[self.index]
+        self.dropdown.options = self.dropdowns[self.index]
         self.update_buttons()
         return await interaction.response.edit_message(embed=embed, view=self)
 
@@ -262,7 +268,7 @@ class PagedItemSelect(DropdownPaginator):
         rows = [i.label for i in options]
         super().__init__(invoker, embed, rows, options, **kwargs)
 
-        self.remove.max_values = len(self.dropdowns[self.index])
+        self.dropdown.max_values = len(self.dropdowns[self.index])
 
         self.values: set[str] = set()
         self.interaction: Interaction  # passback
@@ -270,15 +276,13 @@ class PagedItemSelect(DropdownPaginator):
     async def handle_page(self, interaction: Interaction) -> None:
         """Set the items to checked"""
         embed = self.embeds[self.index]
-        self.remove.options = self.dropdowns[self.index]
-        self.remove.max_values = len(self.dropdowns[self.index])
+        self.dropdown.options = self.dropdowns[self.index]
+        self.dropdown.max_values = len(self.dropdowns[self.index])
         self.update_buttons()
         await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(row=1, options=[])
-    async def remove(
-        self, itr: Interaction, sel: discord.ui.Select[PagedItemSelect]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Response object for view"""
         await itr.response.defer()
 
@@ -309,7 +313,7 @@ class Confirmation(BaseView):
     ) -> None:
         super().__init__(invoker)
         # Set By Buttons before stopping
-        self.value: bool
+        self.value: bool | None = None
         self.interaction: Interaction
         self.true.label = true
         self.false.label = false

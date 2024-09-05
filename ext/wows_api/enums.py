@@ -1,7 +1,6 @@
 """Various World of Warships related Enums"""
 from __future__ import annotations
 
-
 import enum
 import logging
 
@@ -69,29 +68,3 @@ class Region(enum.Enum):
     EU = ("eu", "eu", "<:EU:993495456988545124>", 0x0000FF, "eu", "eu")
     NA = ("na", "com", "<:NA:993495467788869663>", 0x00FF00, "na", "us")
     SEA = ("sea", "asia", "<:ASIA:993495476978589786>", 0x00FFFF, "asia", "sg")
-
-
-class Map:
-    """A Generic container class representing a map"""
-
-    battle_arena_id: int
-    description: str
-    icon: str
-    name: str
-
-    def __init__(self, data: dict[str, int | str]) -> None:
-        for k, val in data.items():
-            setattr(self, k, val)
-
-    def __str__(self) -> str:
-        return f"{self.name}: {self.description}"
-
-    @property
-    def ac_row(self) -> str:
-        """Autocomplete row for this map"""
-        return f"{self.name}: {self.description}"
-
-    @property
-    def ac_match(self) -> str:
-        """Autocomplete match for this map"""
-        return f"{self.name}: {self.description} {self.icon}".casefold()

@@ -111,9 +111,7 @@ class StatsView(view_utils.BaseView):
         self.dropdown.options = opts
 
     @discord.ui.select(placeholder="Change Mode", row=2)
-    async def dropdown(
-        self, interaction: Interaction, sel: Select[StatsView]
-    ) -> None:
+    async def dropdown(self, interaction: Interaction, sel: Select) -> None:
         """Dropdown allowing the user to change game mode selection"""
         _ = interaction.client.modes
         self.mode = next(i for i in _ if i.tag in sel.values)

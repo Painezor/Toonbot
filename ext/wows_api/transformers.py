@@ -11,8 +11,9 @@ from pydantic import ValidationError
 
 from .wg_id import WG_ID
 from .clan import PartialClan
-from .enums import Map, Region
+from .enums import Region
 from .gamemode import GameMode
+from .maps import Map
 from .player import PartialPlayer, PlayerClanData
 from .warships import Ship, ShipType
 
@@ -25,7 +26,6 @@ if TYPE_CHECKING:
 CLAN_SEARCH = "https://api.worldofwarships.%%/wows/clans/list/"
 PLAYER_SEARCH = "https://api.worldofwarships.%%/wows/account/list/"
 PLAYER_CLAN = "https://api.worldofwarships.%%/wows/clans/accountinfo/"
-MAPS = "https://api.worldofwarships.eu/wows/encyclopedia/battlearenas/"
 
 logger = logging.getLogger("api.transformers")
 
@@ -137,18 +137,6 @@ class MapTransformer(Transformer):
     ) -> list[Choice[str]]:
         """Autocomplete for the list of maps in World of Warships"""
         cur = value.casefold()
-
-        if not interaction.client.maps:
-            params = {"application_id": WG_ID, "language": "en"}
-            session = interaction.client.session
-            async with session.get(MAPS, params=params) as resp:
-                if resp.status != 200:
-                    logger.error("%s on %s", resp.status, MAPS)
-                    return []
-                items = await resp.json()
-
-            for k, val in items["data"].items():
-                interaction.client.maps.update({k: Map(val)})
 
         choices: list[Choice[str]] = []
         for i in sorted(interaction.client.maps, key=lambda j: j.name):

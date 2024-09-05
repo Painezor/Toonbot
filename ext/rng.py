@@ -184,14 +184,14 @@ class Random(commands.Cog):
             reply = interaction.response.send_message
             return await reply(embed=embed, ephemeral=True)
 
-        view = CoinView(interaction.user, count)
-        view.add_item(FlipButton())
+        coin_view = CoinView(interaction.user, count)
+        coin_view.add_item(FlipButton())
 
         for _ in [10, 100, 1000]:
-            view.add_item(FlipButton(label=f"Flip {_}", count=_))
-        embed = view.count()
-        await interaction.response.send_message(view=view, embed=embed)
-        view.message = await interaction.original_response()
+            coin_view.add_item(FlipButton(label=f"Flip {_}", count=_))
+        embed = coin_view.count()
+        await interaction.response.send_message(view=coin_view, embed=embed)
+        coin_view.message = await interaction.original_response()
 
     @discord.app_commands.command(name="8ball")
     @discord.app_commands.describe(question="enter a question")

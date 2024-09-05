@@ -7,7 +7,7 @@ import typing
 from typing import TYPE_CHECKING, TypeAlias
 
 import discord
-from discord import Emoji, Message, Embed, AuditLogEntry
+from discord import Colour, Emoji, Message, Embed, AuditLogEntry
 from discord.abc import Messageable
 from discord.ext import commands
 
@@ -229,6 +229,79 @@ action_desc = {
 }
 
 
+def handle_target(embed: Embed, target) -> Embed:
+    embed.description = ""
+    if isinstance(target, discord.Object):
+        embed.description = f"{target.type.__name__} {target.id}\n\n"
+
+    elif isinstance(target, discord.Guild):
+        ico = target.icon.url if target.icon else None
+        embed.set_author(name=target.name, icon_url=ico)
+
+    elif isinstance(target, discord.User | discord.Member):
+        ico = target.display_avatar.url if target.display_avatar else None
+        embed.set_author(name=f"{target} ({target.id})", icon_url=ico)
+        embed.description = f"<@{target.id}>\n\n"
+
+    elif isinstance(target, discord.abc.GuildChannel | discord.Thread):
+        embed.set_author(name=f"{target.name} ({target.id})")
+
+        parent: discord.TextChannel | discord.ForumChannel | None
+        if parent := getattr(target, "parent", None):
+            if parent:
+                embed.description = f"<#{parent.id}> -> "
+
+        embed.description += f"<#{target.id}> ({target.type.name})\n\n"
+
+    elif isinstance(target, discord.Role):
+        embed.set_author(name=f"{target.name} ({target.id})")
+        mems = len(target.members)
+        embed.description = f"<@&{target.id}> ({mems} users)\n\n"
+
+    elif isinstance(target, Emoji):
+        embed.set_author(name=f"{target.name} ({target.id})")
+        embed.set_thumbnail(url=target.url)
+        embed.description = f"{str(target)} [Link]({target.url})\n\n"
+
+    elif isinstance(target, discord.StageInstance):
+        # There really isn't much info availabel here.
+        if target.channel_id:
+            embed.description = f"<#{target.channel_id}>"
+
+    elif isinstance(target, discord.GuildSticker):
+        embed.set_author(name=f"{target.name} ({target.id})")
+        embed.set_thumbnail(url=target.url)
+
+    elif isinstance(target, discord.Invite):
+        ivt = target.inviter
+        if ivt:
+            ico = ivt.avatar.url if ivt.avatar else None
+            embed.set_author(name=f"{ivt.name} ({ivt.id})", icon_url=ico)
+        embed.description = f"{target.url}\n\n"
+
+    elif isinstance(target, discord.app_commands.AppCommand):
+        cmd = typing.cast(discord.app_commands.AppCommand, target)
+        embed.set_author(name=f"{cmd.name} ({cmd.id})")
+        embed.description = f"{cmd.mention}\n"
+
+    elif isinstance(target, discord.PartialIntegration):
+        # 😬 Fuck this shit.
+        embed.set_author(name=f"{target.name} ({target.id})")
+
+        aid = target.application_id
+        if target.application_id:
+            embed.description = f"<@{aid}>\n**App ID**: {aid}\n\n"
+
+    elif isinstance(target, discord.AutoModRule):
+        if target.creator:
+            ctr = target.creator
+            ico = ctr.display_avatar.url if ctr.display_avatar else None
+            embed_utils.user_to_footer(embed, target.creator)
+        embed.description = f"{target.name} ({target.id})\n\n"
+
+    return embed
+
+
 def iter_embed(
     entry: discord.AuditLogEntry,
     diff: discord.AuditLogDiff,
@@ -249,74 +322,10 @@ def iter_embed(
     # Build our Header Embed
     if main:
         embed.title = entry.action.name.replace("_", " ").title()
-
-        if isinstance(target, discord.Object):
-            embed.description = f"{target.type.__name__} {target.id}\n\n"
-
-        elif isinstance(target, discord.Guild):
-            ico = entry.guild.icon.url if entry.guild.icon else None
-            embed.set_author(name=entry.guild.name, icon_url=ico)
-
-        elif isinstance(target, discord.User | discord.Member):
-            ico = target.display_avatar.url if target.display_avatar else None
-            embed.set_author(name=f"{target} ({target.id})", icon_url=ico)
-            embed.description = f"<@{target.id}>\n\n"
-
-        elif isinstance(target, discord.abc.GuildChannel | discord.Thread):
-            embed.set_author(name=f"{target.name} ({target.id})")
-
-            parent: discord.TextChannel | discord.ForumChannel | None
-            if parent := getattr(target, "parent", None):
-                if parent:
-                    embed.description += f"<#{parent.id}> -> "
-
-            embed.description += f"<#{target.id}> ({target.type.name})\n\n"
-
-        elif isinstance(target, discord.Role):
-            embed.set_author(name=f"{target.name} ({target.id})")
-            mems = len(target.members)
-            embed.description = f"<@&{target.id}> ({mems} users)\n\n"
-
-        elif isinstance(target, Emoji):
-            embed.set_author(name=f"{target.name} ({target.id})")
-            embed.set_thumbnail(url=target.url)
-            embed.description = f"{str(target)} [Link]({target.url})\n\n"
-
-        elif isinstance(target, discord.StageInstance):
-            # There really isn't much info availabel here.
-            if target.channel_id:
-                embed.description = f"<#{target.channel_id}>"
-
-        elif isinstance(target, discord.GuildSticker):
-            embed.set_author(name=f"{target.name} ({target.id})")
-            embed.set_thumbnail(url=target.url)
-
-        elif isinstance(target, discord.Invite):
-            ivt = target.inviter
-            if ivt:
-                ico = ivt.avatar.url if ivt.avatar else None
-                embed.set_author(name=f"{ivt.name} ({ivt.id})", icon_url=ico)
-            embed.description = f"{target.url}\n\n"
-
-        elif isinstance(entry.target, discord.app_commands.AppCommand):
-            cmd = typing.cast(discord.app_commands.AppCommand, entry.target)
-            embed.set_author(name=f"{cmd.name} ({cmd.id})")
-            embed.description += f"{cmd.mention}\n"
-
-        elif isinstance(target, discord.PartialIntegration):
-            # 😬 Fuck this shit.
-            embed.set_author(name=f"{target.name} ({target.id})")
-
-            aid = target.application_id
-            if target.application_id:
-                embed.description = f"<@{aid}>\n**App ID**: {aid}\n\n"
-
-        elif isinstance(target, discord.AutoModRule):
-            if target.creator:
-                ctr = target.creator
-                ico = ctr.display_avatar.url if ctr.display_avatar else None
-                embed_utils.user_to_footer(embed, target.creator)
-            embed.description = f"{target.name} ({target.id})\n\n"
+        
+        embed = handle_target(embed, target)
+        if embed.description is None:
+            embed.description = ""
 
         try:
             embed.description += action_desc[entry.action](entry)
@@ -412,21 +421,22 @@ def iter_embed(
             embed.description += f"**Available**: `{available}`\n"
 
         elif key == "available_tags":
-            a_tags: list[discord.ForumTag] = value
+            av_tags: list[discord.ForumTag] = value
             txt = ""
-            for i in a_tags:
+            for i in av_tags:
                 txt += f"{i.emoji} {i.name}"
                 if i.moderated:
                     txt += " (Mod Only)"
-            embed.add_field(name="Tags Changed", value=txt)
+            embed.add_field(name="Available Tags Changed", value=txt)
 
         elif key == "applied_tags":
-            a_tags: list[discord.ForumTag] = value
-            try:
-                txt = [f"{i.emoji} {i.name}" for i in a_tags]
-            except TypeError:
-                txt = [i.name for i in a_tags]
-            embed.add_field(name="Tags Changed", value=txt)
+            a_tags: list[discord.ForumTag] | None = value
+            if a_tags:
+                try:
+                    txt = [f"{i.emoji} {i.name}" for i in a_tags]
+                except TypeError:
+                    txt = [i.name for i in a_tags]
+                embed.add_field(name="Applied Tags Changed", value=txt)
 
         elif key == "avatar":
             # User / Member Avatar
@@ -615,6 +625,9 @@ def iter_embed(
             else:
                 embed.description += "**Icon**: `None`\n"
 
+        elif key == "icon_emoji":
+            embed.description += f"**Icon Emoji**: {value}\n"
+
         elif key == "id":
             # Literally anything
             _id: int = value
@@ -690,18 +703,10 @@ def iter_embed(
 
             output = ""
             for user_or_role, dow in overwrites:
-                if user_or_role:
-                    if isinstance(user_or_role, discord.Object):
-                        if isinstance(user_or_role.type, discord.Role):
-                            output += f"<@&{user_or_role.id}>"
-                        else:
-                            output += f"<@{user_or_role.id}>"
-                    elif isinstance(user_or_role, discord.Role):
-                        output += f"<@&{user_or_role.id}>"
-                    else:
-                        output += f"<@{user_or_role.id}>"
+                if entry.guild.get_member(user_or_role.id):
+                    output += f"<@{user_or_role.id}>"
                 else:
-                    output += "????????????"
+                    output += f"<@&{user_or_role.id}>"
 
                 rows: list[str] = []
                 for k, val in dow:
@@ -755,16 +760,6 @@ def iter_embed(
             prune: int = value
             text = f"{prune} Days" if prune else "`Never`"
             embed.description = f"**Inactivity Kick**: {text}\n"
-
-        elif key == "roles":
-            # List of roles being added or removed.
-            roles: list[discord.Role | discord.Object] = value
-            rls = ", ".join(f"<@&{i.id}>" for i in roles)
-            if roles:
-                if main:
-                    embed.description += f"Roles Removed: {rls}"
-                else:
-                    embed.description += f"Roles Added: {rls}"
 
         elif key == "rtc_region":
             # Voice Chat Region
@@ -935,13 +930,10 @@ class ToggleButton(discord.ui.Button["LogsConfig"]):
         """Set view value to button value"""
         assert self.view is not None
         await interaction.response.defer()
-        bot = interaction.client
-        async with bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = f"""UPDATE notifications_settings SET {self.db_key} =
-                    $1 WHERE channel_id = $2"""
-                chan_id = self.view.channel.id
-                await connection.execute(sql, not self.value, chan_id)
+        sql = f"""UPDATE notifications_settings SET {self.db_key} =
+            $1 WHERE channel_id = $2"""
+        chan_id = self.view.channel.id
+        await interaction.client.db.execute(sql, not self.value, chan_id)
 
         cog = interaction.client.get_cog(AuditLogs.__cog_name__)
         assert isinstance(cog, AuditLogs)
@@ -996,6 +988,26 @@ class LogsConfig(view_utils.BaseView):
             self.add_item(ToggleButton(db_key=k, value=value, row=row))
         edit = interaction.response.edit_message
         return await edit(content=content, embed=embed, view=self)
+
+
+def handle_member_role_update(entry: AuditLogEntry) -> Embed:
+    embed = discord.Embed(colour=Colour.blurple())
+
+    if isinstance(entry.target, discord.User):
+        embed_utils.user_to_author(embed, entry.target)
+    
+    if entry.user:
+        embed.description = entry.user.mention
+        embed_utils.user_to_footer(embed, entry.user, reason=entry.reason)
+
+    if bf := entry.changes.before.roles:
+        rls = ", ".join(f"<@&{i.id}>" for i in bf)
+        embed.add_field(name="Roles Removed", value=rls)
+
+    if af := entry.changes.after.roles:
+        rls = ", ".join(f"<@&{i.id}>" for i in af)
+        embed.add_field(name="Roles Added", value=rls)
+    return embed
 
 
 class AuditLogs(commands.Cog):
@@ -1100,7 +1112,18 @@ class AuditLogs(commands.Cog):
     ) -> None:
         channels = await self.get_channels(entry)
 
-        if entry.category is discord.AuditLogActionCategory.create:
+        if not channels:
+            return
+
+        try:
+            entry.category
+        except KeyError:
+            entry.category = None
+
+        if entry.action is discord.AuditLogAction.member_role_update:
+            before, after = handle_member_role_update(entry), None
+
+        elif entry.category is discord.AuditLogActionCategory.create:
             before = None
             after = Embed()
             after.timestamp = entry.created_at
@@ -1192,7 +1215,7 @@ class AuditLogs(commands.Cog):
         embed = Embed(title="Member Left", description=user.mention)
         embed.colour = discord.Colour.dark_red()
         embed.timestamp = discord.utils.utcnow()
-        embed_utils.user_to_author(embed, user)
+        embed_utils.user_to_footer(embed, user)
 
         for channel in channels:
             try:

@@ -2,6 +2,7 @@
    transfermarkt"""
 from __future__ import annotations
 
+import logging
 from typing import TypeAlias, TYPE_CHECKING
 
 import discord
@@ -23,8 +24,10 @@ FAVICON = (
     "Transfermarkt_favicon.png"
 )
 
+logger = logging.getLogger("ext.lookup")
 
-def player_to_string(player: tfm.TFPlayer) -> str:
+
+def fmt_player(player: tfm.TFPlayer) -> str:
     flg = flags.get_flags(player.country)
     md = f"[{player.name}]({player.link})"
     desc = [" ".join(flg), md, player.age, player.position]
@@ -34,7 +37,7 @@ def player_to_string(player: tfm.TFPlayer) -> str:
     return " ".join([str(i) for i in desc if i])
 
 
-def team_to_string(team: tfm.TFTeam) -> str:
+def fmt_team(team: tfm.TFTeam) -> str:
     flg = " ".join(flags.get_flags(team.country))
     md = f"[{team.name}]({team.link})"
     if team.league is not None:
@@ -155,6 +158,8 @@ async def transfer_embeds(team: tfm.TFTeam) -> list[discord.Embed]:
     url = team.link.replace("startseite", "transfers")
 
     inbound, outbound = await team.get_transfers()
+
+    logger.info("Got %s inbound, %s outbound", len(inbound), len(outbound))
     base = TeamEmbed(team)
     base.url = url
     base.set_author(url=url, name=base.author.name)
@@ -167,13 +172,16 @@ async def transfer_embeds(team: tfm.TFTeam) -> list[discord.Embed]:
 
         rows: list[str] = []
         for i in inbound:
-            pmd = player_to_string(i.player)
-            tmd = team_to_string(i.old_team)
+            pmd = fmt_player(i.player)
+            tmd = fmt_team(i.old_team)
             date = "" if i.date is None else f": {i.date}"
             fmd = f"[{i.fee.fee}]({i.fee.url}) {date}"
 
             rows.append(f"{pmd} {fmd}\nFrom: {tmd}\n")
-        embeds += embed_utils.rows_to_embeds(embed, rows)
+        logger.info("in => sending %s rows", len(rows))
+        inbeds = embed_utils.rows_to_embeds(embed, rows)
+        logger.info("got %s inbeds", len(inbeds))
+        embeds += inbeds
 
     if outbound:
         embed = base.copy()
@@ -181,12 +189,15 @@ async def transfer_embeds(team: tfm.TFTeam) -> list[discord.Embed]:
         embed.colour = discord.Colour.red()
         rows: list[str] = []
         for i in inbound:
-            pmd = player_to_string(i.player)
-            tmd = team_to_string(i.old_team)
+            pmd = fmt_player(i.player)
+            tmd = fmt_team(i.old_team)
             date = "" if i.date is None else f": {i.date}"
             fmd = f"[{i.fee.fee}]({i.fee.url}) {date}"
             rows.append(f"{pmd} {fmd}\nTo: {tmd}\n")
-        embeds += embed_utils.rows_to_embeds(embed, rows)
+        logger.info("out => sending %s rows", len(rows))
+        outbeds = embed_utils.rows_to_embeds(embed, rows)
+        logger.info("got %s outbeds", len(outbeds))
+        embeds += outbeds
 
     if not embeds:
         embed = base
@@ -237,8 +248,8 @@ class SearchView(view_utils.Paginator):
         for i in self.search.results:
             desc = i.country[0] if i.country else ""
             if isinstance(i, tfm.TFTeam):
-                desc += f": {i.league.name}" if i.league else ""
-            opt = discord.SelectOption(label=i.name, value=i.link)
+                desc += f"{i.league.name}" if i.league else ""
+            opt = discord.SelectOption(label=i.name, value=i.link[:100])
             opt.description = desc
             try:
                 opt.emoji = flags.get_flags(i.country)[0]
@@ -246,14 +257,17 @@ class SearchView(view_utils.Paginator):
                 pass
             opts.append(opt)
 
-        self.dropdown.options = opts
+        if opts:
+            self.dropdown.options = opts
+        else:
+            self.dropdown.disabled = True
+            self.dropdown.placeholder = "No Results"
+            self.dropdown.options = [discord.SelectOption(label="---")]
 
     @discord.ui.select(placeholder="Select matching result")
-    async def dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select[SearchView]
-    ) -> None:
+    async def dropdown(self, _: Interaction, sel: discord.ui.Select) -> None:
         res = self.search.results
-        self.value = next(i for i in res if i.link in sel.values)
+        self.value = next(i for i in res if i.link[:100] in sel.values)
         self.stop()
 
     @classmethod
@@ -262,10 +276,14 @@ class SearchView(view_utils.Paginator):
         interaction: Interaction,
         search: tfm.TransfermarktSearch[tfm.ResultT],
     ) -> None:
+        if not interaction.response.is_done():
+            await interaction.response.defer(thinking=True)
+
         await search.get_page(1)
-        view = SearchView(interaction.user, search)
+        srch = SearchView(interaction.user, search)
         embed = SearchEmbed(search)
-        await interaction.response.send_message(embed=embed, view=view)
+        msg = await interaction.edit_original_response(embed=embed, view=srch)
+        srch.message = msg
 
     @classmethod
     async def fetch(
@@ -273,11 +291,16 @@ class SearchView(view_utils.Paginator):
         interaction: Interaction,
         search: tfm.TransfermarktSearch[tfm.ResultT],
     ) -> SearchView:
+        if not interaction.response.is_done():
+            await interaction.response.defer(thinking=True)
+
         await search.get_page(1)
-        view = SearchView(interaction.user, search, dropdown=True)
+        ftch = SearchView(interaction.user, search, dropdown=True)
         embed = SearchEmbed(search)
-        await interaction.response.send_message(embed=embed, view=view)
-        return view
+
+        msg = await interaction.edit_original_response(embed=embed, view=ftch)
+        ftch.message = msg
+        return ftch
 
     async def handle_page(  # type: ignore
         self, interaction: Interaction
@@ -300,37 +323,41 @@ class TeamView(view_utils.EmbedPaginator):
     @discord.ui.button(label="Transfers", emoji="🔄", row=1)
     async def transfers(self, interaction: Interaction, _) -> None:
         """Push transfers to View"""
+        await interaction.response.defer()
         embeds = await transfer_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.transfers.disabled = True
-        await interaction.response.edit_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Rumours", emoji="🕵", row=1)
     async def rumours(self, interaction: Interaction, _) -> None:
         """Send transfer rumours for a team to View"""
+        await interaction.response.defer()
         embeds = await rumour_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.rumours.disabled = True
-        await interaction.response.edit_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Trophies", emoji="🏆")
     async def trophies(self, interaction: Interaction, _) -> None:
         """Send trophies for a team to View"""
+        await interaction.response.defer()
         embeds = await trophy_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.trophies.disabled = True
-        await interaction.response.edit_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
     @discord.ui.button(label="Contracts", emoji="📝")
     async def contracts(self, interaction: Interaction, _) -> None:
         """Push a list of a team's expiring contracts to the view"""
+        await interaction.response.defer()
         embeds = await contract_embeds(self.team)
         view = TeamView(interaction.user, self.team, embeds)
         view.contracts.disabled = True
-        await interaction.response.edit_message(view=view, embed=embeds[0])
+        await interaction.edit_original_response(view=view, embed=embeds[0])
         view.message = await interaction.original_response()
 
 
@@ -350,8 +377,8 @@ class CompetitionView(view_utils.EmbedPaginator):
     async def attendance(self, interaction: Interaction, _) -> None:
         """Fetch attendances for league's stadiums."""
         embeds = await attendance_embeds(self.competition)
-        view = CompetitionView(interaction.user, self.competition, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        atdv = CompetitionView(interaction.user, self.competition, embeds)
+        await interaction.response.send_message(view=atdv, embed=embeds[0])
 
 
 class SearchEmbed(discord.Embed):
@@ -421,6 +448,7 @@ class Lookup(commands.Cog):
     @discord.app_commands.describe(name="enter a team name to search for")
     async def listing(self, interaction: Interaction, name: str) -> None:
         """Get this window's transfers for a team on transfermarkt"""
+        await interaction.response.defer(thinking=True)
         view = await SearchView.fetch(interaction, tfm.TeamSearch(name))
 
         await view.wait()
@@ -437,6 +465,7 @@ class Lookup(commands.Cog):
     @discord.app_commands.describe(name="enter a team name to search for")
     async def rumours(self, interaction: Interaction, name: str) -> None:
         """Get the latest transfer rumours for a team"""
+        await interaction.response.defer(thinking=True)
         view = await SearchView.fetch(interaction, tfm.TeamSearch(name))
 
         await view.wait()
@@ -453,6 +482,7 @@ class Lookup(commands.Cog):
     @discord.app_commands.describe(name="enter a team name to search for")
     async def contracts(self, interaction: Interaction, name: str) -> None:
         """Get a team's expiring contracts"""
+        await interaction.response.defer(thinking=True)
         view = await SearchView.fetch(interaction, tfm.TeamSearch(name))
 
         await view.wait()
@@ -469,7 +499,9 @@ class Lookup(commands.Cog):
     @discord.app_commands.describe(name="enter a team name to search for")
     async def trophies(self, interaction: Interaction, name: str) -> None:
         """Get a team's trophy case"""
+        await interaction.response.defer(thinking=True)
         view = await SearchView.fetch(interaction, tfm.TeamSearch(name))
+
         await view.wait()
 
         if not isinstance(team := view.value, tfm.TFTeam):
@@ -484,7 +516,9 @@ class Lookup(commands.Cog):
     @discord.app_commands.describe(name="enter a league name to search for")
     async def attendance(self, interaction: Interaction, name: str) -> None:
         """Get a list of a league's average attendances."""
+        await interaction.response.defer(thinking=True)
         view = await SearchView.fetch(interaction, tfm.CompetitionSearch(name))
+
         await view.wait()
 
         if not isinstance(comp := view.value, tfm.TFCompetition):

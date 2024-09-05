@@ -1,5 +1,6 @@
 """Moderation Commands"""
 from __future__ import annotations
+import asyncio
 
 import typing
 from discord import Colour
@@ -125,28 +126,25 @@ class Mod(commands.Cog):
         if interaction.guild is None:
             raise discord.app_commands.NoPrivateMessage
 
+        say_reply = interaction.response.send_message
         if len(message) > 2000:
             embed = discord.Embed()
             embed.description = "🚫 Message too long (2000 char max)."
-            reply = interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            return await say_reply(embed=embed, ephemeral=True)
 
         if destination.guild.id != interaction.guild.id:
             err = "You cannot send messages to other servers."
             embed = discord.Embed()
             embed.description = "🚫 " + err
-            reply = interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            return await say_reply(embed=embed, ephemeral=True)
 
         try:
             await destination.send(message)
-            return await interaction.response.send_message(content="Sent!")
+            return await say_reply(content="Sent!", ephemeral=True)
         except discord.HTTPException:
-            pass
-
-        err = "🚫 I can't send messages to that channel."
-        embed = discord.Embed(colour=Colour.red())
-        return await interaction.response.send_message(embed=embed)
+            embed = discord.Embed(colour=Colour.red())
+            embed.description = "🚫 I can't send messages to that channel."
+            return await say_reply(embed=embed, ephemeral=True)
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(manage_messages=True)
@@ -154,6 +152,7 @@ class Mod(commands.Cog):
     @discord.app_commands.describe(number="Number of messages to delete")
     async def clean(self, interaction: Interaction, number: int = 10) -> None:
         """Deletes my messages from the last x messages in channel"""
+        await interaction.response.defer()
 
         def is_me(message: discord.Message):
             """Return only messages sent by the bot."""
@@ -165,7 +164,8 @@ class Mod(commands.Cog):
         dlt = await channel.purge(limit=number, check=is_me, reason=reason)
 
         msg = f'♻ Deleted {len(dlt)} bot message{"s" if len(dlt) > 1 else ""}'
-        await interaction.response.send_message(content=msg, delete_after=5)
+        msg = await interaction.followup.send(content=msg)
+        await asyncio.sleep(5)
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(moderate_members=True)

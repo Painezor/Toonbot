@@ -10,6 +10,7 @@ from .abc import BaseTeam
 from .constants import FLASHSCORE
 from .fixture import HasFixtures
 from .logos import HasLogo
+from .players import FSPlayer
 from .news import HasNews
 from .squad import parse_squad_member
 from .table import HasTable
@@ -18,7 +19,7 @@ from .topscorers import HasScorers
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
-    from .cache import FlashscoreCache
+    from .cache import FSCache
     from .squad import SquadMember
 
 TFOpts = Literal["All", "Arrivals", "Departures"]
@@ -64,11 +65,9 @@ class Team(BaseTeam, HasFixtures, HasTable, HasNews, HasScorers, HasLogo):
         return members
 
     async def get_transfers(
-        self, page: Page, label: TFOpts, cache: FlashscoreCache
+        self, page: Page, label: TFOpts, cache: FSCache
     ) -> list[FSTransfer]:
         """Get a list of transfers for the team retrieved from flashscore"""
-        from .players import FSPlayer  # pylint disable=C0415
-
         if page.url != (url := f"{self.url}/transfers/"):
             await page.goto(url, timeout=500)
             await page.wait_for_selector("section#transfers", timeout=500)

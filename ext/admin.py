@@ -69,6 +69,29 @@ class Admin(commands.Cog):
             logger.error(err, exc_info=True)
             return await ctx.send("Something fucked up")
 
+    @commands.command()
+    @commands.is_owner()
+    async def perms(self, ctx: commands.Context[Bot], channel_id: int) -> None:
+        channel = self.bot.get_channel(channel_id)
+        if not isinstance(channel, discord.abc.GuildChannel):
+            await ctx.send("Channel not found.")
+            return
+
+        assert isinstance(ctx.me, discord.Member)
+        perms = channel.permissions_for(ctx.me)
+
+        allowed = [k for k, val in perms if val]
+        denied = [k for k, val in perms if not val]
+
+        embed = discord.Embed(title="Permissions for channel")
+        embed.description = channel.mention
+
+        if allowed:
+            embed.add_field(name="Allowed Perms", value=", ".join(allowed))
+        if denied:
+            embed.add_field(name="Denied Perms", value=", ".join(denied))
+        await ctx.send(embed=embed)
+
     cogs = discord.app_commands.Group(
         name="cogs",
         description="Load and unload modules",

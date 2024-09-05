@@ -18,8 +18,9 @@ from discord.ext import commands, tasks
 from lxml import html
 from PIL import Image
 
+import ext.flashscore as fs
+
 if TYPE_CHECKING:
-    import ext.flashscore as fs
     from core import Bot
     from asyncpg import Record
 
@@ -320,11 +321,14 @@ class NUFCSidebar(commands.Cog):
         image: discord.Attachment | None,
     ) -> None:
         """Upload an image to the sidebar, or edit the caption."""
+        await interaction.response.defer(thinking=True)
+
+        reply = interaction.edit_original_response
         if not caption and not image:
             embed = discord.Embed()
             embed.description = "🚫 Provide a caption or image"
-            reply = interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            await reply(embed=embed)
+            return
 
         # Check if message has an attachment, for the new sidebar image.
         embed = discord.Embed(color=0xFF4500, url=REDDIT)
@@ -349,8 +353,8 @@ class NUFCSidebar(commands.Cog):
             except TooLarge:
                 embed = discord.Embed()
                 embed.description = "🚫 Image file size too large"
-                reply = interaction.response.send_message
-                return await reply(embed=embed, ephemeral=True)
+                await reply(embed=embed)
+                return
 
             style = await sub.stylesheet()
 
@@ -366,8 +370,7 @@ class NUFCSidebar(commands.Cog):
         # Build
         wiki = await subreddit.wiki.get_page("config/sidebar")
         await wiki.edit(content=await self.make_sidebar())
-        edit = interaction.response.send_message
-        return await edit(embed=embed, files=file)
+        await interaction.edit_original_response(embed=embed, attachments=file)
 
 
 async def setup(bot: Bot) -> None:

@@ -1,6 +1,6 @@
 """Working with Webscraping the flashscore website"""
-from .abc import BaseTeam
-from .cache import FlashscoreCache
+from .abc import BaseTeam, BaseCompetition, BaseFixture
+from .cache import FSCache
 from .competitions import Competition
 from .constants import (
     ADS,
@@ -29,6 +29,8 @@ from .transfers import FSTransfer
 __all__ = [
     # abc
     "BaseTeam",
+    "BaseFixture",
+    "BaseCompetition",
     # constants
     "ADS",
     "COMPETITION_EMOJI",
@@ -45,7 +47,7 @@ __all__ = [
     "VAR_EMOJI",
     "YELLOW_CARD_EMOJI",
     # cache
-    "FlashscoreCache",
+    "FSCache",
     # competition
     "Competition",
     # fixture

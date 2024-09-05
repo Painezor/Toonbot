@@ -1,5 +1,6 @@
 """Handle the data parsed by score_task.py"""
 from __future__ import annotations
+import asyncio
 import datetime
 
 import itertools
@@ -26,10 +27,11 @@ logger = logging.getLogger("scores")
 # Command Mentions.
 ADD_LEAGUE = "</livescores add_league:951948501355495506>"
 MANAGE = "</livescores manage:951948501355495506>"
+SCORES = "</scores:1095068443004379150>"
 
 NGF = (
     "No games found for your tracked leagues today!\n\nYou can "
-    "add more leagues with `/livescores add`"
+    f"add more leagues with {ADD_LEAGUE}, to view live games, use {SCORES}"
 )
 NO_GAMES_FOUND = Embed(description=NGF)
 NO_GAMES_FOUND.set_author(name="No Games Found", url=fs.FLASHSCORE)
@@ -333,9 +335,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options, multi=True)
 
     @discord.ui.select(placeholder="Removed Tracked leagues", row=1)
-    async def remove(
-        self, itr: Interaction, sel: discord.ui.Select[ScoresConfig]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         view = view_utils.Confirmation(itr.user, "Remove", "Cancel")
         view.true.style = discord.ButtonStyle.red
 
@@ -346,7 +346,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
             ]
         )
         ment = self.channel.mention
-        embed = Embed(title="LiveScores", colour=discord.Colour.red())
+        embed = Embed(title="LiveScores", colour=Colour.red())
         embed.description = f"Remove these leagues from {ment}? {lg_text}"
 
         await itr.response.edit_message(embed=embed, view=view)
@@ -370,10 +370,10 @@ class ScoresConfig(view_utils.DropdownPaginator):
             self.leagues.remove(item)
 
         msg = f"Removed {self.channel.mention} tracked leagues: \n{lg_text}"
-        embed = Embed(description=msg, colour=discord.Colour.red())
+        embed = Embed(description=msg, colour=Colour.red())
         embed.title = "LiveScores"
         embed_utils.user_to_footer(embed, itr.user)
-        await itr.followup.send(content=msg)
+        await itr.followup.send(embed=embed)
 
         # Reinstantiate the view
         leagues = await get_leagues(itr.client, self.channel.id)
@@ -386,21 +386,21 @@ class ScoresConfig(view_utils.DropdownPaginator):
         self, interaction: Interaction, _: discord.ui.Button[ScoresConfig]
     ) -> None:
         """Button to reset a live score channel back to the default leagues"""
-        view = view_utils.Confirmation(interaction.user, "Remove", "Cancel")
-        view.true.style = discord.ButtonStyle.red
+        conf = view_utils.Confirmation(interaction.user, "Remove", "Cancel")
+        conf.true.style = discord.ButtonStyle.red
 
-        embed = Embed(title="Ticker", colour=discord.Colour.red())
+        embed = Embed(title="Ticker", colour=Colour.red())
         ment = self.channel.mention
         embed.description = f"Reset leagues to default {ment}?\n"
 
-        await interaction.response.edit_message(embed=embed, view=view)
-        await view.wait()
+        await interaction.response.edit_message(embed=embed, view=conf)
+        await conf.wait()
 
-        view_itr = view.interaction
-        if not view.value:
+        conf_itr = conf.interaction
+        if not conf.value:
             # Return to normal viewing
             embed = self.embeds[self.index]
-            return await view_itr.response.edit_message(embed=embed, view=self)
+            return await conf_itr.response.edit_message(embed=embed, view=self)
 
         await self.reset_leagues(interaction)
 
@@ -410,11 +410,9 @@ class ScoresConfig(view_utils.DropdownPaginator):
         await interaction.followup.send(embed=embed)
 
         leagues = await get_leagues(interaction.client, self.channel.id)
-        view = ScoresConfig(interaction.user, self.channel, leagues)
-        await interaction.response.send_message(
-            view=view, embed=view.embeds[0]
-        )
-        view.message = await interaction.original_response()
+        cfg = ScoresConfig(interaction.user, self.channel, leagues)
+        await conf_itr.response.edit_message(view=cfg, embed=cfg.embeds[0])
+        cfg.message = await conf_itr.original_response()
 
     async def reset_leagues(self, interaction: Interaction) -> None:
         """Reset the channel's list of leagues to the defaults"""
@@ -423,7 +421,7 @@ class ScoresConfig(view_utils.DropdownPaginator):
         await interaction.client.db.execute(sql, self.channel.id)
         _ = """INSERT INTO scores_leagues (channel_id, url) VALUES ($1, $2)"""
         args = [(self.channel.id, x) for x in fs.DEFAULT_LEAGUES]
-        await interaction.client.db.executemany(sql, args)
+        await interaction.client.db.executemany(_, args)
 
         self.leagues.clear()
         for i in fs.DEFAULT_LEAGUES:
@@ -444,6 +442,8 @@ class ScoresCog(commands.Cog):
         self._locked: bool = False
         self._table_cache: dict[str, str] = {}
 
+        self._base_embed_cache: dict[str, Embed] = {}
+
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
         self.channels.clear()
@@ -456,33 +456,41 @@ class ScoresCog(commands.Cog):
     @commands.Cog.listener()
     async def on_scores_ready(self, now: datetime.datetime) -> None:
         """When Livescores Fires a "scores ready" event, handle it"""
+        if self._locked:
+            return
+
         await self.update_cache()
 
         comps = self.bot.cache.live_competitions()
 
         sc_embeds: dict[str, list[Embed]] = {}
         for comp in comps:
-            embed = await FSEmbed.create(comp)
+            if comp.id is None:
+                continue
+
+            if comp.id in self._base_embed_cache:
+                embed = self._base_embed_cache[comp.id].copy()
+            else:
+                embed = await FSEmbed.create(comp)
+                self._base_embed_cache[comp.id] = embed.copy()
+            await asyncio.sleep(0)  # release heartbeat.
 
             flt = [i for i in self.bot.cache.games if i.competition == comp]
             fix = sorted(flt, key=lambda c: c.kickoff or now)
 
             ls_txt = [fmt_fixture(i) for i in fix]
             if comp.id in self._table_cache:
-                footer = f"\n[View Table]({self._table_cache[comp.id]})"
-            else:
-                footer = None
-            embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50, footer)
+                embed.title = "Click for Table"
+                embed.url = self._table_cache[comp.id]
+            embeds = embed_utils.rows_to_embeds(embed, ls_txt, 50)
             sc_embeds.update({comp.title: embeds})
-
-        if self._locked:
-            return
 
         self._locked = True
         for i in self.channels.copy():
             if i.channel.is_news():
                 self.channels.discard(i)
                 continue
+            await asyncio.sleep(0)  # Blocking ?
             await i.run_scores(self.bot, sc_embeds)
         self._locked = False
 
@@ -500,7 +508,6 @@ class ScoresCog(commands.Cog):
             channel = self.bot.get_channel(i["channel_id"])
 
             if not isinstance(channel, discord.TextChannel):
-                bad.append(i["channel_id"])
                 continue
 
             elif channel.is_news():
@@ -546,10 +553,8 @@ class ScoresCog(commands.Cog):
         if channel is None:
             channel = cast(discord.TextChannel, interaction.channel)
 
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
-                row = await connection.fetchrow(sql, channel.id)
+        sql = """SELECT * FROM scores_channels WHERE channel_id = $1"""
+        row = await self.bot.db.fetchrow(sql, channel.id)
 
         if not row:
             embed = Embed(colour=discord.Colour.red())
@@ -570,6 +575,7 @@ class ScoresCog(commands.Cog):
         await interaction.response.send_message(
             view=view, embed=view.embeds[0]
         )
+        view.message = await interaction.original_response()
 
     @livescores.command()
     @discord.app_commands.describe(name="Enter a name for the channel")
@@ -579,7 +585,8 @@ class ScoresCog(commands.Cog):
         """Create a live-scores channel for your server."""
         assert interaction.guild is not None
         # command is flagged as guild_only.
-
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        reply = interaction.edit_original_response
         user = interaction.user
         guild = interaction.guild
 
@@ -593,8 +600,8 @@ class ScoresCog(commands.Cog):
         except discord.Forbidden:
             err = "🚫 I need manage_channels permissions to make a channel."
             embed = Embed(colour=Colour.red(), description=err)
-            reply = interaction.response.send_message
-            return await reply(embed=embed, ephemeral=True)
+            await reply(embed=embed)
+            return
 
         if channel.permissions_for(channel.guild.me).manage_channels:
             dow = discord.PermissionOverwrite
@@ -602,20 +609,37 @@ class ScoresCog(commands.Cog):
                 guild.default_role: dow(send_messages=False),
                 guild.me: dow(send_messages=True),
             }
-            channel = await channel.edit(overwrites=ow_)
-
+            try:
+                channel = await channel.edit(overwrites=ow_)
+            except discord.Forbidden:
+                err = (
+                    "🚫 I need manage_roles permissions to set livescores "
+                    "permissions"
+                )
+                embed = Embed(colour=Colour.red(), description=err)
+                await reply(embed=embed)
+                return await channel.delete()
+        sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
+                 ON CONFLICT DO NOTHING"""
+        sq2 = """INSERT INTO scores_channels (guild_id, channel_id)
+                 VALUES ($1, $2)"""
+        sq3 = (
+            """INSERT INTO scores_leagues (channel_id, url) VALUES ($1, $2)"""
+        )
         async with self.bot.db.acquire(timeout=60) as connection:
             async with connection.transaction():
-                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
-                    ON CONFLICT DO NOTHING"""
                 await connection.execute(sql, interaction.guild.id)
-                sql = """INSERT INTO scores_channels (guild_id, channel_id)
-                    VALUES ($1, $2)"""
-                await connection.execute(sql, channel.guild.id, channel.id)
+                await connection.execute(sq2, channel.guild.id, channel.id)
+                args = [(channel.id, x) for x in fs.DEFAULT_LEAGUES]
+                await connection.executemany(sq3, args)
 
         self.channels.add(ScoreChannel(channel))
 
-        view = ScoresConfig(interaction.user, channel, [])
+        leagues = [
+            self.bot.cache.get_competition(url=i) for i in fs.DEFAULT_LEAGUES
+        ]
+        leagues = [i for i in leagues if i is not None]
+        scconfig = ScoresConfig(interaction.user, channel, leagues)
 
         try:
             await channel.send(
@@ -626,14 +650,15 @@ class ScoresCog(commands.Cog):
             msg = f"{channel.mention} created successfully."
         except discord.Forbidden:
             msg = f"{channel.mention} created, but I need send_messages perms."
-        await interaction.response.send_message(msg, view=view)
+        await reply(content=msg, view=scconfig)
+        scconfig.message = await interaction.original_response()
 
-    @livescores.command()
+    @livescores.command(name="add_league")
     @discord.app_commands.describe(
         competition="league name to search for",
         channel="Target Channel",
     )
-    async def add_league(
+    async def add_sc_league(
         self,
         interaction: Interaction,
         competition: comp_,
@@ -643,12 +668,12 @@ class ScoresCog(commands.Cog):
 
         if competition.title == "WORLD: Club Friendly":
             err = "🚫 You can't add club friendlies as a competition, sorry."
-            emb = Embed(colour=discord.Colour.red(), description=err)
+            emb = Embed(colour=Colour.red(), description=err)
             return await interaction.response.send_message(embed=emb)
 
         if competition.url is None:
             err = "🚫 Could not fetch url from competition"
-            emb = Embed(colour=discord.Colour.red(), description=err)
+            emb = Embed(colour=Colour.red(), description=err)
             return await interaction.response.send_message(embed=emb)
 
         if channel is None:
@@ -658,7 +683,7 @@ class ScoresCog(commands.Cog):
         try:
             chan = next(i for i in score_chans if i.id == channel.id)
         except StopIteration:
-            emb = Embed(colour=discord.Colour.red())
+            emb = Embed(colour=Colour.red())
             ment = channel.mention
             emb.description = f"🚫 {ment} is not a live-scores channel."
             return await interaction.response.send_message(embed=emb)
@@ -684,7 +709,7 @@ class ScoresCog(commands.Cog):
         """Fetch current scores for a specified competition,
         or if no competition is provided, all live games."""
         if not self.bot.cache.games:
-            embed = Embed(colour=discord.Colour.red())
+            embed = Embed(colour=Colour.red())
             embed.description = "🚫 No live games found"
             return await interaction.response.send_message(embed=embed)
 
@@ -694,31 +719,34 @@ class ScoresCog(commands.Cog):
 
         comp = None
         header = f"Scores as of: {timed_events.Timestamp().long}\n"
-        base_embed = Embed(color=discord.Colour.og_blurple())
+        base_embed = Embed(color=Colour.og_blurple())
         base_embed.title = "Current scores"
         base_embed.description = header
         embed = base_embed.copy()
-        embed.description = ""
         embeds: list[Embed] = []
 
         for i, j in [(i.competition, fmt_fixture(i)) for i in games]:
+            if i is None:
+                continue
+
             if i and i != comp:  # We need a new header if it's a new comp.
                 comp = i
-                output = f"\n**{i.title}**\n{j}\n"
+                output = f"\n**{flags.get_flag(i.country)} {i.title}**\n{j}\n"
             else:
                 output = f"{j}\n"
 
-            if len(embed.description + output) < 2048:
+            if len(str(embed.description) + output) < 2048:
                 embed.description = f"{embed.description}{output}"
             else:
                 embeds.append(embed)
                 embed = base_embed.copy()
-                embed.description = f"\n**{i}**\n{j}\n"
+                out = f"\n**{flags.get_flag(i.country)} {i.title}**\n{j}\n"
+                embed.description = out
         embeds.append(embed)
 
-        view = view_utils.EmbedPaginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
-        view.message = await interaction.original_response()
+        scrv = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=scrv, embed=embeds[0])
+        scrv.message = await interaction.original_response()
 
     # Event listeners for channel deletion or guild removal.
     @commands.Cog.listener()
@@ -726,10 +754,8 @@ class ScoresCog(commands.Cog):
         self, channel: discord.abc.GuildChannel
     ) -> None:
         """Remove all of a channel's stored data upon deletion"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
-                await connection.execute(sql, channel.id)
+        sql = """DELETE FROM scores_channels WHERE channel_id = $1"""
+        await self.bot.db.execute(sql, channel.id)
 
         for i in self.channels.copy():
             if channel.id == i.id:

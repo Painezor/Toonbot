@@ -6,7 +6,7 @@ from lxml import html
 from typing import TYPE_CHECKING, Any
 
 from .abc import BaseCompetition, BaseFixture
-from .cache import FlashscoreCache
+from .cache import FSCache
 from .constants import FLASHSCORE
 from .fixture import HasFixtures
 from .logos import HasLogo
@@ -69,7 +69,7 @@ class Competition(BaseCompetition, HasFixtures, HasTable, HasLogo, HasScorers):
         return comp
 
     async def parse_games(
-        self, page: Page, cache: FlashscoreCache | None = None
+        self, page: Page, cache: FSCache | None = None
     ) -> list[BaseFixture]:
         fixtures = await HasFixtures.parse_games(self, page, cache)
         for i in fixtures:

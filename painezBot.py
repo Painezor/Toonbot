@@ -49,6 +49,7 @@ COGS = [
     "ext.twitch",
     "ext.wows_encyclopedia",
     "ext.wows_stats",
+    "ext.wows_ccs",
 ]
 
 
@@ -91,7 +92,7 @@ class PBot(commands.AutoShardedBot):
         # Wows
         self.clan_battle_seasons: list[api.ClanBattleSeason]
         self.clan_battle_winners: dict[int, list[api.ClanBattleWinner]]
-        self.maps: set[api.Map] = set()
+        self.maps: list[api.Map] = []
         self.modes: list[api.GameMode] = []
         self.modules: dict[str, api.Module] = dict()
         self.ships: list[Ship] = []

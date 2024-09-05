@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import datetime
 import logging
-from lxml import html
 from typing import TYPE_CHECKING
 
+from lxml import html
 from playwright.async_api import TimeoutError as PWTimeout
+from pydantic import BaseModel
 
 from .constants import FLASHSCORE
 
@@ -29,19 +30,75 @@ class HasNews:
         try:
             await page.goto(url, timeout=5000)
         except PWTimeout:
-            logger.error("Timed out loading page %s", url)
+            logger.error("Timed out loading news page %s", url)
             return []
 
-        locator = page.locator(".rssNew")
+        locator = page.locator(".rssNew").last
         try:
             await locator.wait_for()
         except PWTimeout:
             logger.error("Failed finding .rssNew on %s", page.url)
 
         articles: list[NewsArticle] = []
-        for i in await locator.all():
-            articles.append(NewsArticle(html.fromstring(await i.inner_html())))
+        tree = html.fromstring(await page.content())
+        for i in tree.xpath('.//a[@class="rssNew"]'):
+            logger.info("Parsing news article... %s", page.url)
+            try:
+                articles.append(self.parse_team_news(i))
+                continue
+            except ValueError:
+                pass
+
+            try:
+                articles.append(self.parse_fixture_news(i))
+            except ValueError:
+                continue
+
+        logger.info(articles)
         return articles
+
+    def parse_fixture_news(self, node: html.HtmlElement) -> NewsArticle:
+        xpath = './/p[@class="rssNew__title"]/text()'
+        title = "".join(node.xpath(xpath))
+
+        xpath = ".//a/@href"
+        url = FLASHSCORE + "".join(node.xpath(xpath))
+
+        image = "".join(node.xpath(".//img/@src"))
+
+        xpath = './/div[@class="rssNew__descriptionInfo"]/span/text()'
+        provider = "".join(node.xpath(xpath)).split(",")
+
+        time = datetime.datetime.strptime(provider[0], "%d.%m.%Y %H:%M")
+        provider = provider[-1].strip()
+        return NewsArticle(
+            title=title,
+            url=url,
+            image=image,
+            timestamp=time,
+            provider=provider,
+        )
+
+    def parse_team_news(self, node: html.HtmlElement) -> NewsArticle:
+        xpath = './/p[@class="rssNew__title"]/text()'
+        title = "".join(node.xpath(xpath))
+
+        xpath = ".//a/@href"
+        url = FLASHSCORE + "".join(node.xpath(xpath))
+
+        image = "".join(node.xpath(".//img/@src"))
+        xpath = './/div[@class="rssNew__descriptionInfo"]//text()'
+        provider = node.xpath(xpath)
+
+        time = datetime.datetime.strptime(provider[0], "%d.%m.%Y %H:%M")
+        provider = provider[-1].strip()
+        return NewsArticle(
+            title=title,
+            url=url,
+            image=image,
+            timestamp=time,
+            provider=provider,
+        )
 
     @property
     def base_url(self) -> str:
@@ -50,31 +107,11 @@ class HasNews:
         return self.url.rstrip("/")
 
 
-class NewsArticle:
+class NewsArticle(BaseModel):
     """A News Article from Flashscore"""
 
-    description: str
     image: str
     provider: str
     title: str
-    timestamp: datetime.datetime
+    timestamp: datetime.datetime | None
     url: str
-
-    def __init__(self, data: html.HtmlElement) -> None:
-        xpath = './/div[@class="rssNews__title"]/text()'
-        self.title = "".join(data.xpath(xpath))
-
-        xpath = ".//a/@href"
-        self.url = FLASHSCORE + "".join(data.xpath(xpath))
-
-        self.image = "".join(data.xpath(".//img/@src"))
-
-        xpath = './/div[@class="rssNews__perex"]/text()'
-        self.description = "".join(data.xpath(xpath))
-
-        xpath = './/div[@class="rssNews__provider"]/text()'
-        provider = "".join(data.xpath(xpath)).split(",")
-
-        time = datetime.datetime.strptime(provider[0], "%d.%m.%Y %H:%M")
-        self.timestamp = time
-        self.provider = provider[-1].strip()

@@ -86,7 +86,7 @@ class Bot(commands.AutoShardedBot):
         self.invite: str = INVITE_URL
 
         # Fixtures
-        self.cache = fs.FlashscoreCache(database=datab)
+        self.cache = fs.FSCache(database=datab)
 
         # Polls
         self.active_polls: set[asyncio.Task[None]] = set()

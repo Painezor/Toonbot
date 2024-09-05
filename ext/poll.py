@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import operator
 import typing
 
 import discord
-from discord.ui import TextInput
+from discord.ui import TextInput, Select
 from discord import SelectOption
 from discord.ext import commands
 
@@ -44,14 +43,14 @@ class PollView(view_utils.BaseView):
         if max_votes != 1:
             self.dropdown.placeholder = f"Select up to {max_votes} choices"
         self.dropdown.max_values = max_votes
-        self.task = asyncio.get_running_loop().create_task(self.destruct())
+        self.task = asyncio.get_running_loop().create_task(
+            self.destruct(), name="pollend"
+        )
         self.message: discord.Message
         self.remove_item(self._stop)
 
     @discord.ui.select(placeholder="Make Your Choice")
-    async def dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select[PollView]
-    ) -> None:
+    async def dropdown(self, interaction: Interaction, sel: Select) -> None:
         """A Voting Dropdown - Remove old votes and add new ones."""
         new_votes = ", ".join(sel.values)
         if any(interaction.user.id in i for i in self.votes.values()):
@@ -107,8 +106,8 @@ class PollView(view_utils.BaseView):
         votes_cast = sum([len(self.votes[i]) for i in self.votes])
         embed.set_footer(text=f"Final Results | {votes_cast} votes")
 
-        if icon := operator.attrgetter("icon.url")(self.message.guild):
-            embed.set_thumbnail(url=icon)
+        if self.message.guild and self.message.guild.icon:
+            embed.set_thumbnail(url=self.message.guild.icon.url)
 
         try:
             edit = self.message.edit
@@ -118,7 +117,8 @@ class PollView(view_utils.BaseView):
             pass
 
         try:
-            await self.message.channel.send(embed=embed)
+            new_msg = await self.message.channel.send(embed=embed)
+            self.message = new_msg
         except (discord.NotFound, discord.Forbidden):
             pass
 
@@ -138,7 +138,7 @@ class PollView(view_utils.BaseView):
         embed.set_footer(text=f"Voting in Progress | {total_votes} votes")
 
         edit = interaction.response.edit_message
-        return await edit(view=self, embed=embed)
+        await edit(view=self, embed=embed)
 
 
 class PollModal(discord.ui.Modal, title="Create a poll"):
@@ -172,6 +172,7 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
         self, interaction: Interaction, /
     ) -> None:
         """When the Modal is submitted, pick at random and send back"""
+        await interaction.response.defer(thinking=True)
         question = self.question.value
         answers = self.answers.value.split("\n")[:25]
 
@@ -183,25 +184,26 @@ class PollModal(discord.ui.Modal, title="Create a poll"):
 
         embed = discord.Embed(colour=discord.Colour.red())
 
+        errors: list[str] = []
         try:
             votes = int(self.votes.value)
         except ValueError:
             votes = 1
-
-            err = "Invalid number of votes provided, defaulting to 1"
-            embed.description = err
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            errors.append("Invalid number of votes provided, defaulting to 1")
 
         try:
             time = int(self.minutes.value)
         except ValueError:
             time = 60
-            err = "Invalid number of minutes provided, defaulting to 60"
-            embed.description = err
-            await interaction.followup.send(embed=embed, ephemeral=True)
-        view = PollView(question, answers, time, votes)
-        await interaction.response.send_message(view=view, embed=embed)
-        view.message = await interaction.original_response()
+            errors.append("Invalid minutes provided, defaulting to 60")
+
+        if errors:
+            embed.add_field(name="Errors", value="\n".join(errors))
+
+        p_view = PollView(question, answers, time, votes)
+        embed.description = p_view.read_votes()
+        _ = await interaction.edit_original_response(view=p_view, embed=embed)
+        p_view.message = _
 
 
 class Poll(commands.Cog):

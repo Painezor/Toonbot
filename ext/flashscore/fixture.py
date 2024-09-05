@@ -20,16 +20,74 @@ from .tv import TVListing
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
-    from .cache import FlashscoreCache
+    from .cache import FSCache
 
 logger = logging.getLogger("flashscore.fixture")
+
+
+def set_score(fixture: BaseFixture, node: html.HtmlElement) -> None:
+    """Parse & set scoreline from parse_fixtures"""
+    try:
+        xpath = './/div[contains(@class,"event__score")]//text()'
+        home, away = node.xpath(xpath)
+        fixture.home.score = int(home.strip())
+        fixture.away.score = int(away.strip())
+    except ValueError:
+        pass
+
+
+def set_time(fixture: BaseFixture, node: html.HtmlElement) -> None:
+    """Set the time of the fixture from parse_fixtures"""
+    state = None
+    time = "".join(node.xpath('.//div[@class="event__time"]//text()'))
+    override = "".join([i for i in time if i.isalpha()])
+    time = time.replace(override, "")
+
+    if override:
+        try:
+            fixture.time = {
+                "Abn": GameState.ABANDONED,
+                "AET": GameState.AFTER_EXTRA_TIME,
+                "Awrd": GameState.AWARDED,
+                "FRO": GameState.FINAL_RESULT_ONLY,
+                "Pen": GameState.AFTER_PENS,
+                "Postp": GameState.POSTPONED,
+                "WO": GameState.WALKOVER,
+            }[override]
+        except KeyError:
+            logger.error("missing state for override %s", override)
+
+    dtn = datetime.datetime.now(tz=datetime.timezone.utc)
+    for string, fmt in [
+        (time, "%d.%m.%Y."),
+        (time, "%d.%m.%Y"),
+        (f"{dtn.year}.{time}", "%Y.%d.%m. %H:%M"),
+        (f"{dtn.year}.{dtn.day}.{dtn.month}.{time}", "%Y.%d.%m.%H:%M"),
+    ]:
+        try:
+            k_o = datetime.datetime.strptime(string, fmt)
+            fixture.kickoff = k_o.astimezone(datetime.timezone.utc)
+
+            if fixture.kickoff < dtn:
+                fixture.time = GameState.SCHEDULED
+            fixture.time = GameState.FULL_TIME
+            return
+        except ValueError:
+            continue
+    else:
+        logger.error("Failed to convert %s to datetime.", time)
+
+    if "'" in time or "+" in time or time.isdigit():
+        fixture.time = time
+        return
+    logger.error('state "%s" (%s) not handled.', state, time)
 
 
 class HasFixtures:
     url: str | None = None
 
     async def fixtures(
-        self, page: Page, cache: FlashscoreCache | None = None
+        self, page: Page, cache: FSCache | None = None
     ) -> list[BaseFixture]:
         """Get a list of upcoming Fixtures for the FS Item"""
         if self.url is None:
@@ -44,7 +102,7 @@ class HasFixtures:
         return await self.parse_games(page, cache)
 
     async def results(
-        self, page: Page, cache: FlashscoreCache | None = None
+        self, page: Page, cache: FSCache | None = None
     ) -> list[BaseFixture]:
         """Get a list of upcoming Fixtures for the FS Item"""
         if self.url is None:
@@ -59,7 +117,7 @@ class HasFixtures:
         return await self.parse_games(page, cache)
 
     async def parse_games(
-        self, page: Page, cache: FlashscoreCache | None = None
+        self, page: Page, cache: FSCache | None = None
     ) -> list[BaseFixture]:
         """Parse games from raw HTML from fixtures or results function"""
         try:
@@ -92,18 +150,15 @@ class HasFixtures:
             url = f"{FLASHSCORE}/match/{fx_id}"
 
             xpath = './/div[contains(@class,"event__participant")]//text()'
-            names = [n.strip() for n in i.xpath(xpath)]
-            logger.info("Got team names %s", ", ".join(names))
+            names = [str(n).strip() for n in i.xpath(xpath)]
 
             home, away = [Participant(team=BaseTeam(name=i)) for i in names]
-            fx = Fixture(home=home, away=away, id=fx_id, url=url)
-            fx.home.team.name = names[0]
-            fx.away.team.name = names[1]
+            fx = BaseFixture(home=home, away=away, id=fx_id, url=url)
             fx.competition = comp
 
             # score
-            fx.set_score(i)
-            fx.set_time(i)
+            set_score(fx, i)
+            set_time(fx, i)
             fixtures.append(fx)
         return fixtures
 
@@ -112,62 +167,6 @@ class Fixture(BaseFixture, HasNews, HasTable):
     """An object representing a Fixture from the Flashscore Website"""
 
     incidents: list[MatchIncident] = []
-
-    def set_time(self, node: html.HtmlElement) -> None:
-        """Set the time of the fixture from parse_fixtures"""
-        state = None
-        time = "".join(node.xpath('.//div[@class="event__time"]//text()'))
-        override = "".join([i for i in time if i.isalpha()])
-        time = time.replace(override, "")
-
-        if override:
-            try:
-                self.time = {
-                    "Abn": GameState.ABANDONED,
-                    "AET": GameState.AFTER_EXTRA_TIME,
-                    "Awrd": GameState.AWARDED,
-                    "FRO": GameState.FINAL_RESULT_ONLY,
-                    "Pen": GameState.AFTER_PENS,
-                    "Postp": GameState.POSTPONED,
-                    "WO": GameState.WALKOVER,
-                }[override]
-            except KeyError:
-                logger.error("missing state for override %s", override)
-
-        dtn = datetime.datetime.now(tz=datetime.timezone.utc)
-        for string, fmt in [
-            (time, "%d.%m.%Y."),
-            (time, "%d.%m.%Y"),
-            (f"{dtn.year}.{time}", "%Y.%d.%m. %H:%M"),
-            (f"{dtn.year}.{dtn.day}.{dtn.month}.{time}", "%Y.%d.%m.%H:%M"),
-        ]:
-            try:
-                k_o = datetime.datetime.strptime(string, fmt)
-                self.kickoff = k_o.astimezone(datetime.timezone.utc)
-
-                if self.kickoff < dtn:
-                    self.time = GameState.SCHEDULED
-                self.time = GameState.FULL_TIME
-                return
-            except ValueError:
-                continue
-        else:
-            logger.error("Failed to convert %s to datetime.", time)
-
-        if "'" in time or "+" in time or time.isdigit():
-            self.time = time
-            return
-        logger.error('state "%s" (%s) not handled.', state, time)
-
-    def set_score(self, node: html.HtmlElement) -> None:
-        """Parse & set scoreline from parse_fixtures"""
-        try:
-            xpath = './/div[contains(@class,"event__score")]//text()'
-            home, away = node.xpath(xpath)
-            self.home.score = int(home.strip())
-            self.away.score = int(away.strip())
-        except ValueError:
-            pass
 
     async def get_h2h(
         self, page: Page, btn: str | None = None
@@ -243,9 +242,12 @@ class Fixture(BaseFixture, HasNews, HasTable):
         url = f"{self.url}/#/match-summary/match-statistics/"
 
         await page.goto(url, timeout=5000)
-        await page.wait_for_selector(".section", timeout=5000)
-        if btn is not None:
-            await page.locator("a", has_text=btn).click(force=True)
+        try:
+            await page.wait_for_selector(".section", timeout=5000)
+            if btn is not None:
+                await page.get_by_title(btn).click(force=True)
+        except PWTimeout:
+            return []
 
         src = await page.inner_html(".section")
 
@@ -261,9 +263,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
                 continue
         return stats
 
-    async def fetch(
-        self, page: Page, cache: FlashscoreCache | None = None
-    ) -> None:
+    async def fetch(self, page: Page, cache: FSCache | None = None) -> None:
         """Fetch all data for a fixture"""
         if self.url is None:
             logger.error("url is None on fixture %s", self.name)
@@ -335,7 +335,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
         self.away.team.competition = self.competition
 
     def _parse_teams(
-        self, tree: html.HtmlElement, cache: FlashscoreCache | None
+        self, tree: html.HtmlElement, cache: FSCache | None
     ) -> tuple[BaseTeam, BaseTeam]:
         teams: list[BaseTeam] = []
         for attr in ["home", "away"]:
@@ -367,7 +367,7 @@ class Fixture(BaseFixture, HasNews, HasTable):
         self,
         page: Page,
         url: str,
-        cache: FlashscoreCache | None = None,
+        cache: FSCache | None = None,
     ) -> BaseCompetition | None:
         """Go to a competition's page and fetch it directly."""
         if cache:

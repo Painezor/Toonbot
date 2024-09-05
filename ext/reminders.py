@@ -115,7 +115,9 @@ class RemindModal(discord.ui.Modal):
         if record is None:
             return
 
-        reminder_task = bot.loop.create_task(spool_reminder(bot, record))
+        reminder_task = bot.loop.create_task(
+            spool_reminder(bot, record), name="reminder_alt"
+        )
         bot.reminders.add(reminder_task)
         reminder_task.add_done_callback(bot.reminders.discard)
 
@@ -209,7 +211,9 @@ class Reminders(commands.Cog):
                 records = await connection.fetch("""SELECT * FROM reminders""")
 
         for i in records:
-            task = self.bot.loop.create_task(spool_reminder(self.bot, i))
+            task = self.bot.loop.create_task(
+                spool_reminder(self.bot, i), name="reminder"
+            )
             self.bot.reminders.add(task)
             task.add_done_callback(self.bot.reminders.discard)
 
@@ -251,8 +255,8 @@ class Reminders(commands.Cog):
         embed = discord.Embed(colour=0x7289DA, title="Your reminders")
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        view = view_utils.EmbedPaginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
+        rmnd = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=rmnd, embed=embeds[0])
 
 
 async def setup(bot: Bot | PBot) -> None:

@@ -6,6 +6,7 @@ import random
 from typing import TYPE_CHECKING, Any, TypeAlias
 
 import discord
+from discord.ui import Select
 from discord.ext import commands
 
 import ext.wows_api as api
@@ -484,9 +485,7 @@ class ShipView(view_utils.BaseView):
         return await interaction.response.edit_message(embed=embed, view=self)
 
     @discord.ui.select(placeholder="Change modules", row=2)
-    async def modules(
-        self, itr: Interaction, sel: discord.ui.Select[ShipView]
-    ) -> None:
+    async def modules(self, itr: Interaction, sel: Select) -> None:
         """Dropdown to change modules."""
         last: str = "Hull"
         for value in sel.values:
@@ -528,10 +527,10 @@ class Fittings(commands.Cog):
     ) -> None:
         """Search for a ship in the World of Warships API"""
         await get_modules(interaction, ship)
-        view = ShipView(interaction, ship)
-        embed = OverviewEmbed(view.fitting)
-        await interaction.response.send_message(view=view, embed=embed)
-        view.message = await interaction.original_response()
+        shp_view = ShipView(interaction, ship)
+        embed = OverviewEmbed(shp_view.fitting)
+        await interaction.response.send_message(view=shp_view, embed=embed)
+        shp_view.message = await interaction.original_response()
 
     @discord.app_commands.command()
     @discord.app_commands.rename(class_="class")
@@ -563,10 +562,10 @@ class Fittings(commands.Cog):
 
         ship = random.choice(ships)
         await get_modules(interaction, ship)
-        view = ShipView(interaction, ship)
-        embed = OverviewEmbed(view.fitting)
-        await interaction.response.send_message(view=view, embed=embed)
-        view.message = await interaction.original_response()
+        rnd_ship_v = ShipView(interaction, ship)
+        embed = OverviewEmbed(rnd_ship_v.fitting)
+        await interaction.response.send_message(view=rnd_ship_v, embed=embed)
+        rnd_ship_v.message = await interaction.original_response()
 
 
 async def setup(bot: PBot) -> None:

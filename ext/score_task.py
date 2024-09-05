@@ -13,7 +13,7 @@ from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PWTimeout
 
 import ext.flashscore as fs
-from ext.flashscore.gamestate import GameState, EventType as EVT
+from ext.flashscore.gamestate import GameState
 
 if TYPE_CHECKING:
     from core import Bot
@@ -24,81 +24,86 @@ logger = getLogger("ScoreLoop")
 
 CURRENT_DATETIME_OFFSET = 2  # Hour difference between us and flashscore
 MAX_RECURSION = 5
-MAX_SCORE_WORKERS = 2
-FXE = "fixture_event"  # Just a string for dispatching events.
+MAX_SCORE_WORKERS = 1
 
 
-def get_half_time_change(old: GameState) -> EVT:
-    if old == GameState.EXTRA_TIME:
-        return EVT.ET_HT_BEGIN
-    return EVT.HALF_TIME
+def get_half_time_change(old: str) -> str:
+    if old == GameState.EXTRA_TIME.value:
+        return "et_ht_start"
+    return "half_time"
 
 
-def get_break_time_change(old: GameState) -> EVT:
-    if old == GameState.EXTRA_TIME:
-        return EVT.EXTRA_TIME_END
-    return EVT.NORMAL_TIME_END
+def get_break_time_change(old: str) -> str:
+    if old == GameState.EXTRA_TIME.value:
+        return "et_end"
+    return "normal_time_end"
 
 
-def get_extra_time_change(old: GameState) -> EVT:
-    if old == GameState.HALF_TIME:
-        return EVT.ET_HT_END
-    return EVT.EXTRA_TIME_BEGIN
+def get_extra_time_change(old: str) -> str:
+    if old == GameState.HALF_TIME.value:
+        return "et_ht_end"
+    return "et_start"
 
 
-def get_live_change(old: GameState) -> EVT:
+def get_live_change(old: str) -> str:
     return {
-        GameState.SCHEDULED: EVT.KICK_OFF,
-        GameState.DELAYED: EVT.KICK_OFF,
-        GameState.INTERRUPTED: EVT.RESUMED,
-        GameState.STOPPAGE_TIME: EVT.SECOND_HALF_BEGIN,
-        GameState.HALF_TIME: EVT.SECOND_HALF_BEGIN,
-        GameState.BREAK_TIME: EVT.PERIOD_BEGIN,
+        GameState.SCHEDULED.value: "kickoff",
+        GameState.DELAYED.value: "kickoff",
+        GameState.INTERRUPTED.value: "fixture_resumed",
+        GameState.STOPPAGE_TIME.value: "second_half",
+        GameState.HALF_TIME.value: "second_half",
+        GameState.BREAK_TIME.value: "period_begin",
     }[old]
 
 
-def get_full_time_change(old: GameState) -> EVT:
+def get_full_time_change(old: str) -> str:
     try:
         return {
-            GameState.EXTRA_TIME: EVT.SCORE_AFTER_EXTRA_TIME,
-            GameState.SCHEDULED: EVT.FINAL_RESULT_ONLY,
-            GameState.HALF_TIME: EVT.FINAL_RESULT_ONLY,
-            GameState.AWAITING: EVT.FINAL_RESULT_ONLY,
+            GameState.EXTRA_TIME.value: "aet_result",
+            GameState.SCHEDULED.value: "final_result",
+            GameState.HALF_TIME.value: "final_result",
         }[old]
     except KeyError:
-        return EVT.FULL_TIME
+        return "full_time"
 
 
-def get_event_type(new: GameState | None, old: GameState | None) -> EVT | None:
+def get_event_type(new: GameState | None, old: GameState | None) -> str | None:
     """Conver a new / old difference to an EventType"""
     if old is None:
         return
     if new is None:
         return
-    if new in [GameState.AWAITING, GameState.STOPPAGE_TIME, old]:
+
+    nval = new.value
+    oval = old.value
+
+    if nval == oval:
+        return
+
+    if nval in [GameState.AWAITING.value, GameState.STOPPAGE_TIME.value]:
         return
 
     # I'm pretty sure this is a fucking warcrime.
     try:
         return {
-            GameState.ABANDONED: EVT.ABANDONED,
-            GameState.AFTER_EXTRA_TIME: EVT.SCORE_AFTER_EXTRA_TIME,
-            GameState.AFTER_PENS: EVT.PENALTY_RESULTS,
-            GameState.AWARDED: EVT.CANCELLED,
-            GameState.BREAK_TIME: get_break_time_change(old),
-            GameState.CANCELLED: EVT.CANCELLED,
-            GameState.DELAYED: EVT.DELAYED,
-            GameState.EXTRA_TIME: get_extra_time_change(old),
-            GameState.FULL_TIME: get_full_time_change(old),
-            GameState.HALF_TIME: get_half_time_change(old),
-            GameState.INTERRUPTED: EVT.INTERRUPTED,
-            GameState.LIVE: get_live_change(old),
-            GameState.PENALTIES: EVT.PENALTIES_BEGIN,
-            GameState.POSTPONED: EVT.POSTPONED,
-            GameState.WALKOVER: EVT.CANCELLED,
-        }[new]
+            GameState.ABANDONED.value: "fixture_abandoned",
+            GameState.AFTER_EXTRA_TIME.value: "aet_result",
+            GameState.AFTER_PENS.value: "penalty_results",
+            GameState.AWARDED.value: "fixture_awarded",
+            GameState.BREAK_TIME.value: get_break_time_change(oval),
+            GameState.CANCELLED.value: "fixture_cancelled",
+            GameState.DELAYED.value: "fixture_delayed",
+            GameState.EXTRA_TIME.value: get_extra_time_change(oval),
+            GameState.FULL_TIME.value: get_full_time_change(oval),
+            GameState.HALF_TIME.value: get_half_time_change(oval),
+            GameState.INTERRUPTED.value: "fixture_interrupted",
+            GameState.LIVE.value: get_live_change(oval),
+            GameState.PENALTIES.value: "penalties_start",
+            GameState.POSTPONED.value: "fixture_postponed",
+            GameState.WALKOVER.value: "fixture_cancelled",
+        }[nval]
     except KeyError:
-        logger.error("New State Change Not Handled: %s -> %s", old, new)
+        logger.error("New State Change Not Handled: %s -> %s", oval, nval)
 
 
 class ScoreLoop(commands.Cog):
@@ -109,7 +114,6 @@ class ScoreLoop(commands.Cog):
         self.tasks: set[asyncio.Task[None]] = set()
         self.score_workers: asyncio.Queue[Page] = asyncio.Queue()
 
-        self._last_ordinal: int = 0
         self._pending: list[fs.Fixture] = []
 
     async def cog_load(self) -> None:
@@ -117,8 +121,6 @@ class ScoreLoop(commands.Cog):
         self.scores: asyncio.Task[None] = self.score_loop.start()
         await self.bot.cache.cache_competitions()
         await self.bot.cache.cache_teams()
-        logger.info("%s Competitions", len(self.bot.cache.competitions))
-        logger.info("%s Teams", len(self.bot.cache.teams))
 
     async def cog_unload(self) -> None:
         """Cancel the live scores loop when cog is unloaded."""
@@ -133,33 +135,28 @@ class ScoreLoop(commands.Cog):
             page = await self.score_workers.get()
             await page.close()
 
-    @commands.Cog.listener()
-    async def on_app_command_completion(
-        self, interaction: Interaction, _
-    ) -> None:
-        """The transformers save comps/teams to their extras, so we can
-        update them as they're found."""
-        cache = interaction.client.cache
-        if "comps" in interaction.extras:
-            await cache.save_competitions(interaction.extras["comps"])
-        if "teams" in interaction.extras:
-            await cache.save_competitions(interaction.extras["teams"])
-
     @tasks.loop(minutes=1)
     async def score_loop(self) -> None:
         """Score Checker Loop"""
         hours = CURRENT_DATETIME_OFFSET
         offset = datetime.timezone(datetime.timedelta(hours=hours))
         now = datetime.datetime.now(offset)
-        ordinal = now.toordinal()
+        bad_time = now - datetime.timedelta(hours=24)
 
-        if self._last_ordinal != ordinal:
-            self.bot.cache.games.clear()
-            self._last_ordinal = ordinal
+        for i in self.bot.cache.games:
+            if i.kickoff is not None:
+                if i.kickoff < bad_time:
+                    self.bot.cache.games.remove(i)
 
         await self.parse_games()
         if self._pending:
             await self.handle_pending_fixtures()
+
+            # Destroy all of our workers
+            while not self.score_workers.empty():
+                page = await self.score_workers.get()
+                await page.close()
+            logger.info("Finished parsing scores")
 
         self.bot.dispatch("scores_ready", now)
 
@@ -213,11 +210,6 @@ class ScoreLoop(commands.Cog):
         if failed and recursion < MAX_RECURSION:
             return await self.handle_pending_fixtures(recursion + 1)
 
-        # Destroy all of our workers
-        while not self.score_workers.empty():
-            page = await self.score_workers.get()
-            await page.close()
-
     # Core Loop
     def handle_cards(
         self, fix: fs.abc.BaseFixture, tree: html.HtmlElement
@@ -237,13 +229,13 @@ class ScoreLoop(commands.Cog):
                 home, away = None, int(cards[0])
 
         if home and home != fix.home.cards:
-            evt = EVT.RED_CARD if home > fix.home.cards else EVT.VAR_RED_CARD
-            self.bot.dispatch(FXE, evt, fix, team=fix.home.team)
+            evt = "red_card" if home > fix.home.cards else "var_red_card"
+            self.bot.dispatch(evt, fix, team=fix.home.team)
             fix.home.cards = home
 
         if away and away != fix.away.cards:
-            evt = EVT.RED_CARD if away > fix.away.cards else EVT.VAR_RED_CARD
-            self.bot.dispatch(FXE, evt, fix, team=fix.away.team)
+            evt = "red_card" if away > fix.away.cards else "var_red_card"
+            self.bot.dispatch(evt, fix, team=fix.away.team)
             fix.away.cards = away
 
     def handle_kickoff(
@@ -293,14 +285,14 @@ class ScoreLoop(commands.Cog):
 
         if fix.home.score != hsc:
             if fix.home.score is not None:
-                evt = EVT.GOAL if hsc > fix.home.score else EVT.VAR_GOAL
-                self.bot.dispatch(FXE, evt, fix, team=fix.home.team)
+                evt = "goal" if hsc > fix.home.score else "var_goal"
+                self.bot.dispatch(evt, fix, team=fix.home.team)
             fix.home.score = hsc
 
         if fix.away.score != asc:
             if fix.away.score is not None:
-                evt = EVT.GOAL if asc > fix.away.score else EVT.VAR_GOAL
-                self.bot.dispatch(FXE, evt, fix, team=fix.away.team)
+                evt = "goal" if asc > fix.away.score else "var_goal"
+                self.bot.dispatch(evt, fix, team=fix.away.team)
             fix.away.score = asc
 
         return override
@@ -407,7 +399,7 @@ class ScoreLoop(commands.Cog):
             self.handle_time(fix, time, tree)
             e_type = get_event_type(fix.state, old_state)
             if e_type is not None:
-                self.bot.dispatch("fixture_event", e_type, fix)
+                self.bot.dispatch(e_type, fix)
 
 
 async def setup(bot: Bot) -> None:

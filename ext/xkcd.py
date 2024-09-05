@@ -112,23 +112,23 @@ class XKCD(commands.Cog):
     @xkcd.command()
     async def latest(self, interaction: Interaction) -> None:
         """Get the latest XKCD Comic"""
-        view = await XKCDView.create(interaction, start=-1)
-        embed = view.initial_embed
-        await interaction.response.send_message(view=view, embed=embed)
+        xkcd_latest = await XKCDView.create(interaction, start=-1)
+        embed = xkcd_latest.initial_embed
+        await interaction.response.send_message(view=xkcd_latest, embed=embed)
 
     @xkcd.command()
     async def random(self, interaction: Interaction) -> None:
         """Get the latest XKCD Comic"""
-        view = await XKCDView.create(interaction)
-        embed = view.initial_embed
-        await interaction.response.send_message(view=view, embed=embed)
+        xkcd_rand = await XKCDView.create(interaction)
+        embed = xkcd_rand.initial_embed
+        await interaction.response.send_message(view=xkcd_rand, embed=embed)
 
     @xkcd.command(name="number")
     async def num(self, interaction: Interaction, number: int) -> None:
         """Get XKCD Comic by number..."""
-        view = await XKCDView.create(interaction, start=number)
-        embed = view.initial_embed
-        await interaction.response.send_message(view=view, embed=embed)
+        xkcd_num = await XKCDView.create(interaction, start=number)
+        embed = xkcd_num.initial_embed
+        await interaction.response.send_message(view=xkcd_num, embed=embed)
 
 
 async def setup(bot: Bot) -> None:

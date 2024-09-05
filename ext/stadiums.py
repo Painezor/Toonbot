@@ -193,9 +193,7 @@ class StadiumBrowser(view_utils.DropdownPaginator):
         self.stadiums = stadiums
 
     @discord.ui.select(placeholder="Select a Stadium")
-    async def remove(
-        self, itr: Interaction, sel: discord.ui.Select[StadiumBrowser]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         for i in self.stadiums:
             ctr = i.country.upper() + ": " if i.country else ""
             if f"{i.name} ({ctr}{i.team})" in sel.values:

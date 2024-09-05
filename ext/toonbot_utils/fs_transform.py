@@ -8,6 +8,8 @@ from typing import (
     List,
     TypeAlias,
     Literal,
+    TypeVar,
+    Generic,
     overload,
 )
 from urllib.parse import quote
@@ -135,8 +137,9 @@ async def search(
     comps = parser.comps
     teams = parser.teams
     if lang_id == 1:
-        interaction.extras["comps"] = comps
-        interaction.extras["teams"] = teams
+        bot = interaction.client
+        bot.loop.create_task(bot.cache.save_competitions(comps), name="cmp_sv")
+        bot.loop.create_task(bot.cache.save_teams(teams), name="team_sv")
     if mode == "comp":
         return comps
     return teams
@@ -249,110 +252,50 @@ async def set_default(
     interaction.extras["default"] = default
 
 
-class TeamSelect(view_utils.DropdownPaginator):
-    """View for asking user to select a specific Team"""
+T = TypeVar("T", BaseTeam, BaseCompetition, BaseFixture)
 
-    def __init__(self, invoker: User, teams: list[BaseTeam]) -> None:
-        embed = Embed(title="Choose a Team")
+
+class FSSelect(view_utils.DropdownPaginator, Generic[T]):
+    """View for asking user to select a specific team/competition"""
+
+    def __init__(self, invoker: User, objects: list[T]) -> None:
+        embed = Embed(title="Choose an item")
 
         options: list[SelectOption] = []
         rows: list[str] = []
 
-        for team in teams:
-            if team.id is None:
-                continue
-
-            opt = SelectOption(label=team.title, value=team.id)
-            opt.description = f"{team.id}: {team.url}"
-            opt.emoji = team.emoji
-            options.append(opt)
-            rows.append(f"`{team.id}` [{team.name}]({team.url})")
-
-        self.teams = teams
-        super().__init__(invoker, embed, rows, options)
-
-        # Value
-        self.interaction: Interaction
-        self.team: BaseTeam
-
-    @discord.ui.select(placeholder="Choose a team")
-    async def remove(self, _, sel: Select[TeamSelect]) -> None:
-        """Spawn Team Clan View"""
-        self.team = next(i for i in self.teams if i.id in sel.values)
-
-
-class FixtureSelect(view_utils.DropdownPaginator):
-    """View for asking user to select a specific fixture"""
-
-    def __init__(self, invoker: User, fixtures: list[BaseFixture]):
-        embed = Embed(title="Choose a Fixture")
-
-        rows: list[str] = []
-        options: list[SelectOption] = []
-        for i in fixtures:
-            if i.id is None:
-                continue
-
-            opt = SelectOption(label=i.score_line, value=i.id)
-            if i.competition:
-                opt.description = i.competition.title
-            options.append(opt)
-            rows.append(f"`{i.id}` [{i.name}]({i.url})")
-
-        self.fixtures = fixtures
-        super().__init__(invoker, embed, rows, options)
-
-        # Final result
-        self.fixture: BaseFixture
-        self.interaction: Interaction
-
-    @discord.ui.select(placeholder="Choose a fixture")
-    async def remove(
-        self, itr: Interaction, sel: Select[FixtureSelect]
-    ) -> None:
-        self.fixture = next(i for i in self.fixtures if i.id in sel.values)
-        self.interaction = itr
-        return
-
-
-class CompetitionSelect(view_utils.DropdownPaginator):
-    """View for asking user to select a specific fixture"""
-
-    def __init__(
-        self, invoker: User, competitions: list[BaseCompetition]
-    ) -> None:
-        embed = Embed(title="Choose a Competition")
-
-        rows: list[str] = []
-        options: list[SelectOption] = []
-        for i in competitions:
+        for i in objects:
             if i.id is None:
                 continue
 
             opt = SelectOption(label=i.title, value=i.id)
-            opt.description = i.url
-            opt.emoji = i.emoji
-            rows.append(f"`{i.id}` [{i.name}]({i.url})")
-            options.append(opt)
+            opt.description = f"{i.id}: {i.url}"
 
-        self.comps = competitions
+            comp = getattr(i, "competition", None)
+            if isinstance(comp, BaseCompetition):
+                opt.description = comp.title
+
+            opt.emoji = i.emoji
+            options.append(opt)
+            rows.append(f"`{i.id}` [{i.title}]({i.url})")
+
+        self.objects: list[T] = objects
         super().__init__(invoker, embed, rows, options)
 
-        self.competition: BaseCompetition
+        # Value
         self.interaction: Interaction
+        self.object: T | None = None
 
-    @discord.ui.select(placeholder="Select a competition")
-    async def remove(
-        self, itr: Interaction, sel: Select[CompetitionSelect]
-    ) -> None:
-        self.competition = next(i for i in self.comps if i.id == sel.values[0])
-        self.interaction = itr
-        return
+    @discord.ui.select(placeholder="Choose item")
+    async def dropdown(self, interaction: Interaction, sel: Select) -> None:
+        """Spawn Team Clan View"""
+        self.object = next(i for i in self.objects if i.id in sel.values)
+        self.interaction = interaction
 
 
 async def choose_recent_fixture(
     interaction: Interaction, fsr: BaseCompetition | BaseTeam
-) -> fs.Fixture:
+) -> BaseFixture:
     """Allow the user to choose from the most recent games of a fixture"""
     page = await interaction.client.browser.new_page()
 
@@ -365,14 +308,14 @@ async def choose_recent_fixture(
     finally:
         await page.close()
 
-    view = FixtureSelect(interaction.user, fixtures)
+    view = FSSelect(interaction.user, fixtures)
     await interaction.response.send_message(view=view, embed=view.embeds[0])
     view.message = await interaction.original_response()
     await view.wait()
 
-    if not view.fixture:
+    if not view.object:
         raise TimeoutError
-    return fs.Fixture.parse_obj(view.fixture)
+    return view.object
 
 
 class TeamTransformer(Transformer):
@@ -416,20 +359,20 @@ class TeamTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> fs.Team | None:
+    ) -> BaseTeam | None:
         if fsr := interaction.client.cache.get_team(value):
             return fs.Team.parse_obj(fsr)
 
         teams = await search(value, "team", interaction)
 
-        view = TeamSelect(interaction.user, teams)
+        view = FSSelect(interaction.user, teams)
         emb = view.embeds[0]
         await interaction.response.send_message(view=view, embed=emb)
         view.message = await interaction.original_response()
         await view.wait()
-        if not view.team:
+        if not view.object:
             raise TimeoutError
-        return fs.Team.parse_obj(view.team)
+        return view.object
 
 
 # Autocompletes
@@ -451,7 +394,7 @@ class FixtureTransformer(Transformer):
             if cur not in ac_row:
                 continue
 
-            name = f"{i.emoji} {ac_row}"[:100]
+            name = f"{i.emoji} {i.title}"[:100]
             choices.append(Choice(name=name, value=i.id))
 
             if len(choices) == 25:
@@ -465,28 +408,28 @@ class FixtureTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> fs.Fixture | None:
+    ) -> BaseFixture | None:
         """Try to convert input to a fixture"""
         games = interaction.client.cache.games
         if fix := next((i for i in games if i.id == value), None):
-            return fs.Fixture.parse_obj(fix)
+            return fix
 
         if fsr := interaction.client.cache.get_team(value):
             return await choose_recent_fixture(interaction, fsr)
 
         teams = await search(value, "team", interaction)
 
-        view = TeamSelect(interaction.user, teams)
+        view = FSSelect(interaction.user, teams)
         emb = view.embeds[0]
         await interaction.response.send_message(view=view, embed=emb)
         view.message = await interaction.original_response()
         await view.wait()
 
-        if not view.team:
+        if not view.object:
             return None
 
-        fsr = view.team
-        return await choose_recent_fixture(view.interaction, fsr)
+        if isinstance(fsr := view.object, BaseTeam | BaseCompetition):
+            return await choose_recent_fixture(view.interaction, fsr)
 
 
 class TFCompetitionTransformer(Transformer):
@@ -529,26 +472,27 @@ class TFCompetitionTransformer(Transformer):
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str, /
-    ) -> fs.Competition | None:
+    ) -> BaseCompetition | None:
         if fsr := interaction.client.cache.get_competition(id=value):
-            return fs.Competition.parse_obj(fsr)
+            return fsr
 
         if "http" in value:
             await interaction.response.defer(thinking=True)
             page = await interaction.client.browser.new_page()
             try:
-                return await fs.Competition.by_link(page, value)
+                comp = await fs.Competition.by_link(page, value)
+                return BaseCompetition.parse_obj(comp)
             finally:
                 await page.close()
 
         comps = await search(value, "comp", interaction)
 
-        view = CompetitionSelect(interaction.user, comps)
+        view = FSSelect(interaction.user, comps)
         emb = view.embeds[0]
         await interaction.response.send_message(view=view, embed=emb)
         view.message = await interaction.original_response()
         await view.wait()
-        return fs.Competition.parse_obj(view.competition)
+        return view.object
 
 
 class LiveCompTransformer(TFCompetitionTransformer):
@@ -617,8 +561,17 @@ class UniversalTransformer(Transformer):
             if cur not in i.title.casefold() or i.id is None:
                 continue
 
-            opts.append(Choice(name=f"{i.emoji} {i.title}"[:100], value=i.id))
-        return opts[:25]
+            opts.append(
+                Choice(name=f"{i.emoji} {i.title}"[:100], value=i.emoji + i.id)
+            )
+
+        src = f"🔎 Search for team '{cur}'"
+        srch = [
+            Choice(name=src, value=f"T:{cur}"),
+            Choice(name=src, value=f"C:{cur}"),
+        ]
+        opts = opts[:23] + srch
+        return opts[:23]
 
     async def transform(  # type: ignore
         self, interaction: Interaction, value: str
@@ -627,14 +580,37 @@ class UniversalTransformer(Transformer):
         cln = interaction.client.cache
         pool = cln.teams + cln.competitions + cln.games
 
-        # TODO: Fallback Search
-        return next((i for i in pool if i.id == value), None)
+        if result := next(
+            (i for i in pool if f"{i.emoji}{i.id}" == value), None
+        ):
+            return result
+
+        if value.startswith("T:"):
+            value = value.split(":", maxsplit=1)[-1]
+            items = await search(value, "team", interaction)
+            view = FSSelect(interaction.user, items)
+        elif value.startswith("C:"):
+            value = value.split(":", maxsplit=1)[-1]
+            items = await search(value, "comp", interaction)
+            view = FSSelect(interaction.user, items)
+        else:
+            raise ValueError("Unhandled value %s", value)
+
+        emb = view.embeds[0]
+        await interaction.response.send_message(view=view, embed=emb)
+        view.message = await interaction.original_response()
+        await view.wait()
+
+        if not view.object:
+            return None
+
+        return view.object
 
 
 universal: TypeAlias = Transform[
-    fs.Competition | fs.Fixture | fs.Team, UniversalTransformer
+    BaseCompetition | BaseFixture | BaseTeam, UniversalTransformer
 ]
-comp_: TypeAlias = Transform[fs.Competition, TFCompetitionTransformer]
-live_comp: TypeAlias = Transform[fs.Competition, LiveCompTransformer]
-fixture_: TypeAlias = Transform[fs.Fixture, FixtureTransformer]
-team_: TypeAlias = Transform[fs.Team, TeamTransformer]
+comp_: TypeAlias = Transform[BaseCompetition, TFCompetitionTransformer]
+live_comp: TypeAlias = Transform[BaseCompetition, LiveCompTransformer]
+fixture_: TypeAlias = Transform[BaseFixture, FixtureTransformer]
+team_: TypeAlias = Transform[BaseTeam, TeamTransformer]

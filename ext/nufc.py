@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import logging
 import random
 
 from typing import TYPE_CHECKING, TypeAlias
@@ -9,7 +10,7 @@ import typing
 
 import discord
 from discord.ui import Button, View
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from ext.logs import stringify_seconds
 from ext.utils.view_utils import BaseView
@@ -18,6 +19,8 @@ if TYPE_CHECKING:
     from core import Bot
 
     Interaction: TypeAlias = discord.Interaction[Bot]
+
+logger = logging.getLogger("nufc")
 
 CLR_PICKER = "http://htmlcolorcodes.com/color-picker/"
 M_EMOJI = "<:mbemba:332196308825931777>"
@@ -209,14 +212,30 @@ class NUFC(commands.Cog):
 
     def __init__(self, bot: Bot) -> None:
         self.bot: Bot = bot
+        self.vanity_snipe.start()
+
+    @tasks.loop(minutes=10)
+    async def vanity_snipe(self) -> None:
+        nufc_guild = self.bot.get_guild(332159889587699712)
+        if nufc_guild is None:
+            return
+
+        try:
+            await nufc_guild.edit(vanity_code="nufc")
+        except discord.HTTPException:
+            return
+
+        channel = self.bot.get_channel(332167195339522048)
+        if isinstance(channel, discord.TextChannel):
+            await channel.send("@everyone http://discord.gg/nufc Sniped.")
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)
     async def mbemba(self, interaction: Interaction) -> None:
         """Mbemba When…"""
-        view = MbembaView(interaction)
-        embed = view.generate()
-        await interaction.response.send_message(view=view, embed=embed)
+        mbm_view = MbembaView(interaction)
+        embed = mbm_view.generate()
+        await interaction.response.send_message(view=mbm_view, embed=embed)
 
     @discord.app_commands.command()
     @discord.app_commands.guilds(332159889587699712)

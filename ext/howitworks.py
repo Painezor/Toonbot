@@ -72,9 +72,7 @@ class HowItWorks(view_utils.BaseView):
         super().__init__(invoker, timeout=None)
 
     @discord.ui.select(placeholder="Change Video", options=opts)
-    async def dropdown(
-        self, interaction: Interaction, sel: discord.ui.Select[HowItWorks]
-    ):
+    async def dropdown(self, interaction: Interaction, sel: discord.ui.Select):
         """When the dropdown is clicked edit with new content"""
         value = sel.values[0]
         return await interaction.response.edit_message(content=value)

@@ -33,6 +33,7 @@ class Info(commands.Cog):
         self, interaction: Interaction, user: User | None
     ) -> None:
         """Shows a member's avatar"""
+        await interaction.response.defer(thinking=True)
         embed = discord.Embed(timestamp=discord.utils.utcnow())
 
         if user is None:
@@ -42,7 +43,7 @@ class Info(commands.Cog):
         embed.colour = user.colour
         embed.set_footer(text=user.display_avatar.url)
         embed.set_image(url=user.display_avatar.url)
-        return await interaction.response.send_message(embed=embed)
+        await interaction.edit_original_response(embed=embed)
 
     info = discord.app_commands.Group(
         name="info", description="Get information about things on your server"
@@ -642,9 +643,9 @@ class Info(commands.Cog):
         shared.description = f"User found on {len(matches)} servers."
 
         embeds += embed_utils.rows_to_embeds(shared, matches, 20)
-        view = view_utils.EmbedPaginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
-        view.message = await interaction.original_response()
+        uinf = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=uinf, embed=embeds[0])
+        uinf.message = await interaction.original_response()
         return
 
 

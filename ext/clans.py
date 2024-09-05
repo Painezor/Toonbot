@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, TypeAlias, Any
 import discord
 from discord import SelectOption, Embed, Colour
 from discord.ext import commands
+from discord.ui import Select
 from discord.utils import escape_markdown
 
 from ext import wows_api as api
@@ -75,9 +76,7 @@ class Leaderboard(view_utils.DropdownPaginator):
         self.clans: list[api.ClanLeaderboardStats] = clans
 
     @discord.ui.select(row=1, options=[], placeholder="View Clan")
-    async def remove(
-        self, itr: Interaction, sel: discord.ui.Select[Leaderboard]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Push the latest version of the view to the user"""
         clan = next(i for i in self.clans if str(i.id) in sel.values)
         region = next(i for i in api.Region if i.realm == clan.realm)
@@ -356,7 +355,7 @@ class WinnerView(view_utils.DropdownPaginator):
 
         # Override Data since we're kinda spoofing it.
         self.dropdowns = options
-        self.remove.options = self.dropdowns[0]
+        self.dropdown.options = self.dropdowns[0]
         self.pages = embeds
         self.update_buttons()
 
@@ -365,9 +364,7 @@ class WinnerView(view_utils.DropdownPaginator):
             self.clans += i
 
     @discord.ui.select(placeholder="View Clan")
-    async def remove(
-        self, itr: Interaction, select: discord.ui.Select[WinnerView]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, select: Select) -> None:
         """Go to clan mentioned"""
         winner = next(i for i in self.clans if str(i.clan_id) in select.values)
         region = next(i for i in api.Region if winner.realm == i.realm)
@@ -439,10 +436,10 @@ class Clans(commands.Cog):
         clans = await api.get_cb_leaderboard(region=region, season=season)
         seasons = interaction.client.clan_battle_seasons
         ssn = next((i for i in seasons if season == i.season_id), None)
-        view = Leaderboard(interaction.user, clans, ssn, region)
-        embed = view.embeds[0]
-        await interaction.response.send_message(view=view, embed=embed)
-        view.message = await interaction.original_response()
+        cln_view = Leaderboard(interaction.user, clans, ssn, region)
+        embed = cln_view.embeds[0]
+        await interaction.response.send_message(view=cln_view, embed=embed)
+        cln_view.message = await interaction.original_response()
 
 
 async def setup(bot: PBot):

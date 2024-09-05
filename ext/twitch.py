@@ -6,13 +6,12 @@ import typing
 import json
 
 import discord
+from discord import TextChannel
 import twitchio  # type: ignore
 from discord.ext import commands
-from iso639 import Lang  # type: ignore
 
 from ext.logs import stringify_seconds
 from ext.utils import embed_utils, flags, timed_events, view_utils
-from ext import wows_api as api
 
 if typing.TYPE_CHECKING:
     from painezbot import PBot
@@ -25,61 +24,14 @@ with open("credentials.json", mode="r", encoding="utf-8") as fun:
     client = twitchio.Client.from_client_credentials(**creds["Twitch API"])
 
 
-CCS = "https://wows-static-content.gcdn.co/cms-data/contributors_wg.json"
-CC_BADGE = "https://i.postimg.cc/Y0r43P0m/CC-Logo-Small.png"
 PARTNER_ICON = """https://static-cdn.jtvnw.net/badges/v1/d12a2e27-16f6-41d0-ab7
 7-b780518f00a3/1"""
-PROGRAM_INFO = "https://worldofwarships.eu/en/content/contributors-program/"
-REGIONS = typing.Literal["eu", "na", "cis", "sea"]
 TWITCH_LOGO = """https://seeklogo.com/images/T/twitch-tv-logo-51C922E0F0-seeklo
 go.com.png"""
 TWITCH_DIRECTORY = "https://www.twitch.tv/directory/game/World%20of%20Warships"
 WOWS_GAME_ID = 32502
 
 logger = logging.getLogger("twitch")
-
-
-# TODO: Autocompletes to transformers
-class Contributor:
-    """An Object representing a World of Warships CC"""
-
-    def __init__(
-        self,
-        name: str,
-        links: list[str],
-        language: list[str],
-        region: api.Region,
-    ):
-        self.name: str = name
-        self.links: list[str] = links
-        self.languages: list[str] = language
-        self.region: api.Region = region
-
-    @property
-    def language_names(self) -> list[str]:
-        """Get the name of each language"""
-        return [Lang(lang).name for lang in self.languages]
-
-    @property
-    def markdown(self) -> str:
-        """Return bulletpoint list of socials"""
-        return "\n".join(f"• {i}" for i in self.links)
-
-    @property
-    def flag(self) -> list[str]:
-        """Return a flag emoji for each of a CC's languages"""
-        return flags.get_flags(self.languages)
-
-    @property
-    def row(self) -> str:
-        """Return a short row representing all of a CC's social media info"""
-        emote = self.region.emote
-        return f"{emote} {self.name} ({self.flag})\n{self.markdown}"
-
-    @property
-    def auto_complete(self) -> str:
-        """String to search for to identify this CC"""
-        return f"{self.name} {self.markdown}".casefold()
 
 
 class Stream:
@@ -130,149 +82,24 @@ class Stream:
         )
 
 
-class TrackerChannel:
-    """A Twitch Tracker Channel"""
-
-    bot: typing.ClassVar[PBot]
-
-    def __init__(self, channel: discord.TextChannel) -> None:
-        self.tracked: list[discord.Role] = []
-        self.channel: discord.TextChannel = channel
-
-    @property
-    def id(self) -> int:  # pylint: disable=C0103
-        """Return ID from parent channel"""
-        return self.channel.id
-
-    @property
-    def mention(self) -> str:  # pylint: disable=C0103
-        """Return ID from parent channel"""
-        return self.channel.mention
-
-    async def create_tracker(self) -> TrackerChannel:
-        """Create a ticker for the channel"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
-                         ON CONFLICT DO NOTHING"""
-                await connection.execute(sql, self.channel.guild.id)
-
-                sql = """INSERT INTO tracker_channels (guild_id, channel_id)
-                         VALUES ($1, $2) ON CONFLICT DO NOTHING"""
-                await connection.execute(
-                    sql, self.channel.guild.id, self.channel.id
-                )
-        return self
-
-    async def get_tracks(self) -> list[discord.Role]:
-        """Set the list of tracked roles for the TrackerChannel"""
-
-        sql = """SELECT role_id FROM tracker_ids WHERE channel_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                records = await connection.fetch(sql, self.channel.id)
-
-        tracked: list[discord.Role] = []
-        for i in records:
-            role = self.channel.guild.get_role(i["role_id"])
-            if role is not None:
-                tracked.append(role)
-        self.tracked = tracked
-        return tracked
-
-    async def track(self, role: discord.Role) -> list[discord.Role]:
-        """Add a user to the list of tracked users for Go Live notifications"""
-        sql = """INSERT INTO tracker_ids (channel_id, role_id)
-                 VALUES ($1, $2)"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.execute(sql, self.channel.id, role.id)
-
-        self.tracked.append(role)
-        return self.tracked
-
-    async def untrack(self, roles: list[str]) -> list[discord.Role]:
-        """Remove a list of users or roles from the list of tracked roles."""
-        sql = """DELETE FROM tracker_ids
-                 WHERE (channel_id, role_id) = ($1, $2)"""
-
-        role_ids: list[int] = [int(r) for r in roles]
-        rows = [(self.channel.id, r) for r in role_ids]
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.executemany(sql, rows)
-
-        self.tracked = [t for t in self.tracked if t.id not in role_ids]
-        return self.tracked
-
-
-async def cc_ac(
-    interaction: Interaction, current: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Autocomplete from the list of stored CCs"""
-    ccs = contributors
-
-    # Region Filtering
-    if region := interaction.namespace.region:
-        ccs = [i for i in ccs if i.region.name.lower() == region]
-
-    ccs.sort(key=lambda x: x.name)
-    cur = current.casefold()
-
-    choices: list[discord.app_commands.Choice[str]] = []
-    for i in ccs:
-        if cur not in i.auto_complete:
-            continue
-
-        name = f"{i.name} ({i.region.name})"[:100]
-        value = i.name
-        choice = discord.app_commands.Choice(name=name, value=value)
-
-        choices.append(choice)
-        if len(choices) == 25:
-            break
-
-    return choices
-
-
-contributors: list[Contributor] = []
-
-
-async def language_ac(
-    interaction: Interaction, current: str
-) -> list[discord.app_commands.Choice[str]]:
-    """Filter by Language"""
-
-    ccs = contributors
-    langs = set(a for b in [y.language_names for y in ccs] for a in b)
-
-    cur = current.casefold()
-
-    choices: list[discord.app_commands.Choice[str]] = []
-    for i in langs:
-        if cur not in i.casefold():
-            continue
-
-        choices.append(discord.app_commands.Choice(name=i, value=i))
-
-        if len(choices) == 25:
-            break
-
-    return choices
-
-
 # TODO: Select as decorator, Make Paginator
 class TrackerConfig(view_utils.DropdownPaginator):
     """Config View for a Twitch Tracker channel"""
 
-    def __init__(self, invoker: User, chan: TrackerChannel):
-        self.channel: TrackerChannel = chan
+    def __init__(
+        self,
+        invoker: User,
+        channel: TextChannel,
+        tracked_roles: list[discord.Role],
+    ):
+        self.channel: TextChannel = channel
+        self.tracked: list[discord.Role] = tracked_roles
 
         embed = discord.Embed(colour=0x9146FF, title="Twitch Go Live Tracker")
         embed.set_thumbnail(url=TWITCH_LOGO)
 
         missing: list[str] = []
-        perms = chan.channel.permissions_for(chan.channel.guild.me)
+        perms = channel.permissions_for(channel.guild.me)
         if not perms.send_messages:
             missing.append("send_messages")
         if not perms.embed_links:
@@ -287,7 +114,7 @@ class TrackerConfig(view_utils.DropdownPaginator):
 
         options: list[discord.SelectOption] = []
         rows: list[str] = []
-        for i in sorted(self.channel.tracked, key=lambda role: role.name):
+        for i in sorted(self.tracked, key=lambda role: role.name):
             opt = discord.SelectOption(label=i.name, value=str(i.id))
             opt.emoji = i.unicode_emoji
             opt.description = str(i.id)
@@ -297,20 +124,13 @@ class TrackerConfig(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options, multi=True)
 
     @discord.ui.select(placeholder="Remove tracked roles", row=1)
-    async def remove(
-        self, itr: Interaction, sel: discord.ui.Select[TrackerConfig]
-    ):
-        await self.remove_tracked(itr, sel.values)
-
-    async def remove_tracked(
-        self, interaction: Interaction, roles: list[str]
-    ) -> None:
+    async def dropdown(self, interaction: Interaction, sel: discord.ui.Select):
         """Bulk remove tracked items from a Twitch Tracker channel"""
         # Ask user to confirm their choice.
         view = view_utils.Confirmation(interaction.user, "Remove", "Cancel")
         view.true.style = discord.ButtonStyle.red
 
-        mentions = "\n•".join(f"<@&{i}>" for i in roles)
+        mentions = "\n•".join(f"<@&{i}>" for i in sel.values)
 
         mention = self.channel.mention
         embed = discord.Embed()
@@ -321,7 +141,13 @@ class TrackerConfig(view_utils.DropdownPaginator):
         await view.wait()
 
         if view.value:
-            await self.channel.untrack(roles)
+            sql = """DELETE FROM tracker_ids
+                     WHERE (channel_id, role_id) = ($1, $2)"""
+
+            role_ids: list[int] = [int(r) for r in sel.values]
+            rows = [(self.channel.id, r) for r in role_ids]
+            await interaction.client.db.executemany(sql, rows)
+            self.tracked = [t for t in self.tracked if t.id not in role_ids]
             embed = discord.Embed(title="Tracked roles removed")
             embed.description = f"{mention}\n{mentions}"
             embed_utils.user_to_footer(embed, interaction.user)
@@ -329,89 +155,54 @@ class TrackerConfig(view_utils.DropdownPaginator):
 
         return await edit(view=self)
 
+    async def track(
+        self, interaction: Interaction, role: discord.Role
+    ) -> list[discord.Role]:
+        """Add a user to the list of tracked users for Go Live notifications"""
+        sql = """INSERT INTO tracker_ids (channel_id, role_id)
+                 VALUES ($1, $2)"""
+        await interaction.client.db.execute(sql, self.channel.id, role.id)
+
+        self.tracked.append(role)
+        return self.tracked
+
 
 class TwitchTracker(commands.Cog):
     """Track when users go live to twitch."""
 
     def __init__(self, bot: PBot) -> None:
         self.bot: PBot = bot
-        TrackerChannel.bot = bot
-        self.tracker_channels: list[TrackerChannel] = []
 
     async def cog_load(self) -> None:
         """On cog load, generate list of Tracker Channels"""
-        await self.fetch_ccs()
-        await self.update_cache()
         self.twitch = client
         await client.connect()
 
-    async def update_cache(self) -> list[TrackerChannel]:
-        """Load the databases' tracker channels into the bot"""
+    async def get_config(
+        self, interaction: Interaction, channel: TextChannel | None
+    ) -> TrackerConfig | None:
+        if channel is None:
+            if isinstance(interaction.channel, discord.TextChannel):
+                channel = interaction.channel
+            else:
+                return
 
-        sql = """SELECT DISTINCT channel_id FROM tracker_channels"""
-        records = await self.bot.db.fetch(sql, timeout=10)
-        channel_ids = [r["channel_id"] for r in records]
+        sql = """SELECT * FROM tracker_ids WHERE channel_id = $1"""
+        records = await self.bot.db.fetch(sql, channel.id)
 
-        trackers: list[TrackerChannel] = []
-        for c_id in channel_ids:
-            channel = self.bot.get_channel(c_id)
-
-            if channel is None:
-                continue
-
-            channel = typing.cast(discord.TextChannel, channel)
-
-            chan = TrackerChannel(channel)
-            await chan.get_tracks()
-            trackers.append(chan)
-        self.tracker_channels = trackers
-        return self.tracker_channels
-
-    async def create(
-        self, interaction: Interaction, channel: discord.TextChannel
-    ) -> TrackerChannel | None:
-        """Send a dialogue to create a new tracker."""
-        view = view_utils.Confirmation(interaction.user, "Create", "Cancel")
-        view.true.style = discord.ButtonStyle.green
-
-        chan = channel.mention
-        notfound = f"{chan} does not have a twitch tracker, create one now?"
-        await interaction.response.send_message(content=notfound, view=view)
-        await view.wait()
-
-        if not view.value:
-            embed = discord.Embed(colour=discord.Colour.red())
-            embed.description = f"❌ Cancelled tracker creation for {chan}"
-            await interaction.response.edit_message(embed=embed, view=None)
-            return None
-
-        tkr = TrackerChannel(channel)
-
-        await tkr.create_tracker()
-        self.tracker_channels.append(tkr)
-        await interaction.followup.send(f"Twitch Tracker created in {chan}")
-        return tkr
-
-    async def fetch_ccs(self) -> list[Contributor]:
-        """Fetch details about all World of Warships CCs"""
-        async with self.bot.session.get(CCS) as resp:
-            if resp.status != 200:
-                raise ConnectionError(f"Failed to connect to {CCS}")
-            ccs = await resp.json()
-
-        contributors.clear()
-
-        for i in ccs:
-            realm = {
-                "ASIA": api.Region.SEA,
-                "NA": api.Region.NA,
-                "EU": api.Region.EU,
-            }[i["realm"]]
-
-            i = Contributor(i["name"], i["links"], i["lang"].split(","), realm)
-
-            contributors.append(i)
-        return contributors
+        if records:
+            roles = [channel.guild.get_role(r["role_id"]) for r in records]
+            _roles = [i for i in roles if i]
+        else:
+            gid = channel.guild.id
+            sql = """INSERT INTO guild_settings (guild_id) VALUES ($1)
+                     ON CONFLICT DO NOTHING"""
+            await interaction.client.db.execute(sql, gid)
+            sql = """INSERT INTO tracker_channels (guild_id, channel_id)
+                     VALUES ($1, $2) ON CONFLICT DO NOTHING"""
+            await interaction.client.db.execute(sql, gid, channel.id)
+            _roles = []
+        return TrackerConfig(interaction.user, channel, _roles)
 
     async def make_twitch_embed(self, member: discord.Member) -> discord.Embed:
         """Generate the embed for the twitch user"""
@@ -495,35 +286,40 @@ class TwitchTracker(commands.Cog):
     ) -> None:
         """When the user updates presence, we check if they started streaming
         We then check if they are in the channel's list of tracked users."""
-        if not self.tracker_channels:
-            await self.update_cache()
-
         if before.activity == after.activity:
             return
 
         if not isinstance(after.activity, discord.Streaming):
             return
 
-        chns = self.tracker_channels
-        tcs = [i for i in chns if i.channel.guild.id == after.guild.id]
+        sql = """SELECT * FROM tracker_channels LEFT OUTER JOIN tracker_ids
+                 ON tracker_channels.channel_id = tracker_ids.channel_id
+                 WHERE guild_id = $1"""
+        records = await self.bot.db.fetch(sql, after.guild.id)
 
-        valid_channels: list[TrackerChannel] = []
-        valid_role_ids = [r.id for r in after.roles]
-        for i in tcs:
-            for role in i.tracked:
-                if role.id in valid_role_ids:
-                    valid_channels.append(i)
-                    break
+        bad: list[int] = []
 
-        if not valid_channels:
-            return
-
-        embed = await self.make_twitch_embed(after)
-        for i in valid_channels:
-            try:
-                await i.channel.send(embed=embed)
-            except discord.HTTPException:
+        role_ids = [i.id for i in after.roles]
+        for r in records:
+            channel = self.bot.get_channel(r["channel_id"])
+            if not isinstance(channel, discord.TextChannel):
                 continue
+
+            if channel.is_news():
+                bad.append(r["channel_id"])
+                continue
+
+            if r["role_id"] not in role_ids:
+                continue
+
+            embed = await self.make_twitch_embed(after)
+            try:
+                await channel.send(embed=embed)
+            except discord.HTTPException:
+                bad.append(channel.id)
+
+        if bad:
+            logger.info("Twitch Tracker found %s bad channels", len(bad))
 
     # TODO: Create a view, with CC & Language Filtering.
     @discord.app_commands.command()
@@ -550,7 +346,17 @@ class TwitchTracker(commands.Cog):
             streams.append(stm)
 
         if contributor is not None:
-            cc_twitch = "".join(i.markdown for i in contributors)
+            from .wows_ccs import CommunityContributors
+
+            cog = interaction.client.get_cog(
+                CommunityContributors.__qualname__
+            )
+            if not isinstance(cog, CommunityContributors):
+                ccs = []
+            else:
+                ccs = cog.contributors
+
+            cc_twitch = "".join(i.markdown for i in ccs)
             for i in streams:
                 if f"http://www.twitch.tv/{i.user}" in cc_twitch:
                     i.contributor = True
@@ -561,84 +367,13 @@ class TwitchTracker(commands.Cog):
         embed.set_thumbnail(url=TWITCH_LOGO)
         embed.url = TWITCH_DIRECTORY
 
-        ordered = sorted(streams, key=lambda x: x.viewers, reverse=True)
-        rows = [i.row for i in ordered]
+        streams.sort(key=lambda x: x.viewers, reverse=True)
+        rows = [i.row for i in streams]
 
         embeds = embed_utils.rows_to_embeds(embed, rows)
-        view = view_utils.EmbedPaginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
-        view.message = await interaction.original_response()
-
-    async def make_cc_embed(self, cont: Contributor) -> discord.Embed:
-        """Create an embed about the CC"""
-        embed = discord.Embed(title=f"{cont.name} ({cont.region.name})")
-        embed.description = cont.markdown
-        embed.colour = cont.region.colour
-        embed.set_author(name="World of Warships Community Contributor")
-        embed.set_thumbnail(url=CC_BADGE)
-
-        try:
-            twitch = next(i for i in cont.links if "twitch" in i)
-            twitch_id = twitch.split("/")[-1]
-            user = await self.twitch.fetch_users(names=[twitch_id])
-            user = user[0]
-            embed.set_image(url=user.profile_image)
-
-            # TODO: Fetch Twitch Info into Embed
-            # TODO: Official channel Schedule
-            # https://dev.twitch.tv/docs/api/reference#get-channel-stream-schedule
-            # https://dev.twitch.tv/docs/api/reference#get-channel-emotes
-            print(dir(user))
-        except StopIteration:
-            pass
-
-        # TODO: Pull other website data where possible.
-        return embed
-
-    @discord.app_commands.command()
-    @discord.app_commands.describe(
-        search="search by name (e.g.: painezor, yuzorah), "
-        "or website name (ex: twitch, dailybounce)",
-        region="Filter by region",
-        language="Filter by language",
-    )
-    @discord.app_commands.autocomplete(search=cc_ac, language=language_ac)
-    async def contributor(
-        self,
-        interaction: Interaction,
-        search: str | None = None,
-        region: REGIONS | None = None,
-        language: str | None = None,
-    ) -> None:
-        """Fetch The List of all CCs"""
-        ccs = contributors
-
-        if search is not None:
-            ccs = [i for i in ccs if search == i.name]
-            if len(ccs) == 1:  # Send an individual Profile
-                embed = await self.make_cc_embed(ccs[0])
-                return await interaction.response.send_message(embed=embed)
-
-        if search is not None:
-            ccs = [i for i in ccs if search in i.auto_complete]
-
-        if region is not None:
-            ccs = [i for i in ccs if i.region.value == region]
-
-        if language is not None:
-            ccs = [i for i in ccs if language in i.language_names]
-
-        embed = discord.Embed(title="World of Warships Community Contributors")
-        embed.url = PROGRAM_INFO
-        embed.set_thumbnail(
-            url="https://i.postimg.cc/Y0r43P0m/CC-Logo-Small.png"
-        )
-        embed.colour = discord.Colour.dark_blue()
-
-        embeds = embed_utils.rows_to_embeds(embed, [i.row for i in ccs])
-        view = view_utils.EmbedPaginator(interaction.user, embeds)
-        await interaction.response.send_message(view=view, embed=embeds[0])
-        view.message = await interaction.original_response()
+        strms = view_utils.EmbedPaginator(interaction.user, embeds)
+        await interaction.response.send_message(view=strms, embed=embeds[0])
+        strms.message = await interaction.original_response()
 
     track = discord.app_commands.Group(
         name="twitch_tracker",
@@ -659,33 +394,19 @@ class TwitchTracker(commands.Cog):
         channel: discord.TextChannel | None = None,
     ) -> None:
         """Add a role of this discord to the twitch tracker."""
-
-        if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
+        cfg = await self.get_config(interaction, channel)
+        if cfg is None:
+            return
 
         embed = discord.Embed(colour=discord.Colour.dark_blue())
         rol = role.mention
-        embed.description = f"Added {rol} to {channel.mention} Twitch Tracker"
+        embed.description = f"Added {rol} to {cfg.channel.mention} Tracker"
         embed_utils.user_to_footer(embed, interaction.user)
 
-        try:
-            tkr = self.tracker_channels
-            chan = next(i for i in tkr if i.channel.id == channel.id)
-            send = interaction.response.edit_message
-        except StopIteration:
-            chan = await self.create(interaction, channel)
-
-            if chan is None:
-                return
-
-            send = interaction.edit_original_response
-
-        await chan.track(role)
+        await cfg.track(interaction, role)
+        await interaction.response.send_message(view=cfg, embed=cfg.embeds[0])
         await interaction.followup.send(embed=embed)
-
-        view = TrackerConfig(interaction.user, chan)
-        await send(view=view, embed=view.embeds[0])
-        view.message = await interaction.original_response()
+        cfg.message = await interaction.original_response()
 
     @track.command()
     @discord.app_commands.describe(channel="Manage which channel's Trackers?")
@@ -695,39 +416,18 @@ class TwitchTracker(commands.Cog):
         channel: discord.TextChannel | None = None,
     ) -> None:
         """View or remove tracked twitch go live roles"""
-        if channel is None:
-            channel = typing.cast(discord.TextChannel, interaction.channel)
-
-        try:
-            tkr = self.tracker_channels
-            chan = next(i for i in tkr if i.channel.id == channel.id)
-            send = interaction.response.edit_message
-        except StopIteration:
-            chan = await self.create(interaction, channel)
-
-            if chan is None:
-                return
-
-            send = interaction.edit_original_response
-
-        view = TrackerConfig(interaction.user, chan)
-        await send(view=view, embed=view.embeds[0])
+        cfg = await self.get_config(interaction, channel)
+        if cfg is None:
+            return
+        await interaction.response.send_message(view=cfg, embed=cfg.embeds[0])
+        cfg.message = await interaction.original_response()
 
     # Database Cleanup
     @commands.Cog.listener()
-    async def on_guild_channel_delete(
-        self, channel: discord.abc.GuildChannel
-    ) -> list[TrackerChannel]:
+    async def on_guild_channel_delete(self, channel: TextChannel) -> None:
         """Remove dev blog trackers from deleted channels"""
         sql = """DELETE FROM tracker_channels WHERE channel_id = $1"""
-        async with self.bot.db.acquire(timeout=60) as connection:
-            async with connection.transaction():
-                await connection.execute(sql, channel.id)
-
-        # Lists are Mutable.
-        trk = self.tracker_channels
-        trk = [i for i in trk if i.channel.id != channel.id]
-        return trk
+        await self.bot.db.execute(sql, channel.id)
 
 
 async def setup(bot: PBot) -> None:

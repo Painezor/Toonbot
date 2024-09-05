@@ -110,7 +110,7 @@ class FacialRecognitionAPIResponse(BaseModel):
 class ImageCache:
     """Cached Images for an ImageView"""
 
-    coordinates: list[FacialRecognitionAPIResponse]
+    coordinates: list[FacialRecognitionAPIResponse] = []
     image: bytes | None = None
     bob: io.BytesIO | None = None
     eyes: io.BytesIO | None = None
@@ -165,7 +165,10 @@ class ImageView(view_utils.BaseView):
         ) as resp:
             if resp.status != 200:
                 logger.error("%s", await resp.json(), exc_info=True)
-            self.cache.coordinates = await resp.json()
+            coords = await resp.json()
+
+            logger.info("get_faces resp -> %s", coords)
+            coords = [FacialRecognitionAPIResponse(**i) for i in coords]
 
         # Get target image as file
         async with interaction.client.session.get(self.target_url) as resp:

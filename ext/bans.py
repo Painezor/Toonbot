@@ -42,9 +42,7 @@ class BanView(view_utils.DropdownPaginator):
         super().__init__(invoker, embed, rows, options, multi=True)
 
     @discord.ui.select(placeholder="Unban members")
-    async def remove(
-        self, itr: Interaction, sel: discord.ui.Select[BanView]
-    ) -> None:
+    async def dropdown(self, itr: Interaction, sel: discord.ui.Select) -> None:
         """Perform unbans on the entries passed back from the SelectOption"""
 
         embed = discord.Embed(colour=discord.Colour.green())
@@ -165,10 +163,10 @@ class BanCog(commands.Cog):
                 await interaction.response.send_message(embed=embed)
                 return
 
-        view = BanView(interaction.user, bans)
-        embed = view.embeds[0]
-        await interaction.response.send_message(view=view, embed=embed)
-        view.message = await interaction.original_response()
+        ban_view = BanView(interaction.user, bans)
+        embed = ban_view.embeds[0]
+        await interaction.response.send_message(view=ban_view, embed=embed)
+        ban_view.message = await interaction.original_response()
 
 
 async def setup(bot: Bot | PBot) -> None:

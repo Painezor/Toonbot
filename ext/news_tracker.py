@@ -472,10 +472,10 @@ class NewsTracker(commands.Cog):
             target = NewsChannel(self.bot, record, channel)
             self.bot.news_channels.append(target)
 
-        view = NewsConfig(interaction.user, target)
-        embed = view.base_embed
-        await interaction.response.send_message(view=view, embed=embed)
-        view.message = await interaction.original_response()
+        newscfg = NewsConfig(interaction.user, target)
+        embed = newscfg.base_embed
+        await interaction.response.send_message(view=newscfg, embed=embed)
+        newscfg.message = await interaction.original_response()
 
     # Event Listeners for database cleanup.
     @commands.Cog.listener()

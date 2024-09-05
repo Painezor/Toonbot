@@ -16,14 +16,18 @@ MIN_MARKET_VALUE = 200000
 
 logger = logging.getLogger("transfermarkt")
 
+USER_AGENT = """Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X)
+AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"""
+hdr = {"User-Agent": USER_AGENT}
 
-async def get_recent_transfers(mmv: int = MIN_MARKET_VALUE) -> list[Transfer]:
+
+async def recent_transfers(mmv: int = MIN_MARKET_VALUE) -> list[Transfer]:
     """Get the most recent transfers"""
     url = LOOP_URL + format(mmv, ",").replace(",", ".")
     async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
+        async with session.get(url, headers=hdr) as resp:
             if resp.status != 200:
-                logger.error("%s: %s", resp.status, resp.url)
+                logger.error("recent_transfers %s: %s", resp.status, resp.url)
                 return []
             tree = html.fromstring(await resp.text())
 
@@ -64,10 +68,9 @@ class TFCompetition(SearchResult):
         url = self.link.replace("startseite", "besucherzahlen")
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(url, headers=hdr) as resp:
                 if resp.status != 200:
-                    rsn = await resp.text()
-                    logger.error("%s %s: %s", resp.status, rsn, resp.url)
+                    logger.error("attendance %s: %s", resp.status, resp.url)
                 tree = html.fromstring(await resp.text())
 
         xp = './/table[@class="items"]/tbody/tr[@class="odd" or @class="even"]'
@@ -90,9 +93,9 @@ class TFTeam(SearchResult):
         """Helper method for fetching contracts"""
         url = self.link.replace("startseite", "vertragsende")
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(url, headers=hdr) as resp:
                 if resp.status != 200:
-                    logger.error("%s: %s", resp.status, resp.url)
+                    logger.error("get_contracts %s: %s", resp.status, resp.url)
                 tree = html.fromstring(await resp.text())
 
         rows: list[Contract] = []
@@ -132,9 +135,9 @@ class TFTeam(SearchResult):
 
     async def get_league(self) -> TFCompetition:
         async with aiohttp.ClientSession() as session:
-            async with session.get(self.link) as resp:
+            async with session.get(self.link, headers=hdr) as resp:
                 if resp.status != 200:
-                    logger.error("%s: %s", resp.status, resp.url)
+                    logger.error("get_leaguye %s: %s", resp.status, resp.url)
                 tree = html.fromstring(await resp.text())
 
         name = tree.xpath('.//span[@class="data-header__club"]/a/text()')
@@ -148,9 +151,9 @@ class TFTeam(SearchResult):
         """Helper method for fetching rumours"""
         url = self.link.replace("startseite", "geruechte")
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(url, headers=hdr) as resp:
                 if resp.status != 200:
-                    logger.error("%s: %s", resp.status, resp.url)
+                    logger.error("get_rumours %s: %s", resp.status, resp.url)
                 tree = html.fromstring(await resp.text())
 
         rows: list[Rumour] = []
@@ -195,9 +198,9 @@ class TFTeam(SearchResult):
         url = self.link.replace("startseite", "transfers")
 
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(url, headers=hdr) as resp:
                 if resp.status != 200:
-                    logger.error("Status %s: %s", resp.status, url)
+                    logger.error("get_transfers %s: %s", resp.status, url)
                 tree = html.fromstring(await resp.text())
 
         xpath = (
@@ -220,9 +223,9 @@ class TFTeam(SearchResult):
 
         url = self.link.replace("startseite", "erfolge")
         async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
+            async with session.get(url, headers=hdr) as resp:
                 if resp.status != 200:
-                    logger.error("%s: %s", resp.status, resp.url)
+                    logger.error("get_trophies %s: %s", resp.status, resp.url)
                 tree = html.fromstring(await resp.text())
 
         trophies: list[Trophy] = []
@@ -453,9 +456,9 @@ class TransfermarktSearch(Generic[ResultT]):
         params = {"query": self.query, self.query_string: page}
 
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, params=params) as resp:
+            async with session.post(url, params=params, headers=hdr) as resp:
                 if resp.status != 200:
-                    logger.error("%s: %s", resp.status, resp.url)
+                    logger.error("Search get %s: %s", resp.status, resp.url)
                 self.current_url = str(resp.url)
                 tree = html.fromstring(await resp.text())
 
@@ -471,7 +474,8 @@ class TransfermarktSearch(Generic[ResultT]):
         try:
             count = int("".join([i for i in header if i.isdecimal()]))
         except ValueError:
-            logger.error("ValueError when parsing header, %s", header)
+            logger.error("ValueError when parsing header '%s'", header)
+            logger.error(self.current_url)
             count = 0
         self.expected_results = count
         self.results = self.parse(tree.xpath(trs))
@@ -486,6 +490,7 @@ class AgentSearch(TransfermarktSearch[Agent]):
     match_string = "for agents"
 
     results: list[Agent]
+    value: Agent
 
     @staticmethod
     def parse(rows: list[html.HtmlElement]) -> list[Agent]:
@@ -506,6 +511,7 @@ class CompetitionSearch(TransfermarktSearch[TFCompetition]):
     query_string = "Wettbewerb_page"
     match_string = "competitions"
 
+    results: list[TFCompetition]
     value: TFCompetition
 
     @staticmethod
@@ -518,7 +524,7 @@ class CompetitionSearch(TransfermarktSearch[TFCompetition]):
 
             country = [
                 _.strip()
-                for _ in i.xpath(".//td[@class='flaggenrahmen']/img/@title")
+                for _ in i.xpath(".//img[@class='flaggenrahmen']/@title")
             ]
             comp = TFCompetition(name=name, link=link, country=country)
 
@@ -533,6 +539,7 @@ class PlayerSearch(TransfermarktSearch[TFPlayer]):
     query_string = "Spieler_page"
     match_string = "for players"
 
+    results: list[TFPlayer]
     value: TFPlayer
 
     @staticmethod
@@ -596,6 +603,7 @@ class RefereeSearch(TransfermarktSearch[Referee]):
     match_string = "for referees"
 
     value: Referee
+    results: list[Referee]
 
     @staticmethod
     def parse(rows: list[html.HtmlElement]) -> list[Referee]:
@@ -623,6 +631,9 @@ class StaffSearch(TransfermarktSearch[Staff]):
     category = "Managers"
     query_string = "Trainer_page"
     match_string = "Managers"
+
+    results: list[Staff]
+    value: Staff
 
     @staticmethod
     def parse(rows: list[html.HtmlElement]) -> list[Staff]:
@@ -670,6 +681,7 @@ class TeamSearch(TransfermarktSearch[TFTeam]):
     match_string = "results: Clubs"
 
     value: TFTeam
+    results: list[TFTeam]
 
     @staticmethod
     def parse(rows: list[html.HtmlElement]) -> list[TFTeam]:

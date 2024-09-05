@@ -75,7 +75,7 @@ class BaseCompetition(BaseModel):
 
 
 class BaseTeam(BaseModel):
-    name: str | None = None
+    name: str
     id: str | None = None  # pylint: disable=C0103
     url: str | None = None
 
@@ -105,14 +105,16 @@ class BaseTeam(BaseModel):
         if value and FLASHSCORE in value:
             return value.rstrip("/")
 
+        elif value:
+            return FLASHSCORE + value
+
         if values["id"] and values["name"]:
-            return f"{FLASHSCORE}/team/{values['name']}/{values['id']}"
+            return f"{FLASHSCORE}/team/{values['name'].lower()}/{values['id']}"
         return None
 
     @property
     def title(self) -> str:
-        comp = self.competition.name if self.competition is not None else ""
-        return f"{self.name} ({self.id}) {comp}"
+        return f"{self.name} ({self.id})"
 
 
 class Participant(BaseModel):
@@ -144,6 +146,9 @@ class BaseFixture(BaseModel):
     referee: str | None = None
     stadium: str | None = None
     tv: list[TVListing] = []
+
+    class Config:
+        fields = {"_time": "time"}
 
     @classmethod
     def from_mobi(cls, node: html.HtmlElement, id_: str) -> BaseFixture | None:
@@ -178,20 +183,16 @@ class BaseFixture(BaseModel):
                 home_name = teams[0]
                 away_name = f"{teams[1]} {teams[2]}"
             else:
-                logger.error("Fetch games found %s", teams)
+                logger.error("BAD: Fetch games found %s", teams)
                 return None
         else:
-            logger.error("Fetch games found teams %s", teams)
+            logger.error("BAD: Fetch games found teams %s", teams)
             return None
 
         home = Participant(team=BaseTeam(name=home_name))
         away = Participant(team=BaseTeam(name=away_name))
         obj = cls(home=home, away=away, id=id_, url=url)
         return obj
-
-    @validator("home", "away", always=True)
-    def partcipantify(cls, value: BaseTeam) -> Participant:
-        return Participant(team=value)
 
     @validator("url")
     def strip_slash(cls, value: str | None) -> str | None:
@@ -206,6 +207,13 @@ class BaseFixture(BaseModel):
     @property
     def name(self) -> str:
         return f"{self.home.team.name} v {self.away.team.name}"
+
+    def get_time(self) -> str | None:
+        if time := getattr(self.time, "name", None):
+            return time
+        elif isinstance(self.time, str):
+            return self.time
+        return None
 
     @property
     def title(self) -> str:

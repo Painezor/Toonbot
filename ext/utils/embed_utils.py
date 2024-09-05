@@ -77,37 +77,33 @@ def rows_to_embeds(
     embed: Embed,
     items: list[str],
     rows: int = 10,
-    footer: str | None = None,
     max_length: int = 4096,
 ) -> list[Embed]:
     """Create evenly distributed rows of text from a list of data"""
 
     desc = embed.description + "\n" if embed.description else ""
-    if footer is None:
-        footer = ""
-
     count: int = 0
     embeds: list[Embed] = []
 
     current = embed.copy()
     for row in items:
         # If we haven't hit embed size limit or max count (max_rows)
-        if len(f"{desc}{footer}{row}") <= max_length and count < rows:
+        if len(desc + row) <= max_length and count < rows:
             desc += f"{row}\n"
             count += 1
             continue
 
-        current.description = desc + footer
-        current.description.strip()
+        current.description = desc
         embeds.append(current)
-        current = embed.copy()
 
         # Reset loop
+        current = embed.copy()
+        desc = embed.description + "\n" if embed.description else ""
+        desc += f"{row}\n"
         count = 1
-
-    current.description = desc.strip() + footer
-    current.description.strip()
-    embeds.append(current)
+    else:  # At the end of the loop, do this.
+        current.description = desc
+        embeds.append(current)
     return embeds
 
 

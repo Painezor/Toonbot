@@ -8,7 +8,7 @@ from .abc import BaseTeam, BaseCompetition, BaseFixture
 logger = logging.getLogger("fsdatabase")
 
 
-class FlashscoreCache:
+class FSCache:
     """Container for all cached data"""
 
     database: Pool[Record]
@@ -21,11 +21,11 @@ class FlashscoreCache:
 
     async def cache_teams(self) -> None:
         teams = await self.database.fetch("""SELECT * from fs_teams""")
-        self.teams = parse_obj_as(list[BaseTeam], teams)
+        FSCache.teams = parse_obj_as(list[BaseTeam], teams)
 
     async def cache_competitions(self) -> None:
         comps = await self.database.fetch("""SELECT * from fs_competitions""")
-        self.competitions = parse_obj_as(list[BaseCompetition], comps)
+        FSCache.competitions = parse_obj_as(list[BaseCompetition], comps)
 
     async def save_competitions(self, comps: list[BaseCompetition]) -> None:
         """Save the competition to the bot database"""
@@ -37,7 +37,6 @@ class FlashscoreCache:
 
         rows = [(i.id, i.country, i.name, i.logo_url, i.url) for i in comps]
         await self.database.executemany(sql, rows, timeout=60)
-        logger.info("Saved %s Competitions", len(comps))
         await self.cache_competitions()
 
     async def save_teams(self, teams: list[BaseTeam]) -> None:
@@ -49,7 +48,6 @@ class FlashscoreCache:
                 """
         rows = [(i.id, i.name, i.logo_url, i.url) for i in teams if i.url]
         await self.database.executemany(sql, rows, timeout=10)
-        logger.info("Saved %s Teams", len(rows))
         await self.cache_teams()
 
     def get_competition(
@@ -60,7 +58,7 @@ class FlashscoreCache:
         title: str | None = None,
     ) -> BaseCompetition | None:
         """Retrieve a competition from the ones stored in the cache."""
-        cmp = self.competitions
+        cmp = FSCache.competitions
         if id is not None:
             try:
                 return next(i for i in cmp if i.id == id)
@@ -70,7 +68,7 @@ class FlashscoreCache:
         if url is not None:
             url = url.rstrip("/")
             try:
-                return next(i for i in self.competitions if i.url == url)
+                return next(i for i in cmp if i.url == url)
             except StopIteration:
                 pass
 
@@ -80,11 +78,11 @@ class FlashscoreCache:
         return None
 
     def get_game(self, id: str) -> BaseFixture | None:
-        return next((i for i in self.games if i.id == id), None)
+        return next((i for i in FSCache.games if i.id == id), None)
 
     def get_team(self, id: str) -> BaseTeam | None:
         """Retrieve a Team from the ones stored in the cache."""
-        return next((i for i in self.teams if i.id == id), None)
+        return next((i for i in FSCache.teams if i.id == id), None)
 
     def live_competitions(self) -> list[BaseCompetition]:
         """Get all live competitions"""

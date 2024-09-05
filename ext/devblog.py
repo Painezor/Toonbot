@@ -307,7 +307,6 @@ async def db_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
     cur = current.casefold()
     dbc = cast(BlogCog, interaction.client.get_cog(BlogCog.__cog_name__)).cache
     dbc.sort(key=lambda i: i.id, reverse=True)
-    logger.info("%s Blogs Sorted.", len(dbc))
 
     choices: list[Choice[str]] = []
     for i in dbc:
@@ -316,12 +315,17 @@ async def db_ac(interaction: Interaction, current: str) -> list[Choice[str]]:
         if cur not in autocomplete:
             continue
 
+        # If there's ever a description param on a choice ...
+        # bf, _, af = i.text.casefold().split(cur, maxsplit=1)
+
+        # lgth = 50 - (len(cur) / 2)
+        # text = f"{bf[lgth:]}{cur}{af[:lgth]}"[:100]
+
         name = f"{i.id}: {i.title}"[:100]
         choices.append(Choice(name=name, value=str(i.id)))
 
         if len(choices) == 25:
             break
-    logger.info("generateed %s blog options", len(choices))
 
     return choices
 
@@ -332,11 +336,11 @@ class BlogCog(commands.Cog):
     def __init__(self, bot: PBot):
         self.bot: PBot = bot
         self.cache: list[api.DevBlog] = []
-
-        self.task: asyncio.Task[None] = self.blog_loop.start()
+        self.task: asyncio.Task[None] | None = None
 
     async def cog_load(self) -> None:
         await self.get_blogs()
+        self.task = self.blog_loop.start()
 
     async def save_blog(self, blog: api.DevBlog) -> None:
         """Store cached inner text of a specific dev blog"""
@@ -363,7 +367,8 @@ class BlogCog(commands.Cog):
 
     async def cog_unload(self) -> None:
         """Stop previous runs of tickers upon Cog Reload"""
-        self.task.cancel()
+        if self.task is not None:
+            self.task.cancel()
 
     @tasks.loop(seconds=60)
     async def blog_loop(self) -> None:
@@ -376,12 +381,13 @@ class BlogCog(commands.Cog):
             if blog_id in cached:
                 continue
 
+            logger.info("blog #%s not in cache", blog_id)
+
             blog = api.DevBlog(blog_id)
             await self.save_blog(blog)
 
             embed = await BlogEmbed.create(blog)
 
-            return
             for r in await self.bot.db.fetch(sql, timeout=10):
                 channel = self.bot.get_channel(r["channel_id"])
                 if not isinstance(channel, discord.TextChannel):
@@ -402,7 +408,6 @@ class BlogCog(commands.Cog):
         self.cache = [
             api.DevBlog(r["id"], r["title"], r["text"]) for r in records
         ]
-        logger.info("Get_blogs made %s blogs", len(self.cache))
 
     @discord.app_commands.command()
     @discord.app_commands.default_permissions(manage_channels=True)
@@ -448,10 +453,11 @@ class BlogCog(commands.Cog):
             blog = next(i for i in self.cache if i.id == int(search))
             embed = await BlogEmbed.create(blog)
             return await interaction.response.send_message(embed=embed)
-        except StopIteration:
+        except (StopIteration, ValueError):
             # If a specific blog is not selected, send the browser view.
             txt = search.casefold()
-            yes = [i for i in self.cache if txt in i.text]
+            yes = [i for i in self.cache if txt in i.text.casefold()]
+            logger.info("devblog view has %s blogs", len(yes))
             view = DevBlogView(interaction.user, pages=yes)
             return await view.handle_page(interaction)
 

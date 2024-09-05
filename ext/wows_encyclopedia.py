@@ -28,6 +28,7 @@ class Encyclopedia(commands.Cog):
 
     async def cog_load(self) -> None:
         self.bot.modes = await api.get_game_modes()
+        self.bot.maps = await api.get_maps()
 
     @discord.app_commands.command(name="map")
     @discord.app_commands.describe(obj="Search for a map by name")
@@ -40,7 +41,7 @@ class Encyclopedia(commands.Cog):
         """Fetch a map from the world of warships API"""
         embed = discord.Embed(title=obj.name, colour=discord.Colour.greyple())
         embed.set_image(url=obj.icon)
-        embed.set_footer(text=obj.description)
+        embed.description = obj.description
         return await interaction.response.send_message(embed=embed)
 
 

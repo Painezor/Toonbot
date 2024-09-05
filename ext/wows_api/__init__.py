@@ -56,8 +56,9 @@ from .emojis import (
     SUBMARINE_SPECIAL_EMOJI,
     SHIP_EMOTES,
 )
-from .enums import Map, Nation, Region
+from .enums import Nation, Region
 from .gamemode import GameMode, get_game_modes
+from .maps import get_maps, Map
 from .modules import Module, fetch_modules
 from .player import (
     PartialPlayer,
@@ -133,8 +134,10 @@ __all__ = [
     "SUBMARINE_PREMIUM_EMOJI",
     "SUBMARINE_SPECIAL_EMOJI",
     "SHIP_EMOTES",
-    # enums
+    # maps
     "Map",
+    "get_maps",
+    # enums
     "Nation",
     "Region",
     # gamemode,

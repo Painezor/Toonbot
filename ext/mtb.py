@@ -146,7 +146,7 @@ class MatchThread:
             await self.channel.send(embed=embed)
 
         # Sleep until ready to post.
-        if isinstance(self.fixture.time, datetime.datetime):
+        if isinstance(self.fixture.kickoff, datetime.datetime):
             if (offset := self.offset) is None:
                 offset = 15
             delta = datetime.timedelta(minutes=offset)
